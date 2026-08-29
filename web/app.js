@@ -196,67 +196,200 @@
     if (!curLevel) list.children[0].click();
   }
 
-  // A stable, pleasant terrain-ish palette keyed by tile index.
-  function tileColor(v) {
-    if (v < 0) return null;
-    var pal = ['#4e8f3a', '#5aa243', '#6cb356', '#c9b170', '#d8c98a', '#3f7fb5',
-      '#5a97c9', '#8a8f96', '#a86b3c', '#7a5230', '#b7c25a', '#e0d59a'];
-    return pal[v % pal.length];
+  // Find a member (sprite/tile) by name across ALL loaded archives.
+  function findMember(name) {
+    var ln = name.toLowerCase();
+    for (var an in archives) {
+      var a = archives[an];
+      if (!a._byName) { a._byName = {}; a.members.forEach(function (mm) { a._byName[mm.name.toLowerCase()] = mm; }); }
+      if (a._byName[ln]) return { arch: an, member: a._byName[ln] };
+    }
+    return null;
+  }
+  // Decode a tile/sprite by name -> canvas (cached).
+  function spriteCanvas(name) {
+    var key = 'n:' + name.toLowerCase();
+    if (key in decodeCache) return decodeCache[key];
+    var f = findMember(name);
+    var cv = f ? decodeToCanvas(f.arch, f.member) : null;
+    decodeCache[key] = cv || null;
+    return decodeCache[key];
   }
 
-  function drawLevel(lv) {
-    var m = window.LLLevel.parse(archives[lv.arch].bytes.subarray(lv.member.offset, lv.member.offset + lv.member.size));
+  // Resolve a level's tile codes -> sprite names via its TSM/TSF chain in
+  // Legoland.res. Returns { codeToName, groundName, path:[names] }.
+  function resolveTiles(m, legoBytes) {
+    if (!window.LLTiles) return null;
+    var idx = window.LLTiles.indexRes(legoBytes);
+    function mem(name) { var k = name.toLowerCase(); return idx[k] ? legoBytes.subarray(idx[k].off, idx[k].off + idx[k].size) : null; }
+    var codeToName = {};
+    var tsmB = mem(m.tsm_mapping + '.TSM');
+    if (tsmB) {
+      window.LLTiles.parseTSM(tsmB).forEach(function (e) {
+        var tsfB = mem(e.tileset + '.TSF');
+        if (tsfB) {
+          var tsf = window.LLTiles.parseTSF(tsfB);
+          tsf.codes.forEach(function (c, i) { if (!(c in codeToName)) codeToName[c] = tsf.images[i]; });
+        }
+      });
+    }
+    // ground = tile with the lowest code (the flat base tile)
+    var codes = Object.keys(codeToName).map(Number).sort(function (a, b) { return a - b; });
+    var groundName = codes.length ? codeToName[codes[0]] : null;
+    // path tiles (indexed by position, code field is 0)
+    var pathNames = [];
+    m.path_tilesets.forEach(function (pn) {
+      var tsfB = mem(pn + '.TSF') || mem('NORMPATH.TSF');
+      if (tsfB) pathNames = window.LLTiles.parseTSF(tsfB).images;
+    });
+    return { codeToName: codeToName, groundName: groundName, path: pathNames };
+  }
+
+  // Resolve an object class -> a drawable: {kind:'lls', cv} or {kind:'csp', parts}.
+  function resolveObjectSprite(legoBytes, idx, cls) {
+    var k = (cls + '.ODF').toLowerCase();
+    if (!idx[k]) return null;
+    var odf = window.LLTiles.parseODF(legoBytes.subarray(idx[k].off, idx[k].off + idx[k].size));
+    if (!odf.sprite) return null;
+    if (/\.LLS$/i.test(odf.sprite)) {
+      var cv = spriteCanvas(odf.sprite);
+      return cv ? { kind: 'lls', cv: cv } : null;
+    }
+    if (/\.CSP$/i.test(odf.sprite)) {
+      var ck = odf.sprite.toLowerCase();
+      if (!idx[ck]) return null;
+      var csp = window.LLTiles.parseCSP(legoBytes.subarray(idx[ck].off, idx[ck].off + idx[ck].size));
+      var parts = [];
+      csp.parts.forEach(function (pt) {
+        if (!pt.image) return;
+        var pc = spriteCanvas(pt.image);
+        if (pc) parts.push({ cv: pc, dx: pt.dx, dy: pt.dy });
+      });
+      return parts.length ? { kind: 'csp', parts: parts } : null;
+    }
+    return null;
+  }
+
+  // Build the full-park offscreen render for a level (native tile size).
+  function buildLevelOffscreen(lv) {
+    var legoBytes = archives[lv.arch].bytes;
+    var m = window.LLLevel.parse(legoBytes.subarray(lv.member.offset, lv.member.offset + lv.member.size));
+    var res = resolveTiles(m, legoBytes);
+    var haveGfx = !!(res && res.groundName && findMember(res.groundName));
+
     var head = $('levelHead');
-    var classes = m.object_classes.map(function (c) { return c; }).join(' · ') || '(none)';
+    var classes = m.object_classes.join(' · ') || '(none)';
+    var note = haveGfx ? '' : ' <span style="color:var(--stud)">— load Graphics2.res for tile art</span>';
     head.innerHTML = '<span style="font-family:var(--head);font-weight:700;font-size:18px">' + m.name + '</span>' +
       ' <span class="muted">' + m.width + '×' + m.height + ' · ' + m.terrain + ' · ' +
-      m.objects.length + ' objects · ' + m.terrain_cells + ' terrain features</span>' +
+      m.objects.length + ' objects · scroll to zoom, drag to pan</span>' + note +
       '<div class="muted" style="margin-top:3px;font-size:11px">classes: ' + classes + '</div>';
 
-    var cv = $('levelCanvas');
-    var box = cv.parentElement.getBoundingClientRect();
-    var W = Math.max(400, Math.floor(box.width)), H = Math.max(300, Math.floor(box.height));
-    var dpr = window.devicePixelRatio || 1;
-    cv.width = W * dpr; cv.height = H * dpr;
-    var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
+    var w = m.width, h = m.height, TW = 32, TH = 16;
+    var isoW = (w + h) * (TW / 2) + TW;
+    var isoH = (w + h) * (TH / 2) + TH * 10;
+    var off = document.createElement('canvas');
+    off.width = Math.min(isoW, 16384); off.height = Math.min(isoH, 16384);
+    var octx = off.getContext('2d');
+    var ox = h * (TW / 2), oy = TH * 8;
+    function sx(x, y) { return ox + (x - y) * (TW / 2); }
+    function sy(x, y) { return oy + (x + y) * (TH / 2); }
 
-    var w = m.width, h = m.height;
-    // fit the iso diamond (span = (w+h) wide, (w+h) tall/2) into the canvas
-    var tw = Math.min((W - 40) / (w + h), (H - 40) / ((w + h) / 2));
-    tw = Math.max(2, tw);
-    var th = tw / 2;
-    var ox = W / 2, oy = 24;
+    var groundCv = res && res.groundName ? spriteCanvas(res.groundName) : null;
+    var codeCv = {};
+    if (res) Object.keys(res.codeToName).forEach(function (c) { codeCv[c] = spriteCanvas(res.codeToName[c]); });
 
-    function iso(x, y) { return [ox + (x - y) * tw / 2, oy + (x + y) * th / 2]; }
-
-    // draw cells back-to-front (already row-major, which is a valid iso order)
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        var i = y * w + x;
-        var tv = m.tileGfx[i];
-        var terr = m.terrainGrid[i];
-        var col = tileColor(tv >= 0 ? tv : terr);
-        if (col === null) col = (terr >= 0) ? tileColor(terr) : '#39562f'; // base grass
-        var p = iso(x, y);
-        ctx.fillStyle = col;
-        ctx.beginPath();
-        ctx.moveTo(p[0], p[1]);
-        ctx.lineTo(p[0] + tw / 2, p[1] + th / 2);
-        ctx.lineTo(p[0], p[1] + th);
-        ctx.lineTo(p[0] - tw / 2, p[1] + th / 2);
-        ctx.closePath();
-        ctx.fill();
+    if (!groundCv) {
+      octx.fillStyle = '#2f4a2a';
+      for (var yy = 0; yy < h; yy++) for (var xx = 0; xx < w; xx++) {
+        var p0x = sx(xx, yy), p0y = sy(xx, yy);
+        octx.beginPath(); octx.moveTo(p0x, p0y); octx.lineTo(p0x + TW / 2, p0y + TH / 2);
+        octx.lineTo(p0x, p0y + TH); octx.lineTo(p0x - TW / 2, p0y + TH / 2); octx.closePath(); octx.fill();
+      }
+    } else {
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          var v = m.tileGfx[y * w + x];
+          var cv = (v >= 0 && codeCv[v]) ? codeCv[v] : groundCv;
+          if (cv) octx.drawImage(cv, sx(x, y) - TW / 2, sy(x, y) + TH - cv.height);
+        }
       }
     }
-    // object markers
+
+    // object sprites (resolved once per class), back-to-front
+    var classSprite = {};
+    if (window.LLTiles) {
+      var idx = window.LLTiles.indexRes(legoBytes);
+      m.object_classes.forEach(function (cls, ci) { classSprite[ci] = resolveObjectSprite(legoBytes, idx, cls); });
+    }
     var objPal = ['#ff3b30', '#ffcf3f', '#2ea3f2', '#3ec46d', '#ff7ac2', '#b07cff', '#ff9f0a'];
-    m.objects.forEach(function (o) {
-      var p = iso(o.x, o.y);
-      ctx.fillStyle = objPal[o.cls % objPal.length];
-      ctx.strokeStyle = '#0a0d13'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(p[0], p[1] + th / 2, Math.max(3, tw * 0.6), 0, 6.29); ctx.fill(); ctx.stroke();
+    m.objects.slice().sort(function (a, b) { return (a.x + a.y) - (b.x + b.y); }).forEach(function (o) {
+      var d = classSprite[o.cls];
+      var px = sx(o.x, o.y), py = sy(o.x, o.y) + TH;
+      if (d && d.kind === 'lls') {
+        octx.drawImage(d.cv, px - d.cv.width / 2, py - d.cv.height);
+      } else if (d && d.kind === 'csp') {
+        d.parts.forEach(function (pt) { octx.drawImage(pt.cv, px + pt.dx, py + pt.dy - pt.cv.height); });
+      } else {
+        octx.fillStyle = objPal[o.cls % objPal.length];
+        octx.strokeStyle = 'rgba(0,0,0,.5)'; octx.lineWidth = 1;
+        octx.beginPath(); octx.arc(px, py - TH / 2, 4, 0, 6.29); octx.fill(); octx.stroke();
+      }
     });
+    return off;
+  }
+
+  var levelView = { off: null, zoom: 1, panX: 0, panY: 0 };
+
+  function drawLevel(lv) {
+    levelView.off = buildLevelOffscreen(lv);
+    // default view: fit whole park
+    var cv2 = $('levelCanvas');
+    var boxr = cv2.parentElement.getBoundingClientRect();
+    var W = Math.max(400, Math.floor(boxr.width)), H = Math.max(300, Math.floor(boxr.height));
+    levelView.zoom = Math.min((W - 20) / levelView.off.width, (H - 20) / levelView.off.height);
+    levelView.panX = (W - levelView.off.width * levelView.zoom) / 2;
+    levelView.panY = (H - levelView.off.height * levelView.zoom) / 2;
+    blitLevel();
+  }
+
+  function blitLevel() {
+    var off = levelView.off; if (!off) return;
+    var cv2 = $('levelCanvas');
+    var boxr = cv2.parentElement.getBoundingClientRect();
+    var W = Math.max(400, Math.floor(boxr.width)), H = Math.max(300, Math.floor(boxr.height));
+    var dpr = window.devicePixelRatio || 1;
+    cv2.width = W * dpr; cv2.height = H * dpr;
+    var ctx = cv2.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(off, levelView.panX, levelView.panY, off.width * levelView.zoom, off.height * levelView.zoom);
+  }
+
+  function initLevelView() {
+    var cv = $('levelCanvas');
+    cv.addEventListener('wheel', function (e) {
+      if (!levelView.off) return;
+      e.preventDefault();
+      var r = cv.getBoundingClientRect();
+      var mx = e.clientX - r.left, my = e.clientY - r.top;
+      var factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      var nz = Math.max(0.05, Math.min(8, levelView.zoom * factor));
+      // zoom around cursor
+      levelView.panX = mx - (mx - levelView.panX) * (nz / levelView.zoom);
+      levelView.panY = my - (my - levelView.panY) * (nz / levelView.zoom);
+      levelView.zoom = nz;
+      blitLevel();
+    }, { passive: false });
+    var drag = null;
+    cv.addEventListener('mousedown', function (e) { drag = { x: e.clientX, y: e.clientY, px: levelView.panX, py: levelView.panY }; });
+    window.addEventListener('mousemove', function (e) {
+      if (!drag) return;
+      levelView.panX = drag.px + (e.clientX - drag.x);
+      levelView.panY = drag.py + (e.clientY - drag.y);
+      blitLevel();
+    });
+    window.addEventListener('mouseup', function () { drag = null; });
   }
 
   // ---- audio tab -------------------------------------------------------------
@@ -374,6 +507,7 @@
   function init() {
     initTabs();
     initDnd();
+    initLevelView();
     $('loadBtn').onclick = $('loadBtn2').onclick = function () { $('file').click(); };
     $('folderBtn').onclick = $('folderBtn2').onclick = function () { $('folder').click(); };
     $('file').onchange = function () { handleFiles(this.files); };

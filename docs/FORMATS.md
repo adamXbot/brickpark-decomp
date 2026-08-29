@@ -161,6 +161,24 @@ reproduces the Python RGBA byte-for-byte (MD5-identical). Sample PNGs +
 histograms + an ASCII luminance sanity grid live in
 `scratchpad/verify/comp/`.
 
+#### Independent adversarial re-verification (2nd agent, different sample)
+
+Re-ran `tools/comp.py` over **all 429** COMP leaves and inspected a
+**disjoint** sample from the original report. Confirmed:
+`Graphics1.res` = 429 COMP of 570 leaves, every block `bpp==16`; **429/429**
+decode with pixel stream consumed exactly (`bytes==2*s1`), decoded `W×H`
+equal to header, `len(rgba)==W*H*4`, payload arithmetic
+`0x10 + 2*s1 + s2 + ceil(s3/16)*4 == s0` closing exactly, and no
+control/length over-read or block-past-EOF on any sprite. Four 640×480
+backgrounds **not** in the first report were rendered and visually verified as
+real UI art (`FreeplayScreenBK` menu, `optionscreenBK` minifig-DJ scene,
+`InterfaceBG` HUD frame with a transparent play-area centre, `Watch` icon with
+transparent background); neighbour mean-abs-difference 3.5–10.5 per channel
+(random noise ≈ 85), thousands of distinct colours each. The row decoder
+`0x004673f0` disassembly matches `comp.py` (mask init 3, `rol 2` + advance-on-
+wrap, `0xaaaaaaaa`/`0x55555555` hi/lo tests, length-byte escape, `L==0` ends
+row). Codec + `.res` container: **confirmed**.
+
 ## Audio / music / video  *(catalogued by `tools/audioinfo.py`, header-verified)*
 
 All counts below were produced by parsing real RIFF headers across
@@ -339,3 +357,42 @@ Example (`GLONE.MAP`): `72×102`, mapping `EXPLORER MAPPING`, terrain
   584 B.
 - **`.lms/.lfm`** = per-object 3-D model geometry / frame data (`"%s.lms"`,
   `"%s.lfm"`), keyed by the `.obj` name list.
+
+## Tile pipeline — painting a park (`.TSM` / `.TSF` / `.ILF` / `.ODF` / `.CSP`)
+
+How a level's grid becomes real sprites. All these members live in
+`Legoland.res` and resolve by name (`logical + ext`); the `.lls` tile/object
+sprites they name are decoded from `Graphics1.res` / `Graphics2.res`. Ground and
+path tiles are **32×16** — a 2:1 isometric diamond (`GetTileDimensions`
+@0x00460540: width = 2 × height). Loaders: `LLIDB_LoadTSMData` (0x0047ce40),
+`LLIDB_LoadTSFData` (0x0047cba0), `LLIDB_LoadILFData` (0x0047cfc0),
+`LoadBaseMap` (0x00461a50), `SetMapTile` (0x00461780).
+
+- **`.TSF` tile set:** `u32 n`, `str name`, `n × {u32 tile_code, u32}`,
+  `n × str image.lls`. Maps a tile code to a ground/path sprite
+  (`EXPLORER SAND SET` → 97=`sandy1.lls`, 65=`sandy2.lls`, …).
+- **`.TSM` mapping:** `u32 count`, `count × {str mappingName, str tileSetName}`.
+  A level's `tsm_mapping` names the `.TSM`; it points at the `.TSF`(s).
+- **`.ILF` image list:** `u16 n`, `u16 type`, `str name`, then `n`
+  length-prefixed image names — the terrain edge/cliff tiles (`wst n cliff 1.lls`)
+  keyed by the level's terrain-stream index.
+- **`.ODF` object definition:** binary header + ascii strings. The object's main
+  sprite is the first `.LLS`/`.CSP` string that is neither an `ICON` nor a `_BU`
+  build-up variant (`hedge.odf`→`HEJT5.LLS`, `FORT.ODF`→`FORT SPRITE.CSP`). Also
+  names the behaviour DLL, theme, menu and description.
+- **`.CSP` composite sprite:** `u16 n`, `u16 type`, `str name`,
+  `n × {s32 dx, s32 dy}`, `n × str image.lls`. The parts layer at per-part pixel
+  offsets to build a big/animated object (`FORT SPRITE` = fort3/2/1.lls).
+
+The four `.MAP` RLE layers (tile-gfx/flags) walk the grid row-major; the
+`tile_gfx` byte is an isometric corner-height/slope config resolved by the
+engine through the loaded tile table (`cell = tileGroup.base + delta`), so only
+canonical configs map 1:1 to a `.TSF` code — the browser paints the base ground
+tile everywhere and the specific `.TSF`/path sprite where the value matches. All
+17 shipped maps resolve their tile set and object sprites with zero errors.
+
+The browser renderer ([`web/tiles.js`](../web/tiles.js) +
+[`web/level.js`](../web/level.js) + the Levels tab in
+[`web/app.js`](../web/app.js)) paints every park isometrically from this chain:
+real ground tiles, `.LLS` objects, and `.CSP` composite rides/buildings, with
+scroll-zoom and drag-pan.
