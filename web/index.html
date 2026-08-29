@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LEGOLAND Data Lab</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg:#0c1017; --panel:#141b27; --panel2:#0f1620; --line:#26313f;
+    --ink:#eaf0f7; --ink2:#8ba0b6; --ink3:#586a7d;
+    --brick:#e5322b;        /* LEGO red */
+    --stud:#ffcf3f;         /* LEGO yellow */
+    --leaf:#3ec46d;         /* LEGO green */
+    --sky:#2ea3f2;          /* LEGO blue */
+    --accent:var(--stud);
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --head:'Barlow Semi Condensed','Arial Narrow',sans-serif;
+    --body:'IBM Plex Sans',system-ui,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--body); font-size:14px; overflow:hidden; }
+  a { color:var(--sky); }
+  .app { display:grid; grid-template-rows:auto auto 1fr; height:100vh; }
+
+  header { display:flex; align-items:center; gap:16px; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--panel2); }
+  .brand { font-family:var(--head); font-weight:800; font-size:21px; letter-spacing:.3px; display:flex; align-items:center; gap:11px; }
+  .studs { display:grid; grid-template-columns:repeat(2,10px); grid-template-rows:repeat(2,10px); gap:3px; }
+  .studs i { width:10px; height:10px; border-radius:3px; }
+  .studs i:nth-child(1){background:var(--brick);} .studs i:nth-child(2){background:var(--stud);}
+  .studs i:nth-child(3){background:var(--sky);}   .studs i:nth-child(4){background:var(--leaf);}
+  .brand small { font-family:var(--mono); font-size:11px; color:var(--ink2); font-weight:400; letter-spacing:1px; text-transform:uppercase; }
+  .grow { flex:1; }
+  .btn { font-family:var(--head); font-weight:700; font-size:14px; letter-spacing:.3px; padding:7px 14px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer; }
+  .btn.primary { background:var(--stud); color:#3a2c00; border-color:transparent; }
+  .btn:hover { border-color:var(--stud); }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { font-family:var(--mono); font-size:11px; padding:3px 8px; border-radius:4px; background:var(--panel); border:1px solid var(--line); color:var(--ink2); }
+  .chip b { color:var(--stud); }
+
+  nav { display:flex; gap:2px; padding:0 12px; border-bottom:1px solid var(--line); background:var(--panel2); }
+  .tab { font-family:var(--head); font-weight:700; font-size:15px; letter-spacing:.3px; padding:10px 16px; color:var(--ink2); cursor:pointer; border-bottom:2px solid transparent; display:flex; align-items:center; gap:7px; }
+  .tab .n { font-family:var(--mono); font-size:11px; color:var(--ink3); }
+  .tab.active { color:var(--ink); border-bottom-color:var(--stud); }
+  .tab.active .n { color:var(--stud); }
+  .tab:hover { color:var(--ink); }
+
+  main { overflow:hidden; position:relative; }
+  .view { position:absolute; inset:0; display:none; overflow:auto; padding:16px; }
+  .view.active { display:block; }
+  .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+  input[type=search], select { font-family:var(--mono); font-size:13px; background:var(--panel); border:1px solid var(--line); color:var(--ink); border-radius:6px; padding:7px 10px; }
+  input[type=search] { width:260px; }
+  .muted { color:var(--ink2); font-size:12px; }
+
+  .empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; text-align:center; padding:40px; }
+  .empty.hide { display:none; }
+  .drop { border:2px dashed var(--line); border-radius:16px; padding:46px 62px; max-width:660px; transition:border-color .15s, background .15s; }
+  .drop.hot { border-color:var(--stud); background:rgba(255,207,63,.06); }
+  .drop h1 { font-family:var(--head); font-weight:800; font-size:36px; margin:0 0 6px; }
+  .drop p { color:var(--ink2); margin:6px 0; line-height:1.55; }
+  .drop code { font-family:var(--mono); font-size:.86em; background:var(--panel); padding:1px 6px; border-radius:4px; color:var(--stud); }
+
+  /* sprite grid */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(118px,1fr)); gap:10px; }
+  .cell { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px; cursor:pointer; overflow:hidden; }
+  .cell:hover { border-color:var(--stud); }
+  .cell .thumb { width:100%; height:96px; display:flex; align-items:center; justify-content:center; background:
+      linear-gradient(45deg,#0b0f16 25%,transparent 25%),linear-gradient(-45deg,#0b0f16 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#0b0f16 75%),linear-gradient(-45deg,transparent 75%,#0b0f16 75%);
+    background-size:14px 14px; background-position:0 0,0 7px,7px -7px,-7px 0; border-radius:5px; }
+  .cell canvas { max-width:100%; max-height:96px; image-rendering:pixelated; }
+  .cell .cap { font-family:var(--mono); font-size:10px; color:var(--ink2); margin-top:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cell .dim { color:var(--ink3); }
+
+  .placeholder { color:var(--ink2); max-width:640px; line-height:1.6; }
+
+  /* engine/export list */
+  .exgrid { columns:4; column-gap:20px; font-family:var(--mono); font-size:12px; }
+  .exgrid .fn { color:var(--ink); break-inside:avoid; padding:1px 0; }
+  .exgrid .fn .rva { color:var(--ink3); }
+  .subsys { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 18px; }
+  .subsys .s { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-family:var(--mono); font-size:12px; }
+  .subsys .s b { color:var(--stud); }
+
+  /* modal */
+  .modal { position:fixed; inset:0; background:rgba(4,7,12,.86); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal.show { display:flex; }
+  .modal .box { max-width:92vw; max-height:92vh; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .modal canvas { max-width:88vw; max-height:80vh; image-rendering:pixelated; background:#0b0f16; border-radius:6px; }
+  .modal .meta { font-family:var(--mono); font-size:12px; color:var(--ink2); margin-top:8px; }
+
+  .banner { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--stud); border-radius:8px; padding:10px 16px; font-family:var(--mono); font-size:12px; color:var(--ink2); display:none; z-index:40; }
+  .banner.show { display:block; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><span class="studs"><i></i><i></i><i></i><i></i></span> LEGOLAND <small>Data&nbsp;Lab</small></div>
+    <div class="grow"></div>
+    <div class="chips" id="chips"></div>
+    <button class="btn" id="folderBtn">Load a folder</button>
+    <button class="btn primary" id="loadBtn">Load .res / disc</button>
+    <input type="file" id="file" accept=".res,.iso,.z" multiple hidden>
+    <input type="file" id="folder" webkitdirectory directory multiple hidden>
+  </header>
+
+  <nav id="tabs">
+    <div class="tab active" data-tab="sprites">Sprites <span class="n" id="n-sprites">0</span></div>
+    <div class="tab" data-tab="levels">Levels <span class="n" id="n-levels">0</span></div>
+    <div class="tab" data-tab="audio">Audio <span class="n" id="n-audio">0</span></div>
+    <div class="tab" data-tab="engine">Engine <span class="n" id="n-engine">716</span></div>
+  </nav>
+
+  <main>
+    <div class="empty" id="empty">
+      <div class="drop" id="drop">
+        <h1>Drop your LEGOLAND data here</h1>
+        <p>Everything is decoded <b>in your browser</b> — nothing is uploaded, nothing is bundled. You supply your own copy of the game.</p>
+        <p>Drop the loose <code>Graphics1.res</code> / <code>Graphics2.res</code> / <code>Legoland.res</code> off the disc, or the whole <code>LEGOLAND.iso</code>.</p>
+        <p><button class="btn primary" id="loadBtn2">Choose files</button> <button class="btn" id="folderBtn2">Load a folder</button></p>
+        <p class="muted" id="status"></p>
+      </div>
+    </div>
+
+    <div class="view active" data-view="sprites">
+      <div class="toolbar">
+        <input type="search" id="sprSearch" placeholder="filter by name…">
+        <select id="sprArch"><option value="">all archives</option></select>
+        <span class="muted" id="sprCount"></span>
+      </div>
+      <div class="grid" id="sprGrid"></div>
+    </div>
+
+    <div class="view" data-view="levels">
+      <div class="placeholder" id="levelsBody">Load the game data and the level decoder to browse the 10 parks — their tile grids and placed rides, shops and scenery, plotted isometrically.</div>
+    </div>
+
+    <div class="view" data-view="audio">
+      <div class="placeholder" id="audioBody">Load the game data to play the speech and sound effects (PCM WAV via WebAudio).</div>
+    </div>
+
+    <div class="view" data-view="engine">
+      <div id="engineBody">
+        <p class="placeholder"><b>legoland.exe</b> is a single Visual C++ 6.0 executable on a DirectDraw 2-D isometric engine. It exports its entire internal API under readable C names — the backbone of the decompilation. Loading is not required for this tab.</p>
+        <div class="subsys" id="subsys"></div>
+        <div class="exgrid" id="exgrid"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="modal" id="modal"><div class="box"><canvas id="modalCanvas"></canvas><div class="meta" id="modalMeta"></div></div></div>
+<div class="banner" id="banner"></div>
+
+<script src="res.js"></script>
+<script src="comp.js"></script>
+<script src="adpcm.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

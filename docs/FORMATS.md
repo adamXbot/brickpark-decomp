@@ -34,14 +34,82 @@ Header at each block:
 | +24 | u32×4 | sub-stream sizes |
 | +40 | … | compressed pixel data (16-bit RGB) |
 
-## Audio / music / video
+## Audio / music / video  *(catalogued by `tools/audioinfo.py`, header-verified)*
 
-- **`Speech/*.wav`** — standard PCM WAV, loose on the disc (with `…z.wav`
-  compressed twins). Plays directly.
-- **`.sty` / `.sgt` / `.bnd`** — DirectMusic styles / segments / bands (the
-  dynamic score); `LoadMusicStyle` etc. in the exports.
-- **`.avi`** — Indeo-5 video (root cutscenes + `AD_*.avi` character
-  animations). Transcode for the browser.
+All counts below were produced by parsing real RIFF headers across
+`gamedata/main/` + the mounted disc (`/Volumes/LEGOLAND/`). See
+`scratchpad/verify/audio_video/catalog.txt`.
+
+### Speech WAVs — `Speech/*.wav` (1266 files, loose on disc)
+
+**Not plain PCM** (the earlier note was wrong). Every one of the 1266 files is:
+
+| field | value |
+| --- | --- |
+| wFormatTag | `0x0002` = **Microsoft ADPCM** (4-bit) |
+| channels | 1 (mono) |
+| sample rate | 22050 Hz |
+| bits/sample | 4 |
+| nBlockAlign | 512 bytes |
+| samplesPerBlock | 1012 |
+| chunks | `fmt ` (cbSize 32, with coef table) + `fact` + `data` |
+
+`…z.wav` twins carry the **same** MS-ADPCM format, not a heavier "compressed"
+variant — the `z` names mirror in-game object names (`Path`/`Pathz`,
+`balloon`/`balloonz`), i.e. a second speech set, not a codec difference.
+
+**Browser playability:** MS-ADPCM is *not* natively decodable by WebAudio
+`decodeAudioData`. Either transcode to PCM/Opus at build time, or ship a small
+JS MS-ADPCM decoder (the format is trivial: per-block predictor + 4-bit
+nibbles, coef table in `fmt `). Cheap either way.
+
+### AVI video — Indeo 5 (40 files total)
+
+| set | codec | size | fps | count | audio |
+| --- | --- | --- | --- | --- | --- |
+| `AD_*.avi` character anims (`gamedata/main/`) | IV50 | 112×96 | 29.97/30 | 26 | **silent** (video-only) |
+| disc-root cutscenes | IV50 | 320×200 (2× 320×240) | 15 | 13 | stereo |
+| one legacy cutscene (`California.avi`) | **IV32** (Indeo 3.2) | 320×200 | 15 | 1 | PCM |
+
+Video handler fourcc is `IV50` (Indeo 5, `Ir50_32.dll`) for all but one
+`IV32`. `strf` biBitCount = 24. The 26 `AD_*` clips have **no audio stream**.
+Cutscene audio streams are mixed: IMA-ADPCM (6), MS-ADPCM (3), PCM (5), all
+22050/44100 Hz stereo/mono.
+
+Note: the `avih` dwTotalFrames field is reliable for the `AD_*` clips (16–64
+frames) but holds junk for several disc cutscenes; use the per-stream `strh`
+dwLength for those.
+
+**Browser playability:** Indeo 5/3 is **not browser-native** and is a
+proprietary/legacy codec — must be transcoded (e.g. to H.264/VP9/AV1 MP4/WebM)
+at build time. `ffmpeg` decodes IV50/IV32.
+
+### DirectMusic — `.sty` / `.sgt` / `.bnd` / `.bnv`
+
+All are **RIFF DirectMusic forms** except `.bnv`:
+
+| ext | RIFF form fourcc | meaning | count |
+| --- | --- | --- | --- |
+| `.sty` | `RIFF …DMST` (styh) | DirectMusic **Style** | 212 |
+| `.sgt` | `RIFF …DMSG` (segh) | DirectMusic **Segment** | 30 |
+| `.bnd` | `RIFF …DMBD` | DirectMusic **Band** | 1 |
+| `.bnv` | *non-RIFF*, magic `01 01 40 00 …` | engine-native band/visitor blob (ride visitor sets, e.g. `BlokeBox0N` name table) | 23 |
+
+Styles/segments carry a `UNFO/UNAM` UTF-16 name (e.g. "EItran2", "Band19").
+Loaded by `LoadMusicStyle` / `LoadMusicSegment` / `LoadMusicBand` (see
+BINARIES.md).
+
+**Browser playability:** DirectMusic dynamic score has **no browser runtime**.
+It is effectively out of scope for a faithful port — options are (a) pre-render
+the score to audio stems, or (b) reimplement a MIDI-ish sequencer over the
+style/segment data. The `.bnv` files are game-logic data, not audio.
+
+### Summary — what plays natively vs needs work
+
+- **Native (with a tiny JS shim):** speech WAVs — MS-ADPCM decode in ~50 lines,
+  then WebAudio.
+- **Transcode at build time:** all AVI (Indeo 5/3 → MP4/WebM).
+- **Out of scope / hard:** DirectMusic `.sty`/`.sgt`/`.bnd` dynamic score.
 
 ## Level & object data (from `main.z`)  *(RE in progress)*
 
