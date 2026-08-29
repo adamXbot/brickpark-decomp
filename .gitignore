@@ -1,0 +1,13 @@
+# No copyrighted game data or binaries ever live in the repo.
+original/
+gamedata/
+*.res
+*.iso
+*.bin
+*.z
+*.pac
+reccmp-user.yml
+__pycache__/
+*.pyc
+web/dist/
+.DS_Store
