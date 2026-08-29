@@ -4,9 +4,11 @@
 
   var archives = {};     // name -> { members, bytes, dv }
   var sprites = [];      // { name, arch, member } across all loaded archives
+  var levels = [];       // { name, arch, member }
   var decodeCache = {};  // "arch/off" -> canvas
   var wavs = [];         // { name, buf } speech / sfx
   var audioCtx = null;
+  var curLevel = null;
 
   var $ = function (id) { return document.getElementById(id); };
   function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
@@ -43,14 +45,27 @@
     try {
       var parsed = window.LLRes.parse(buf);
       archives[name] = parsed;
+      var bytes = parsed.bytes;
       for (var i = 0; i < parsed.members.length; i++) {
-        sprites.push({ name: parsed.members[i].name, arch: name, member: parsed.members[i] });
+        var mem = parsed.members[i];
+        var lower = mem.name.toLowerCase();
+        var o = mem.offset;
+        var isComp = bytes[o] === 0x43 && bytes[o + 1] === 0x4f && bytes[o + 2] === 0x4d && bytes[o + 3] === 0x50; // "COMP"
+        if (lower.endsWith('.map')) {
+          levels.push({ name: mem.name.replace(/\.map$/i, ''), arch: name, member: mem });
+        } else if (isComp) {
+          sprites.push({ name: mem.name, arch: name, member: mem });
+        }
+        // else: .3d models / other engine blobs — not renderable here (yet)
       }
+      levels.sort(function (a, b) { return a.name.localeCompare(b.name); });
       refreshChips();
       refreshArchSelect();
       renderSprites();
+      renderLevelsList();
       updateEmpty();
       $('n-sprites').textContent = sprites.length;
+      $('n-levels').textContent = levels.length;
     } catch (e) {
       status('Could not read ' + name + ': ' + e.message);
     }
@@ -156,6 +171,92 @@
       $('modalMeta').textContent = s.name + ' — decoder not available';
     }
     m.classList.add('show');
+  }
+
+  // ---- levels tab ------------------------------------------------------------
+  function renderLevelsList() {
+    if (!levels.length) return;
+    $('levelsEmpty').style.display = 'none';
+    $('levelsBody').style.display = 'block';
+    var list = $('levelList'); list.innerHTML = '';
+    levels.forEach(function (lv, i) {
+      var row = el('div');
+      row.style.cssText = 'font-family:var(--mono);font-size:12px;padding:6px 8px;border-radius:5px;cursor:pointer;color:var(--ink2)';
+      row.textContent = lv.name;
+      row.onmouseenter = function () { if (curLevel !== lv) row.style.background = 'var(--panel)'; };
+      row.onmouseleave = function () { if (curLevel !== lv) row.style.background = ''; };
+      row.onclick = function () {
+        curLevel = lv;
+        Array.prototype.forEach.call(list.children, function (c) { c.style.background = ''; c.style.color = 'var(--ink2)'; });
+        row.style.background = 'var(--panel)'; row.style.color = 'var(--stud)';
+        drawLevel(lv);
+      };
+      list.appendChild(row);
+    });
+    if (!curLevel) list.children[0].click();
+  }
+
+  // A stable, pleasant terrain-ish palette keyed by tile index.
+  function tileColor(v) {
+    if (v < 0) return null;
+    var pal = ['#4e8f3a', '#5aa243', '#6cb356', '#c9b170', '#d8c98a', '#3f7fb5',
+      '#5a97c9', '#8a8f96', '#a86b3c', '#7a5230', '#b7c25a', '#e0d59a'];
+    return pal[v % pal.length];
+  }
+
+  function drawLevel(lv) {
+    var m = window.LLLevel.parse(archives[lv.arch].bytes.subarray(lv.member.offset, lv.member.offset + lv.member.size));
+    var head = $('levelHead');
+    var classes = m.object_classes.map(function (c) { return c; }).join(' · ') || '(none)';
+    head.innerHTML = '<span style="font-family:var(--head);font-weight:700;font-size:18px">' + m.name + '</span>' +
+      ' <span class="muted">' + m.width + '×' + m.height + ' · ' + m.terrain + ' · ' +
+      m.objects.length + ' objects · ' + m.terrain_cells + ' terrain features</span>' +
+      '<div class="muted" style="margin-top:3px;font-size:11px">classes: ' + classes + '</div>';
+
+    var cv = $('levelCanvas');
+    var box = cv.parentElement.getBoundingClientRect();
+    var W = Math.max(400, Math.floor(box.width)), H = Math.max(300, Math.floor(box.height));
+    var dpr = window.devicePixelRatio || 1;
+    cv.width = W * dpr; cv.height = H * dpr;
+    var ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    var w = m.width, h = m.height;
+    // fit the iso diamond (span = (w+h) wide, (w+h) tall/2) into the canvas
+    var tw = Math.min((W - 40) / (w + h), (H - 40) / ((w + h) / 2));
+    tw = Math.max(2, tw);
+    var th = tw / 2;
+    var ox = W / 2, oy = 24;
+
+    function iso(x, y) { return [ox + (x - y) * tw / 2, oy + (x + y) * th / 2]; }
+
+    // draw cells back-to-front (already row-major, which is a valid iso order)
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var i = y * w + x;
+        var tv = m.tileGfx[i];
+        var terr = m.terrainGrid[i];
+        var col = tileColor(tv >= 0 ? tv : terr);
+        if (col === null) col = (terr >= 0) ? tileColor(terr) : '#39562f'; // base grass
+        var p = iso(x, y);
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.moveTo(p[0], p[1]);
+        ctx.lineTo(p[0] + tw / 2, p[1] + th / 2);
+        ctx.lineTo(p[0], p[1] + th);
+        ctx.lineTo(p[0] - tw / 2, p[1] + th / 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    // object markers
+    var objPal = ['#ff3b30', '#ffcf3f', '#2ea3f2', '#3ec46d', '#ff7ac2', '#b07cff', '#ff9f0a'];
+    m.objects.forEach(function (o) {
+      var p = iso(o.x, o.y);
+      ctx.fillStyle = objPal[o.cls % objPal.length];
+      ctx.strokeStyle = '#0a0d13'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(p[0], p[1] + th / 2, Math.max(3, tw * 0.6), 0, 6.29); ctx.fill(); ctx.stroke();
+    });
   }
 
   // ---- audio tab -------------------------------------------------------------
@@ -285,4 +386,8 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
+
+  // Programmatic entry point (also used to load from a future client-side ISO
+  // reader, and for automated testing).
+  window.LLDataLab = { addArchive: addArchive, addWav: function (name, buf) { wavs.push({ name: name, buf: buf }); $('n-audio').textContent = wavs.length; renderAudio(); updateEmpty(); } };
 })();
