@@ -97,6 +97,7 @@
     m.terrainDelta = delta;
     m.terrain_cells = cells;
     m.leftover = b.length - r.o;
+    m._buf = b;   // keep the raw .MAP bytes so the tile resolver can read the RLE layers
     return m;
   }
 

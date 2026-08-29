@@ -384,12 +384,35 @@ path tiles are **32×16** — a 2:1 isometric diamond (`GetTileDimensions`
   `n × {s32 dx, s32 dy}`, `n × str image.lls`. The parts layer at per-part pixel
   offsets to build a big/animated object (`FORT SPRITE` = fort3/2/1.lls).
 
-The four `.MAP` RLE layers (tile-gfx/flags) walk the grid row-major; the
-`tile_gfx` byte is an isometric corner-height/slope config resolved by the
-engine through the loaded tile table (`cell = tileGroup.base + delta`), so only
-canonical configs map 1:1 to a `.TSF` code — the browser paints the base ground
-tile everywhere and the specific `.TSF`/path sprite where the value matches. All
-17 shipped maps resolve their tile set and object sprites with zero errors.
+### Per-cell resolution — solved (`LoadBaseMap` 0x00461a50)
+
+The `tile_gfx` RLE is **accumulator-based**, not a flat byte array (this was the
+missing piece). Reverse-engineered from `LoadBaseMap`'s decode loop and the
+LLIDB loaders (see `scratchpad/slope_re/*.md`):
+
+- Control byte `b`: `n = b&0x3f`, `mode = b&0xc0` (for mode≠0, `n==0`→64). The
+  `tile_gfx` stream starts at byte offset **2** (a 2-byte reserved marker).
+- `mode 0x00` **SET**s a 1-byte accumulator `acc` (advances 0 cells). `0x40` =
+  literal run of `n` cells (one data byte each), `0x80` = fill run (one data byte
+  reused), `0xc0` = empty run.
+- Per cell: `acc & 0x20 == 0` → **ground**: `group = acc-1`, `delta = dataByte`,
+  and the drawn sprite = `level_TSM.tileset[group].images[delta]` (the engine
+  stores the absolute slot `TSF.base + delta` at cell+8; `TileSpriteArray[slot]`
+  is exactly `images[delta]`). `acc & 0x20 != 0` → **path/object**: a path square
+  from `pathset[acc&0x1f]`.
+- **Path autotiling** (render-time): a cell is a path where the rf_flags byte has
+  bit0, or map_flags bit4 set and not rf bit1. The sprite is picked from the 4
+  orthogonal neighbours' path state — a 4-bit mask into `NORMPATH`'s
+  `OUTL{0..15}`, plus concave-corner overlays `OUTL16..18`.
+- **Terrain stream** writes the base plane (cell+0xa) via the *same* level TSM:
+  `group = hi-1`, `delta = lo`.
+
+This is implemented byte-for-byte in [`tools/tilemap.py`](../tools/tilemap.py)
+(Python reference) and [`web/tilemap.js`](../web/tilemap.js) (browser). The two
+agree **cell-for-cell** and every one of the 17 shipped maps resolves **100 %**
+of its cells to a concrete `.lls` sprite (36 864 cells of the big map in ~4 ms).
+The Levels tab now paints each cell's exact tile — ground, crystal, and
+neighbour-autotiled paths — under the object sprites.
 
 The browser renderer ([`web/tiles.js`](../web/tiles.js) +
 [`web/level.js`](../web/level.js) + the Levels tab in

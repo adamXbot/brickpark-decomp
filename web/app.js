@@ -216,35 +216,6 @@
     return decodeCache[key];
   }
 
-  // Resolve a level's tile codes -> sprite names via its TSM/TSF chain in
-  // Legoland.res. Returns { codeToName, groundName, path:[names] }.
-  function resolveTiles(m, legoBytes) {
-    if (!window.LLTiles) return null;
-    var idx = window.LLTiles.indexRes(legoBytes);
-    function mem(name) { var k = name.toLowerCase(); return idx[k] ? legoBytes.subarray(idx[k].off, idx[k].off + idx[k].size) : null; }
-    var codeToName = {};
-    var tsmB = mem(m.tsm_mapping + '.TSM');
-    if (tsmB) {
-      window.LLTiles.parseTSM(tsmB).forEach(function (e) {
-        var tsfB = mem(e.tileset + '.TSF');
-        if (tsfB) {
-          var tsf = window.LLTiles.parseTSF(tsfB);
-          tsf.codes.forEach(function (c, i) { if (!(c in codeToName)) codeToName[c] = tsf.images[i]; });
-        }
-      });
-    }
-    // ground = tile with the lowest code (the flat base tile)
-    var codes = Object.keys(codeToName).map(Number).sort(function (a, b) { return a - b; });
-    var groundName = codes.length ? codeToName[codes[0]] : null;
-    // path tiles (indexed by position, code field is 0)
-    var pathNames = [];
-    m.path_tilesets.forEach(function (pn) {
-      var tsfB = mem(pn + '.TSF') || mem('NORMPATH.TSF');
-      if (tsfB) pathNames = window.LLTiles.parseTSF(tsfB).images;
-    });
-    return { codeToName: codeToName, groundName: groundName, path: pathNames };
-  }
-
   // Resolve an object class -> a drawable: {kind:'lls', cv} or {kind:'csp', parts}.
   function resolveObjectSprite(legoBytes, idx, cls) {
     var k = (cls + '.ODF').toLowerCase();
@@ -274,8 +245,11 @@
   function buildLevelOffscreen(lv) {
     var legoBytes = archives[lv.arch].bytes;
     var m = window.LLLevel.parse(legoBytes.subarray(lv.member.offset, lv.member.offset + lv.member.size));
-    var res = resolveTiles(m, legoBytes);
-    var haveGfx = !!(res && res.groundName && findMember(res.groundName));
+    // per-cell tile resolution (the engine's LoadBaseMap pipeline)
+    var idxLego = window.LLTiles.indexRes(legoBytes);
+    function getMember(name) { var k = name.toLowerCase(); return idxLego[k] ? legoBytes.subarray(idxLego[k].off, idxLego[k].off + idxLego[k].size) : null; }
+    var tm = window.LLTilemap ? window.LLTilemap.resolve(m, getMember) : null;
+    var haveGfx = !!(tm && tm.tsmRecs.length && tm.tsmRecs[0] && findMember(tm.tsmRecs[0].images[0]));
 
     var head = $('levelHead');
     var classes = m.object_classes.join(' · ') || '(none)';
@@ -295,11 +269,9 @@
     function sx(x, y) { return ox + (x - y) * (TW / 2); }
     function sy(x, y) { return oy + (x + y) * (TH / 2); }
 
-    var groundCv = res && res.groundName ? spriteCanvas(res.groundName) : null;
-    var codeCv = {};
-    if (res) Object.keys(res.codeToName).forEach(function (c) { codeCv[c] = spriteCanvas(res.codeToName[c]); });
-
-    if (!groundCv) {
+    // draw ground: terrain base plane (cell+0xa) under the tile_gfx/path sprite (cell+8)
+    function tile(name) { return name ? spriteCanvas(name) : null; }
+    if (!tm || !haveGfx) {
       octx.fillStyle = '#2f4a2a';
       for (var yy = 0; yy < h; yy++) for (var xx = 0; xx < w; xx++) {
         var p0x = sx(xx, yy), p0y = sy(xx, yy);
@@ -309,9 +281,11 @@
     } else {
       for (var y = 0; y < h; y++) {
         for (var x = 0; x < w; x++) {
-          var v = m.tileGfx[y * w + x];
-          var cv = (v >= 0 && codeCv[v]) ? codeCv[v] : groundCv;
-          if (cv) octx.drawImage(cv, sx(x, y) - TW / 2, sy(x, y) + TH - cv.height);
+          var i = y * w + x;
+          var bx = sx(x, y) - TW / 2, by = sy(x, y) + TH;
+          var tb = tile(tm.terrain[i]); if (tb) octx.drawImage(tb, bx, by - tb.height);
+          var im = tile(tm.image[i]); if (im) octx.drawImage(im, bx, by - im.height);
+          var ov = tile(tm.overlay[i]); if (ov) octx.drawImage(ov, bx, by - ov.height);
         }
       }
     }
