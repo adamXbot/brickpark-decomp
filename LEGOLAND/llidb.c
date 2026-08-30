@@ -48,3 +48,30 @@ int LLIDB_FindElement(char* name, LLElem** out_elem, unsigned int* out_idx)
         *out_idx = 0;
     return -3;
 }
+
+// FUNCTION: LEGOLAND 0x0047b410
+int LLIDB_FindElementFromDataPtr(void* data, LLElem** out_elem, unsigned int* out_idx)
+{
+    unsigned int i;
+    if (!data) {
+        if (out_elem)
+            *out_elem = data;
+        if (out_idx)
+            *out_idx = 0;
+        return -3;
+    }
+    for (i = 0; i < g_llidb_count; i++) {
+        if (data == g_llidb_pages[i >> 8][i & 0xff].data) {
+            if (out_elem)
+                *out_elem = &g_llidb_pages[i >> 8][i & 0xff];
+            if (out_idx)
+                *out_idx = i;
+            return 0;
+        }
+    }
+    if (out_elem)
+        *out_elem = 0;
+    if (out_idx)
+        *out_idx = 0;
+    return -3;
+}
