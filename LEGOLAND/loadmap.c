@@ -76,7 +76,7 @@ int LoadBaseMap(char* mapName)
     char   buf_58[0x14];       /* 20-byte perimeter record buffer */
     char   buf_6c[0xc8];       /* ~200-byte scratch: magic tag / texture name */
     char   buf_134[0x200];     /* map filename / element-name buffer */
-    char   buf_334[0x204];     /* element-name buffer (object loops) */
+    char   buf_334[0x200];     /* element-name buffer (object loops) */
 
     void*  file;
     void*  elem;
