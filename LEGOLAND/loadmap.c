@@ -355,32 +355,61 @@ after_baserle:
         if (runlen == 0)
             runlen = 0x40;
         op = opbyte & 0xc0;
-        if (op == 0x40) {
+        switch (op) {
+        case 0x40:
+            /* COPY: distinct data byte per cell */
+            if (runlen == 0)
+                break;
             L_2c = runlen;
-            do {
-                unsigned char fb = buf[bi++];
+            for (;;) {
+                unsigned char db = buf[bi++];
                 Cell* c = &g_map_rows[y][L_10];
-                unsigned short fl = (unsigned short)(c->flags | fb);
-                SetMapFlags(L_10, y, fl);
+                /* NOTE: both arms are deliberately identical. The original
+                 * (0x004622ae / 0x00462333) tests the tile-info flag and then
+                 * emits two blocks that compute the same value in different
+                 * registers (cx vs dx) — a VC6 SP3 artefact. Reproducing the
+                 * degenerate branch is required to match; do not "simplify". */
+                if (g_tile_info[c->tile].code & 0x20)
+                    SetMapFlags(L_10, y, (unsigned short)(c->flags | db));
+                else
+                    SetMapFlags(L_10, y, (unsigned short)(c->flags | db));
                 L_10++;
                 if (L_10 >= (int)g_map->width) {
                     L_10 = 0;
                     y++;
                 }
-            } while (--L_2c != 0);
-        } else if (op == 0x80) {
-            unsigned char rv = buf[bi++];
-            L_2c = runlen;
-            do {
-                Cell* c = &g_map_rows[y][L_10];
-                unsigned short fl = (unsigned short)(c->flags | rv);
-                SetMapFlags(L_10, y, fl);
-                L_10++;
-                if (L_10 >= (int)g_map->width) {
-                    L_10 = 0;
-                    y++;
+                if (--L_2c == 0)
+                    break;
+            }
+            break;
+        case 0x80:
+            /* FILL: one data byte over runlen cells */
+            {
+                unsigned char rv = buf[bi++];
+                if (runlen == 0)
+                    break;
+                L_2c = runlen;
+                for (;;) {
+                    Cell* c = &g_map_rows[y][L_10];
+                /* NOTE: both arms are deliberately identical. The original
+                 * (0x004622ae / 0x00462333) tests the tile-info flag and then
+                 * emits two blocks that compute the same value in different
+                 * registers (cx vs dx) — a VC6 SP3 artefact. Reproducing the
+                 * degenerate branch is required to match; do not "simplify". */
+                    if (g_tile_info[c->tile].code & 0x20)
+                        SetMapFlags(L_10, y, (unsigned short)(c->flags | rv));
+                    else
+                        SetMapFlags(L_10, y, (unsigned short)(c->flags | rv));
+                    L_10++;
+                    if (L_10 >= (int)g_map->width) {
+                        L_10 = 0;
+                        y++;
+                    }
+                    if (--L_2c == 0)
+                        break;
                 }
-            } while (--L_2c != 0);
+            }
+            break;
         }
     }
 
@@ -393,13 +422,12 @@ after_baserle:
     buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
     RES_ReadFile(L_20, buf, L_14);
     while ((unsigned)y < (unsigned short)g_map->height) {
-        unsigned char b;
         progress_tick();
-        b = buf[bi++];
-        runlen = b & 0x3f;
+        opbyte = buf[bi++];
+        runlen = opbyte & 0x3f;
         if (runlen == 0)
             runlen = 0x40;
-        op = b & 0xc0;
+        op = opbyte & 0xc0;
         if (op == 0x40) {
             /* COPY: distinct data byte per cell */
             L_2c = runlen;
