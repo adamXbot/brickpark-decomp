@@ -72,8 +72,15 @@ int LoadBaseMap(char* mapName)
     int    L_2c;               /* run / loop counter */
     Pos    pos34;              /* PutObjOnMap Pos -- lands on [esp+0x34],
                                 * matching the original (S4/S5/S6). */
-    void*  L_3c;               /* tsm/terrain descriptor table base */
-    int    M2[2];   /* [0]=curval, [1]=fill-run flag — one 8-byte frame object */
+    /* One 8+4-byte frame object.  Order is load-bearing (measured): it puts
+     * the tsm descriptor table base on [esp+0x3c], the fill-run flag on
+     * [esp+0x40] and curval on [esp+0x44], matching the original for the first
+     * two.  Declaring these as three separate scalars (or as L_3c + an
+     * int[2]) instead costs 5 instructions function-wide: VC6 then hands out
+     * [esp+0x24]/[esp+0x28] to the S5/S6 trip counter and buf in the wrong
+     * order and shifts L_50/L_54.  The struct is never address-taken, which is
+     * what keeps curval and the flag enregistered. */
+    struct { void* tsm; int fillflag; int curval; } F;
     /* FRAME LAYOUT NOTES (measured, not guessed):
      *  - VC6 SP3 ignores declaration ORDER entirely in this function: reversing
      *    this whole block yields a byte-identical .obj.  Slots are handed out by
@@ -85,7 +92,7 @@ int LoadBaseMap(char* mapName)
      *  - The four S8 AddPath* Pos temporaries sit at [esp+0x24]/0x2c/0x40/0x48
      *    in the original, each overlaid on an S5/S6 int -- hence the 4-byte
      *    holes at 0x30 and 0x44.  Spelling those overlaps as unions really does
-     *    put the Pos on the right slot, but it makes curval / L_2c / M2[1]
+     *    put the Pos on the right slot, but it makes curval / L_2c / F.fillflag
      *    address-taken and the extra reloads cost far more than the slots gain.
      *    A 6905-way sweep over {demotion of u50/u54} x {routing of the four Pos
      *    across fresh vars, unions and reuse} put every union variant at or
@@ -132,8 +139,8 @@ int LoadBaseMap(char* mapName)
     buf_134[L_18] = 0;
     LLIDB_FindElement(buf_134, &L_1c, 0);
     g_tsm_mapping_elem = L_1c;
-    L_3c = LLIDB_LoadData(L_1c);
-    g_default_tile = **(int**)((char*)L_3c + 4);
+    F.tsm = LLIDB_LoadData(L_1c);
+    g_default_tile = **(int**)((char*)F.tsm + 4);
 
     RES_ReadFile((void*)y, &L_18, 4);
     RES_ReadFile((void*)y, buf_134, L_18);
@@ -212,7 +219,7 @@ int LoadBaseMap(char* mapName)
     /* ================= S5/S6: base-tile RLE decode chunks ========== */
     L_10 = 0;                    /* x */
     y = 0;
-    M2[0] = 0;                    /* curval */
+    F.curval = 0;                    /* curval */
     RES_ReadFile(L_20, &L_14, 4);
     buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
     RES_ReadFile(L_20, buf, L_14);
@@ -231,7 +238,7 @@ int LoadBaseMap(char* mapName)
         switch (op) {
         case 0x00:
             /* set-value */
-            M2[0] = runlen;
+            F.curval = runlen;
             goto base_tail;
         case 0x40:
             /* run: place curval over runlen cells.
@@ -241,12 +248,12 @@ int LoadBaseMap(char* mapName)
              *   mov [esp+0x2c],eax        (trip count) ... do {} while(--trip)
              * (0x461efe, 0x46204d, 0x46219a).  Writing the guard and the
              * counter out by hand lets VC6 delete the dead `dec`/`inc` pair.
-             * The `M2[1] = M2[0] & 0x20` assignment must sit INSIDE the loop so
+             * The `F.fillflag = F.curval & 0x20` assignment must sit INSIDE the loop so
              * VC6's LICM sinks it into the preheader AFTER the guard, matching
              * 0x461f09-0x461f0f. */
             while (runlen-- != 0) {
-                M2[1] = M2[0] & 0x20;
-                if (M2[1] != 0) {
+                F.fillflag = F.curval & 0x20;
+                if (F.fillflag != 0) {
                     /* object path */
                     void* obj;
                     void* cls;
@@ -260,7 +267,7 @@ int LoadBaseMap(char* mapName)
                         cellptr = 0;
                     else
                         cellptr = (unsigned char*)g_map_rows[y] + L_10 * 20;
-                    obj = *(void**)((char*)g_array_B[M2[0] & 0x1f] + 0x14);
+                    obj = *(void**)((char*)g_array_B[F.curval & 0x1f] + 0x14);
                     *(void**)cellptr = obj;
                     cls = *(void**)((char*)obj + 0xc);
                     PutObjOnMap(cls, obj, &pos34);
@@ -279,18 +286,24 @@ int LoadBaseMap(char* mapName)
                      * (db2) but NOT on the cell-store addend (db) -- adding it
                      * there makes VC6 swap ecx/edx across the whole block and
                      * costs ~35 instructions.
-                     * db/db2 stay `unsigned` rather than `unsigned char`: a
-                     * byte-typed local makes VC6 round-trip it through a fresh
-                     * stack slot, which pushes the frame past sub esp,0x524 and
-                     * renumbers every [esp+N] in the function. */
-                    unsigned ib = (unsigned char)(((M2[0] << 8) - 1) >> 8);
-                    unsigned db = buf[bi];
-                    unsigned short* rec = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
+                     * db is `unsigned short` (NOT `unsigned`, NOT
+                     * `unsigned char`).  With the explicit (unsigned char) cast
+                     * on the cell-store addend this is what makes VC6 emit the
+                     * original's `movzx dx, dl` at 0x00461fc7 / 0x00462117
+                     * instead of a leading `xor edx,edx`; worth 2 instructions.
+                     * `unsigned char` is still a trap: a byte-typed local makes
+                     * VC6 round-trip it through a fresh stack slot, which pushes
+                     * the frame past sub esp,0x524 and renumbers every [esp+N].
+                     * db2 must stay `unsigned` -- making it `unsigned short`
+                     * merges its `movzx cx,cl` into the load and loses a match. */
+                    unsigned ib = (unsigned char)(((F.curval << 8) - 1) >> 8);
+                    unsigned short db = buf[bi];
+                    unsigned short* rec = *(unsigned short**)((char*)F.tsm + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
-                        (unsigned short)(*rec + db);
+                        (unsigned short)(*rec + (unsigned char)db);
                     {
                         unsigned db2 = buf[bi];
-                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
+                        unsigned short* rec2 = *(unsigned short**)((char*)F.tsm + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
                         SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)db2));
                     }
                     bi++;
@@ -305,8 +318,8 @@ int LoadBaseMap(char* mapName)
         case 0x80:
             /* fill run */
             while (runlen-- != 0) {
-                M2[1] = M2[0] & 0x20;
-                if (M2[1] != 0) {
+                F.fillflag = F.curval & 0x20;
+                if (F.fillflag != 0) {
                     void* obj;
                     void* cls;
                     unsigned char* cellptr;
@@ -319,19 +332,19 @@ int LoadBaseMap(char* mapName)
                         cellptr = 0;
                     else
                         cellptr = (unsigned char*)g_map_rows[y] + L_10 * 20;
-                    obj = *(void**)((char*)g_array_B[M2[0] & 0x1f] + 0x14);
+                    obj = *(void**)((char*)g_array_B[F.curval & 0x1f] + 0x14);
                     *(void**)cellptr = obj;
                     cls = *(void**)((char*)obj + 0xc);
                     PutObjOnMap(cls, obj, &pos34);
                 } else {
-                    unsigned ib = (unsigned char)(((M2[0] << 8) - 1) >> 8);
-                    unsigned db = buf[bi];
-                    unsigned short* rec = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
+                    unsigned ib = (unsigned char)(((F.curval << 8) - 1) >> 8);
+                    unsigned short db = buf[bi];
+                    unsigned short* rec = *(unsigned short**)((char*)F.tsm + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
-                        (unsigned short)(*rec + db);
+                        (unsigned short)(*rec + (unsigned char)db);
                     {
                         unsigned db2 = buf[bi];
-                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
+                        unsigned short* rec2 = *(unsigned short**)((char*)F.tsm + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
                         SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)db2));
                     }
                 }
@@ -590,6 +603,16 @@ int LoadBaseMap(char* mapName)
     file = L_20;
     L_14 = 0;
     L_2c = 0;
+    /* The S10 word reader fills only the low 2 bytes of a dword and then reads
+     * the whole dword; the original clears that dword ONCE here, at 0x00462729
+     * (`mov [esp+0x30], ebp` -> slot 0x2c), right beside the L_14 store at
+     * 0x00462725.  Without it S10's `v == 0xffff` end-of-run test reads two
+     * uninitialised bytes.  Slot 0x2c is u24 in our frame, so the clear and the
+     * S10 reader both go through u24.q.x.
+     * NOTE: the terrain-name length read below therefore may NOT use offset 0 of
+     * u24 -- it runs after this clear and would put the length's high half back
+     * into the S10 word.  It uses u24.q.y (offset 4) instead. */
+    u24.q.x = 0;
     saved_pos = RES_GetFilePointer(file);
     {
         /* VC6 inlines this as 'mov byte[buf],0' + 'rep stosd' of 0x31 dwords
@@ -600,9 +623,13 @@ int LoadBaseMap(char* mapName)
     }
     RES_ReadFile(file, buf_6c, 8);
     if (memcmp(buf_6c, g_terrain_magic, 8) == 0) {
-        if (RES_ReadFile(file, &u24.rle, 4) == 4) {
-            RES_ReadFile(file, buf_6c, (int)(unsigned int)u24.rle);
-            buf_6c[(unsigned int)u24.rle] = 0;
+        /* u24.q.y (offset 4), NOT u24.rle (offset 0): offset 0 is the S10 word,
+         * cleared above.  The original reads this length into slot 0x24
+         * (0x00462771 `lea ecx,[esp+0x24]`), a different frame object again --
+         * one we cannot yet place; see the frame-layout notes. */
+        if (RES_ReadFile(file, &u24.q.y, 4) == 4) {
+            RES_ReadFile(file, buf_6c, (int)u24.q.y);
+            buf_6c[(unsigned int)u24.q.y] = 0;
             map_helper_4618d0(buf_6c);
             g_terrain_elem_2 = ElemID(buf_6c);
             g_terrain_texdata = LLIDB_LoadData(g_terrain_elem_2);
@@ -634,7 +661,7 @@ int LoadBaseMap(char* mapName)
                                 unsigned int low = v & 0xff;
                                 unsigned int idx = ((v - 0x100) >> 8) & 0xff;
                                 unsigned short* p =
-                                    *(unsigned short**)((char*)L_3c + idx * 8 + 4);
+                                    *(unsigned short**)((char*)F.tsm + idx * 8 + 4);
                                 *(unsigned short*)((char*)g_map_rows[y] + x * 0x14 + 0xa) =
                                     (unsigned short)(*p + low);
                             }
