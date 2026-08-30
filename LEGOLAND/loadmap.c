@@ -73,8 +73,7 @@ int LoadBaseMap(char* mapName)
     Pos    pos34;              /* PutObjOnMap Pos -- lands on [esp+0x34],
                                 * matching the original (S4/S5/S6). */
     void*  L_3c;               /* tsm/terrain descriptor table base */
-    int    L_40;               /* fill-run branch flag (curval & 0x20) */
-    int    L_48;               /* current RLE value (curval) */
+    int    M2[2];   /* [0]=curval, [1]=fill-run flag — one 8-byte frame object */
     /* FRAME LAYOUT NOTES (measured, not guessed):
      *  - VC6 SP3 ignores declaration ORDER entirely in this function: reversing
      *    this whole block yields a byte-identical .obj.  Slots are handed out by
@@ -86,7 +85,7 @@ int LoadBaseMap(char* mapName)
      *  - The four S8 AddPath* Pos temporaries sit at [esp+0x24]/0x2c/0x40/0x48
      *    in the original, each overlaid on an S5/S6 int -- hence the 4-byte
      *    holes at 0x30 and 0x44.  Spelling those overlaps as unions really does
-     *    put the Pos on the right slot, but it makes curval / L_2c / L_40
+     *    put the Pos on the right slot, but it makes curval / L_2c / M2[1]
      *    address-taken and the extra reloads cost far more than the slots gain.
      *    A 6905-way sweep over {demotion of u50/u54} x {routing of the four Pos
      *    across fresh vars, unions and reuse} put every union variant at or
@@ -213,7 +212,7 @@ int LoadBaseMap(char* mapName)
     /* ================= S5/S6: base-tile RLE decode chunks ========== */
     L_10 = 0;                    /* x */
     y = 0;
-    L_48 = 0;                    /* curval */
+    M2[0] = 0;                    /* curval */
     RES_ReadFile(L_20, &L_14, 4);
     buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
     RES_ReadFile(L_20, buf, L_14);
@@ -232,7 +231,7 @@ int LoadBaseMap(char* mapName)
         switch (op) {
         case 0x00:
             /* set-value */
-            L_48 = runlen;
+            M2[0] = runlen;
             goto base_tail;
         case 0x40:
             /* run: place curval over runlen cells.
@@ -242,12 +241,12 @@ int LoadBaseMap(char* mapName)
              *   mov [esp+0x2c],eax        (trip count) ... do {} while(--trip)
              * (0x461efe, 0x46204d, 0x46219a).  Writing the guard and the
              * counter out by hand lets VC6 delete the dead `dec`/`inc` pair.
-             * The `L_40 = L_48 & 0x20` assignment must sit INSIDE the loop so
+             * The `M2[1] = M2[0] & 0x20` assignment must sit INSIDE the loop so
              * VC6's LICM sinks it into the preheader AFTER the guard, matching
              * 0x461f09-0x461f0f. */
             while (runlen-- != 0) {
-                L_40 = L_48 & 0x20;
-                if (L_40 != 0) {
+                M2[1] = M2[0] & 0x20;
+                if (M2[1] != 0) {
                     /* object path */
                     void* obj;
                     void* cls;
@@ -261,7 +260,7 @@ int LoadBaseMap(char* mapName)
                         cellptr = 0;
                     else
                         cellptr = (unsigned char*)g_map_rows[y] + L_10 * 20;
-                    obj = *(void**)((char*)g_array_B[L_48 & 0x1f] + 0x14);
+                    obj = *(void**)((char*)g_array_B[M2[0] & 0x1f] + 0x14);
                     *(void**)cellptr = obj;
                     cls = *(void**)((char*)obj + 0xc);
                     PutObjOnMap(cls, obj, &pos34);
@@ -284,7 +283,7 @@ int LoadBaseMap(char* mapName)
                      * byte-typed local makes VC6 round-trip it through a fresh
                      * stack slot, which pushes the frame past sub esp,0x524 and
                      * renumbers every [esp+N] in the function. */
-                    unsigned ib = (unsigned char)(((L_48 << 8) - 1) >> 8);
+                    unsigned ib = (unsigned char)(((M2[0] << 8) - 1) >> 8);
                     unsigned db = buf[bi];
                     unsigned short* rec = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
@@ -306,8 +305,8 @@ int LoadBaseMap(char* mapName)
         case 0x80:
             /* fill run */
             while (runlen-- != 0) {
-                L_40 = L_48 & 0x20;
-                if (L_40 != 0) {
+                M2[1] = M2[0] & 0x20;
+                if (M2[1] != 0) {
                     void* obj;
                     void* cls;
                     unsigned char* cellptr;
@@ -320,12 +319,12 @@ int LoadBaseMap(char* mapName)
                         cellptr = 0;
                     else
                         cellptr = (unsigned char*)g_map_rows[y] + L_10 * 20;
-                    obj = *(void**)((char*)g_array_B[L_48 & 0x1f] + 0x14);
+                    obj = *(void**)((char*)g_array_B[M2[0] & 0x1f] + 0x14);
                     *(void**)cellptr = obj;
                     cls = *(void**)((char*)obj + 0xc);
                     PutObjOnMap(cls, obj, &pos34);
                 } else {
-                    unsigned ib = (unsigned char)(((L_48 << 8) - 1) >> 8);
+                    unsigned ib = (unsigned char)(((M2[0] << 8) - 1) >> 8);
                     unsigned db = buf[bi];
                     unsigned short* rec = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
