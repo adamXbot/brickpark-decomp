@@ -368,36 +368,46 @@ int LoadBaseMap(char* mapName)
                 } else {
                     /* Tile path.  The (unsigned)(unsigned char) casts below are
                      * LOAD-BEARING: they are what makes VC6 emit the explicit
-                     * byte-narrowing the original has and a plain `unsigned db`
-                     * does not --
+                     * byte-narrowing the original has --
                      *   mov ebp,edx / and ebp,0xff / shr ebp,8  (0x00461fb7,
                      *   0x00462107)  and, on the SetMapTile operand,
                      *   and edx,0xff (0x00461fed, 0x0046213d) plus
                      *   movzx cx,cl  (0x00461ff8, 0x00462148).
-                     * The asymmetry is measured, not stylistic: the
-                     * (unsigned char) cast belongs on the SetMapTile addend
-                     * (db2) but NOT on the cell-store addend (db) -- adding it
-                     * there makes VC6 swap ecx/edx across the whole block and
-                     * costs ~35 instructions.
-                     * db is `unsigned short` (NOT `unsigned`, NOT
-                     * `unsigned char`).  With the explicit (unsigned char) cast
-                     * on the cell-store addend this is what makes VC6 emit the
-                     * original's `movzx dx, dl` at 0x00461fc7 / 0x00462117
-                     * instead of a leading `xor edx,edx`; worth 2 instructions.
-                     * `unsigned char` is still a trap: a byte-typed local makes
-                     * VC6 round-trip it through a fresh stack slot, which pushes
-                     * the frame past sub esp,0x524 and renumbers every [esp+N].
-                     * db2 must stay `unsigned` -- making it `unsigned short`
-                     * merges its `movzx cx,cl` into the load and loses a match. */
+                     *
+                     * NO NAMED BYTE LOCAL.  The data byte must be spelled as the
+                     * bare `buf[bi]` subexpression in every use, with no `db` /
+                     * `db2` local in between.  A named local of ANY width loses:
+                     *   - `unsigned short db` makes VC6 widen at the load
+                     *     (movzx dx, byte ptr [edi+ebp]) where the original
+                     *     leaves the upper bits dirty (mov dl, byte ptr
+                     *     [edi+ebp], 0x00461fa2 / 0x004620f2) and re-masks at
+                     *     each use; the wider load also perturbs the U/V-pipe
+                     *     schedule, pushing `mov ebx,[esp+0x3c]` one slot early
+                     *     and `lea ecx,[ecx+ecx*4]` five slots late vs
+                     *     0x00461faa / 0x00461fb1.
+                     *   - `unsigned db2` adds a leading `xor ecx,ecx` the
+                     *     original does not have before `mov cl,[edi+ebp]`
+                     *     (0x00461fe8 / 0x00462138).
+                     *   - `unsigned char` / `char` DOES give `mov dl` and does
+                     *     fix the schedule, but a byte-typed *named local* gets
+                     *     homed to a stack byte (mov byte ptr [esp+0x48],dl then
+                     *     reloaded twice), which renumbers the frame and costs
+                     *     ~100 instructions function-wide.  Only a CSE temp --
+                     *     i.e. the inlined `buf[bi]` -- lives in dl with no home
+                     *     slot, which is what the original does.
+                     * Written this way the whole 0x00461fa2-0x00462011 and
+                     * 0x004620f2-0x00462161 tile paths match instruction for
+                     * instruction.  Worth +6 matched and -2 emitted instructions.
+                     * The two reads of buf[bi] are value-identical (bi is not
+                     * advanced until after the block and nothing writes into
+                     * buf), so this is a pure spelling change. */
                     unsigned ib = (unsigned char)(((F_curval << 8) - 1) >> 8);
-                    unsigned short db = buf[bi];
-                    unsigned short* rec = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
+                    unsigned short* rec = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)buf[bi] >> 8) | ib) * 8 + 4);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
-                        (unsigned short)(*rec + (unsigned char)db);
+                        (unsigned short)(*rec + (unsigned char)buf[bi]);
                     {
-                        unsigned db2 = buf[bi];
-                        unsigned short* rec2 = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
-                        SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)db2));
+                        unsigned short* rec2 = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)buf[bi] >> 8) | ib) * 8 + 4);
+                        SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)buf[bi]));
                     }
                     bi++;
                 }
@@ -431,14 +441,13 @@ int LoadBaseMap(char* mapName)
                     PutObjOnMap(cls, obj, &pos34);
                 } else {
                     unsigned ib = (unsigned char)(((F_curval << 8) - 1) >> 8);
-                    unsigned short db = buf[bi];
-                    unsigned short* rec = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
+                    /* Same no-named-byte-local rule as the 0x40 arm above. */
+                    unsigned short* rec = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)buf[bi] >> 8) | ib) * 8 + 4);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
-                        (unsigned short)(*rec + (unsigned char)db);
+                        (unsigned short)(*rec + (unsigned char)buf[bi]);
                     {
-                        unsigned db2 = buf[bi];
-                        unsigned short* rec2 = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
-                        SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)db2));
+                        unsigned short* rec2 = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)buf[bi] >> 8) | ib) * 8 + 4);
+                        SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)buf[bi]));
                     }
                 }
                 L_10++;
