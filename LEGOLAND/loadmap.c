@@ -101,7 +101,8 @@ int LoadBaseMap(char* mapName)
 
     void*  file;
     void*  elem;
-    unsigned char* buf;        /* RLE source cursor base */
+    unsigned char* buf;
+    unsigned char* ubuf;      /* S9 gets its own RLE cursor (orig encodes [ebx+esi]) */        /* RLE source cursor base */
     int    bi;                 /* RLE buffer index */
     int    x, y;
     int    saved_pos;
@@ -540,12 +541,12 @@ int LoadBaseMap(char* mapName)
     y = 0;
     bi = 0;
     RES_ReadFile(L_20, &L_14, 4);
-    buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-    RES_ReadFile(L_20, buf, L_14);
+    ubuf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
+    RES_ReadFile(L_20, ubuf, L_14);
     {
     while (y < (int)(unsigned short)g_map->height) {
         progress_tick();
-        opbyte = buf[bi++];
+        opbyte = ubuf[bi++];
         runlen = opbyte & 0x3f;
         if (runlen == 0)
             runlen = 0x40;
@@ -553,7 +554,7 @@ int LoadBaseMap(char* mapName)
         switch (op) {
         case 0x40:
             while (runlen--) {
-                unsigned short val = buf[bi++];
+                unsigned short val = ubuf[bi++];
                 Set_UserFlags(L_10 << 8, y << 8, val);
                 L_10++;
                 if (L_10 >= (int)g_map->width) {
@@ -564,7 +565,7 @@ int LoadBaseMap(char* mapName)
             break;
         case 0x80:
             while (runlen--) {
-                unsigned short val = buf[bi];
+                unsigned short val = ubuf[bi];
                 Set_UserFlags(L_10 << 8, y << 8, val);
                 L_10++;
                 if (L_10 >= (int)g_map->width) {
@@ -577,7 +578,7 @@ int LoadBaseMap(char* mapName)
         }
     }
     }
-    HeapFree_w(buf);
+    HeapFree_w(ubuf);
 
     /* perimeter records */
     RES_ReadFile(L_20, &u24.rle, 4);
