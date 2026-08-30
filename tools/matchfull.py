@@ -55,18 +55,25 @@ def main():
     comp = disasm_full(obj_function_code(obj, args.func))
     d, secs = load_exe()
     off = rva2off(secs, rva)
-    # give the original generous room, then align to comp length
     orig = disasm_full(d[off:off + max(64, len(comp) * 10)])
     orig = orig[:len(comp)] if len(orig) > len(comp) else orig
 
-    n = max(len(comp), len(orig)); m = 0
-    for i in range(n):
-        o = orig[i] if i < len(orig) else None
-        c = comp[i] if i < len(comp) else None
-        ok = o and c and norm(o) == norm(c)
-        m += bool(ok)
-        if not ok and not args.quiet:
-            print(f"X {(o.mnemonic+' '+o.op_str) if o else '':40s} | {(c.mnemonic+' '+c.op_str) if c else ''}")
+    # align on normalised text with difflib so a single insertion/deletion
+    # doesn't cascade the whole tail into "mismatch".
+    import difflib
+    on = [norm(o) for o in orig]
+    cn = [norm(c) for c in comp]
+    sm = difflib.SequenceMatcher(a=on, b=cn, autojunk=False)
+    n = max(len(on), len(cn))
+    m = sum(b - a for tag, a, b, c, dd in sm.get_opcodes() if tag == "equal")
+    if not args.quiet:
+        for tag, a1, a2, b1, b2 in sm.get_opcodes():
+            if tag == "equal":
+                continue
+            for k in range(max(a2 - a1, b2 - b1)):
+                o = orig[a1 + k] if a1 + k < a2 else None
+                c = comp[b1 + k] if b1 + k < b2 else None
+                print(f"X {(o.mnemonic+' '+o.op_str) if o else '':40s} | {(c.mnemonic+' '+c.op_str) if c else ''}")
     pct = 100.0 * m / max(1, n)
     print(f"FULL MATCH: {m}/{n} = {pct:.1f}%  ({args.func})")
     return 0 if m == n else 1
