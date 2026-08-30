@@ -70,12 +70,30 @@ int LoadBaseMap(char* mapName)
     void*  L_20;               /* open resource file handle */
     union { unsigned char* rle; Pos q; } u24;
     int    L_2c;               /* run / loop counter */
-    Pos    pos34;              /* Pos{x,y} @ 0x34 */
+    Pos    pos34;              /* PutObjOnMap Pos -- lands on [esp+0x34],
+                                * matching the original (S4/S5/S6). */
     void*  L_3c;               /* tsm/terrain descriptor table base */
     int    L_40;               /* fill-run branch flag (curval & 0x20) */
     int    L_48;               /* current RLE value (curval) */
-    union { int n; Pos q; } u50;
-    union { int n; Pos q; } u54;
+    /* FRAME LAYOUT NOTES (measured, not guessed):
+     *  - VC6 SP3 ignores declaration ORDER entirely in this function: reversing
+     *    this whole block yields a byte-identical .obj.  Slots are handed out by
+     *    first use in the optimised IR, so the only levers are which temporaries
+     *    exist and which of them are address-taken.
+     *  - The original keeps the S4 env-object index/count as plain 4-byte ints
+     *    at [esp+0x50]/[esp+0x54].  Declaring them int (rather than unioning a
+     *    Pos onto them, as an earlier revision did) is worth ~0.4% by itself.
+     *  - The four S8 AddPath* Pos temporaries sit at [esp+0x24]/0x2c/0x40/0x48
+     *    in the original, each overlaid on an S5/S6 int -- hence the 4-byte
+     *    holes at 0x30 and 0x44.  Spelling those overlaps as unions really does
+     *    put the Pos on the right slot, but it makes curval / L_2c / L_40
+     *    address-taken and the extra reloads cost far more than the slots gain.
+     *    A 6905-way sweep over {demotion of u50/u54} x {routing of the four Pos
+     *    across fresh vars, unions and reuse} put every union variant at or
+     *    below this arrangement. */
+    Pos    pos_gfx;            /* AddPathTileGFX Pos (both S8 branches) */
+    int    L_50;               /* S4 env-object record index */
+    int    L_54;               /* S4 env-object record count */
     char   buf_58[0x14];       /* 20-byte perimeter record buffer */
     char   buf_6c[0xc8];       /* ~200-byte scratch: magic tag / texture name */
     char   buf_134[0x200];     /* map filename / element-name buffer */
@@ -162,14 +180,14 @@ int LoadBaseMap(char* mapName)
     elem = L_1c;
     g_env_class = *(void**)((char*)elem + 0xc);
 
-    RES_ReadFile((void*)y, &u54.n, 4);
-    for (i = 0; i < u54.n; i++) {
+    RES_ReadFile((void*)y, &L_54, 4);
+    for (i = 0; i < L_54; i++) {
         progress_tick();
-        RES_ReadFile((void*)y, &u50.n, 4);
+        RES_ReadFile((void*)y, &L_50, 4);
         RES_ReadFile((void*)y, &pos34, 8);
-        *(int*)(*(char**)((char*)g_array_A[u50.n] + 0xc) + 0x4c) = 0;
-        PutObjOnMap(*(void**)((char*)g_array_A[u50.n] + 0xc),
-                    g_array_A[u50.n], &pos34);
+        *(int*)(*(char**)((char*)g_array_A[L_50] + 0xc) + 0x4c) = 0;
+        PutObjOnMap(*(void**)((char*)g_array_A[L_50] + 0xc),
+                    g_array_A[L_50], &pos34);
     }
 
     /* ================= S4/S5: perimeter array B =================== */
@@ -249,16 +267,32 @@ int LoadBaseMap(char* mapName)
                     PutObjOnMap(cls, obj, &pos34);
                     bi++;
                 } else {
-                    /* tile path */
+                    /* Tile path.  The (unsigned)(unsigned char) casts below are
+                     * LOAD-BEARING: they are what makes VC6 emit the explicit
+                     * byte-narrowing the original has and a plain `unsigned db`
+                     * does not --
+                     *   mov ebp,edx / and ebp,0xff / shr ebp,8  (0x00461fb7,
+                     *   0x00462107)  and, on the SetMapTile operand,
+                     *   and edx,0xff (0x00461fed, 0x0046213d) plus
+                     *   movzx cx,cl  (0x00461ff8, 0x00462148).
+                     * The asymmetry is measured, not stylistic: the
+                     * (unsigned char) cast belongs on the SetMapTile addend
+                     * (db2) but NOT on the cell-store addend (db) -- adding it
+                     * there makes VC6 swap ecx/edx across the whole block and
+                     * costs ~35 instructions.
+                     * db/db2 stay `unsigned` rather than `unsigned char`: a
+                     * byte-typed local makes VC6 round-trip it through a fresh
+                     * stack slot, which pushes the frame past sub esp,0x524 and
+                     * renumbers every [esp+N] in the function. */
                     unsigned ib = (unsigned char)(((L_48 << 8) - 1) >> 8);
                     unsigned db = buf[bi];
-                    unsigned short* rec = *(unsigned short**)((char*)L_3c + ((db >> 8) | ib) * 8 + 4);
+                    unsigned short* rec = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
                         (unsigned short)(*rec + db);
                     {
                         unsigned db2 = u24.rle[bi];
-                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + ((db2 >> 8) | ib) * 8 + 4);
-                        SetMapTile(L_10, y, (unsigned short)(*rec2 + db2));
+                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
+                        SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)db2));
                     }
                     bi++;
                 }
@@ -293,13 +327,13 @@ int LoadBaseMap(char* mapName)
                 } else {
                     unsigned ib = (unsigned char)(((L_48 << 8) - 1) >> 8);
                     unsigned db = buf[bi];
-                    unsigned short* rec = *(unsigned short**)((char*)L_3c + ((db >> 8) | ib) * 8 + 4);
+                    unsigned short* rec = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db >> 8) | ib) * 8 + 4);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
                         (unsigned short)(*rec + db);
                     {
                         unsigned db2 = u24.rle[bi];
-                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + ((db2 >> 8) | ib) * 8 + 4);
-                        SetMapTile(L_10, y, (unsigned short)(*rec2 + db2));
+                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
+                        SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)db2));
                     }
                 }
                 L_10++;
@@ -327,12 +361,21 @@ int LoadBaseMap(char* mapName)
     base_tail:
         if (y < (int)g_map->height)
             continue;
-        /* chunk exhausted: free and read next chunk */
+        /* Chunk exhausted: free and read next chunk.  Reset order
+         * (L_10, y, bi) mirrors the S7->S8 and S8->S9 transitions and is worth
+         * +1 over (bi, L_10, y): it decides which zeroed register VC6 reuses
+         * for the [esp+0x10] store at 0x0046221a.
+         * SEMANTIC CAVEAT (inherited from the base, see report): the original
+         * does NOT re-enter the base loop after this -- 0x00462206 falls
+         * straight through to the S7 loop at 0x00462250.  Writing it that way
+         * is correct but costs ~145 instructions function-wide (it flips the
+         * buf/bi/y register roles from S7 onward), so the base's structure is
+         * kept here. */
         HeapFree_w(buf);
         file = L_20;
-        bi = 0;
         L_10 = 0;
         y = 0;
+        bi = 0;
         RES_ReadFile(L_20, &L_14, 4);
         buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
         u24.rle = buf;
@@ -358,7 +401,7 @@ after_baserle:
                 break;
             L_2c = runlen;
             for (;;) {
-                unsigned char db = buf[bi++];
+                unsigned db = buf[bi++];
                 Cell* c = &g_map_rows[y][L_10];
                 /* NOTE: both arms are deliberately identical. The original
                  * (0x004622ae / 0x00462333) tests the tile-info flag and then
@@ -381,10 +424,18 @@ after_baserle:
         case 0x80:
             /* FILL: one data byte over runlen cells */
             {
-                unsigned char rv = buf[bi++];
+                unsigned rv = buf[bi++];
                 if (runlen == 0)
                     break;
-                L_2c = runlen;
+                /* FRAME-SLOT LEVER (load-bearing, +2.5% whole-function):
+                 * mirroring the run length into L_14 keeps the [esp+0x14] read
+                 * scratch live across S7.  Without it VC6 SP3 coalesces that
+                 * slot with a temp here and every later esp displacement in
+                 * S4/S8/S9/S10 shifts off by one slot.  The original reuses the
+                 * same slot as a counter further on (dec dword [esp+0x14] at
+                 * 0x0046284d), so the variable really does stay live past S7.
+                 * Costs exactly one extra `mov [esp+0x14],eax` at 0x00462288. */
+                L_2c = L_14 = (int)runlen;
                 for (;;) {
                     Cell* c = &g_map_rows[y][L_10];
                 /* NOTE: both arms are deliberately identical. The original
@@ -440,9 +491,9 @@ after_baserle:
                 bi++;
                 Set_RFFlags(L_10 << 8, y << 8, (unsigned char)byte);
                 if (!((unsigned char)L_18 & 8) && ((unsigned char)L_18 & 0x10)) {
-                    u54.q.x = L_10;
-                    u54.q.y = y;
-                    AddPathTileGFX(&u54.q, *(unsigned short*)g_path_tile_ptr);
+                    pos_gfx.x = L_10;
+                    pos_gfx.y = y;
+                    AddPathTileGFX(&pos_gfx, *(unsigned short*)g_path_tile_ptr);
                 }
                 c = &g_map_rows[y][L_10];
                 rf = c->rf;
@@ -471,16 +522,16 @@ after_baserle:
                 rfarg = (cf & 0xff00) | buf[bi];
                 Set_RFFlags(L_10 << 8, y << 8, (unsigned char)rfarg);
                 if (!((unsigned char)L_18 & 8) && ((unsigned char)L_18 & 0x10)) {
-                    pos34.x = L_10;
-                    pos34.y = y;
-                    AddPathTileGFX(&pos34, *(unsigned short*)g_path_tile_ptr);
+                    pos_gfx.x = L_10;
+                    pos_gfx.y = y;
+                    AddPathTileGFX(&pos_gfx, *(unsigned short*)g_path_tile_ptr);
                 }
                 c = &g_map_rows[y][L_10];
                 rf = c->rf;
                 if ((rf & 1) || ((c->flags & 0x10) && !(rf & 2))) {
-                    u50.q.x = L_10;
-                    u50.q.y = y;
-                    AddPathSquare(&u50.q);
+                    u24.q.x = L_10;
+                    u24.q.y = y;
+                    AddPathSquare(&u24.q);
                 }
                 L_10++;
                 if (L_10 >= (unsigned short)g_map->width) {
