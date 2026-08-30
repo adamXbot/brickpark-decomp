@@ -96,4 +96,35 @@ typedef struct TileInfo {
 } TileInfo;
 extern TileInfo g_tile_info[];
 
+/* A grid position (map cell coordinates). */
+typedef struct Pos {
+    int x;               /* +0x00 */
+    int y;               /* +0x04 */
+} Pos;
+
+/* An object class/descriptor placed on the map. type at +0x20 selects the
+ * stat bucket; a Rect list at +0x3c gives its footprint; +0x98 is the
+ * per-class placement callback. */
+typedef struct ObjClass {
+    char  pad0[0x20];    /* +0x00 */
+    short type;          /* +0x20 */
+    char  pad22[0x3c - 0x22];
+    Rect  rect;          /* +0x3c footprint rect list */
+    char  pad50[0x98 - (0x3c + sizeof(Rect))];
+    void  (*place)(void* obj, Pos* pos); /* +0x98 */
+} ObjClass;
+
+/* A named database element (ElemID); its data record is at +0x0c. */
+typedef struct ElemData {
+    char pad0[0x3c];     /* +0x00 */
+    int  origin;         /* +0x3c */
+    int  base;           /* +0x40 */
+    char pad44[0x48 - 0x44];
+    int  span;           /* +0x48 */
+} ElemData;
+typedef struct Elem {
+    char      pad0[0x0c]; /* +0x00 */
+    ElemData* data;       /* +0x0c */
+} Elem;
+
 #endif /* LEGOLAND_H */
