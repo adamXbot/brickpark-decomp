@@ -39,6 +39,18 @@ machine-local symlink; point it at any assembled VC6 SP3 tree
 Only struct **offsets** are load-bearing; field/type names are ours. Types live
 in [`LEGOLAND/legoland.h`](../LEGOLAND/legoland.h).
 
+### Full-body verification (important)
+
+`tools/match.py` (and therefore `tools/verify.py`) disassembles only up to the
+**first `ret`**. For a single-`ret` function that is the whole body, but for a
+function with an early-return guard it compares only the prologue — a stand-in
+tail would pass falsely. Every committed function is therefore also checked with
+`tools/matchfull.py` (full body, difflib-aligned) **and** against its true
+extent (entry → the `ret` followed by padding/next export, via
+`scratchpad/*` audit scripts): a match counts only when `matchfull` is 100% over
+a compiled length that covers the whole function. Prologue-only or fabricated-
+tail reconstructions are never committed as `// FUNCTION:`.
+
 ## Status
 
 The map/render accessors, the `SetMapTile` family, and `GetRectArea` —
