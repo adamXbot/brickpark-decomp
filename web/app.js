@@ -268,6 +268,14 @@
     if (terrB && window.LLTiles) {
       window.LLTiles.parseILF(terrB).images.forEach(function (nm) { terrainCvs.push(tile(nm)); });
     }
+    // bridge .ILF (BRIDGES! tag): extra records with a non-zero image high byte
+    // draw from this second ILF (sub_462c60 picks [0x667cb0] when (image>>8)&0xff).
+    var bridgeCvs = [];
+    if (m.has_bridges && m.bridge_terrain && window.LLTiles) {
+      var brB = getMember(m.bridge_terrain + '.ILF');
+      if (brB) window.LLTiles.parseILF(brB).images.forEach(function (nm) { bridgeCvs.push(tile(nm)); });
+    }
+    function extraCv(rec) { return (rec.bridge ? bridgeCvs : terrainCvs)[rec.image]; }
     // object sprites per class (.LLS single / .CSP composite)
     var classSprite = {};
     m.object_classes.forEach(function (cls, ci) { classSprite[ci] = resolveObjectSprite(legoBytes, idxLego, cls); });
@@ -277,10 +285,10 @@
     function ext(x0, y0, x1, y1) { if (x0 < minX) minX = x0; if (y0 < minY) minY = y0; if (x1 > maxX) maxX = x1; if (y1 > maxY) maxY = y1; }
     // ground diamond corners (tile top-left = ((x-y)*16-16, (x+y)*8), size 32x16)
     ext((0 - (h - 1)) * 16 - 16, -64, (w - 1) * 16 - 16 + 32, (w + h - 2) * 8 + 16);
-    // cliffs bottom-anchored at their iso coords (rec.x, rec.y+TH), rising up by sprite height
+    // cliffs/bridges bottom-anchored at their iso coords (rec.x, rec.y+TH), rising up by sprite height
     m.extra.forEach(function (rec) {
-      var cv = terrainCvs[rec.image];
-      if (cv && !rec.bridge) ext(rec.x, rec.y + TH - cv.height, rec.x + cv.width, rec.y + TH);
+      var cv = extraCv(rec);
+      if (cv) ext(rec.x, rec.y + TH - cv.height, rec.x + cv.width, rec.y + TH);
     });
     var margin = 16;
     var ox = -minX + margin, oy = -minY + margin;
@@ -314,8 +322,8 @@
     var objPal = ['#ff3b30', '#ffcf3f', '#2ea3f2', '#3ec46d', '#ff7ac2', '#b07cff', '#ff9f0a'];
     var items = [];
     m.extra.forEach(function (rec) {
-      var cv = terrainCvs[rec.image];
-      if (cv && !rec.bridge) { var byc = oy + rec.y + TH; items.push({ cv: cv, x: ox + rec.x, y: byc - cv.height, depth: byc }); }
+      var cv = extraCv(rec);
+      if (cv) { var byc = oy + rec.y + TH; items.push({ cv: cv, x: ox + rec.x, y: byc - cv.height, depth: byc }); }
     });
     m.objects.forEach(function (o) {
       var px = sx(o.x, o.y), py = sy(o.x, o.y) + TH;
