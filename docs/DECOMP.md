@@ -123,6 +123,18 @@ during the call — there is no caller-supplied asset buffer. The host must have
 the RES archives readable and the ICM loaded; the grid memory is the only buffer
 the host owns and must keep alive for the map's lifetime.
 
+**Leaf helpers (matched, 100% full-body):**
+
+| addr | function | |
+| --- | --- | --- |
+| 0x00459880 | `ResetBuildStats` | zero the 8 build-stat accumulators (0x667ce0..cfc) before the `.MAP` walk |
+
+`ResetBuildStats` clears the same footprint/power tallies `PutObjOnMap`
+advances (`g_area_total`/`g_area_type1..5`/`g_count_env` + 0x667cfc); it lives in
+`LEGOLAND/mapbuild.c`. The remaining direct helpers (`sub_49e573`/`sub_49e4ff`
+env-state, `sub_4663f0` render) reach into the environment/render subsystems and
+are later batches.
+
 ## LLIDB image database (asset resolution)
 
 The LLIDB is the name→asset registry the whole asset pipeline goes through:
