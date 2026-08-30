@@ -102,6 +102,18 @@ typedef struct Pos {
     int y;               /* +0x04 */
 } Pos;
 
+/* LLIDB (LEGOLAND image database) element — 20 bytes, insertion-indexed. */
+typedef struct LLElem {
+    char*        name;       /* +0x00 lookup key (case-insensitive) */
+    char*        image;      /* +0x04 asset filename / .lls name */
+    unsigned int type_flags; /* +0x08 (type & 0xfff0) | loaded-bit0 */
+    void*        data;       /* +0x0c parsed asset table (0 until loaded) */
+    unsigned int refcount;   /* +0x10 */
+} LLElem;
+/* count @ 0x006691a4; page table @ 0x006691a8 (256 elements per 0x1400 page). */
+extern unsigned int g_llidb_count;
+extern LLElem**     g_llidb_pages;
+
 /* An object class/descriptor placed on the map. type at +0x20 selects the
  * stat bucket; a Rect list at +0x3c gives its footprint; +0x98 is the
  * per-class placement callback. */
