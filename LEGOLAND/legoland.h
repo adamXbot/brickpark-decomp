@@ -36,6 +36,15 @@ typedef struct Offset {
     int oy;
 } Offset;
 
+/* An inclusive rectangle, chained into a list; area sums over the chain. */
+typedef struct Rect {
+    int          left;    /* +0x00 */
+    int          top;     /* +0x04 */
+    int          right;   /* +0x08 */
+    int          bottom;  /* +0x0c */
+    struct Rect* next;    /* +0x10 */
+} Rect;
+
 /* A loaded tile/image sprite record; width/height live at +0x14/+0x16. */
 typedef struct Sprite {
     char  pad[0x14];   /* +0x00 */
