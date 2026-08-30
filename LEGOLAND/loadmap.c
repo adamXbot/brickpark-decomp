@@ -467,20 +467,21 @@ after_baserle:
 
     /* ================= S9: user-flags RLE + perimeter + texture ==== */
     HeapFree_w(buf);
-    RES_ReadFile(L_20, &L_14, 4);
     L_10 = 0;
-    buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-    RES_ReadFile(L_20, buf, L_14);
     bi = 0;
     y = 0;
-    while ((unsigned)y < (unsigned short)g_map->height) {
+    RES_ReadFile(L_20, &L_14, 4);
+    buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
+    RES_ReadFile(L_20, buf, L_14);
+    while (y < (int)(unsigned short)g_map->height) {
         progress_tick();
         opbyte = buf[bi++];
         runlen = opbyte & 0x3f;
         if (runlen == 0)
             runlen = 0x40;
         op = opbyte & 0xc0;
-        if (op == 0x40) {
+        switch (op) {
+        case 0x40:
             L_2c = runlen;
             do {
                 unsigned val = buf[bi++];
@@ -491,7 +492,8 @@ after_baserle:
                     y++;
                 }
             } while (--L_2c != 0);
-        } else if (op == 0x80) {
+            break;
+        case 0x80:
             L_2c = runlen;
             do {
                 unsigned val = buf[bi];
@@ -503,6 +505,7 @@ after_baserle:
                 }
             } while (--L_2c != 0);
             bi++;
+            break;
         }
     }
     HeapFree_w(buf);
@@ -539,16 +542,15 @@ after_baserle:
 
     /* ================= S10: base-layer RLE decode into cell.base === */
     {
-        int state = 0;
         for (y = 0; y < (int)g_map->height; y++) {
             progress_tick();
             for (x = 0; x < (int)g_map->width; x++) {
                 for (;;) {
-                    switch (state) {
+                    switch (L_2c) {
                     case 0:
                         if (RES_ReadFile(L_20, &L_14, 1) != 1)
                             goto s10_close;
-                        state = (L_14 != 0) ? 2 : 1;
+                        L_2c = (L_14 != 0) ? 2 : 1;
                         continue;
                     case 1:
                         {
@@ -556,7 +558,7 @@ after_baserle:
                             RES_ReadFile(L_20, &pos34, 2);
                             v = *(unsigned int*)&pos34;
                             if (v == 0xffff) {
-                                state = 0;
+                                L_2c = 0;
                             } else {
                                 unsigned idx = (unsigned char)(((v - 0x100) >> 8) & 0xff);
                                 unsigned low = v & 0xff;
@@ -572,7 +574,7 @@ after_baserle:
                             L_14--;
                             break;
                         }
-                        state = 1;
+                        L_2c = 1;
                         continue;
                     }
                     break;
