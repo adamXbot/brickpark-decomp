@@ -129,25 +129,26 @@ int LLIDB_FindElementFromDataPtr(void* data, LLElem** out_elem, unsigned int* ou
     return -3;
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0047b5a0  (page allocator; malloc/realloc call-schedule)
+// FUNCTION: LEGOLAND 0x0047b5a0
 unsigned int LLIDB_GrowAndGetIndex(void)
 {
-    if (((g_llidb_count ^ g_llidb_capacity) & 0xffffff00) == 0) {
-        unsigned int cap = g_llidb_count + 0x100;
-        LLElem** pages = g_llidb_pages;
-        cap &= 0xffffff00;
+    unsigned int cap = g_llidb_capacity;
+    unsigned int count;
+    if (((g_llidb_count ^ cap) & 0xffffff00) == 0) {
+        count = g_llidb_count;
+        cap = (count + 0x100) & 0xffffff00;
         g_llidb_capacity = cap;
-        g_llidb_pages = (LLElem**)realloc(pages, (cap >> 8) * 4);
+        g_llidb_pages = (LLElem**)realloc(g_llidb_pages, (cap >> 8) * 4);
         g_llidb_pages[(g_llidb_capacity >> 8) - 1] = (LLElem*)malloc(0x1400);
     }
     return g_llidb_count;
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0047b610  (registration; inlined strlen/strcpy + paged writes)
+// FUNCTION: LEGOLAND 0x0047b610
 int LLIDB_RegisterNewElement(char* name, char* image, unsigned int type)
 {
     LLElem* found;
-    unsigned int index, page, slot;
+    unsigned int index;
 
     if (!name || !name[0])
         return -4;
@@ -155,28 +156,24 @@ int LLIDB_RegisterNewElement(char* name, char* image, unsigned int type)
         return -5;
 
     if (LLIDB_FindElement(name, &found, 0) == 0) {
-        if (type == 0x200)
-            return 0;
-        if (stricmp(found->image, image) == 0)
-            return 0;
-        return -1;
+        if (type != 0x200 && stricmp(found->image, image) != 0)
+            return -1;
+        return 0;
     }
 
     index = LLIDB_GrowAndGetIndex();
-    page = index >> 8;
-    slot = index & 0xff;
 
-    g_llidb_pages[page][slot].name = (char*)malloc(strlen(name) + 1);
-    strcpy(g_llidb_pages[page][slot].name, name);
-    if (image) {
-        g_llidb_pages[page][slot].image = (char*)malloc(strlen(image) + 1);
-        strcpy(g_llidb_pages[page][slot].image, image);
+    g_llidb_pages[index>>8][index&0xff].name = (char*)malloc(strlen(name) + 1);
+    strcpy(g_llidb_pages[index>>8][index&0xff].name, name);
+    if (!image) {
+        g_llidb_pages[index>>8][index&0xff].image = (char*)malloc(1);
+        g_llidb_pages[index>>8][index&0xff].image[0] = '\0';
     } else {
-        g_llidb_pages[page][slot].image = (char*)malloc(1);
-        g_llidb_pages[page][slot].image[0] = '\0';
+        g_llidb_pages[index>>8][index&0xff].image = (char*)malloc(strlen(image) + 1);
+        strcpy(g_llidb_pages[index>>8][index&0xff].image, image);
     }
-    g_llidb_pages[page][slot].type_flags = type & 0xfff0;
-    g_llidb_pages[page][slot].refcount = 0;
+    g_llidb_pages[index>>8][index&0xff].type_flags = type & 0xfff0;
+    g_llidb_pages[index>>8][index&0xff].refcount = 0;
     g_llidb_count++;
     return 0;
 }

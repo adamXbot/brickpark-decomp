@@ -78,11 +78,11 @@ typedef struct LLSAnim { char pad[0x10]; short count; } LLSAnim;
 typedef struct LLSHdr  { LLSAnim* frames; char pad[0x10]; int type; } LLSHdr;
 typedef struct LLSprite { char pad[8]; LLSHdr* hdr; } LLSprite;
 
-// WIP-FUNCTION: LEGOLAND 0x0047cba0  (85.7%; body-exact, parent-link tail register/block grind)
+// FUNCTION: LEGOLAND 0x0047cba0
 void* LLIDB_LoadTSFData(LLElem* elem)
 {
-    char     path[512];
     char     name[512];
+    char     path[512];
     int      n;
     int      len;
     int      i;
@@ -93,51 +93,50 @@ void* LLIDB_LoadTSFData(LLElem* elem)
 
     sprintf(path, "TileData\\%s", elem->image);
     file = RES_OpenFile(path);
-    if (file) {
-        desc = (TsfData*)malloc(0x24);
-        RES_ReadFile(file, &n, 4);
-        desc->codes = (unsigned int*)malloc(n * 4);
-        desc->second = (unsigned int*)malloc(n * 4);
-        desc->n_tiles = n;
-        desc->f18 = 0;
-        desc->f1c = 0;
-        desc->f20 = 0;
-        RES_ReadFile(file, &len, 4);
-        RES_ReadFile(file, name, len);
-        for (i = 0; i < n; i++) {
-            RES_ReadFile(file, &desc->codes[i], 4);
-            RES_ReadFile(file, &desc->second[i], 4);
-        }
-        desc->sprites = (void**)AllocTileSpace(desc, n, &base);
-        desc->base_slot = base & 0xffff;
-        for (i = 0; i < n; i++) {
-            LLSprite* sprite;
-            RES_ReadFile(file, &len, 4);
-            RES_ReadFile(file, name, len);
-            name[len] = 0;
-            sprite = (LLSprite*)LoadSprite(name, 1);
-            desc->sprites[i] = sprite;
-            if (sprite->hdr->type == 2 || sprite->hdr->type == 3)
-                if (sprite->hdr->frames->count > 1)
-                    LLSPlay(sprite->hdr->frames, sprite->hdr);
-        }
-        desc->parent = 0;
-        if (RES_ReadFile(file, &len, 4) == 4 && len != 0) {
-            RES_ReadFile(file, path, len);
-            path[len] = 0;
-            if (LLIDB_FindElement(path, &parent, 0) == 0) {
-                elem->data = desc;
-                desc->parent = parent;
-                LLIDB_LoadData(parent);
-                *(void**)((char*)parent->data + 0x74) = desc;
-            }
-        }
-        RES_CloseFile(file);
-        elem->type_flags |= 1;
-        elem->data = desc;
-        return desc;
+    if (!file)
+        return 0;
+    desc = (TsfData*)malloc(0x24);
+    RES_ReadFile(file, &n, 4);
+    desc->codes = (unsigned int*)malloc(n * 4);
+    desc->second = (unsigned int*)malloc(n * 4);
+    desc->n_tiles = n;
+    desc->f18 = 0;
+    desc->f1c = 0;
+    desc->f20 = 0;
+    RES_ReadFile(file, &len, 4);
+    RES_ReadFile(file, name, len);
+    for (i = 0; i < n; i++) {
+        RES_ReadFile(file, &desc->codes[i], 4);
+        RES_ReadFile(file, &desc->second[i], 4);
     }
-    return 0;
+    desc->sprites = (void**)AllocTileSpace(desc, n, &base);
+    desc->base_slot = base & 0xffff;
+    for (i = 0; i < n; i++) {
+        LLSprite* sprite;
+        RES_ReadFile(file, &len, 4);
+        RES_ReadFile(file, path, len);
+        path[len] = 0;
+        desc->sprites[i] = LoadSprite(path, 1);
+        sprite = (LLSprite*)desc->sprites[i];   /* re-read from array so VC6 reloads the ptr */
+        if (sprite->hdr->type == 2 || sprite->hdr->type == 3)
+            if (sprite->hdr->frames->count > 1)
+                LLSPlay(sprite->hdr->frames, sprite->hdr);
+    }
+    desc->parent = 0;
+    if (RES_ReadFile(file, &len, 4) == 4 && len != 0) {
+        RES_ReadFile(file, name, len);
+        name[len] = 0;
+        if (LLIDB_FindElement(name, &parent, 0) == 0) {
+            elem->data = desc;
+            desc->parent = parent;
+            LLIDB_LoadData(parent);
+            *(void**)((char*)parent->data + 0x74) = desc;
+        }
+    }
+    RES_CloseFile(file);
+    elem->type_flags |= 1;
+    elem->data = desc;
+    return desc;
 }
 
 void LLIDB_FreeILFTable(void* desc);
@@ -154,18 +153,19 @@ typedef struct IlfData {
     int    f18, f1c, f20;
 } IlfData;
 
-// WIP-FUNCTION: LEGOLAND 0x0047cfc0  (86.2%; loops exact, local-slot/fail-path residual)
+// FUNCTION: LEGOLAND 0x0047cfc0
 void* LLIDB_LoadILFData(LLElem* elem)
 {
     char     path[512];
     char     name[512];
     int      n;
-    int      type;
+    short    type;
     int      len;
     int      i;
     void*    file;
     IlfData* desc;
 
+    n = 0;
     sprintf(path, "ImageData\\%s", elem->image);
     file = RES_OpenFile(path);
     if (file) {
@@ -176,8 +176,8 @@ void* LLIDB_LoadILFData(LLElem* elem)
             desc->dx = (int*)malloc(n * 4);
             desc->dy = (int*)malloc(n * 4);
             desc->sprites = (void**)malloc(n * 4);
-            desc->f04 = type;
-            if (desc->dx && desc->dy) {
+            desc->f04 = n;
+            if (desc->dx && desc->dy && desc->sprites) {
                 RES_ReadFile(file, &len, 4);
                 RES_ReadFile(file, name, len);
                 for (i = 0; i < n; i++) {
@@ -188,9 +188,9 @@ void* LLIDB_LoadILFData(LLElem* elem)
                 }
                 for (i = 0; i < n; i++) {
                     RES_ReadFile(file, &len, 4);
-                    RES_ReadFile(file, name, len);
-                    name[len] = 0;
-                    desc->sprites[i] = LoadSprite(name, 1);
+                    RES_ReadFile(file, path, len);
+                    path[len] = 0;
+                    desc->sprites[i] = LoadSprite(path, 1);
                 }
                 if (i == n) {
                     desc->f14 = 0;
@@ -198,6 +198,63 @@ void* LLIDB_LoadILFData(LLElem* elem)
                     elem->type_flags |= 1;
                     elem->data = desc;
                     return desc;
+                }
+            }
+        }
+        LLIDB_FreeILFTable(desc);
+        RES_CloseFile(file);
+    }
+    return 0;
+}
+
+// FUNCTION: LEGOLAND 0x0047d1a0
+void* LLIDB_LoadCSPData(LLElem* elem)
+{
+    char     path[512];
+    char     name[512];
+    int      n;
+    short    type;
+    int      len;
+    int      i;
+    void*    file;
+    IlfData* desc;
+
+    n = 0;
+    sprintf(path, "CompSprite\\%s", elem->image);
+    file = RES_OpenFile(path);
+    if (file) {
+        desc = (IlfData*)malloc(0x24);
+        if (desc) {
+            RES_ReadFile(file, &n, 2);
+            RES_ReadFile(file, &type, 2);
+            desc->dx = (int*)malloc(n * 4);
+            desc->dy = (int*)malloc(n * 4);
+            desc->sprites = (void**)malloc(n * 4);
+            desc->f04 = n;
+            if (desc->dx && desc->dy && desc->sprites) {
+                RES_ReadFile(file, &len, 4);
+                RES_ReadFile(file, name, len);
+                for (i = 0; i < n; i++) {
+                    RES_ReadFile(file, &desc->dx[i], 4);
+                    RES_ReadFile(file, &desc->dy[i], 4);
+                    desc->dx[i] <<= 1;
+                    desc->dy[i] <<= 1;
+                }
+                for (i = 0; i < n; i++) {
+                    RES_ReadFile(file, &len, 4);
+                    RES_ReadFile(file, path, len);
+                    path[len] = 0;
+                    desc->sprites[i] = LoadSprite(path, 1);
+                }
+                for (i = 0; i < n; i++)
+                    if (desc->sprites[i] == 0)
+                        break;
+                if (i == n) {
+                    desc->f14 = 0;
+                    elem->data = desc;
+                    elem->type_flags |= 1;
+                    RES_CloseFile(file);
+                    return elem->data;
                 }
             }
         }

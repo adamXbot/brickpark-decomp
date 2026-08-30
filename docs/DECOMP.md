@@ -41,7 +41,8 @@ in [`LEGOLAND/legoland.h`](../LEGOLAND/legoland.h).
 
 ## Status
 
-The map/render accessors and the `SetMapTile` family — **13/13 at 100%**:
+The map/render accessors, the `SetMapTile` family, and `GetRectArea` —
+**14/14 at 100%**:
 
 | addr | function | |
 | --- | --- | --- |
@@ -130,7 +131,8 @@ struct (20 bytes, insertion-indexed via a paged table): `name`@0, `image`@4,
 `type_flags`@8 (`(type&0xfff0)|loaded-bit0`), `data`@0xc, `refcount`@0x10.
 Globals: capacity @0x6691a0, count @0x6691a4, page table @0x6691a8.
 
-**Matched (100% normalized, full-body):**
+**Matched (100% normalized, full-body — the entire LLIDB core + registration +
+every per-type parser):**
 
 | addr | function | |
 | --- | --- | --- |
@@ -138,30 +140,52 @@ Globals: capacity @0x6691a0, count @0x6691a4, page table @0x6691a8.
 | 0x0047b2e0 | `LLIDB_GetElement` | paged index → element |
 | 0x0047b330 | `LLIDB_FindElement` | name scan (stricmp) |
 | 0x0047b410 | `LLIDB_FindElementFromDataPtr` | data-ptr scan |
+| 0x0047b5a0 | `LLIDB_GrowAndGetIndex` | paged-table allocator (256-elem pages) |
+| 0x0047b610 | `LLIDB_RegisterNewElement` | dedup-or-insert name/image slot |
 | 0x0047d3a0 | `LLIDB_LoadData` | lazy loader/dispatcher (bit0=loaded; switch on type&0xfff0) |
+| 0x0047ce40 | `LLIDB_LoadTSMData` | `.TSM` tileset-list parser |
+| 0x0047cba0 | `LLIDB_LoadTSFData` | `.TSF` tile-sprite parser |
+| 0x0047cfc0 | `LLIDB_LoadILFData` | `.ILF` image-list parser |
+| 0x0047d1a0 | `LLIDB_LoadCSPData` | `.CSP` composite-sprite parser |
+| 0x0047bf70 | `LLIDB_LoadODFData` | `.ODF` object-definition parser |
 
 `LoadData` dispatch: 0x10/0x1010→ODF, 0x20→TSM, 0x40→TSF, 0x400→ILF,
 0x2000→CSP, 0x200/0x800→no backing file (returns 0).
 
-**WIP (reversed & logic-complete; large heap/parse functions pending the VC6
-call-scheduling / stack-layout grind — kept as `// WIP-FUNCTION:`):**
+The registration path (`GrowAndGetIndex` grows the paged table in 256-element
+pages — realloc the page array + malloc a 0x1400 page; `RegisterNewElement`
+dedups by name then strdups name/image into a fresh slot writing only
++0/+4/+8/+0x10, count++) and all five parsers now match at 100% full-body.
+Parser code lives in `LEGOLAND/llidb_load.c` (TSM/TSF/ILF/CSP) and
+`LEGOLAND/llidb_odf.c` (ODF, the 625-instruction object-def loader in its own
+translation unit).
 
-- `LLIDB_GrowAndGetIndex` (0x47b5a0) — grows the paged table in 256-elem pages
-  (realloc page array + malloc a 0x1400 page); returns the new index.
-- `LLIDB_RegisterNewElement` (0x47b610) — dedup by name, else strdup name/image
-  into a fresh slot; only +0/+4/+8/+0x10 written, count++.
-- Per-type parsers — **on-disk formats and outputs, for the runtime:**
-  - `LLIDB_LoadTSMData` (0x47ce40): opens `TileData\<image>`, reads `u32 count`,
-    `mallocs (count+1)` **8-byte records `{LLElem* entry, void* loaded}`**, reads
-    a self-name (discarded), then per tileset reads `u32 len`+name → FindElement
-    → LoadData, filling `{entry, loaded}`; terminates `{-1,-1}`. Sets
-    `elem->data`=recs, `type_flags|=1`.
-  - `LLIDB_LoadTSFData` (0x47cba0): builds a 36-byte descriptor `{+4 n_tiles,
-    +8 AllocTileSpace base id, +0xc code[], +0x10 second[]}` — the **base id**
-    tile codes are added to (see FORMATS.md tile pipeline).
-  - `LLIDB_LoadILFData` (0x47cfc0) / `LLIDB_LoadCSPData` (0x47d1a0): image list
-    `{u16 n, u16 type, name, n×(dx,dy doubled), n× .lls}`, each sprite loaded.
-  - `LLIDB_LoadODFData` (0x47bf70): object-def blob loader.
+**On-disk formats & outputs (for the runtime):**
+
+- `LLIDB_LoadTSMData` (0x47ce40): opens `TileData\<image>`, reads `u32 count`,
+  `mallocs (count+1)` **8-byte records `{LLElem* entry, void* loaded}`**, reads
+  a self-name (discarded), then per tileset reads `u32 len`+name → FindElement
+  → LoadData, filling `{entry, loaded}`; terminates `{-1,-1}`. Sets
+  `elem->data`=recs, `type_flags|=1`.
+- `LLIDB_LoadTSFData` (0x47cba0): opens `TileData\<image>`, builds a 36-byte
+  descriptor `{+4 n_tiles, +0 base_slot = AllocTileSpace id & 0xffff, +0xc
+  code[], +0x10 second[], +8 sprites[]}`, loads each `.lls` tile sprite (auto-
+  playing anim types 2/3 with >1 frame), then optionally links a **parent** tile
+  element and writes itself into `parent->data+0x74`. **base_slot** is what tile
+  codes are added to (see FORMATS.md tile pipeline).
+- `LLIDB_LoadILFData` (0x47cfc0, `ImageData\<image>`) / `LLIDB_LoadCSPData`
+  (0x47d1a0, `CompSprite\<image>`): image list `{u16 n, u16 type, name,
+  n×(dx,dy doubled at load), n× .lls}` into a 36-byte descriptor `{+4 n, +0xc
+  dx[], +0x10 dy[], +8 sprites[]}`; each sprite `LoadSprite`d. CSP additionally
+  null-checks every loaded sprite before committing. On any alloc/parse failure
+  both call `LLIDB_FreeILFTable` and return 0.
+- `LLIDB_LoadODFData` (0x47bf70): opens `Objdesc\<image>`, builds a 0xd0-byte
+  `ObjDef`, links it onto `g_odf_head` (0x669240), reads the fixed header then
+  resolves the class's sprite/icon/build-anim/child LLIDB elements (missing
+  names → `ODFError`, missing icon → `InstituteIcon.lls`), walks `count`
+  localized string records (keeps `english`/record 0, skips the rest into
+  `f78/f7c/f80`), then `SetStandardCallbacks` → optional `LoadObjectLibrary`
+  (OC_USEDLL 0x10000) → `SetCustomCallbacks` → `ObjDefFinalize`.
 
 Full disassembly-grounded drafts for all of the above are in
 `scratchpad/slope_re/*.md` and the loader-draft workflow output.
@@ -176,9 +200,10 @@ file; does not touch the shared `match.py`/`verify.py`, uses its own
 all committed functions are 100% end-to-end. Suggest folding the full-body walk
 into `match.py` alongside the parallel-safety fix.
 
-Next: grind the LLIDB parsers/registration to 100% (stack-layout + call-schedule
-iteration), the `PutObjOnMap` tail, then `LoadBaseMap` — and outward across the
-716 exports.
+Next: the whole LLIDB core + registration + all five per-type parsers now match
+at 100% full-body. Remaining: the `PutObjOnMap` tail (register-alloc divergence
+in the `ENTRANCE 1` coord block), then `LoadBaseMap` itself — and outward across
+the 716 exports.
 
 ## Legal
 

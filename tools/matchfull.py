@@ -40,12 +40,14 @@ def main():
     ap.add_argument("src"); ap.add_argument("func"); ap.add_argument("addr")
     ap.add_argument("--flags", default="/O2 /Gy /Gd")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--obj", default=None,
+                    help="object path (default: unique per func+pid, so parallel runs don't collide)")
     args = ap.parse_args()
     rva = int(args.addr, 16)
     if rva >= IMAGE_BASE:
         rva -= IMAGE_BASE
 
-    obj = "/tmp/_matchfull.obj"
+    obj = args.obj or ("/tmp/_mf_%s_%d.obj" % (args.func, os.getpid()))
     cmd = [CL, "/nologo", "/c", "/Fo" + obj] + args.flags.split() + [args.src]
     env = dict(os.environ, ALPHATEAM_VC6_ROOT=os.path.join(ROOT, "toolchain"))
     r = subprocess.run(cmd, capture_output=True, text=True, env=env)
