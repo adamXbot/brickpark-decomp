@@ -215,7 +215,6 @@ int LoadBaseMap(char* mapName)
     L_48 = 0;                    /* curval */
     RES_ReadFile(L_20, &L_14, 4);
     buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-    u24.rle = buf;
     RES_ReadFile(L_20, buf, L_14);
     bi = 2;
 
@@ -290,7 +289,7 @@ int LoadBaseMap(char* mapName)
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
                         (unsigned short)(*rec + db);
                     {
-                        unsigned db2 = u24.rle[bi];
+                        unsigned db2 = buf[bi];
                         unsigned short* rec2 = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
                         SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)db2));
                     }
@@ -331,7 +330,7 @@ int LoadBaseMap(char* mapName)
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
                         (unsigned short)(*rec + db);
                     {
-                        unsigned db2 = u24.rle[bi];
+                        unsigned db2 = buf[bi];
                         unsigned short* rec2 = *(unsigned short**)((char*)L_3c + (((unsigned)(unsigned char)db2 >> 8) | ib) * 8 + 4);
                         SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)db2));
                     }
@@ -358,36 +357,33 @@ int LoadBaseMap(char* mapName)
             break;
         }
 
+    /* Merge point for every opcode arm; 0x004621f3 re-tests y against the map
+     * height and 0x00462200 is the only back-edge of the base-tile loop. */
     base_tail:
-        if (y < (int)g_map->height)
-            continue;
-        /* Chunk exhausted: free and read next chunk.  Reset order
-         * (L_10, y, bi) mirrors the S7->S8 and S8->S9 transitions and is worth
-         * +1 over (bi, L_10, y): it decides which zeroed register VC6 reuses
-         * for the [esp+0x10] store at 0x0046221a.
-         * SEMANTIC CAVEAT (inherited from the base, see report): the original
-         * does NOT re-enter the base loop after this -- 0x00462206 falls
-         * straight through to the S7 loop at 0x00462250.  Writing it that way
-         * is correct but costs ~145 instructions function-wide (it flips the
-         * buf/bi/y register roles from S7 onward), so the base's structure is
-         * kept here. */
-        HeapFree_w(buf);
-        file = L_20;
-        L_10 = 0;
-        y = 0;
-        bi = 0;
-        RES_ReadFile(L_20, &L_14, 4);
-        buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-        u24.rle = buf;
-        RES_ReadFile(L_20, buf, L_14);
-        if ((unsigned short)g_map->height <= (unsigned)y)
-            goto after_baserle;
-        /* fall through into next chunk decode via S7? no: continue base loop */
+        ;
     }
 
-after_baserle:
+    /* Chunk exhausted: free the base-tile stream and read the next chunk.
+     * The original does NOT re-enter the base decoder here.  Both the entry
+     * guard (0x00461eb1 jbe) and the loop exit (0x00462200) land on
+     * 0x00462206 = HeapFree_w, and the single test at 0x00462246
+     * `cmp word [ecx+0x16], si / jbe 0x462388` either skips S7 outright or
+     * falls straight through into the S7 body at 0x00462250.
+     * The previous revision spliced this transition INTO the base-tile loop
+     * and branched back to its top, which re-decoded the map-flags chunk as
+     * base tiles (and then kept consuming chunks) for any map with height > 0
+     * -- a real bug, not just a mismatch. */
+    HeapFree_w(buf);
+    file = L_20;
+    L_10 = 0;
+    y = 0;
+    bi = 0;
+    RES_ReadFile(L_20, &L_14, 4);
+    buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
+    RES_ReadFile(L_20, buf, L_14);
+
     /* ================= S7: map-flags RLE decode =================== */
-    while ((int)y < (int)g_map->height) {
+    while (y < (int)(unsigned short)g_map->height) {
         progress_tick();
         opbyte = buf[bi++];
         runlen = opbyte & 0x3f;
@@ -397,10 +393,7 @@ after_baserle:
         switch (op) {
         case 0x40:
             /* COPY: distinct data byte per cell */
-            if (runlen == 0)
-                break;
-            L_2c = runlen;
-            for (;;) {
+            while (runlen-- != 0) {
                 unsigned db = buf[bi++];
                 Cell* c = &g_map_rows[y][L_10];
                 /* NOTE: both arms are deliberately identical. The original
@@ -417,26 +410,24 @@ after_baserle:
                     L_10 = 0;
                     y++;
                 }
-                if (--L_2c == 0)
-                    break;
             }
             break;
         case 0x80:
             /* FILL: one data byte over runlen cells */
             {
                 unsigned rv = buf[bi++];
-                if (runlen == 0)
-                    break;
-                /* FRAME-SLOT LEVER (load-bearing, +2.5% whole-function):
-                 * mirroring the run length into L_14 keeps the [esp+0x14] read
-                 * scratch live across S7.  Without it VC6 SP3 coalesces that
-                 * slot with a temp here and every later esp displacement in
-                 * S4/S8/S9/S10 shifts off by one slot.  The original reuses the
-                 * same slot as a counter further on (dec dword [esp+0x14] at
-                 * 0x0046284d), so the variable really does stay live past S7.
-                 * Costs exactly one extra `mov [esp+0x14],eax` at 0x00462288. */
-                L_2c = L_14 = (int)runlen;
-                for (;;) {
+                /* FRAME-SLOT LEVER (load-bearing, worth ~36 instructions
+                 * whole-function): mirroring the run length into L_14 keeps the
+                 * [esp+0x14] read scratch live across S7.  Without it VC6 SP3
+                 * coalesces that slot away and EVERY [esp+N] from S2 onward
+                 * shifts down by one slot.  The original reuses the same slot
+                 * as a counter in S10 (dec dword [esp+0x14] at 0x0046284d), so
+                 * the variable really does stay live past S7.  L_14 is
+                 * unconditionally re-read by the S8 chunk header read below, so
+                 * the store is dead as far as behaviour goes.
+                 * Costs exactly one extra `mov [esp+0x14],eax` at 0x00462290. */
+                L_14 = (int)runlen;
+                while (runlen-- != 0) {
                     Cell* c = &g_map_rows[y][L_10];
                 /* NOTE: both arms are deliberately identical. The original
                  * (0x004622ae / 0x00462333) tests the tile-info flag and then
@@ -452,8 +443,6 @@ after_baserle:
                         L_10 = 0;
                         y++;
                     }
-                    if (--L_2c == 0)
-                        break;
                 }
             }
             break;
