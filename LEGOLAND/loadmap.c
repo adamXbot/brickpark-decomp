@@ -45,7 +45,10 @@ extern void  SetMapTile(int x, int y, unsigned short tile);  /* 0x461780 */
 extern void  SetMapFlags(int x, int y, unsigned short flags);/* 0x461810 */
 extern unsigned short GetMapFlags(int x, int y);/* 0x4617d0 */
 extern void  Set_RFFlags(int x, int y, unsigned char value); /* 0x4616e0 */
-extern void  Set_UserFlags(int x, int y, unsigned int value);/* 0x461730 */
+extern void  Set_UserFlags(int x, int y, unsigned short value);/* 0x461730 —
+   3rd param is 16-bit: the original pushes ecx straight after
+   "movzx cx, byte ptr [...]", which only happens for a WORD formal.
+   Confirmed against the matched definition in sweep2.c. */
 extern void  Format(char* dest, const char* fmt, ...);       /* 0x49e573 */
 extern void* HeapAlloc_w(unsigned int size);    /* 0x49e4ff */
 extern void  HeapFree_w(void* p);               /* 0x49e4d0 */
@@ -192,13 +195,13 @@ int LoadBaseMap(char* mapName)
     L_10 = 0;                    /* x */
     y = 0;
     L_48 = 0;                    /* curval */
-    RES_ReadFile(file, &L_14, 4);
+    RES_ReadFile(L_20, &L_14, 4);
     buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
     u24.rle = buf;
-    RES_ReadFile(file, buf, L_14);
+    RES_ReadFile(L_20, buf, L_14);
     bi = 2;
 
-    while ((unsigned)y < (unsigned short)g_map->height) {
+    while (y < (int)g_map->height) {
         progress_tick();
         opbyte = buf[bi++];
         runlen = opbyte & 0x3f;
@@ -214,12 +217,18 @@ int LoadBaseMap(char* mapName)
             L_48 = runlen;
             goto base_tail;
         case 0x40:
-            /* run: place curval over runlen cells */
-            if (runlen == 0)
-                goto base_tail;
-            L_40 = L_48 & 0x20;
-            L_2c = runlen;
-            for (;;) {
+            /* run: place curval over runlen cells.
+             * LOAD-BEARING IDIOM: `while (runlen-- != 0)` is what VC6 SP3
+             * lowers to the original's guard
+             *   mov ecx,eax / dec eax / test ecx,ecx / je end / inc eax
+             *   mov [esp+0x2c],eax        (trip count) ... do {} while(--trip)
+             * (0x461efe, 0x46204d, 0x46219a).  Writing the guard and the
+             * counter out by hand lets VC6 delete the dead `dec`/`inc` pair.
+             * The `L_40 = L_48 & 0x20` assignment must sit INSIDE the loop so
+             * VC6's LICM sinks it into the preheader AFTER the guard, matching
+             * 0x461f09-0x461f0f. */
+            while (runlen-- != 0) {
+                L_40 = L_48 & 0x20;
                 if (L_40 != 0) {
                     /* object path */
                     void* obj;
@@ -258,17 +267,12 @@ int LoadBaseMap(char* mapName)
                     L_10 = 0;
                     y++;
                 }
-                if (--L_2c == 0)
-                    break;
             }
             goto base_tail;
         case 0x80:
             /* fill run */
-            if (runlen == 0)
-                goto base_fillskip;
-            L_40 = L_48 & 0x20;
-            L_2c = runlen;
-            for (;;) {
+            while (runlen-- != 0) {
+                L_40 = L_48 & 0x20;
                 if (L_40 != 0) {
                     void* obj;
                     void* cls;
@@ -303,18 +307,12 @@ int LoadBaseMap(char* mapName)
                     L_10 = 0;
                     y++;
                 }
-                if (--L_2c == 0)
-                    break;
             }
-        base_fillskip:
             bi++;
             goto base_tail;
         case 0xc0:
             /* op == 0xc0: zero run */
-            if (runlen == 0)
-                goto base_tail;
-            L_2c = runlen;
-            for (;;) {
+            while (runlen-- != 0) {
                 *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) = 0;
                 L_10++;
                 if (L_10 >= (unsigned short)g_map->width) {
@@ -322,14 +320,12 @@ int LoadBaseMap(char* mapName)
                     y++;
                 }
                 SetMapTile(L_10, y, 0);
-                if (--L_2c == 0)
-                    break;
             }
             break;
         }
 
     base_tail:
-        if ((unsigned)y < (unsigned short)g_map->height)
+        if (y < (int)g_map->height)
             continue;
         /* chunk exhausted: free and read next chunk */
         HeapFree_w(buf);
@@ -337,10 +333,10 @@ int LoadBaseMap(char* mapName)
         bi = 0;
         L_10 = 0;
         y = 0;
-        RES_ReadFile(file, &L_14, 4);
+        RES_ReadFile(L_20, &L_14, 4);
         buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
         u24.rle = buf;
-        RES_ReadFile(file, buf, L_14);
+        RES_ReadFile(L_20, buf, L_14);
         if ((unsigned short)g_map->height <= (unsigned)y)
             goto after_baserle;
         /* fall through into next chunk decode via S7? no: continue base loop */
@@ -415,13 +411,13 @@ after_baserle:
 
     /* ================= S8: RF-flags terrain RLE decode ============ */
     HeapFree_w(buf);
-    bi = 0;
     L_10 = 0;
     y = 0;
+    bi = 0;
     RES_ReadFile(L_20, &L_14, 4);
     buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
     RES_ReadFile(L_20, buf, L_14);
-    while ((unsigned)y < (unsigned short)g_map->height) {
+    while (y < (int)(unsigned short)g_map->height) {
         progress_tick();
         opbyte = buf[bi++];
         runlen = opbyte & 0x3f;
@@ -430,19 +426,54 @@ after_baserle:
         op = opbyte & 0xc0;
         switch (op) {
         case 0x40: {
-            /* COPY: distinct data byte per cell */
-            L_2c = runlen;
-            do {
+            /* COPY: distinct data byte per cell.
+             * 'while (runlen--)' (NOT do/while) is deliberate: VC6 lowers it to
+             * mov r,eax / dec eax / test r,r / je end / lea ebx,[eax+1], which is
+             * exactly 0x004624d0-0x004624db.  A do/while drops the entry guard. */
+            while (runlen--) {
                 unsigned short cf = GetMapFlags(L_10, y);
-                int byte = buf[bi++];
+                int byte;
                 Cell* c;
                 unsigned char rf;
                 L_18 = cf;
+                byte = buf[bi];
+                bi++;
                 Set_RFFlags(L_10 << 8, y << 8, (unsigned char)byte);
                 if (!((unsigned char)L_18 & 8) && ((unsigned char)L_18 & 0x10)) {
+                    u54.q.x = L_10;
+                    u54.q.y = y;
+                    AddPathTileGFX(&u54.q, *(unsigned short*)g_path_tile_ptr);
+                }
+                c = &g_map_rows[y][L_10];
+                rf = c->rf;
+                if ((rf & 1) || ((c->flags & 0x10) && !(rf & 2))) {
                     u24.q.x = L_10;
                     u24.q.y = y;
-                    AddPathTileGFX(&u24.q, *(unsigned short*)(*g_path_tile_ptr));
+                    AddPathSquare(&u24.q);
+                }
+                L_10++;
+                if (L_10 >= (unsigned short)g_map->width) {
+                    L_10 = 0;
+                    y++;
+                }
+            }
+            break;
+        }
+        case 0x80: {
+            /* FILL: one data byte over runlen cells (same while(runlen--) form,
+             * 0x004623fd-0x00462408; the trailing bi++ is the je target 0x004624ca). */
+            while (runlen--) {
+                unsigned short cf = GetMapFlags(L_10, y);
+                int rfarg;
+                Cell* c;
+                unsigned char rf;
+                L_18 = cf;
+                rfarg = (cf & 0xff00) | buf[bi];
+                Set_RFFlags(L_10 << 8, y << 8, (unsigned char)rfarg);
+                if (!((unsigned char)L_18 & 8) && ((unsigned char)L_18 & 0x10)) {
+                    pos34.x = L_10;
+                    pos34.y = y;
+                    AddPathTileGFX(&pos34, *(unsigned short*)g_path_tile_ptr);
                 }
                 c = &g_map_rows[y][L_10];
                 rf = c->rf;
@@ -456,38 +487,7 @@ after_baserle:
                     L_10 = 0;
                     y++;
                 }
-            } while (--L_2c != 0);
-            break;
-        }
-        case 0x80: {
-            /* FILL: one data byte over runlen cells */
-            L_2c = runlen;
-            do {
-                unsigned short cf = GetMapFlags(L_10, y);
-                int rfarg;
-                Cell* c;
-                unsigned char rf;
-                L_18 = cf;
-                rfarg = (cf & 0xff00) | buf[bi];
-                Set_RFFlags(L_10 << 8, y << 8, (unsigned char)rfarg);
-                if (!((unsigned char)L_18 & 8) && ((unsigned char)L_18 & 0x10)) {
-                    pos34.x = L_10;
-                    pos34.y = y;
-                    AddPathTileGFX(&pos34, *(unsigned short*)(*g_path_tile_ptr));
-                }
-                c = &g_map_rows[y][L_10];
-                rf = c->rf;
-                if ((rf & 1) || ((c->flags & 0x10) && !(rf & 2))) {
-                    u54.q.x = L_10;
-                    u54.q.y = y;
-                    AddPathSquare(&u54.q);
-                }
-                L_10++;
-                if (L_10 >= (unsigned short)g_map->width) {
-                    L_10 = 0;
-                    y++;
-                }
-            } while (--L_2c != 0);
+            }
             bi++;
             break;
         }
@@ -497,11 +497,12 @@ after_baserle:
     /* ================= S9: user-flags RLE + perimeter + texture ==== */
     HeapFree_w(buf);
     L_10 = 0;
-    bi = 0;
     y = 0;
+    bi = 0;
     RES_ReadFile(L_20, &L_14, 4);
     buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
     RES_ReadFile(L_20, buf, L_14);
+    {
     while (y < (int)(unsigned short)g_map->height) {
         progress_tick();
         opbyte = buf[bi++];
@@ -511,31 +512,30 @@ after_baserle:
         op = opbyte & 0xc0;
         switch (op) {
         case 0x40:
-            L_2c = runlen;
-            do {
-                unsigned val = buf[bi++];
+            while (runlen--) {
+                unsigned short val = buf[bi++];
                 Set_UserFlags(L_10 << 8, y << 8, val);
                 L_10++;
                 if (L_10 >= (int)g_map->width) {
                     L_10 = 0;
                     y++;
                 }
-            } while (--L_2c != 0);
+            }
             break;
         case 0x80:
-            L_2c = runlen;
-            do {
-                unsigned val = buf[bi];
+            while (runlen--) {
+                unsigned short val = buf[bi];
                 Set_UserFlags(L_10 << 8, y << 8, val);
                 L_10++;
                 if (L_10 >= (int)g_map->width) {
                     L_10 = 0;
                     y++;
                 }
-            } while (--L_2c != 0);
+            }
             bi++;
             break;
         }
+    }
     }
     HeapFree_w(buf);
 
@@ -552,9 +552,11 @@ after_baserle:
     L_2c = 0;
     saved_pos = RES_GetFilePointer(file);
     {
-        int k;
-        for (k = 0; k < 0xc8; k++)
-            buf_6c[k] = 0;
+        /* VC6 inlines this as 'mov byte[buf],0' + 'rep stosd' of 0x31 dwords
+         * starting at buf+1 + stosw + stosb — matching 0x462734..0x462750. */
+        extern void* memset(void* d, int c, unsigned int n);
+        buf_6c[0] = 0;
+        memset(buf_6c + 1, 0, sizeof(buf_6c) - 1);
     }
     RES_ReadFile(file, buf_6c, 8);
     if (memcmp(buf_6c, g_terrain_magic, 8) == 0) {
@@ -589,12 +591,12 @@ after_baserle:
                             if (v == 0xffff) {
                                 L_2c = 0;
                             } else {
-                                unsigned idx = (unsigned char)(((v - 0x100) >> 8) & 0xff);
-                                unsigned low = v & 0xff;
+                                unsigned int low = v & 0xff;
+                                unsigned int idx = ((v - 0x100) >> 8) & 0xff;
                                 unsigned short* p =
                                     *(unsigned short**)((char*)L_3c + idx * 8 + 4);
-                                unsigned short base = (unsigned short)(*p + low);
-                                *(unsigned short*)((char*)g_map_rows[y] + x * 0x14 + 0xa) = base;
+                                *(unsigned short*)((char*)g_map_rows[y] + x * 0x14 + 0xa) =
+                                    (unsigned short)(*p + low);
                             }
                         }
                         break;
