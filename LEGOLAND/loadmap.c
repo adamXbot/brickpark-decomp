@@ -189,7 +189,6 @@ int LoadBaseMap(char* mapName)
     }
 
     /* ================= S5/S6: base-tile RLE decode chunks ========== */
-    file = *(void* volatile*)&L_20;
     L_10 = 0;                    /* x */
     y = 0;
     L_48 = 0;                    /* curval */
@@ -242,16 +241,15 @@ int LoadBaseMap(char* mapName)
                     bi++;
                 } else {
                     /* tile path */
-                    unsigned idx = (unsigned char)(((L_48 << 8) - 1) >> 8);
-                    unsigned char db = buf[bi];
-                    unsigned short* rec = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
-                    unsigned short base = (unsigned short)(*rec + db);
-                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) = base;
+                    unsigned ib = (unsigned char)(((L_48 << 8) - 1) >> 8);
+                    unsigned db = buf[bi];
+                    unsigned short* rec = *(unsigned short**)((char*)L_3c + ((db >> 8) | ib) * 8 + 4);
+                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
+                        (unsigned short)(*rec + db);
                     {
-                        unsigned char db2 = u24.rle[bi];
-                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
-                        unsigned short disp = (unsigned short)(*rec2 + db2);
-                        SetMapTile(L_10, y, disp);
+                        unsigned db2 = u24.rle[bi];
+                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + ((db2 >> 8) | ib) * 8 + 4);
+                        SetMapTile(L_10, y, (unsigned short)(*rec2 + db2));
                     }
                     bi++;
                 }
@@ -289,16 +287,15 @@ int LoadBaseMap(char* mapName)
                     cls = *(void**)((char*)obj + 0xc);
                     PutObjOnMap(cls, obj, &pos34);
                 } else {
-                    unsigned idx = (unsigned char)(((L_48 << 8) - 1) >> 8);
-                    unsigned char db = buf[bi];
-                    unsigned short* rec = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
-                    unsigned short base = (unsigned short)(*rec + db);
-                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) = base;
+                    unsigned ib = (unsigned char)(((L_48 << 8) - 1) >> 8);
+                    unsigned db = buf[bi];
+                    unsigned short* rec = *(unsigned short**)((char*)L_3c + ((db >> 8) | ib) * 8 + 4);
+                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
+                        (unsigned short)(*rec + db);
                     {
-                        unsigned char db2 = u24.rle[bi];
-                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
-                        unsigned short disp = (unsigned short)(*rec2 + db2);
-                        SetMapTile(L_10, y, disp);
+                        unsigned db2 = u24.rle[bi];
+                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + ((db2 >> 8) | ib) * 8 + 4);
+                        SetMapTile(L_10, y, (unsigned short)(*rec2 + db2));
                     }
                 }
                 L_10++;
