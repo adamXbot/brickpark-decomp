@@ -65,14 +65,14 @@ int LoadBaseMap(char* mapName)
     unsigned int L_18;         /* name length / flags temp */
     void*  L_1c;               /* LLElem* out of LLIDB_FindElement */
     void*  L_20;               /* open resource file handle */
-    union { unsigned char* rle; Pos q; } u24;  /* u24.rle slot ~ u24.q (disjoint) */
+    union { unsigned char* rle; Pos q; } u24;
     int    L_2c;               /* run / loop counter */
     Pos    pos34;              /* Pos{x,y} @ 0x34 */
     void*  L_3c;               /* tsm/terrain descriptor table base */
     int    L_40;               /* fill-run branch flag (curval & 0x20) */
     int    L_48;               /* current RLE value (curval) */
-    union { int n; Pos q; } u50;  /* u50.n ~ u50.q */
-    union { int n; Pos q; } u54;  /* u54.n ~ u54.q */
+    union { int n; Pos q; } u50;
+    union { int n; Pos q; } u54;
     char   buf_58[0x14];       /* 20-byte perimeter record buffer */
     char   buf_6c[0xc8];       /* ~200-byte scratch: magic tag / texture name */
     char   buf_134[0x200];     /* map filename / element-name buffer */
@@ -134,9 +134,8 @@ int LoadBaseMap(char* mapName)
     /* ================= S3: zero cell flags/trailing word =========== */
     for (y = 0; y < (int)g_map->height; y++) {
         for (x = 0; x < (int)g_map->width; x++) {
-            unsigned char* cell = (unsigned char*)g_map_rows[y] + x * 0x14;
-            *(unsigned short*)(cell + 0xc) = 0;
-            *(unsigned short*)(cell + 0x12) = 0;
+            *(unsigned short*)((char*)g_map_rows[y] + x * 20 + 0xc) = 0;
+            *(unsigned short*)((char*)g_map_rows[y] + x * 20 + 0x12) = 0;
         }
     }
 
@@ -208,6 +207,8 @@ int LoadBaseMap(char* mapName)
         op = opbyte & 0xc0;
         if (op != 0 && runlen == 0)
             runlen = 0x40;
+        if (op > 0xc0)
+            goto base_tail;
 
         switch (op) {
         case 0x00:
@@ -221,21 +222,7 @@ int LoadBaseMap(char* mapName)
             L_40 = L_48 & 0x20;
             L_2c = runlen;
             for (;;) {
-                if (L_40 == 0) {
-                    /* tile path */
-                    unsigned idx = (unsigned)(L_48 - 1) & 0xff;
-                    unsigned char db = buf[bi];
-                    unsigned short* rec = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
-                    unsigned short base = (unsigned short)(*rec + db);
-                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) = base;
-                    {
-                        unsigned char db2 = u24.rle[bi];
-                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
-                        unsigned short disp = (unsigned short)(*rec2 + db2);
-                        SetMapTile(L_10, y, disp);
-                    }
-                    bi++;
-                } else {
+                if (L_40 != 0) {
                     /* object path */
                     void* obj;
                     void* cls;
@@ -253,6 +240,20 @@ int LoadBaseMap(char* mapName)
                     *(void**)cellptr = obj;
                     cls = *(void**)((char*)obj + 0xc);
                     PutObjOnMap(cls, obj, &pos34);
+                    bi++;
+                } else {
+                    /* tile path */
+                    unsigned idx = (unsigned char)(((L_48 << 8) - 1) >> 8);
+                    unsigned char db = buf[bi];
+                    unsigned short* rec = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
+                    unsigned short base = (unsigned short)(*rec + db);
+                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) = base;
+                    {
+                        unsigned char db2 = u24.rle[bi];
+                        unsigned short* rec2 = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
+                        unsigned short disp = (unsigned short)(*rec2 + db2);
+                        SetMapTile(L_10, y, disp);
+                    }
                     bi++;
                 }
                 L_10++;
@@ -289,7 +290,7 @@ int LoadBaseMap(char* mapName)
                     cls = *(void**)((char*)obj + 0xc);
                     PutObjOnMap(cls, obj, &pos34);
                 } else {
-                    unsigned idx = (unsigned)(L_48 - 1) & 0xff;
+                    unsigned idx = (unsigned char)(((L_48 << 8) - 1) >> 8);
                     unsigned char db = buf[bi];
                     unsigned short* rec = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
                     unsigned short base = (unsigned short)(*rec + db);
@@ -328,6 +329,7 @@ int LoadBaseMap(char* mapName)
                 if (--L_2c == 0)
                     break;
             }
+            break;
         }
 
     base_tail:
@@ -542,37 +544,38 @@ after_baserle:
             progress_tick();
             for (x = 0; x < (int)g_map->width; x++) {
                 for (;;) {
-                    if (state == 0) {
+                    switch (state) {
+                    case 0:
                         if (RES_ReadFile(L_20, &L_14, 1) != 1)
                             goto s10_close;
                         state = (L_14 != 0) ? 2 : 1;
                         continue;
-                    } else if (state == 1) {
-                        unsigned int v;
-                        RES_ReadFile(L_20, &pos34, 2);
-                        v = *(unsigned int*)&pos34;
-                        if (v == 0xffff) {
-                            state = 0;
-                            break;
-                        } else {
-                            unsigned idx = (unsigned char)(((v - 0x100) >> 8) & 0xff);
-                            unsigned low = v & 0xff;
-                            unsigned short* p =
-                                *(unsigned short**)((char*)L_3c + idx * 8 + 4);
-                            unsigned short base = (unsigned short)(*p + low);
-                            *(unsigned short*)((char*)g_map_rows[y] + x * 0x14 + 0xa) = base;
-                            break;
+                    case 1:
+                        {
+                            unsigned int v;
+                            RES_ReadFile(L_20, &pos34, 2);
+                            v = *(unsigned int*)&pos34;
+                            if (v == 0xffff) {
+                                state = 0;
+                            } else {
+                                unsigned idx = (unsigned char)(((v - 0x100) >> 8) & 0xff);
+                                unsigned low = v & 0xff;
+                                unsigned short* p =
+                                    *(unsigned short**)((char*)L_3c + idx * 8 + 4);
+                                unsigned short base = (unsigned short)(*p + low);
+                                *(unsigned short*)((char*)g_map_rows[y] + x * 0x14 + 0xa) = base;
+                            }
                         }
-                    } else if (state == 2) {
+                        break;
+                    case 2:
                         if (L_14 != 0) {
                             L_14--;
                             break;
                         }
                         state = 1;
                         continue;
-                    } else {
-                        break;
                     }
+                    break;
                 }
             }
         }
