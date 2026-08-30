@@ -41,23 +41,31 @@ in [`LEGOLAND/legoland.h`](../LEGOLAND/legoland.h).
 
 ## Status
 
-First matched slice — the map/render accessors, **9/9 at 100%**:
+The map/render accessors and the `SetMapTile` family — **13/13 at 100%**:
 
-| addr | function |
-| --- | --- |
-| 0x004015c0 | `GetSpriteSize` |
-| 0x00460540 | `GetTileDimensions` |
-| 0x00461610 | `Get_RFFlags` |
-| 0x00461760 | `Get_MapFlags` |
-| 0x004617d0 | `GetMapFlags` |
-| 0x00441e80 | `GetLLSForSprite` |
-| 0x00441ea0 | `GetLLSForLayer` |
-| 0x00441ec0 | `GetSpriteForLayer` |
-| 0x00441ee0 | `GetRenderOffsetForLayer` |
+| addr | function | |
+| --- | --- | --- |
+| 0x004015c0 | `GetSpriteSize` | render accessors |
+| 0x00460540 | `GetTileDimensions` | |
+| 0x00441e80 | `GetLLSForSprite` | |
+| 0x00441ea0 | `GetLLSForLayer` | |
+| 0x00441ec0 | `GetSpriteForLayer` | |
+| 0x00441ee0 | `GetRenderOffsetForLayer` | |
+| 0x00461610 | `Get_RFFlags` | cell flag get/set |
+| 0x00461760 | `Get_MapFlags` | |
+| 0x004617d0 | `GetMapFlags` | |
+| 0x004616e0 | `Set_RFFlags` | |
+| 0x00461810 | `SetMapFlags` | |
+| 0x00461780 | `SetMapTile` | |
+| 0x00461630 | `GetCurrentRFFlags` | RF dispatch (calls a tile handler) |
 
-Next: the larger map builders (`SetMapTile`, `Set_RFFlags`, `LoadBaseMap`) and
-the LLIDB loaders we already understand from the asset RE — then outward across
-the 716 exports.
+`GetCurrentRFFlags` is the first non-trivial one — a bounds-checked lookup that
+dispatches to a per-tile handler via a function pointer; it matched once the
+handler was hoisted into a local (VC6 computes the callback once, then calls).
+
+Next: the bigger map builders (`LoadBaseMap`, `PutObjOnMap`) and the LLIDB
+loaders we already understand from the asset RE — then outward across the 716
+exports.
 
 ## Legal
 

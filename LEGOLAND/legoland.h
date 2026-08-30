@@ -58,11 +58,33 @@ typedef struct Cell {
     unsigned char  pad11[3];/* +0x11..0x13 */
 } Cell;
 
+/* The map header; width/height at +0x14/+0x16 (@ 0x004bcbf4). */
+typedef struct Map {
+    char           pad[0x14]; /* +0x00 */
+    unsigned short width;     /* +0x14 */
+    unsigned short height;    /* +0x16 */
+} Map;
+extern Map*    g_map;
+
 /* The map row table: g_map_rows[y][x] is a Cell (row pointers @ 0x00801400). */
 extern Cell**  g_map_rows;
 /* Default/base tile index into the global tile-sprite array (@ 0x00667ca4). */
 extern int     g_default_tile;
 /* Global loaded tile-sprite table (@ 0x00805f60). */
 extern Sprite* g_tile_sprites[];
+
+/* A tile's database element; a per-tile RF handler callback lives at +0x18. */
+typedef unsigned char (*RFHandler)(int x, int y);
+typedef struct TileElem {
+    char      pad[0x18];  /* +0x00 */
+    RFHandler handler;    /* +0x18 */
+} TileElem;
+
+/* Parallel tile-info table (@ 0x00801f40, stride 8): {elem ptr, tile code}. */
+typedef struct TileInfo {
+    TileElem*    elem;    /* +0x00 */
+    unsigned int code;    /* +0x04 */
+} TileInfo;
+extern TileInfo g_tile_info[];
 
 #endif /* LEGOLAND_H */
