@@ -62,8 +62,19 @@
     }
     m.tileGfx = decodeLayer(b, m.layers.tile_gfx.off, m.layers.tile_gfx.size, w, h);
 
+    // n_extra 20-byte terrain render-object records (sub_462c00): the perimeter
+    // cliff/edge sprites. Each = {i32 x, i32 y, i32 x2(=2x), i32 y2(=2y), u32 image}.
+    // x,y are iso screen coords (left=16*(x-y-1), top=8*(x+y)); image indexes the
+    // terrain .ILF; (image>>8)&0xff selects the bridge ILF instead.
     m.n_extra = r.u32();
-    r.o += 20 * m.n_extra;
+    m.extra = [];
+    for (var ei = 0; ei < m.n_extra; ei++) {
+      var ex = r.b[r.o] | (r.b[r.o + 1] << 8) | (r.b[r.o + 2] << 16) | (r.b[r.o + 3] << 24);
+      var ey = r.b[r.o + 4] | (r.b[r.o + 5] << 8) | (r.b[r.o + 6] << 16) | (r.b[r.o + 7] << 24);
+      var eimg = (r.b[r.o + 16] | (r.b[r.o + 17] << 8) | (r.b[r.o + 18] << 16) | (r.b[r.o + 19] << 24)) >>> 0;
+      m.extra.push({ x: ex | 0, y: ey | 0, image: eimg & 0xff, bridge: (eimg >> 8) & 0xff });
+      r.o += 20;
+    }
 
     m.has_bridges = false;
     if (r.o + 8 <= b.length && String.fromCharCode.apply(null, b.subarray(r.o, r.o + 8)) === 'BRIDGES!') {

@@ -405,7 +405,13 @@ LLIDB loaders (see `scratchpad/slope_re/*.md`):
   orthogonal neighbours' path state — a 4-bit mask into `NORMPATH`'s
   `OUTL{0..15}`, plus concave-corner overlays `OUTL16..18`.
 - **Terrain stream** writes the base plane (cell+0xa) via the *same* level TSM:
-  `group = hi-1`, `delta = lo`.
+  `group = hi-1`, `delta = lo` (the ground plane, not the cliffs).
+- **Cliff/edge terrain** is a separate layer: the `.MAP`'s `n_extra` 20-byte
+  records (`{i32 x, i32 y, i32 2x, i32 2y, u32 image}`) are turned into render
+  objects by `sub_462c00`, each drawing terrain-`.ILF` image `image&0xff`
+  (`(image>>8)&0xff` selects the bridge ILF) as a tall bottom-anchored sprite at
+  iso screen `(x, y)`. These are the raised perimeter walls (`wst n cliff 1..4`,
+  `wst left/right`, `new west ent`, …); `sub_462c60` binds each object's sprite.
 
 This is implemented byte-for-byte in [`tools/tilemap.py`](../tools/tilemap.py)
 (Python reference) and [`web/tilemap.js`](../web/tilemap.js) (browser). The two

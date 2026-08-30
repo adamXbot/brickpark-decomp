@@ -260,17 +260,38 @@
       '<div class="muted" style="margin-top:3px;font-size:11px">classes: ' + classes + '</div>';
 
     var w = m.width, h = m.height, TW = 32, TH = 16;
-    var isoW = (w + h) * (TW / 2) + TW;
-    var isoH = (w + h) * (TH / 2) + TH * 10;
+    function tile(name) { return name ? spriteCanvas(name) : null; }
+
+    // terrain .ILF cliff/edge sprites (tall perimeter render-objects, sub_462c00)
+    var terrainCvs = [];
+    var terrB = getMember(m.terrain + '.ILF');
+    if (terrB && window.LLTiles) {
+      window.LLTiles.parseILF(terrB).images.forEach(function (nm) { terrainCvs.push(tile(nm)); });
+    }
+    // object sprites per class (.LLS single / .CSP composite)
+    var classSprite = {};
+    m.object_classes.forEach(function (cls, ci) { classSprite[ci] = resolveObjectSprite(legoBytes, idxLego, cls); });
+
+    // --- world bounds (pre-origin) so tall cliffs beyond the grid still fit ---
+    var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    function ext(x0, y0, x1, y1) { if (x0 < minX) minX = x0; if (y0 < minY) minY = y0; if (x1 > maxX) maxX = x1; if (y1 > maxY) maxY = y1; }
+    // ground diamond corners (tile top-left = ((x-y)*16-16, (x+y)*8), size 32x16)
+    ext((0 - (h - 1)) * 16 - 16, -64, (w - 1) * 16 - 16 + 32, (w + h - 2) * 8 + 16);
+    // cliffs bottom-anchored at their iso coords (rec.x, rec.y+TH), rising up by sprite height
+    m.extra.forEach(function (rec) {
+      var cv = terrainCvs[rec.image];
+      if (cv && !rec.bridge) ext(rec.x, rec.y + TH - cv.height, rec.x + cv.width, rec.y + TH);
+    });
+    var margin = 16;
+    var ox = -minX + margin, oy = -minY + margin;
     var off = document.createElement('canvas');
-    off.width = Math.min(isoW, 16384); off.height = Math.min(isoH, 16384);
+    off.width = Math.min(Math.ceil(maxX - minX + 2 * margin), 16384);
+    off.height = Math.min(Math.ceil(maxY - minY + 2 * margin), 16384);
     var octx = off.getContext('2d');
-    var ox = h * (TW / 2), oy = TH * 8;
     function sx(x, y) { return ox + (x - y) * (TW / 2); }
     function sy(x, y) { return oy + (x + y) * (TH / 2); }
 
-    // draw ground: terrain base plane (cell+0xa) under the tile_gfx/path sprite (cell+8)
-    function tile(name) { return name ? spriteCanvas(name) : null; }
+    // ground: terrain base plane (cell+0xa) under the tile_gfx/path sprite (cell+8), row-major
     if (!tm || !haveGfx) {
       octx.fillStyle = '#2f4a2a';
       for (var yy = 0; yy < h; yy++) for (var xx = 0; xx < w; xx++) {
@@ -281,8 +302,7 @@
     } else {
       for (var y = 0; y < h; y++) {
         for (var x = 0; x < w; x++) {
-          var i = y * w + x;
-          var bx = sx(x, y) - TW / 2, by = sy(x, y) + TH;
+          var i = y * w + x, bx = sx(x, y) - TW / 2, by = sy(x, y) + TH;
           var tb = tile(tm.terrain[i]); if (tb) octx.drawImage(tb, bx, by - tb.height);
           var im = tile(tm.image[i]); if (im) octx.drawImage(im, bx, by - im.height);
           var ov = tile(tm.overlay[i]); if (ov) octx.drawImage(ov, bx, by - ov.height);
@@ -290,25 +310,24 @@
       }
     }
 
-    // object sprites (resolved once per class), back-to-front
-    var classSprite = {};
-    if (window.LLTiles) {
-      var idx = window.LLTiles.indexRes(legoBytes);
-      m.object_classes.forEach(function (cls, ci) { classSprite[ci] = resolveObjectSprite(legoBytes, idx, cls); });
-    }
+    // cliffs + placed objects: one depth-sorted (back-to-front) pass over tall sprites
     var objPal = ['#ff3b30', '#ffcf3f', '#2ea3f2', '#3ec46d', '#ff7ac2', '#b07cff', '#ff9f0a'];
-    m.objects.slice().sort(function (a, b) { return (a.x + a.y) - (b.x + b.y); }).forEach(function (o) {
-      var d = classSprite[o.cls];
+    var items = [];
+    m.extra.forEach(function (rec) {
+      var cv = terrainCvs[rec.image];
+      if (cv && !rec.bridge) { var byc = oy + rec.y + TH; items.push({ cv: cv, x: ox + rec.x, y: byc - cv.height, depth: byc }); }
+    });
+    m.objects.forEach(function (o) {
       var px = sx(o.x, o.y), py = sy(o.x, o.y) + TH;
-      if (d && d.kind === 'lls') {
-        octx.drawImage(d.cv, px - d.cv.width / 2, py - d.cv.height);
-      } else if (d && d.kind === 'csp') {
-        d.parts.forEach(function (pt) { octx.drawImage(pt.cv, px + pt.dx, py + pt.dy - pt.cv.height); });
-      } else {
-        octx.fillStyle = objPal[o.cls % objPal.length];
-        octx.strokeStyle = 'rgba(0,0,0,.5)'; octx.lineWidth = 1;
-        octx.beginPath(); octx.arc(px, py - TH / 2, 4, 0, 6.29); octx.fill(); octx.stroke();
-      }
+      items.push({ obj: classSprite[o.cls], cls: o.cls, x: px, y: py, depth: py });
+    });
+    items.sort(function (a, b) { return a.depth - b.depth; });
+    items.forEach(function (it) {
+      if (it.cv) { octx.drawImage(it.cv, it.x, it.y); return; }
+      var d = it.obj;
+      if (d && d.kind === 'lls') octx.drawImage(d.cv, it.x - d.cv.width / 2, it.y - d.cv.height);
+      else if (d && d.kind === 'csp') d.parts.forEach(function (pt) { octx.drawImage(pt.cv, it.x + pt.dx, it.y + pt.dy - pt.cv.height); });
+      else { octx.fillStyle = objPal[it.cls % objPal.length]; octx.strokeStyle = 'rgba(0,0,0,.5)'; octx.lineWidth = 1; octx.beginPath(); octx.arc(it.x, it.y - TH / 2, 4, 0, 6.29); octx.fill(); octx.stroke(); }
     });
     return off;
   }
