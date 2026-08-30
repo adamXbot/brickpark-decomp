@@ -94,48 +94,48 @@ int LoadBaseMap(char* mapName)
         return -2;
     g_map_elem = L_1c;
     Format(buf_134, FMT_map_filename, *(int*)((char*)L_1c + 4));
-    file = RES_OpenFile(buf_134);
-    L_20 = file;
-    if (file == 0)
+    y = (int)RES_OpenFile(buf_134);
+    L_20 = (void*)y;
+    if (y == 0)
         return -3;
 
     /* ================= S2: header, tsm_mapping, terrain ============= */
     g_build_in_progress = 1;
     ResetBuildStats();
 
-    RES_ReadFile(file, &L_18, 4);
-    RES_ReadFile(file, buf_134, L_18);            /* map name (not terminated) */
+    RES_ReadFile((void*)y, &L_18, 4);
+    RES_ReadFile((void*)y, buf_134, L_18);            /* map name (not terminated) */
 
-    RES_ReadFile(file, &L_18, 4);
-    RES_ReadFile(file, buf_134, L_18);
+    RES_ReadFile((void*)y, &L_18, 4);
+    RES_ReadFile((void*)y, buf_134, L_18);
     buf_134[L_18] = 0;
     LLIDB_FindElement(buf_134, &L_1c, 0);
     g_tsm_mapping_elem = L_1c;
     L_3c = LLIDB_LoadData(L_1c);
     g_default_tile = **(int**)((char*)L_3c + 4);
 
-    RES_ReadFile(file, &L_18, 4);
-    RES_ReadFile(file, buf_134, L_18);
+    RES_ReadFile((void*)y, &L_18, 4);
+    RES_ReadFile((void*)y, buf_134, L_18);
     buf_134[L_18] = 0;
     LLIDB_FindElement(buf_134, &L_1c, 0);
     g_terrain_elem = L_1c;
     g_terrain_elem_data = LLIDB_LoadData(L_1c);
 
-    RES_ReadFile(file, (char*)g_map + 0x14, 2);   /* width  */
-    RES_ReadFile(file, (char*)g_map + 0x16, 2);   /* height */
+    RES_ReadFile((void*)y, (char*)g_map + 0x14, 2);   /* width  */
+    RES_ReadFile((void*)y, (char*)g_map + 0x16, 2);   /* height */
 
-    if (RES_ReadFile(file, &g_perim_count, 4) != 4) {
-        RES_CloseFile(file);
+    if (RES_ReadFile((void*)y, &g_perim_count, 4) != 4) {
+        RES_CloseFile((void*)y);
         g_map_loaded = 1;
         g_build_in_progress = 0;
         return 1;
     }
 
     /* ================= S3: zero cell flags/trailing word =========== */
-    for (y = 0; y < (int)g_map->height; y++) {
+    for (L_2c = 0; L_2c < (int)g_map->height; L_2c++) {
         for (x = 0; x < (int)g_map->width; x++) {
-            *(unsigned short*)((char*)g_map_rows[y] + x * 20 + 0xc) = 0;
-            *(unsigned short*)((char*)g_map_rows[y] + x * 20 + 0x12) = 0;
+            *(unsigned short*)((char*)g_map_rows[L_2c] + x * 20 + 0xc) = 0;
+            *(unsigned short*)((char*)g_map_rows[L_2c] + x * 20 + 0x12) = 0;
         }
     }
 
@@ -143,8 +143,8 @@ int LoadBaseMap(char* mapName)
     g_array_A = (void**)HeapAlloc_w(g_perim_count * 4);
     for (i = 0; i < (int)g_perim_count; i++) {
         progress_tick();
-        RES_ReadFile(file, &L_18, 4);
-        RES_ReadFile(file, buf_334, L_18);
+        RES_ReadFile((void*)y, &L_18, 4);
+        RES_ReadFile((void*)y, buf_334, L_18);
         buf_334[L_18] = 0;
         LLIDB_FindElement(buf_334, &L_1c, 0);
         g_array_A[i] = L_1c;
@@ -159,38 +159,37 @@ int LoadBaseMap(char* mapName)
     elem = L_1c;
     g_env_class = *(void**)((char*)elem + 0xc);
 
-    RES_ReadFile(file, &u54.n, 4);
+    RES_ReadFile((void*)y, &u54.n, 4);
     for (i = 0; i < u54.n; i++) {
         progress_tick();
-        RES_ReadFile(file, &u50.n, 4);
-        RES_ReadFile(file, &pos34, 8);
-        elem = g_array_A[u50.n];
-        *(int*)(*(char**)((char*)elem + 0xc) + 0x4c) = 0;
-        PutObjOnMap(*(void**)((char*)elem + 0xc), elem, &pos34);
+        RES_ReadFile((void*)y, &u50.n, 4);
+        RES_ReadFile((void*)y, &pos34, 8);
+        *(int*)(*(char**)((char*)g_array_A[u50.n] + 0xc) + 0x4c) = 0;
+        PutObjOnMap(*(void**)((char*)g_array_A[u50.n] + 0xc),
+                    g_array_A[u50.n], &pos34);
     }
 
     /* ================= S4/S5: perimeter array B =================== */
-    RES_ReadFile(file, &L_10, 4);
+    RES_ReadFile((void*)y, &L_10, 4);
     g_perim_aux = L_10;
     g_array_B = (void**)HeapAlloc_w(L_10 * 4);
     for (i = 0; i < L_10; i++) {
         void* d;
         void* q;
         progress_tick();
-        RES_ReadFile(file, &L_18, 4);
-        RES_ReadFile(file, buf_334, L_18);
+        RES_ReadFile((void*)y, &L_18, 4);
+        RES_ReadFile((void*)y, buf_334, L_18);
         buf_334[L_18] = 0;
         LLIDB_FindElement(buf_334, &L_1c, 0);
         LLIDB_LoadData(L_1c);
-        elem = L_1c;
-        d = *(void**)((char*)elem + 0xc);
-        g_array_B[i] = d;
-        q = *(void**)((char*)d + 0x14);
+        g_array_B[i] = *(void**)((char*)L_1c + 0xc);
+        q = *(void**)((char*)g_array_B[i] + 0x14);
         if (q != 0 && *(int*)((char*)q + 0xc) != 0)
             *(unsigned int*)((char*)q + 8) |= 4;
     }
 
     /* ================= S5/S6: base-tile RLE decode chunks ========== */
+    file = *(void* volatile*)&L_20;
     L_10 = 0;                    /* x */
     y = 0;
     L_48 = 0;                    /* curval */
