@@ -11,3 +11,6 @@ __pycache__/
 *.pyc
 web/dist/
 .DS_Store
+
+# machine-local VC6 toolchain (symlink)
+toolchain

@@ -1,0 +1,68 @@
+/* LEGOLAND decompilation — shared types.
+ *
+ * Struct layouts are recovered from the binary (field offsets confirmed against
+ * the disassembly). Names are ours; only offsets are load-bearing. */
+#ifndef LEGOLAND_H
+#define LEGOLAND_H
+
+/* The per-cell "layer" holder: parallel arrays indexed by layer number, holding
+ * each layer's sprite object and its render offset. (GetSpriteForLayer /
+ * GetLLSForLayer / GetRenderOffsetForLayer @ 0x00441e80..0x00441ee0.) */
+typedef struct Layers {
+    int    pad0;       /* +0x00 */
+    int    pad4;       /* +0x04 */
+    void** sprites;    /* +0x08  sprite object per layer */
+    int*   render_ox;  /* +0x0c  x render offset per layer */
+    int*   render_oy;  /* +0x10  y render offset per layer */
+} Layers;
+
+/* A map cell / render object; its layer holder lives at +0x08. */
+typedef struct RenderObj {
+    int     pad0;      /* +0x00 */
+    int     pad4;      /* +0x04 */
+    Layers* layers;    /* +0x08 */
+} RenderObj;
+
+/* A per-layer sprite object; its LLS is *(+0x08). */
+typedef struct SpriteObj {
+    int    pad0;       /* +0x00 */
+    int    pad4;       /* +0x04 */
+    void** lls_holder; /* +0x08  *lls_holder = the LLS */
+} SpriteObj;
+
+/* An 8-byte {x,y} pair, returned in eax:edx. */
+typedef struct Offset {
+    int ox;
+    int oy;
+} Offset;
+
+/* A loaded tile/image sprite record; width/height live at +0x14/+0x16. */
+typedef struct Sprite {
+    char  pad[0x14];   /* +0x00 */
+    short w;           /* +0x14 */
+    short h;           /* +0x16 */
+} Sprite;
+
+/* A map cell — 20 bytes (0x14). Field offsets confirmed against SetMapTile
+ * (0x00461780), Set_RFFlags (0x004616e0) and the flag getters. */
+typedef struct Cell {
+    void*          obj;     /* +0x00 render/tile object */
+    unsigned char  bx;      /* +0x04 */
+    unsigned char  by;      /* +0x05 */
+    unsigned short pad6;    /* +0x06 */
+    unsigned short tile;    /* +0x08 displayed tile (SetMapTile) */
+    unsigned short base;    /* +0x0a ground/terrain tile */
+    unsigned short flags;   /* +0x0c map flags */
+    unsigned short uflags;  /* +0x0e user flags */
+    unsigned char  rf;      /* +0x10 RF/path flags */
+    unsigned char  pad11[3];/* +0x11..0x13 */
+} Cell;
+
+/* The map row table: g_map_rows[y][x] is a Cell (row pointers @ 0x00801400). */
+extern Cell**  g_map_rows;
+/* Default/base tile index into the global tile-sprite array (@ 0x00667ca4). */
+extern int     g_default_tile;
+/* Global loaded tile-sprite table (@ 0x00805f60). */
+extern Sprite* g_tile_sprites[];
+
+#endif /* LEGOLAND_H */
