@@ -1,7 +1,55 @@
-/* LEGOLAND — LLIDB image-database core accessors. */
+/* LEGOLAND — LLIDB image-database core accessors + loaders. */
 #include "legoland.h"
 
 int stricmp(const char*, const char*);   /* the game's case-insensitive compare */
+
+/* per-type asset loaders (dispatched by LLIDB_LoadData). */
+void* LLIDB_LoadODFData(LLElem* elem);
+void* LLIDB_LoadTSMData(LLElem* elem);
+void* LLIDB_LoadTSFData(LLElem* elem);
+void* LLIDB_LoadILFData(LLElem* elem);
+void* LLIDB_LoadCSPData(LLElem* elem);
+
+// FUNCTION: LEGOLAND 0x0047d3a0
+void* LLIDB_LoadData(LLElem* elem)
+{
+    unsigned int flags = elem->type_flags;
+    void* result;
+    if (flags & 1) {
+        elem->refcount++;
+        return elem->data;
+    }
+    flags |= 1;
+    elem->data = 0;
+    elem->type_flags = flags;
+    switch (flags & 0xfff0) {
+    case 0x10:
+    case 0x1010:
+        elem->data = LLIDB_LoadODFData(elem);
+        break;
+    case 0x20:
+        elem->data = LLIDB_LoadTSMData(elem);
+        break;
+    case 0x40:
+        elem->data = LLIDB_LoadTSFData(elem);
+        break;
+    case 0x200:
+    case 0x800:
+        return 0;
+    case 0x400:
+        elem->data = LLIDB_LoadILFData(elem);
+        break;
+    case 0x2000:
+        elem->data = LLIDB_LoadCSPData(elem);
+        break;
+    }
+    result = elem->data;
+    if (result == 0)
+        elem->type_flags &= 0xfffffffe;
+    else
+        elem->refcount++;
+    return result;
+}
 
 // FUNCTION: LEGOLAND 0x0047b2d0
 unsigned int LLIDB_GetCount(void)
