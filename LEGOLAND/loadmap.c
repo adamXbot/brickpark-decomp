@@ -181,16 +181,9 @@ int LoadBaseMap(char* mapName)
      * as struct members they are a named local and the two fill-branch Pos
      * temps cannot fold onto 0x40/0x48.
      *
-     * STILL UNSOLVED: pos34 and the tsm spill home come out swapped -- we get
-     * tsm at 0x34 and pos34 at 0x38, the original has pos34 at 0x34 and tsm at
-     * 0x3c (10 of the 19 remaining body mismatches).  Both orders occupy the
-     * same 12 bytes, so nothing downstream shifts.  Tried and rejected: every
-     * declaration order (provably irrelevant), wrapping tsm in a 1-member
-     * struct / 1-element array, making tsm address-taken by passing &F_tsm into
-     * s9b_s10, reordering the helper parameters, and routing the three
-     * PutObjOnMap Pos uses through inline helpers -- the S4 temp then folds
-     * into the 0x24 group instead of forming its own (X5: 32 mismatches), and
-     * wrapping the S5/S6 object path wholesale breaks the g_map CSE (137).
+     * SOLVED (was: "pos34 and the tsm spill home come out swapped").  The
+     * two are ordered by definition count/position, not by declaration;
+     * see the FRAME-SLOT LEVER note at the head of S2.
      */
     int    L_50;               /* S4 env-object record index */
     int    L_54;               /* S4 env-object record count */
@@ -222,6 +215,27 @@ int LoadBaseMap(char* mapName)
 
     /* ================= S2: header, tsm_mapping, terrain ============= */
     g_build_in_progress = 1;
+    /* FRAME-SLOT LEVER (load-bearing, worth 11 matched instructions).
+     * pos34 and F_tsm are laid out by VC6 SP3 in a single linear list that
+     * also contains the four inlined S8 Pos temps:
+     *   0x24(8) 0x2c(8) [pos34(8) | F_tsm(4)] 0x40(8) 0x48(8) 0x50(4) 0x54(4)
+     * Whichever of pos34 / F_tsm is ordered first takes the low end.  With
+     * only the S4/S5/S6 defs, F_tsm wins and we get F_tsm@0x34 + pos34@0x38;
+     * the original has pos34@0x34 + F_tsm@0x3c.  Giving pos34 one extra
+     * definition on the hot path here flips the order and fixes every
+     * displacement in S4 (0x00461d67/0x00461d90), S5/S6 (0x00461f3f,
+     * 0x00461f8d, 0x00461faa, 0x00462090, 0x004620de, 0x004620fa), S2
+     * (0x00461b71) and S10 (0x00462880).
+     * The store is a dead store: pos34 is fully overwritten by the S4
+     * RES_ReadFile and by the S5/S6 pos34.x/.y assignments before any read,
+     * so behaviour is unchanged (if anything it is safer).  It costs exactly
+     * one extra `mov [esp+0x34],ebx` at 0x00461aeb.
+     * NOT reachable for free: declaration order, block scope, 1-member
+     * struct / 1-element array wrappers, `(void)&pos34`, an early
+     * `Pos* pp = &pos34` used at every site, and self-assignment all leave
+     * the layout untouched -- only a surviving hot-path DEFINITION flips it
+     * (a def on the cold early-return path does not). */
+    pos34.x = 0;
     ResetBuildStats();
 
     RES_ReadFile((void*)y, &L_18, 4);
