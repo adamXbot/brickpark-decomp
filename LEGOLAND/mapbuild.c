@@ -27,6 +27,15 @@ void ResetBuildStats(void)
     g_stat_cfc = 0;
 }
 
+extern int  GetGameTimer(void);   /* 0x00499430 */
+extern int  g_build_timer;        /* 0x00667d10  last build-scan timestamp */
+
+// FUNCTION: LEGOLAND 0x00459960
+void ResetBuildTimer(void)
+{
+    g_build_timer = GetGameTimer();
+}
+
 extern void* g_env_class;   /* 0x007fd624  environment class (no footprint) */
 
 /* A placed map instance: its owning ObjClass pointer sits at +0x0c. */

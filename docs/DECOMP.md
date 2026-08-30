@@ -68,16 +68,19 @@ handler was hoisted into a local (VC6 computes the callback once, then calls).
 Reported as **normalized instruction match** (the checker normalises relocated
 addresses/immediates and relative call/jump targets); not literal byte-identity.
 
-### In progress
+### Object placement (matched, 100% full-body)
 
-- **`PutObjOnMap` (0x00459ad0)** — fully reversed and logically complete; **79.7%
-  normalized** (102/128). The whole body matches (placement callback, the
-  object-type stat switch → per-category area accumulators, `GetRectArea`,
-  `AddObjectsPowerStats`); the remaining 26 are a register-allocation divergence
-  in the `ENTRANCE 1` coordinate tail (VC6 keeps the element-data pointer in
-  `edx` and reuses `eax` for `pos->x`; our build allocates the other way). Kept
-  as `// WIP-FUNCTION:` in `LEGOLAND/mapobj.c` so `verify.py` stays green; the C
-  documents the real behaviour and struct/global layout for host use.
+- **`PutObjOnMap` (0x00459ad0)** — 128/128. Places an object descriptor onto the
+  map: runs the class placement callback, accumulates the object-type build
+  stats (per-category area + `GetRectArea` + `AddObjectsPowerStats`), and for the
+  `ENTRANCE 1` class writes the entrance render coords (`g_entrance_x/y`). The
+  `ENTRANCE 1` coordinate tail needed two VC6 codegen levers to match its
+  register allocation: (1) fetch the element data through a named `Elem*`
+  intermediate (`Elem* e = ElemID(...); data = e->data;`) so `data` lands in edx
+  (not eax); (2) form the `cell = 0 / cell = &g_map_rows[py][px]` join with
+  explicit `goto`s so the address `lea` targets the index register and frees eax
+  for the coordinate accumulator. A plain if/else strands the last 12
+  instructions in an eax/ecx swap. Resolved by a parallel phrasing search.
 
 ## LoadBaseMap interface (for host / WASM integration)
 
@@ -129,6 +132,7 @@ the host owns and must keep alive for the map's lifetime.
 | --- | --- | --- |
 | 0x00459880 | `ResetBuildStats` | zero the 8 build-stat accumulators (0x667ce0..cfc) before the `.MAP` walk |
 | 0x004598d0 | `TallyFootprintCell` | per-cell footprint tally: `blocked--` off-map/marked/env, `special++` for type 2/3 |
+| 0x00459960 | `ResetBuildTimer` | stamp `g_build_timer` (0x667d10) with `GetGameTimer()` |
 
 `ResetBuildStats` clears the same footprint/power tallies `PutObjOnMap` advances
 (`g_area_total`/`g_area_type1..5`/`g_count_env` + 0x667cfc); LoadBaseMap calls it

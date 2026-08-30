@@ -1,12 +1,16 @@
 /* LEGOLAND — place an object descriptor onto the map (build-time).
  *
- * WIP: PutObjOnMap is fully reversed and logically complete, but currently at
- * ~79.7% normalized instruction match: the first 102/128 instructions match
- * exactly (the placement callback, the object-type stat switch, GetRectArea,
- * AddObjectsPowerStats). The remaining 26 are a register-allocation divergence
- * in the "ENTRANCE 1" coordinate tail (VC6 keeps the element data pointer in
- * edx and reuses eax for pos->x; our build allocates them the other way). The
- * marker below is intentionally NOT the verify.py form until it reaches 100%. */
+ * 100% normalized full-body match (128/128). The "ENTRANCE 1" coordinate tail
+ * needed two specific codegen levers to reproduce VC6's register allocation:
+ *   (1) fetch the element data via a named `Elem*` intermediate
+ *       (`Elem* e = ElemID(...); data = e->data;`) rather than
+ *       `ElemID(...)->data` — this stops VC6 reusing the ElemID return register
+ *       in place, so `data` lands in edx, `pos->x` in eax, g_map in ecx.
+ *   (2) form the cell = 0 / cell = &g_map_rows[py][px] join with explicit
+ *       `goto`s (nocell:/have:) so the address `lea` targets the index register
+ *       (ecx) and frees eax for the entrance_x accumulator — matching the
+ *       original exactly. A plain if/else lets the lea reuse the base register
+ *       (eax) instead, which strands 12 instructions in a register swap. */
 #include "legoland.h"
 
 /* Build-time accumulators / state (offsets are the load-bearing part). */
@@ -30,7 +34,7 @@ extern void  AddObjectsPowerStats(void* obj, Pos* pos);
 extern void  MarkObjectTiles(Pos* pos);          /* 0x00489f00 (unconfirmed name) */
 extern Elem* ElemID(const char* name);
 
-// WIP-FUNCTION: LEGOLAND 0x00459ad0  (79.7% normalized; tail register alloc)
+// FUNCTION: LEGOLAND 0x00459ad0
 void PutObjOnMap(ObjClass* cls, void* obj, Pos* pos)
 {
     int flag = 1;
@@ -73,18 +77,20 @@ void PutObjOnMap(ObjClass* cls, void* obj, Pos* pos)
     }
 
     if (obj == (void*)ElemID("ENTRANCE 1")) {
-        ElemData* data = ElemID("ENTRANCE 1")->data;
+        Elem* e = ElemID("ENTRANCE 1");
+        ElemData* data = e->data;
         Cell* cell;
         int px = pos->x;
-        if (px < 0 || px >= g_map->width) {
-            cell = 0;
-        } else {
+        if (px < 0 || px >= g_map->width) goto nocell;
+        {
             int py = pos->y;
-            if (py < 0 || py >= g_map->height)
-                cell = 0;
-            else
-                cell = &g_map_rows[py][px];
+            if (py < 0 || py >= g_map->height) goto nocell;
+            cell = &g_map_rows[py][px];
+            goto have;
         }
+    nocell:
+        cell = 0;
+    have:
         g_entrance_x = ((*(unsigned char*)((char*)cell + 4) + data->origin) << 8) - 0x100;
         {
             int b = data->base;
