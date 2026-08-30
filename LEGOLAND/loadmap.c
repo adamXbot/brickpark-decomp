@@ -142,11 +142,26 @@ static __inline void s9b_s10(void* f, char* nameb, void* tsm, int* plen, int sta
 // WIP-FUNCTION: LEGOLAND 0x00461a50  (grind in progress)
 int LoadBaseMap(char* mapName)
 {
-    int    L_10;               /* count / current column x */
-    int    L_14;               /* 4-byte read scratch (size/len/control byte) */
-    unsigned int L_18;         /* name length / flags temp */
     void*  L_1c;               /* LLElem* out of LLIDB_FindElement */
     void*  L_20;               /* open resource file handle */
+    /* LOAD-BEARING AGGREGATE (worth 36 matched instructions, and it removes the
+     * dead `L_14 = runlen` mirror store the S7 fill arm used to need).
+     * LB.a/LB.b/LB.c are the former L_10 / L_14 / L_18:
+     *   LB.a  x / column counter                          -> [esp+0x10]
+     *   LB.b  chunk-size read scratch (S5/S7/S8/S9/S10)   -> [esp+0x14]
+     *   LB.c  name-length + S8 map-flag temp              -> [esp+0x18]
+     * As three separate locals VC6 SP3 orders them L_10, L_18, L_14 (0x10,
+     * 0x14, 0x18) -- i.e. LB.b and LB.c come out swapped versus the original,
+     * and every [esp+N] from S2 onward shifts.  The ordering key is NOT
+     * declaration order, type, name, first-def position, or reference count
+     * (all measured, all inert); the only thing that reordered the pair was
+     * giving the loser one extra *surviving* store, which costs an instruction.
+     * Putting the three in one aggregate takes them out of that ordering
+     * entirely: C fixes the member offsets, so the layout is exact for free.
+     * This is a pure regrouping -- every use site is the identical expression
+     * with a different spelling; no type, order of operations, or control flow
+     * changes. */
+    struct { int a; int b; unsigned int c; } LB;
     int    L_2c;               /* run / loop counter */
     Pos    pos34;              /* PutObjOnMap Pos -- lands on [esp+0x34],
                                 * matching the original (S4/S5/S6). */
@@ -181,12 +196,18 @@ int LoadBaseMap(char* mapName)
      * as struct members they are a named local and the two fill-branch Pos
      * temps cannot fold onto 0x40/0x48.
      *
-     * SOLVED (was: "pos34 and the tsm spill home come out swapped").  The
-     * two are ordered by definition count/position, not by declaration;
-     * see the FRAME-SLOT LEVER note at the head of S2.
+     * SOLVED (was: "pos34 and the tsm spill home come out swapped").  See the
+     * FRAME-SLOT LEVER note at the head of S2 -- this is the ONE remaining
+     * extra instruction in the function.
      */
-    int    L_50;               /* S4 env-object record index */
-    int    L_54;               /* S4 env-object record count */
+    /* LOAD-BEARING AGGREGATE (worth 6 matched instructions).  LR.a/LR.b are
+     * the former L_50 / L_54, the S4 env-object record index and count:
+     *   LR.a -> [esp+0x50]   LR.b -> [esp+0x54]
+     * As two separate locals VC6 emits them swapped (L_54@0x50, L_50@0x54)
+     * once LB above is an aggregate.  Same reasoning as LB: one aggregate
+     * fixes the member offsets in C instead of relying on VC6's ordering.
+     * Pure regrouping; no behavioural change. */
+    struct { int a, b; } LR;
     char   buf_58[0x14];       /* 20-byte perimeter record buffer */
     char   buf_6c[0xc8];       /* ~200-byte scratch: magic tag / texture name */
     char   buf_134[0x200];     /* map filename / element-name buffer */
@@ -230,28 +251,46 @@ int LoadBaseMap(char* mapName)
      * RES_ReadFile and by the S5/S6 pos34.x/.y assignments before any read,
      * so behaviour is unchanged (if anything it is safer).  It costs exactly
      * one extra `mov [esp+0x34],ebx` at 0x00461aeb.
-     * NOT reachable for free: declaration order, block scope, 1-member
-     * struct / 1-element array wrappers, `(void)&pos34`, an early
-     * `Pos* pp = &pos34` used at every site, and self-assignment all leave
-     * the layout untouched -- only a surviving hot-path DEFINITION flips it
-     * (a def on the cold early-return path does not). */
+     * MEASURED FACTS about the ordering key (all inert -- none of these moves
+     * the pair): declaration order, symbol name, type/signedness, block scope,
+     * 1-member struct / 1-element-array wrappers, `(void)&pos34`, an early
+     * `Pos* pp = &pos34`, self-assignment, `pos34 = tmp` whole-object copies,
+     * `if(0)`/`while(0)`/`sizeof()`/short-circuit phantom defs, a dead store
+     * that VC6 then deletes, duplicated identical stores, extra *loads* of
+     * pos34 that store-forwarding removes, reducing F_tsm's source-level use
+     * count, writing F_tsm through an inlined `*p = v` helper, and deferring
+     * F_tsm's assignment past S4 (copy propagation just renames it).
+     * Position and loop depth are ALSO irrelevant: the same store placed at
+     * the very end of the function flips the pair just as well.  The only
+     * thing that flips it is ONE extra *surviving emitted store* to pos34 --
+     * so it always costs exactly one instruction.
+     * The store itself is dead: pos34 is fully overwritten by the S4
+     * RES_ReadFile and by the S5/S6 pos34.x/.y assignments before any read,
+     * so behaviour is unchanged.
+     * Note the original's own reference set for these two slots is IDENTICAL
+     * to ours without this store (6 refs to 0x34/0x38, 4 to 0x3c), so VC6 SP3
+     * here simply does not reproduce the original's choice from any source
+     * spelling found so far.  Unlike the LB/LR pairs, pos34 and F_tsm cannot
+     * be merged into one aggregate: as a struct member the tsm pointer stops
+     * being register-allocated and the S5/S6 arms each gain a reload
+     * (measured: +6 instructions, -110 matched). */
     pos34.x = 0;
     ResetBuildStats();
 
-    RES_ReadFile((void*)y, &L_18, 4);
-    RES_ReadFile((void*)y, buf_134, L_18);            /* map name (not terminated) */
+    RES_ReadFile((void*)y, &LB.c, 4);
+    RES_ReadFile((void*)y, buf_134, LB.c);            /* map name (not terminated) */
 
-    RES_ReadFile((void*)y, &L_18, 4);
-    RES_ReadFile((void*)y, buf_134, L_18);
-    buf_134[L_18] = 0;
+    RES_ReadFile((void*)y, &LB.c, 4);
+    RES_ReadFile((void*)y, buf_134, LB.c);
+    buf_134[LB.c] = 0;
     LLIDB_FindElement(buf_134, &L_1c, 0);
     g_tsm_mapping_elem = L_1c;
     F_tsm = LLIDB_LoadData(L_1c);
     g_default_tile = **(int**)((char*)F_tsm + 4);
 
-    RES_ReadFile((void*)y, &L_18, 4);
-    RES_ReadFile((void*)y, buf_134, L_18);
-    buf_134[L_18] = 0;
+    RES_ReadFile((void*)y, &LB.c, 4);
+    RES_ReadFile((void*)y, buf_134, LB.c);
+    buf_134[LB.c] = 0;
     LLIDB_FindElement(buf_134, &L_1c, 0);
     g_terrain_elem = L_1c;
     g_terrain_elem_data = LLIDB_LoadData(L_1c);
@@ -278,9 +317,9 @@ int LoadBaseMap(char* mapName)
     g_array_A = (void**)HeapAlloc_w(g_perim_count * 4);
     for (i = 0; i < (int)g_perim_count; i++) {
         progress_tick();
-        RES_ReadFile((void*)y, &L_18, 4);
-        RES_ReadFile((void*)y, buf_334, L_18);
-        buf_334[L_18] = 0;
+        RES_ReadFile((void*)y, &LB.c, 4);
+        RES_ReadFile((void*)y, buf_334, LB.c);
+        buf_334[LB.c] = 0;
         LLIDB_FindElement(buf_334, &L_1c, 0);
         g_array_A[i] = L_1c;
         LLIDB_LoadData(L_1c);
@@ -294,27 +333,27 @@ int LoadBaseMap(char* mapName)
     elem = L_1c;
     g_env_class = *(void**)((char*)elem + 0xc);
 
-    RES_ReadFile((void*)y, &L_54, 4);
-    for (i = 0; i < L_54; i++) {
+    RES_ReadFile((void*)y, &LR.b, 4);
+    for (i = 0; i < LR.b; i++) {
         progress_tick();
-        RES_ReadFile((void*)y, &L_50, 4);
+        RES_ReadFile((void*)y, &LR.a, 4);
         RES_ReadFile((void*)y, &pos34, 8);
-        *(int*)(*(char**)((char*)g_array_A[L_50] + 0xc) + 0x4c) = 0;
-        PutObjOnMap(*(void**)((char*)g_array_A[L_50] + 0xc),
-                    g_array_A[L_50], &pos34);
+        *(int*)(*(char**)((char*)g_array_A[LR.a] + 0xc) + 0x4c) = 0;
+        PutObjOnMap(*(void**)((char*)g_array_A[LR.a] + 0xc),
+                    g_array_A[LR.a], &pos34);
     }
 
     /* ================= S4/S5: perimeter array B =================== */
-    RES_ReadFile((void*)y, &L_10, 4);
-    g_perim_aux = L_10;
-    g_array_B = (void**)HeapAlloc_w(L_10 * 4);
-    for (i = 0; i < L_10; i++) {
+    RES_ReadFile((void*)y, &LB.a, 4);
+    g_perim_aux = LB.a;
+    g_array_B = (void**)HeapAlloc_w(LB.a * 4);
+    for (i = 0; i < LB.a; i++) {
         void* d;
         void* q;
         progress_tick();
-        RES_ReadFile((void*)y, &L_18, 4);
-        RES_ReadFile((void*)y, buf_334, L_18);
-        buf_334[L_18] = 0;
+        RES_ReadFile((void*)y, &LB.c, 4);
+        RES_ReadFile((void*)y, buf_334, LB.c);
+        buf_334[LB.c] = 0;
         LLIDB_FindElement(buf_334, &L_1c, 0);
         LLIDB_LoadData(L_1c);
         g_array_B[i] = *(void**)((char*)L_1c + 0xc);
@@ -324,12 +363,12 @@ int LoadBaseMap(char* mapName)
     }
 
     /* ================= S5/S6: base-tile RLE decode chunks ========== */
-    L_10 = 0;                    /* x */
+    LB.a = 0;                    /* x */
     y = 0;
     F_curval = 0;                    /* curval */
-    RES_ReadFile(L_20, &L_14, 4);
-    buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-    RES_ReadFile(L_20, buf, L_14);
+    RES_ReadFile(L_20, &LB.b, 4);
+    buf = (unsigned char*)HeapAlloc_w((unsigned)LB.b);
+    RES_ReadFile(L_20, buf, LB.b);
     bi = 2;
 
     while (y < (int)g_map->height) {
@@ -365,15 +404,15 @@ int LoadBaseMap(char* mapName)
                     void* obj;
                     void* cls;
                     unsigned char* cellptr;
-                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
+                    *(unsigned short*)((char*)g_map_rows[y] + LB.a * 20 + 0xa) =
                         (unsigned short)g_default_tile;
-                    pos34.x = L_10;
+                    pos34.x = LB.a;
                     pos34.y = y;
-                    if (L_10 < 0 || L_10 >= (unsigned short)g_map->width ||
+                    if (LB.a < 0 || LB.a >= (unsigned short)g_map->width ||
                         y < 0 || y >= (unsigned short)g_map->height)
                         cellptr = 0;
                     else
-                        cellptr = (unsigned char*)g_map_rows[y] + L_10 * 20;
+                        cellptr = (unsigned char*)g_map_rows[y] + LB.a * 20;
                     obj = *(void**)((char*)g_array_B[F_curval & 0x1f] + 0x14);
                     *(void**)cellptr = obj;
                     cls = *(void**)((char*)obj + 0xc);
@@ -417,17 +456,17 @@ int LoadBaseMap(char* mapName)
                      * buf), so this is a pure spelling change. */
                     unsigned ib = (unsigned char)(((F_curval << 8) - 1) >> 8);
                     unsigned short* rec = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)buf[bi] >> 8) | ib) * 8 + 4);
-                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
+                    *(unsigned short*)((char*)g_map_rows[y] + LB.a * 20 + 0xa) =
                         (unsigned short)(*rec + (unsigned char)buf[bi]);
                     {
                         unsigned short* rec2 = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)buf[bi] >> 8) | ib) * 8 + 4);
-                        SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)buf[bi]));
+                        SetMapTile(LB.a, y, (unsigned short)(*rec2 + (unsigned char)buf[bi]));
                     }
                     bi++;
                 }
-                L_10++;
-                if (L_10 >= (unsigned short)g_map->width) {
-                    L_10 = 0;
+                LB.a++;
+                if (LB.a >= (unsigned short)g_map->width) {
+                    LB.a = 0;
                     y++;
                 }
             }
@@ -440,15 +479,15 @@ int LoadBaseMap(char* mapName)
                     void* obj;
                     void* cls;
                     unsigned char* cellptr;
-                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
+                    *(unsigned short*)((char*)g_map_rows[y] + LB.a * 20 + 0xa) =
                         (unsigned short)g_default_tile;
-                    pos34.x = L_10;
+                    pos34.x = LB.a;
                     pos34.y = y;
-                    if (L_10 < 0 || L_10 >= (unsigned short)g_map->width ||
+                    if (LB.a < 0 || LB.a >= (unsigned short)g_map->width ||
                         y < 0 || y >= (unsigned short)g_map->height)
                         cellptr = 0;
                     else
-                        cellptr = (unsigned char*)g_map_rows[y] + L_10 * 20;
+                        cellptr = (unsigned char*)g_map_rows[y] + LB.a * 20;
                     obj = *(void**)((char*)g_array_B[F_curval & 0x1f] + 0x14);
                     *(void**)cellptr = obj;
                     cls = *(void**)((char*)obj + 0xc);
@@ -457,16 +496,16 @@ int LoadBaseMap(char* mapName)
                     unsigned ib = (unsigned char)(((F_curval << 8) - 1) >> 8);
                     /* Same no-named-byte-local rule as the 0x40 arm above. */
                     unsigned short* rec = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)buf[bi] >> 8) | ib) * 8 + 4);
-                    *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) =
+                    *(unsigned short*)((char*)g_map_rows[y] + LB.a * 20 + 0xa) =
                         (unsigned short)(*rec + (unsigned char)buf[bi]);
                     {
                         unsigned short* rec2 = *(unsigned short**)((char*)F_tsm + (((unsigned)(unsigned char)buf[bi] >> 8) | ib) * 8 + 4);
-                        SetMapTile(L_10, y, (unsigned short)(*rec2 + (unsigned char)buf[bi]));
+                        SetMapTile(LB.a, y, (unsigned short)(*rec2 + (unsigned char)buf[bi]));
                     }
                 }
-                L_10++;
-                if (L_10 >= (unsigned short)g_map->width) {
-                    L_10 = 0;
+                LB.a++;
+                if (LB.a >= (unsigned short)g_map->width) {
+                    LB.a = 0;
                     y++;
                 }
             }
@@ -475,13 +514,13 @@ int LoadBaseMap(char* mapName)
         case 0xc0:
             /* op == 0xc0: zero run */
             while (runlen-- != 0) {
-                *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) = 0;
-                L_10++;
-                if (L_10 >= (unsigned short)g_map->width) {
-                    L_10 = 0;
+                *(unsigned short*)((char*)g_map_rows[y] + LB.a * 20 + 0xa) = 0;
+                LB.a++;
+                if (LB.a >= (unsigned short)g_map->width) {
+                    LB.a = 0;
                     y++;
                 }
-                SetMapTile(L_10, y, 0);
+                SetMapTile(LB.a, y, 0);
             }
             break;
         }
@@ -504,12 +543,12 @@ int LoadBaseMap(char* mapName)
      * -- a real bug, not just a mismatch. */
     HeapFree_w(buf);
     file = L_20;
-    L_10 = 0;
+    LB.a = 0;
     y = 0;
     bi = 0;
-    RES_ReadFile(L_20, &L_14, 4);
-    buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-    RES_ReadFile(L_20, buf, L_14);
+    RES_ReadFile(L_20, &LB.b, 4);
+    buf = (unsigned char*)HeapAlloc_w((unsigned)LB.b);
+    RES_ReadFile(L_20, buf, LB.b);
 
     /* ================= S7: map-flags RLE decode =================== */
     while (y < (int)(unsigned short)g_map->height) {
@@ -524,19 +563,19 @@ int LoadBaseMap(char* mapName)
             /* COPY: distinct data byte per cell */
             while (runlen-- != 0) {
                 unsigned db = buf[bi++];
-                Cell* c = &g_map_rows[y][L_10];
+                Cell* c = &g_map_rows[y][LB.a];
                 /* NOTE: both arms are deliberately identical. The original
                  * (0x004622ae / 0x00462333) tests the tile-info flag and then
                  * emits two blocks that compute the same value in different
                  * registers (cx vs dx) — a VC6 SP3 artefact. Reproducing the
                  * degenerate branch is required to match; do not "simplify". */
                 if (g_tile_info[c->tile].code & 0x20)
-                    SetMapFlags(L_10, y, (unsigned short)(c->flags | db));
+                    SetMapFlags(LB.a, y, (unsigned short)(c->flags | db));
                 else
-                    SetMapFlags(L_10, y, (unsigned short)(c->flags | db));
-                L_10++;
-                if (L_10 >= (int)g_map->width) {
-                    L_10 = 0;
+                    SetMapFlags(LB.a, y, (unsigned short)(c->flags | db));
+                LB.a++;
+                if (LB.a >= (int)g_map->width) {
+                    LB.a = 0;
                     y++;
                 }
             }
@@ -545,31 +584,25 @@ int LoadBaseMap(char* mapName)
             /* FILL: one data byte over runlen cells */
             {
                 unsigned rv = buf[bi++];
-                /* FRAME-SLOT LEVER (load-bearing, worth ~36 instructions
-                 * whole-function): mirroring the run length into L_14 keeps the
-                 * [esp+0x14] read scratch live across S7.  Without it VC6 SP3
-                 * coalesces that slot away and EVERY [esp+N] from S2 onward
-                 * shifts down by one slot.  The original reuses the same slot
-                 * as a counter in S10 (dec dword [esp+0x14] at 0x0046284d), so
-                 * the variable really does stay live past S7.  L_14 is
-                 * unconditionally re-read by the S8 chunk header read below, so
-                 * the store is dead as far as behaviour goes.
-                 * Costs exactly one extra `mov [esp+0x14],eax` at 0x00462290. */
-                L_14 = (int)runlen;
+                /* (Earlier revisions needed a dead `L_14 = runlen` mirror store
+                 * here, worth ~36 instructions, purely to win the [esp+0x14] /
+                 * [esp+0x18] ordering.  The LB aggregate at the head of the
+                 * function makes that ordering explicit in C, so the mirror is
+                 * gone and 0x00462290 no longer carries an extra store.) */
                 while (runlen-- != 0) {
-                    Cell* c = &g_map_rows[y][L_10];
+                    Cell* c = &g_map_rows[y][LB.a];
                 /* NOTE: both arms are deliberately identical. The original
                  * (0x004622ae / 0x00462333) tests the tile-info flag and then
                  * emits two blocks that compute the same value in different
                  * registers (cx vs dx) — a VC6 SP3 artefact. Reproducing the
                  * degenerate branch is required to match; do not "simplify". */
                     if (g_tile_info[c->tile].code & 0x20)
-                        SetMapFlags(L_10, y, (unsigned short)(c->flags | rv));
+                        SetMapFlags(LB.a, y, (unsigned short)(c->flags | rv));
                     else
-                        SetMapFlags(L_10, y, (unsigned short)(c->flags | rv));
-                    L_10++;
-                    if (L_10 >= (int)g_map->width) {
-                        L_10 = 0;
+                        SetMapFlags(LB.a, y, (unsigned short)(c->flags | rv));
+                    LB.a++;
+                    if (LB.a >= (int)g_map->width) {
+                        LB.a = 0;
                         y++;
                     }
                 }
@@ -580,12 +613,12 @@ int LoadBaseMap(char* mapName)
 
     /* ================= S8: RF-flags terrain RLE decode ============ */
     HeapFree_w(buf);
-    L_10 = 0;
+    LB.a = 0;
     y = 0;
     bi = 0;
-    RES_ReadFile(L_20, &L_14, 4);
-    buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-    RES_ReadFile(L_20, buf, L_14);
+    RES_ReadFile(L_20, &LB.b, 4);
+    buf = (unsigned char*)HeapAlloc_w((unsigned)LB.b);
+    RES_ReadFile(L_20, buf, LB.b);
     while (y < (int)(unsigned short)g_map->height) {
         progress_tick();
         opbyte = buf[bi++];
@@ -600,25 +633,25 @@ int LoadBaseMap(char* mapName)
              * mov r,eax / dec eax / test r,r / je end / lea ebx,[eax+1], which is
              * exactly 0x004624d0-0x004624db.  A do/while drops the entry guard. */
             while (runlen--) {
-                unsigned short cf = GetMapFlags(L_10, y);
+                unsigned short cf = GetMapFlags(LB.a, y);
                 int byte;
                 Cell* c;
                 unsigned char rf;
-                L_18 = cf;
+                LB.c = cf;
                 byte = buf[bi];
                 bi++;
-                Set_RFFlags(L_10 << 8, y << 8, (unsigned char)byte);
-                if (!((unsigned char)L_18 & 8) && ((unsigned char)L_18 & 0x10)) {
-                    s8_gfx(L_10, y);
+                Set_RFFlags(LB.a << 8, y << 8, (unsigned char)byte);
+                if (!((unsigned char)LB.c & 8) && ((unsigned char)LB.c & 0x10)) {
+                    s8_gfx(LB.a, y);
                 }
-                c = &g_map_rows[y][L_10];
+                c = &g_map_rows[y][LB.a];
                 rf = c->rf;
                 if ((rf & 1) || ((c->flags & 0x10) && !(rf & 2))) {
-                    s8_sq(L_10, y);
+                    s8_sq(LB.a, y);
                 }
-                L_10++;
-                if (L_10 >= (unsigned short)g_map->width) {
-                    L_10 = 0;
+                LB.a++;
+                if (LB.a >= (unsigned short)g_map->width) {
+                    LB.a = 0;
                     y++;
                 }
             }
@@ -628,24 +661,24 @@ int LoadBaseMap(char* mapName)
             /* FILL: one data byte over runlen cells (same while(runlen--) form,
              * 0x004623fd-0x00462408; the trailing bi++ is the je target 0x004624ca). */
             while (runlen--) {
-                unsigned short cf = GetMapFlags(L_10, y);
+                unsigned short cf = GetMapFlags(LB.a, y);
                 int rfarg;
                 Cell* c;
                 unsigned char rf;
-                L_18 = cf;
+                LB.c = cf;
                 rfarg = (cf & 0xff00) | buf[bi];
-                Set_RFFlags(L_10 << 8, y << 8, (unsigned char)rfarg);
-                if (!((unsigned char)L_18 & 8) && ((unsigned char)L_18 & 0x10)) {
-                    s8_gfx(L_10, y);
+                Set_RFFlags(LB.a << 8, y << 8, (unsigned char)rfarg);
+                if (!((unsigned char)LB.c & 8) && ((unsigned char)LB.c & 0x10)) {
+                    s8_gfx(LB.a, y);
                 }
-                c = &g_map_rows[y][L_10];
+                c = &g_map_rows[y][LB.a];
                 rf = c->rf;
                 if ((rf & 1) || ((c->flags & 0x10) && !(rf & 2))) {
-                    s8_sq(L_10, y);
+                    s8_sq(LB.a, y);
                 }
-                L_10++;
-                if (L_10 >= (unsigned short)g_map->width) {
-                    L_10 = 0;
+                LB.a++;
+                if (LB.a >= (unsigned short)g_map->width) {
+                    LB.a = 0;
                     y++;
                 }
             }
@@ -657,12 +690,12 @@ int LoadBaseMap(char* mapName)
 
     /* ================= S9: user-flags RLE + perimeter + texture ==== */
     HeapFree_w(buf);
-    L_10 = 0;
+    LB.a = 0;
     y = 0;
     bi = 0;
-    RES_ReadFile(L_20, &L_14, 4);
-    ubuf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-    RES_ReadFile(L_20, ubuf, L_14);
+    RES_ReadFile(L_20, &LB.b, 4);
+    ubuf = (unsigned char*)HeapAlloc_w((unsigned)LB.b);
+    RES_ReadFile(L_20, ubuf, LB.b);
     {
     while (y < (int)(unsigned short)g_map->height) {
         progress_tick();
@@ -675,10 +708,10 @@ int LoadBaseMap(char* mapName)
         case 0x40:
             while (runlen--) {
                 unsigned short val = ubuf[bi++];
-                Set_UserFlags(L_10 << 8, y << 8, val);
-                L_10++;
-                if (L_10 >= (int)g_map->width) {
-                    L_10 = 0;
+                Set_UserFlags(LB.a << 8, y << 8, val);
+                LB.a++;
+                if (LB.a >= (int)g_map->width) {
+                    LB.a = 0;
                     y++;
                 }
             }
@@ -686,10 +719,10 @@ int LoadBaseMap(char* mapName)
         case 0x80:
             while (runlen--) {
                 unsigned short val = ubuf[bi];
-                Set_UserFlags(L_10 << 8, y << 8, val);
-                L_10++;
-                if (L_10 >= (int)g_map->width) {
-                    L_10 = 0;
+                Set_UserFlags(LB.a << 8, y << 8, val);
+                LB.a++;
+                if (LB.a >= (int)g_map->width) {
+                    LB.a = 0;
                     y++;
                 }
             }
@@ -705,9 +738,9 @@ int LoadBaseMap(char* mapName)
 
     /* optional magic-tagged terrain-texture name + S10 base-layer RLE */
     file = L_20;
-    L_14 = 0;
+    LB.b = 0;
     L_2c = 0;
-    s9b_s10(file, buf_6c, F_tsm, &L_14, L_2c);
+    s9b_s10(file, buf_6c, F_tsm, &LB.b, L_2c);
 
     RES_CloseFile(L_20);
     g_map_loaded = 1;
