@@ -44,32 +44,6 @@ typedef struct {
     void*        clickfn;            /* 0x1c */
 } Widget;
 
-// FUNCTION: LEGOLAND 0x0045be00
-int ScreenToMapRef2(Pos* p)
-{
-    Sprite* s = g_tile_sprites[g_default_tile];
-    if (!s)
-        return -1;
-    p->x = s->h;
-    p->y = s->w;
-    return 0;
-}
-
-// FUNCTION: LEGOLAND 0x0045be90
-int ScreenToMapRef(Pos* in, int* out)
-{
-    Sprite* s = g_tile_sprites[g_default_tile];
-    int loc[3];
-    if (!s)
-        return -1;
-    loc[0] = s->h;
-    loc[1] = in->x;
-    loc[2] = in->y;
-    g_screenref_scratch = loc;
-    out[0] = loc[0];
-    return 0;
-}
-
 // FUNCTION: LEGOLAND 0x0045c010
 unsigned char Dir_To_Bit(unsigned char dir)
 {
@@ -114,15 +88,6 @@ int InstallDirectDraw(void)
     return 0;
 }
 
-// FUNCTION: LEGOLAND 0x00463700
-int InitHostSystemGPU(void)
-{
-    if (g_host_gpu)
-        return 1;
-    g_host_gpu = 1;
-    return 0;
-}
-
 // FUNCTION: LEGOLAND 0x00463850
 int SetPointer(int idx)
 {
@@ -132,26 +97,9 @@ int SetPointer(int idx)
     return old;
 }
 
-// FUNCTION: LEGOLAND 0x00464310
-int GetVideoSurface(int* out)
-{
-    if (!g_video_surface)
-        return 0;
-    *out = 1;
-    return 1;
-}
-
 // FUNCTION: LEGOLAND 0x00464360
 void PrintBackground(void)
 {
-}
-
-// FUNCTION: LEGOLAND 0x0046ce60
-int DisplayAdvisorHelp(void)
-{
-    if (g_advisor_state & 1)
-        return 0;
-    return AdvisorHelpBody();
 }
 
 // FUNCTION: LEGOLAND 0x0046d740
