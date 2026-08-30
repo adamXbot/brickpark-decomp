@@ -139,3 +139,70 @@ void* LLIDB_LoadTSFData(LLElem* elem)
     }
     return 0;
 }
+
+void LLIDB_FreeILFTable(void* desc);
+
+/* .ILF/.CSP parsed descriptor (36 bytes): dx/dy offset arrays (doubled at load)
+ * + per-image loaded sprites. */
+typedef struct IlfData {
+    int    f00;       /* +0x00 */
+    int    f04;       /* +0x04 */
+    void** sprites;   /* +0x08 */
+    int*   dx;        /* +0x0c (doubled) */
+    int*   dy;        /* +0x10 (doubled) */
+    int    f14;       /* +0x14 */
+    int    f18, f1c, f20;
+} IlfData;
+
+// WIP-FUNCTION: LEGOLAND 0x0047cfc0  (86.2%; loops exact, local-slot/fail-path residual)
+void* LLIDB_LoadILFData(LLElem* elem)
+{
+    char     path[512];
+    char     name[512];
+    int      n;
+    int      type;
+    int      len;
+    int      i;
+    void*    file;
+    IlfData* desc;
+
+    sprintf(path, "ImageData\\%s", elem->image);
+    file = RES_OpenFile(path);
+    if (file) {
+        desc = (IlfData*)malloc(0x24);
+        RES_ReadFile(file, &n, 2);
+        RES_ReadFile(file, &type, 2);
+        if (desc) {
+            desc->dx = (int*)malloc(n * 4);
+            desc->dy = (int*)malloc(n * 4);
+            desc->sprites = (void**)malloc(n * 4);
+            desc->f04 = type;
+            if (desc->dx && desc->dy) {
+                RES_ReadFile(file, &len, 4);
+                RES_ReadFile(file, name, len);
+                for (i = 0; i < n; i++) {
+                    RES_ReadFile(file, &desc->dx[i], 4);
+                    RES_ReadFile(file, &desc->dy[i], 4);
+                    desc->dx[i] <<= 1;
+                    desc->dy[i] <<= 1;
+                }
+                for (i = 0; i < n; i++) {
+                    RES_ReadFile(file, &len, 4);
+                    RES_ReadFile(file, name, len);
+                    name[len] = 0;
+                    desc->sprites[i] = LoadSprite(name, 1);
+                }
+                if (i == n) {
+                    desc->f14 = 0;
+                    RES_CloseFile(file);
+                    elem->type_flags |= 1;
+                    elem->data = desc;
+                    return desc;
+                }
+            }
+        }
+        LLIDB_FreeILFTable(desc);
+        RES_CloseFile(file);
+    }
+    return 0;
+}
