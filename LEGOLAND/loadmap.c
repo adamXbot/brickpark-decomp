@@ -428,7 +428,8 @@ after_baserle:
         if (runlen == 0)
             runlen = 0x40;
         op = opbyte & 0xc0;
-        if (op == 0x40) {
+        switch (op) {
+        case 0x40: {
             /* COPY: distinct data byte per cell */
             L_2c = runlen;
             do {
@@ -456,7 +457,9 @@ after_baserle:
                     y++;
                 }
             } while (--L_2c != 0);
-        } else if (op == 0x80) {
+            break;
+        }
+        case 0x80: {
             /* FILL: one data byte over runlen cells */
             L_2c = runlen;
             do {
@@ -486,6 +489,8 @@ after_baserle:
                 }
             } while (--L_2c != 0);
             bi++;
+            break;
+        }
         }
     }
 
