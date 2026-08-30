@@ -139,7 +139,7 @@ static __inline void s9b_s10(void* f, char* nameb, void* tsm, int* plen, int sta
     }
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00461a50  (grind in progress)
+// FUNCTION: LEGOLAND 0x00461a50
 int LoadBaseMap(char* mapName)
 {
     void*  L_1c;               /* LLElem* out of LLIDB_FindElement */
@@ -208,10 +208,51 @@ int LoadBaseMap(char* mapName)
      * fixes the member offsets in C instead of relying on VC6's ordering.
      * Pure regrouping; no behavioural change. */
     struct { int a, b; } LR;
-    char   buf_58[0x14];       /* 20-byte perimeter record buffer */
-    char   buf_6c[0xc8];       /* ~200-byte scratch: magic tag / texture name */
-    char   buf_134[0x200];     /* map filename / element-name buffer */
-    char   buf_334[0x200];     /* element-name buffer (object loops) */
+    /* LOAD-BEARING AGGREGATE (worth the LAST extra instruction in the
+     * function).  BA.a/BA.b/BA.c/BA.d are the former buf_58 / buf_6c /
+     * buf_134 / buf_334, in that order and at those exact sizes:
+     *   BA.a  [esp+0x58] 0x14   20-byte perimeter record buffer
+     *   BA.b  [esp+0x6c] 0xc8   magic tag / texture name scratch
+     *   BA.c  [esp+0x134] 0x200 map filename / element-name buffer
+     *   BA.d  [esp+0x334] 0x200 element-name buffer (object loops)
+     * All four are char arrays, so the struct's alignment is 1 and no padding
+     * is inserted: the members land on exactly the offsets the four separate
+     * arrays already occupied.  This is a pure regrouping -- every use site is
+     * the identical expression with a different spelling (the #defines below
+     * keep the original names), no type, size, order or control flow changes.
+     *
+     * Why it is load-bearing: pos34 (Pos, 8B, address-taken) and F_tsm (void*,
+     * register-allocated with a 4-byte spill home) contend for the same slot
+     * in VC6 SP3's stack-colouring pool
+     *     0x24(8) 0x2c(8) [ X ] 0x40(8) 0x48(8) 0x50(4) 0x54(4)
+     * and whichever the packer visits first takes the low end.  With the four
+     * buffers as four separate objects F_tsm wins ([esp+0x34]) and pos34 is
+     * pushed to [esp+0x38] -- 12 instructions in S2/S4/S5/S6/S10 then use the
+     * wrong displacement.  The only previously known fix was an extra dead
+     * `pos34.x = 0;` store, which cost one emitted instruction.  Collapsing
+     * the four buffers into one object removes three objects from the packer's
+     * work list, the visit order of the contended pair flips, and pos34 lands
+     * on [esp+0x34] with F_tsm at [esp+0x3c] -- exactly the original -- for
+     * free.  Nothing else in the frame moves (verified against the original
+     * with a /FAs symbol->offset readout and r4_slots.py).
+     * MEASURED, none of which flip the pair on their own: merging any proper
+     * subset of the buffers (58+6c, 6c+134, 134+334), merging LR with buf_58,
+     * merging L_1c/L_20, folding L_1c/L_20 into LB, declaration order of
+     * pos34 / F_tsm / F_fillflag / F_curval anywhere in the block, and
+     * spelling pos34 as a bare struct instead of the Pos typedef.  Merging
+     * 6c+134+334 or 58+6c+134 does flip the pair but drags F_curval from
+     * 0x48 to 0x40; only the full four-way merge leaves the rest of the frame
+     * untouched. */
+    struct {
+        char a[0x14];
+        char b[0xc8];
+        char c[0x200];
+        char d[0x200];
+    } BA;
+#define buf_58  BA.a
+#define buf_6c  BA.b
+#define buf_134 BA.c
+#define buf_334 BA.d
 
     void*  file;
     void*  elem;
@@ -236,45 +277,31 @@ int LoadBaseMap(char* mapName)
 
     /* ================= S2: header, tsm_mapping, terrain ============= */
     g_build_in_progress = 1;
-    /* FRAME-SLOT LEVER (load-bearing, worth 11 matched instructions).
-     * pos34 and F_tsm are laid out by VC6 SP3 in a single linear list that
-     * also contains the four inlined S8 Pos temps:
+    /* FRAME-SLOT NOTE (historical).  pos34 and F_tsm are laid out by VC6 SP3
+     * in a single linear stack-colouring list that also contains the four
+     * inlined S8 Pos temps:
      *   0x24(8) 0x2c(8) [pos34(8) | F_tsm(4)] 0x40(8) 0x48(8) 0x50(4) 0x54(4)
-     * Whichever of pos34 / F_tsm is ordered first takes the low end.  With
-     * only the S4/S5/S6 defs, F_tsm wins and we get F_tsm@0x34 + pos34@0x38;
-     * the original has pos34@0x34 + F_tsm@0x3c.  Giving pos34 one extra
-     * definition on the hot path here flips the order and fixes every
-     * displacement in S4 (0x00461d67/0x00461d90), S5/S6 (0x00461f3f,
-     * 0x00461f8d, 0x00461faa, 0x00462090, 0x004620de, 0x004620fa), S2
-     * (0x00461b71) and S10 (0x00462880).
-     * The store is a dead store: pos34 is fully overwritten by the S4
-     * RES_ReadFile and by the S5/S6 pos34.x/.y assignments before any read,
-     * so behaviour is unchanged (if anything it is safer).  It costs exactly
-     * one extra `mov [esp+0x34],ebx` at 0x00461aeb.
-     * MEASURED FACTS about the ordering key (all inert -- none of these moves
-     * the pair): declaration order, symbol name, type/signedness, block scope,
-     * 1-member struct / 1-element-array wrappers, `(void)&pos34`, an early
+     * Whichever of pos34 / F_tsm the packer visits first takes the low end.
+     * The original has pos34@0x34 + F_tsm@0x3c; getting the other order costs
+     * 12 matched instructions in S2 (0x00461b71), S4 (0x00461d67, 0x00461d90),
+     * S5/S6 (0x00461f3f, 0x00461f8d, 0x00461faa, 0x00462090, 0x004620de,
+     * 0x004620fa) and S10 (0x00462880).
+     * This used to be forced with a dead `pos34.x = 0;` store here, which was
+     * the last remaining extra instruction in the function.  It is no longer
+     * needed: collapsing the four frame buffers into the BA aggregate (see the
+     * declaration block) flips the visit order for free.
+     * MEASURED FACTS about the ordering key (all inert on their own):
+     * declaration order, symbol name, type/signedness, block scope, 1-member
+     * struct / 1-element-array wrappers, `(void)&pos34`, an early
      * `Pos* pp = &pos34`, self-assignment, `pos34 = tmp` whole-object copies,
      * `if(0)`/`while(0)`/`sizeof()`/short-circuit phantom defs, a dead store
      * that VC6 then deletes, duplicated identical stores, extra *loads* of
      * pos34 that store-forwarding removes, reducing F_tsm's source-level use
      * count, writing F_tsm through an inlined `*p = v` helper, and deferring
      * F_tsm's assignment past S4 (copy propagation just renames it).
-     * Position and loop depth are ALSO irrelevant: the same store placed at
-     * the very end of the function flips the pair just as well.  The only
-     * thing that flips it is ONE extra *surviving emitted store* to pos34 --
-     * so it always costs exactly one instruction.
-     * The store itself is dead: pos34 is fully overwritten by the S4
-     * RES_ReadFile and by the S5/S6 pos34.x/.y assignments before any read,
-     * so behaviour is unchanged.
-     * Note the original's own reference set for these two slots is IDENTICAL
-     * to ours without this store (6 refs to 0x34/0x38, 4 to 0x3c), so VC6 SP3
-     * here simply does not reproduce the original's choice from any source
-     * spelling found so far.  Unlike the LB/LR pairs, pos34 and F_tsm cannot
-     * be merged into one aggregate: as a struct member the tsm pointer stops
-     * being register-allocated and the S5/S6 arms each gain a reload
-     * (measured: +6 instructions, -110 matched). */
-    pos34.x = 0;
+     * pos34 and F_tsm also cannot be merged into one aggregate: as a struct
+     * member the tsm pointer stops being register-allocated and the S5/S6 arms
+     * each gain a reload (measured: +6 instructions, -110 matched). */
     ResetBuildStats();
 
     RES_ReadFile((void*)y, &LB.c, 4);
@@ -749,3 +776,7 @@ int LoadBaseMap(char* mapName)
     RenderInit();
     return 1;
 }
+#undef buf_58
+#undef buf_6c
+#undef buf_134
+#undef buf_334

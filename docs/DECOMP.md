@@ -96,10 +96,10 @@ addresses/immediates and relative call/jump targets); not literal byte-identity.
 
 ## LoadBaseMap interface (for host / WASM integration)
 
-`LoadBaseMap` @ 0x00461a50 is fully reversed (see
-`scratchpad/slope_re/loadbasemap_cell_construction.md` and
-[FORMATS.md](FORMATS.md)); the C match is a later batch, but its **contract is
-stable** for Codex to wire to the host now:
+`LoadBaseMap` @ 0x00461a50 is **matched at 100%** — all 1214 instructions of its
+body, index for index, 3758 bytes in both. It is the largest function in the
+decomp and lives in [`LEGOLAND/loadmap.c`](../LEGOLAND/loadmap.c). Its contract
+below is stable for host/WASM integration:
 
 **Signature:** `int LoadBaseMap(const char* mapName)` → 1 on success, negative on
 failure (map element not found).
@@ -236,10 +236,41 @@ file; does not touch the shared `match.py`/`verify.py`, uses its own
 all committed functions are 100% end-to-end. Suggest folding the full-body walk
 into `match.py` alongside the parallel-safety fix.
 
-Next: the whole LLIDB core + registration + all five per-type parsers now match
-at 100% full-body. Remaining: the `PutObjOnMap` tail (register-alloc divergence
-in the `ENTRANCE 1` coord block), then `LoadBaseMap` itself — and outward across
-the 716 exports.
+### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
+
+Recorded so they are not re-derived; several cost hundreds of measured variants:
+
+- **RLE loop form.** `mov ecx,eax / dec eax / test ecx,ecx / je <end> / inc eax`
+  is VC6's lowering of `while (n-- != 0)` on an *unsigned* counter — it rotates
+  the post-decrement while into a do/while over a separate trip-count slot and
+  leaves the dec/inc as dead code. An `if(!n) goto end; t=n; for(;;){...}` form
+  cannot produce it, and hand-writing the dead pair fails (VC6 deletes it).
+- **Opcode dispatch.** An `if/else-if` chain on `x & 0xc0` compiles to a compare
+  chain; `switch` produces the original's index+jump-table (or `sub/je/sub/jne`)
+  *and* its block order. This was worth several points in every RLE section.
+- **Declaration order is irrelevant.** Reversing the entire local block yields a
+  byte-identical object. Slots are assigned by first use in the optimised IR.
+- **Unions on an enregistered scalar are a trap** — they make it address-taken,
+  so VC6 stops enregistering it (unioning one hot local cost 27 points).
+- **Aggregate pinning is the real lever.** Two locals contending for a slot are
+  ordered by VC6; putting them in one `struct` fixes their relative offsets in C
+  and removes them from that decision. Merging the four frame buffers into one
+  aggregate was what finally placed `pos34`/`F_tsm` as the original has them.
+- **Inline-expansion temporaries** share the lifetime-coloured pool with register
+  spill homes, so an address-taken temp born inside a `static __inline` helper
+  can occupy a slot a *named* local never can. This reproduced the original's
+  four distinct S8 `Pos` slots after ~1400 union/struct variants had failed.
+- **Degenerate branches are real.** VC6 SP3 sometimes emits a test whose two arms
+  compute the same value in different registers (`g_tile_info & 0x20` at
+  0x004622ae / 0x00462333). Matching requires writing `if (c) f(a); else f(a);`;
+  those sites are commented so they are not "simplified".
+
+Matching this function also surfaced three genuine defects in the reconstruction:
+a control-flow error that re-decoded the map-flags chunk as base tiles for any
+map with height > 0, a read of never-initialised bytes in the S10 end-of-run
+test, and a pointer dereferenced one level too deep.
+
+Next: outward across the remaining 716 exports.
 
 ## Legal
 
