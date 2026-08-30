@@ -26,3 +26,48 @@ void ResetBuildStats(void)
     g_area_type2 = 0;
     g_stat_cfc = 0;
 }
+
+extern void* g_env_class;   /* 0x007fd624  environment class (no footprint) */
+
+/* A placed map instance: its owning ObjClass pointer sits at +0x0c. */
+typedef struct MapInst {
+    char      pad0[0x0c];   /* +0x00 */
+    ObjClass* cls;          /* +0x0c */
+} MapInst;
+
+/* Footprint cell tally callback: for one cell, decrement *blocked when the cell
+ * is off-map / marked (flags&0x10) / owned by the environment class, and
+ * increment *special when it holds a type 2/3 object. */
+// FUNCTION: LEGOLAND 0x004598d0
+void TallyFootprintCell(Pos* pos, int* blocked, int* special)
+{
+    int   px = pos->x;
+    int   py;
+    Cell* cell;
+
+    if (px < 0)                goto fail;
+    if (px >= g_map->width)    goto fail;
+    py = pos->y;
+    if (py < 0)                goto fail;
+    if (py >= g_map->height)   goto fail;
+    cell = &g_map_rows[py][px];
+    if (cell == 0)             goto fail;
+
+    if (cell->flags & 0x10) {
+        (*blocked)--;
+        return;
+    }
+    if (cell->flags & 0x80) {
+        ObjClass* cls = ((MapInst*)cell->obj)->cls;
+        if ((void*)cls == g_env_class) {
+            (*blocked)--;
+            return;
+        }
+        if (cls->type == 2 || cls->type == 3)
+            (*special)++;
+    }
+    return;
+
+fail:
+    (*blocked)--;
+}

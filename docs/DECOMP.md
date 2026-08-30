@@ -123,17 +123,25 @@ during the call — there is no caller-supplied asset buffer. The host must have
 the RES archives readable and the ICM loaded; the grid memory is the only buffer
 the host owns and must keep alive for the map's lifetime.
 
-**Leaf helpers (matched, 100% full-body):**
+**Map-build / placement helpers (matched, 100% full-body — `LEGOLAND/mapbuild.c`):**
 
 | addr | function | |
 | --- | --- | --- |
 | 0x00459880 | `ResetBuildStats` | zero the 8 build-stat accumulators (0x667ce0..cfc) before the `.MAP` walk |
+| 0x004598d0 | `TallyFootprintCell` | per-cell footprint tally: `blocked--` off-map/marked/env, `special++` for type 2/3 |
 
-`ResetBuildStats` clears the same footprint/power tallies `PutObjOnMap`
-advances (`g_area_total`/`g_area_type1..5`/`g_count_env` + 0x667cfc); it lives in
-`LEGOLAND/mapbuild.c`. The remaining direct helpers (`sub_49e573`/`sub_49e4ff`
-env-state, `sub_4663f0` render) reach into the environment/render subsystems and
-are later batches.
+`ResetBuildStats` clears the same footprint/power tallies `PutObjOnMap` advances
+(`g_area_total`/`g_area_type1..5`/`g_count_env` + 0x667cfc); LoadBaseMap calls it
+before placing. `TallyFootprintCell(pos, &blocked, &special)` is the bounds-
+checked cell classifier used to score a footprint (it reuses the same
+`g_map`/`g_map_rows` cell-fetch as the `PutObjOnMap` ENTRANCE tail): it
+decrements `*blocked` for out-of-bounds / `flags&0x10` / environment-class cells
+and increments `*special` for cells holding a type 2 or 3 object. It matches with
+the bounds/null failures sharing one `goto fail` block while the two flag-based
+`(*blocked)--` paths stay inline (VC6 does not tail-merge them). The remaining
+LoadBaseMap helpers (`sub_49e573`/`sub_49e4ff` env-state + a heap wrapper,
+`sub_4663f0` render) reach into the environment/render subsystems and are later
+batches.
 
 ## LLIDB image database (asset resolution)
 
