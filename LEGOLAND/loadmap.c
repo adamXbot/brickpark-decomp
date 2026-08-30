@@ -65,22 +65,18 @@ int LoadBaseMap(char* mapName)
     unsigned int L_18;         /* name length / flags temp */
     void*  L_1c;               /* LLElem* out of LLIDB_FindElement */
     void*  L_20;               /* open resource file handle */
-    unsigned char* L_24;       /* RLE buffer base (aliases run-count/reccount slot) */
+    union { unsigned char* rle; Pos q; } u24;  /* u24.rle slot ~ u24.q (disjoint) */
     int    L_2c;               /* run / loop counter */
     Pos    pos34;              /* Pos{x,y} @ 0x34 */
     void*  L_3c;               /* tsm/terrain descriptor table base */
     int    L_40;               /* fill-run branch flag (curval & 0x20) */
     int    L_48;               /* current RLE value (curval) */
-    int    L_50;               /* object index */
-    int    L_54;               /* env-object count */
-    Pos    pos24;              /* Pos{x,y} @ 0x24 (S8 fill) */
-    Pos    pos2c;              /* Pos{x,y} @ 0x2c (S8 fill) */
-    Pos    pos40;              /* Pos{x,y} @ 0x40 (S8 copy) */
-    Pos    pos48;              /* Pos{x,y} @ 0x48 (S8 copy) */
+    union { int n; Pos q; } u50;  /* u50.n ~ u50.q */
+    union { int n; Pos q; } u54;  /* u54.n ~ u54.q */
     char   buf_58[0x14];       /* 20-byte perimeter record buffer */
     char   buf_6c[0xc8];       /* ~200-byte scratch: magic tag / texture name */
     char   buf_134[0x200];     /* map filename / element-name buffer */
-    char   buf_334[0x1f0];     /* element-name buffer (object loops) */
+    char   buf_334[0x204];     /* element-name buffer (object loops) */
 
     void*  file;
     void*  elem;
@@ -164,12 +160,12 @@ int LoadBaseMap(char* mapName)
     elem = L_1c;
     g_env_class = *(void**)((char*)elem + 0xc);
 
-    RES_ReadFile(file, &L_54, 4);
-    for (i = 0; i < L_54; i++) {
+    RES_ReadFile(file, &u54.n, 4);
+    for (i = 0; i < u54.n; i++) {
         progress_tick();
-        RES_ReadFile(file, &L_50, 4);
+        RES_ReadFile(file, &u50.n, 4);
         RES_ReadFile(file, &pos34, 8);
-        elem = g_array_A[L_50];
+        elem = g_array_A[u50.n];
         *(int*)(*(char**)((char*)elem + 0xc) + 0x4c) = 0;
         PutObjOnMap(*(void**)((char*)elem + 0xc), elem, &pos34);
     }
@@ -201,7 +197,7 @@ int LoadBaseMap(char* mapName)
     L_48 = 0;                    /* curval */
     RES_ReadFile(file, &L_14, 4);
     buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-    L_24 = buf;
+    u24.rle = buf;
     RES_ReadFile(file, buf, L_14);
     bi = 2;
 
@@ -233,7 +229,7 @@ int LoadBaseMap(char* mapName)
                     unsigned short base = (unsigned short)(*rec + db);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) = base;
                     {
-                        unsigned char db2 = L_24[bi];
+                        unsigned char db2 = u24.rle[bi];
                         unsigned short* rec2 = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
                         unsigned short disp = (unsigned short)(*rec2 + db2);
                         SetMapTile(L_10, y, disp);
@@ -299,7 +295,7 @@ int LoadBaseMap(char* mapName)
                     unsigned short base = (unsigned short)(*rec + db);
                     *(unsigned short*)((char*)g_map_rows[y] + L_10 * 20 + 0xa) = base;
                     {
-                        unsigned char db2 = L_24[bi];
+                        unsigned char db2 = u24.rle[bi];
                         unsigned short* rec2 = *(unsigned short**)((char*)L_3c + idx * 8 + 4);
                         unsigned short disp = (unsigned short)(*rec2 + db2);
                         SetMapTile(L_10, y, disp);
@@ -345,7 +341,7 @@ int LoadBaseMap(char* mapName)
         y = 0;
         RES_ReadFile(file, &L_14, 4);
         buf = (unsigned char*)HeapAlloc_w((unsigned)L_14);
-        L_24 = buf;
+        u24.rle = buf;
         RES_ReadFile(file, buf, L_14);
         if ((unsigned short)g_map->height <= (unsigned)y)
             goto after_baserle;
@@ -417,16 +413,16 @@ after_baserle:
                 L_18 = cf;
                 Set_RFFlags(L_10 << 8, y << 8, (unsigned char)byte);
                 if (!((unsigned char)L_18 & 8) && ((unsigned char)L_18 & 0x10)) {
-                    pos48.x = L_10;
-                    pos48.y = y;
-                    AddPathTileGFX(&pos48, *(unsigned short*)(*g_path_tile_ptr));
+                    u24.q.x = L_10;
+                    u24.q.y = y;
+                    AddPathTileGFX(&u24.q, *(unsigned short*)(*g_path_tile_ptr));
                 }
                 c = &g_map_rows[y][L_10];
                 rf = c->rf;
                 if ((rf & 1) || ((c->flags & 0x10) && !(rf & 2))) {
-                    pos40.x = L_10;
-                    pos40.y = y;
-                    AddPathSquare(&pos40);
+                    u50.q.x = L_10;
+                    u50.q.y = y;
+                    AddPathSquare(&u50.q);
                 }
                 L_10++;
                 if (L_10 >= (unsigned short)g_map->width) {
@@ -446,16 +442,16 @@ after_baserle:
                 rfarg = (cf & 0xff00) | buf[bi];
                 Set_RFFlags(L_10 << 8, y << 8, (unsigned char)rfarg);
                 if (!((unsigned char)L_18 & 8) && ((unsigned char)L_18 & 0x10)) {
-                    pos24.x = L_10;
-                    pos24.y = y;
-                    AddPathTileGFX(&pos24, *(unsigned short*)(*g_path_tile_ptr));
+                    pos34.x = L_10;
+                    pos34.y = y;
+                    AddPathTileGFX(&pos34, *(unsigned short*)(*g_path_tile_ptr));
                 }
                 c = &g_map_rows[y][L_10];
                 rf = c->rf;
                 if ((rf & 1) || ((c->flags & 0x10) && !(rf & 2))) {
-                    pos2c.x = L_10;
-                    pos2c.y = y;
-                    AddPathSquare(&pos2c);
+                    u54.q.x = L_10;
+                    u54.q.y = y;
+                    AddPathSquare(&u54.q);
                 }
                 L_10++;
                 if (L_10 >= (unsigned short)g_map->width) {
@@ -510,8 +506,8 @@ after_baserle:
     HeapFree_w(buf);
 
     /* perimeter records */
-    RES_ReadFile(L_20, &L_24, 4);
-    for (i = 0; i < (int)(unsigned int)L_24; i++) {
+    RES_ReadFile(L_20, &u24.rle, 4);
+    for (i = 0; i < (int)(unsigned int)u24.rle; i++) {
         RES_ReadFile(L_20, buf_58, 0x14);
         build_perimeter(&buf_58);
     }
@@ -528,9 +524,9 @@ after_baserle:
     }
     RES_ReadFile(file, buf_6c, 8);
     if (memcmp(buf_6c, g_terrain_magic, 8) == 0) {
-        if (RES_ReadFile(file, &L_24, 4) == 4) {
-            RES_ReadFile(file, buf_6c, (int)(unsigned int)L_24);
-            buf_6c[(unsigned int)L_24] = 0;
+        if (RES_ReadFile(file, &u24.rle, 4) == 4) {
+            RES_ReadFile(file, buf_6c, (int)(unsigned int)u24.rle);
+            buf_6c[(unsigned int)u24.rle] = 0;
             map_helper_4618d0(buf_6c);
             g_terrain_elem_2 = ElemID(buf_6c);
             g_terrain_texdata = LLIDB_LoadData(g_terrain_elem_2);
@@ -553,8 +549,8 @@ after_baserle:
                         continue;
                     } else if (state == 1) {
                         unsigned int v;
-                        RES_ReadFile(L_20, &pos24, 2);
-                        v = *(unsigned int*)&pos24;
+                        RES_ReadFile(L_20, &pos34, 2);
+                        v = *(unsigned int*)&pos34;
                         if (v == 0xffff) {
                             state = 0;
                             break;
