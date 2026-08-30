@@ -122,9 +122,63 @@ during the call — there is no caller-supplied asset buffer. The host must have
 the RES archives readable and the ICM loaded; the grid memory is the only buffer
 the host owns and must keep alive for the map's lifetime.
 
-Next: the LLIDB loaders (`LLIDB_LoadTSFData/ILFData/TSMData/ICM`) and the map
-builders (`PutObjOnMap` tail, then `LoadBaseMap` itself) — then outward across
-the 716 exports.
+## LLIDB image database (asset resolution)
+
+The LLIDB is the name→asset registry the whole asset pipeline goes through:
+`FindElement(name) → LoadData(elem) → per-type parser → parsed table`. Element
+struct (20 bytes, insertion-indexed via a paged table): `name`@0, `image`@4,
+`type_flags`@8 (`(type&0xfff0)|loaded-bit0`), `data`@0xc, `refcount`@0x10.
+Globals: capacity @0x6691a0, count @0x6691a4, page table @0x6691a8.
+
+**Matched (100% normalized, full-body):**
+
+| addr | function | |
+| --- | --- | --- |
+| 0x0047b2d0 | `LLIDB_GetCount` | count |
+| 0x0047b2e0 | `LLIDB_GetElement` | paged index → element |
+| 0x0047b330 | `LLIDB_FindElement` | name scan (stricmp) |
+| 0x0047b410 | `LLIDB_FindElementFromDataPtr` | data-ptr scan |
+| 0x0047d3a0 | `LLIDB_LoadData` | lazy loader/dispatcher (bit0=loaded; switch on type&0xfff0) |
+
+`LoadData` dispatch: 0x10/0x1010→ODF, 0x20→TSM, 0x40→TSF, 0x400→ILF,
+0x2000→CSP, 0x200/0x800→no backing file (returns 0).
+
+**WIP (reversed & logic-complete; large heap/parse functions pending the VC6
+call-scheduling / stack-layout grind — kept as `// WIP-FUNCTION:`):**
+
+- `LLIDB_GrowAndGetIndex` (0x47b5a0) — grows the paged table in 256-elem pages
+  (realloc page array + malloc a 0x1400 page); returns the new index.
+- `LLIDB_RegisterNewElement` (0x47b610) — dedup by name, else strdup name/image
+  into a fresh slot; only +0/+4/+8/+0x10 written, count++.
+- Per-type parsers — **on-disk formats and outputs, for the runtime:**
+  - `LLIDB_LoadTSMData` (0x47ce40): opens `TileData\<image>`, reads `u32 count`,
+    `mallocs (count+1)` **8-byte records `{LLElem* entry, void* loaded}`**, reads
+    a self-name (discarded), then per tileset reads `u32 len`+name → FindElement
+    → LoadData, filling `{entry, loaded}`; terminates `{-1,-1}`. Sets
+    `elem->data`=recs, `type_flags|=1`.
+  - `LLIDB_LoadTSFData` (0x47cba0): builds a 36-byte descriptor `{+4 n_tiles,
+    +8 AllocTileSpace base id, +0xc code[], +0x10 second[]}` — the **base id**
+    tile codes are added to (see FORMATS.md tile pipeline).
+  - `LLIDB_LoadILFData` (0x47cfc0) / `LLIDB_LoadCSPData` (0x47d1a0): image list
+    `{u16 n, u16 type, name, n×(dx,dy doubled), n× .lls}`, each sprite loaded.
+  - `LLIDB_LoadODFData` (0x47bf70): object-def blob loader.
+
+Full disassembly-grounded drafts for all of the above are in
+`scratchpad/slope_re/*.md` and the loader-draft workflow output.
+
+## Tooling note (for Codex)
+
+`tools/match.py`'s disassembler **stops at the first `ret`**, so multi-return
+functions are only verified up to that point. I added `tools/matchfull.py` (new
+file; does not touch the shared `match.py`/`verify.py`, uses its own
+`/tmp/_matchfull.obj`) which compares the **whole** function — it caught
+`LoadData` being only 82.8% past the first `ret`. A full-body re-check confirms
+all committed functions are 100% end-to-end. Suggest folding the full-body walk
+into `match.py` alongside the parallel-safety fix.
+
+Next: grind the LLIDB parsers/registration to 100% (stack-layout + call-schedule
+iteration), the `PutObjOnMap` tail, then `LoadBaseMap` — and outward across the
+716 exports.
 
 ## Legal
 

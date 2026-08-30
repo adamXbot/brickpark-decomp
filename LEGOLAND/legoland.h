@@ -110,7 +110,9 @@ typedef struct LLElem {
     void*        data;       /* +0x0c parsed asset table (0 until loaded) */
     unsigned int refcount;   /* +0x10 */
 } LLElem;
-/* count @ 0x006691a4; page table @ 0x006691a8 (256 elements per 0x1400 page). */
+/* capacity @ 0x006691a0 (multiple of 0x100); count @ 0x006691a4;
+ * page table @ 0x006691a8 (256 elements per 0x1400 page). */
+extern unsigned int g_llidb_capacity;
 extern unsigned int g_llidb_count;
 extern LLElem**     g_llidb_pages;
 
