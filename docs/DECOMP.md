@@ -285,6 +285,11 @@ Recorded so they are not re-derived; several cost hundreds of measured variants:
   spill homes, so an address-taken temp born inside a `static __inline` helper
   can occupy a slot a *named* local never can. This reproduced the original's
   four distinct S8 `Pos` slots after ~1400 union/struct variants had failed.
+- **Deferred/split prologues are reachable.** VC6 will sink `push ebp/esi/edi`
+  into a function's non-null path (leaving only `push ebx` before an early null
+  check) if the loop locals live in a **post-guard inner scope** and the loop
+  exits via `break` to a single trailing return. `GetObjectFromName` (0x44dda0)
+  sat rejected at 84% for a long time on the belief this was unreachable from C.
 - **Degenerate branches are real.** VC6 SP3 sometimes emits a test whose two arms
   compute the same value in different registers (`g_tile_info & 0x20` at
   0x004622ae / 0x00462333). Matching requires writing `if (c) f(a); else f(a);`;
