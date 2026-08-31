@@ -157,7 +157,11 @@ void ScanMouse(void)
  * operands, a union/second pointer to break the CSE, a local `int lo = 0`, the
  * ternary max form, `>=`-vs-`>` clamp spellings, and statement reordering.
  */
-// WIP-FUNCTION: LEGOLAND 0x00473b00  (84.7%; 13 mismatching bytes — an unbreakable CSE + ebp push)
+// WIP-FUNCTION: LEGOLAND 0x00473b00  (111 vs 109 insns, 55 mismatches)
+/* A closer attempt reaching 109/109 instructions and only 13 mismatches is
+ * preserved in scratchpad/wipfix.c — there the remaining difference is that
+ * the original keeps 0 in edx across the two low clamps. It is not spliced in
+ * here because it depends on that file's surrounding declarations. */
 void UpdateControllerFromMouseData(Controller* c)
 {
     int dx;

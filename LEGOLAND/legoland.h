@@ -61,10 +61,15 @@ typedef struct Cell {
     unsigned short pad6;    /* +0x06 */
     unsigned short tile;    /* +0x08 displayed tile (SetMapTile) */
     unsigned short base;    /* +0x0a ground/terrain tile */
-    unsigned short flags;   /* +0x0c map flags */
+    unsigned short flags;   /* +0x0c map flags; 0x0020 build footprint reserved,
+                             *       0x0100 blacked out (no power),
+                             *       0x0200 switched off / disconnected */
     unsigned short uflags;  /* +0x0e user flags */
     unsigned char  rf;      /* +0x10 RF/path flags */
-    unsigned char  pad11[3];/* +0x11..0x13 */
+    unsigned char  life;    /* +0x11 object's REMAINING life (not padding);
+                             *       salvage = cost*life/ObjDesc.life,
+                             *       repair cost = cost - salvage */
+    unsigned char  pad12[2];/* +0x12..0x13 */
 } Cell;
 
 /* The map header; width/height at +0x14/+0x16 (@ 0x004bcbf4). */
