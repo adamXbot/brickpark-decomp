@@ -58,7 +58,13 @@ typedef struct Cell {
     void*          obj;     /* +0x00 render/tile object */
     unsigned char  bx;      /* +0x04 */
     unsigned char  by;      /* +0x05 */
-    unsigned short pad6;    /* +0x06 */
+    unsigned char  nx;      /* +0x06 next cell in the RENDER CHAIN, packed {x,y};
+                             * a zero pair terminates the walk. Not padding —
+                             * GetNextRenderObject (0x0045a8b0) reads these two
+                             * bytes, bounds-checks them and returns
+                             * &g_map_rows[ny][nx], so the render list is threaded
+                             * through the grid itself and cannot leave the map. */
+    unsigned char  ny;      /* +0x07 */
     unsigned short tile;    /* +0x08 displayed tile (SetMapTile) */
     unsigned short base;    /* +0x0a ground/terrain tile */
     unsigned short flags;   /* +0x0c map flags; 0x0020 build footprint reserved,
