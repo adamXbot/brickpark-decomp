@@ -114,8 +114,12 @@ failure (map element not found).
   `width` (+0x14) and `height` (+0x16) from the `.MAP`.
 - `g_map_rows` (`0x00801400`) points at an allocated `Cell*[height]`, each row an
   allocated `Cell[width]` (20-byte cells). `LoadBaseMap` zeroes `cell+0xc/+0x12`
-  then fills the cells; it does **not** allocate the grid (that's `InitGameMap`
-  @ 0x59850). **Map ownership stays with the host allocator.**
+  then fills the cells; it does **not** allocate the grid. **Map ownership stays
+  with the host allocator.** (An earlier note here attributed the allocation to
+  `InitGameMap` @ 0x459850 — that is **wrong**. Matching that function showed its
+  8-instruction body resolves the `CASTLE OBJ` element into `0x0080ff64` and
+  loads the 23-entry FX table at `0x004b9228`; it never touches `g_map` or
+  `g_map_rows`. The grid allocator is still unidentified.)
 - The tile-sprite tables `TileSpriteArray` (0x805f60) / `TileSpriteInfo`
   (0x801f40) are populated on demand by the TSF loads (`AllocTileSpace`); the
   `.lls` tile sprites resolve from `Graphics1/2.res`.
@@ -137,6 +141,27 @@ failure (map element not found).
 during the call — there is no caller-supplied asset buffer. The host must have
 the RES archives readable and the ICM loaded; the grid memory is the only buffer
 the host owns and must keep alive for the map's lifetime.
+
+**Map-loading pipeline (matched, 100% full-body):** every function `LoadBaseMap`
+calls directly is now exact, so the whole map-load path is reconstructed.
+
+| addr | function | file | |
+| --- | --- | --- | --- |
+| 0x00461a50 | `LoadBaseMap` | `loadmap.c` | 1214 insns — the whole loader |
+| 0x00459850 | `InitGameMap` | `mapinit.c` | resolves `CASTLE OBJ`, loads the FX table |
+| 0x0047b3f0 | `ElemID` | `mapinit.c` | name → `Elem*` (no stack frame: reuses the arg slot) |
+| 0x00481c50 | `AddPathSquare` | `mapinit.c` | pushes a 0x24-byte path rect |
+| 0x0045d350 | `AddPathTileGFX` | `pathgfx.c` | path overlay on a cell |
+| 0x00462c00 | `BuildPerimeterObject` | `pathgfx.c` | perimeter cliff/bridge node → terrain list |
+| 0x00462c60 | `BindTerrainObjectSprites` | `renderinit.c` | binds each terrain node to its sprite |
+| 0x004618d0 | `SetBridgeDrawOffsets` | `renderinit.c` | per-theme bridge draw offsets |
+| 0x00489b60 | `RES_OpenFile` | `res.c` | archive open |
+| 0x00489cf0 | `RES_ReadFile` | `res.c` | archive read |
+
+`BindTerrainObjectSprites` carries one deliberate `*(volatile int*)` read as a
+**codegen lever** (VC6 otherwise CSEs that load with the two `& 0xff` reads below
+it, where the original reloads the field in each arm). It is confined to that one
+read and commented in place; replace it if a cleaner spelling is found.
 
 **Map-build / placement helpers (matched, 100% full-body — `LEGOLAND/mapbuild.c`):**
 
