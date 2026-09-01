@@ -9,7 +9,7 @@
 | Compiler | **Visual C++ 6.0** (linker version 6.0) |
 | Built | 2000-04-07 14:27 UTC |
 | Sections | `.text` 0x0a9d46 · `.rdata` 0x0838c · `.data` (mostly BSS) · `.rsrc` |
-| Exports | **716 named functions** (see [`symbols/legoland.exports.txt`](../symbols/legoland.exports.txt)) |
+| Exports | **716 named symbols:** 675 functions in `.text`, 41 data symbols (see [`symbols/legoland.exports.txt`](../symbols/legoland.exports.txt)) |
 
 The single biggest asset for the decomp: the exe exports its entire internal
 API under **plain, descriptive C names**. No demangling needed, no leaked beta

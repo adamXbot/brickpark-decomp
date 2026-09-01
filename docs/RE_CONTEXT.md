@@ -27,8 +27,9 @@ Everything reverse-engineered so far. Read this + `docs/FORMATS.md`,
 ## The binary
 
 Single VC6 `legoland.exe`, DirectDraw 2-D isometric engine (no Direct3D).
-716 named C exports = the whole internal API. Grep `symbols/legoland.exports.txt`
-to find the loader/renderer for any format, then disassemble it. Pixels are
+716 named C exports (675 functions and 41 data symbols) expose most of the
+internal API. Grep `symbols/legoland.exports.txt` to find the loader/renderer
+for any format, then disassemble it. Pixels are
 **RGB555** (export `LLS555To565` converts to 565 for the display).
 
 ## `.res` archives

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Dump the export table of a PE (name, ordinal, RVA).
 
-legoland.exe exports its entire internal API under readable C names -- 716 of
-them -- which is the backbone of the decompilation effort.  This writes a
+legoland.exe exports 716 readable names (675 functions and 41 data symbols),
+which are the backbone of the decompilation effort.  This writes a
 sorted `name<TAB>ordinal<TAB>0xRVA` list for use as reccmp annotation seeds and
 a Ghidra bulk-rename source.
 """

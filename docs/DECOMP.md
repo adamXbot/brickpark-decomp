@@ -3,8 +3,9 @@
 The goal of the decomp proper: rewrite `legoland.exe` in C that, compiled with
 the **Visual C++ 6.0 SP3** toolchain the game shipped with, reproduces the
 original machine code **function-by-function**. `legoland.exe` exports 716
-named functions ([`symbols/legoland.exports.txt`](../symbols/legoland.exports.txt)),
-so we already have the names — a head start LEGO Island never had.
+named symbols: 675 function entries in `.text` and 41 data exports
+([`symbols/legoland.exports.txt`](../symbols/legoland.exports.txt)), so we
+already have most of the names — a head start LEGO Island never had.
 
 ## Toolchain
 
@@ -300,7 +301,8 @@ a control-flow error that re-decoded the map-flags chunk as base tiles for any
 map with height > 0, a read of never-initialised bytes in the S10 end-of-run
 test, and a pointer dereferenced one level too deep.
 
-Next: outward across the remaining 716 exports.
+Next: outward across the remaining exported functions and additional internal
+functions discovered between them.
 
 ## Legal
 
