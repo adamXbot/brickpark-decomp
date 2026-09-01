@@ -81,6 +81,22 @@ handler was hoisted into a local (VC6 computes the callback once, then calls).
 Reported as **normalized instruction match** (the checker normalises relocated
 addresses/immediates and relative call/jump targets); not literal byte-identity.
 
+### Bloke counter lifecycle (matched, 100% full-body)
+
+The per-object-class visitor counters are now complete in `LEGOLAND/sweep3.c`:
+
+| addr | function | |
+| --- | --- | --- |
+| 0x00480e10 | `AllocBlokeCounters` | allocate one byte per bloke for class kinds other than 0 and 2 |
+| 0x00480e60 | `FreeBlokeCounters` | free and clear each class's counter array |
+| 0x00480e90 | `ClearBlokeCounters` | clear one bloke index across every allocated class array |
+
+These share the object-class list rooted at `g_objcls_head` with
+`ClearObjectCounters`; the class kind is at +0x20 and the byte-array pointer at
++0xc8. Together with the already-matched `IncrementBlokeCounter` and
+`GetBlokeCounter`, the allocation, reset, increment, read, and teardown path is
+fully reconstructed.
+
 ### Object placement (matched, 100% full-body)
 
 - **`PutObjOnMap` (0x00459ad0)** — 128/128. Places an object descriptor onto the

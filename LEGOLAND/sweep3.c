@@ -27,11 +27,16 @@ typedef struct CB {
     void* f4;                   /* +0x9c */
 } CB;
 
-/* Object-class list node (ClearObjectCounters). */
+/* Object-class list node. The counter lifecycle functions also use the class
+ * kind at +0x20 and its per-bloke byte array at +0xc8. */
 typedef struct OClsNode {
-    struct OClsNode* next;      /* +0x00 */
-    int              pad4;      /* +0x04 */
-    int              counter;   /* +0x08 */
+    struct OClsNode* next;          /* +0x00 */
+    int              pad4;          /* +0x04 */
+    int              counter;       /* +0x08 */
+    unsigned char    pad0c[0x14];   /* +0x0c..0x1f */
+    unsigned short   kind;          /* +0x20 */
+    unsigned char    pad22[0xa6];   /* +0x22..0xc7 */
+    unsigned char*   bloke_counters; /* +0xc8 */
 } OClsNode;
 
 /* ObjCount subject: p->child->count. */
@@ -62,11 +67,8 @@ typedef struct ObjDesc {
     short         cost;         /* +0x26 */
 } ObjDesc;
 
-/* Increment/GetBlokeCounter subject: per-index byte counters array at +0xc8. */
-typedef struct Team {
-    unsigned char  pad[0xc8];   /* +0x00..0xc7 */
-    unsigned char* counters;    /* +0xc8 */
-} Team;
+/* Increment/GetBlokeCounter receive the same object-class record. */
+typedef OClsNode Team;
 
 /* GetBlokeNum / GetBlokePtr element (172 = 0xAC bytes; size is load-bearing). */
 typedef struct BElem {
@@ -106,6 +108,8 @@ extern int       g_printlist_x;     /* 0x0066b5a8 */
 extern int       g_hitinfo;         /* 0x004bdd00 */
 
 extern int Rand_Helper(int);        /* 0x004806a0 (unconfirmed name) */
+extern void* MemAlloc(int);         /* 0x0049e4ff */
+extern void  MemFree(void*);        /* 0x0049e4d0 */
 
 #pragma intrinsic(strlen)
 
@@ -210,17 +214,57 @@ int GetObjCost(ObjDesc* p)
     return p->cost;
 }
 
+// FUNCTION: LEGOLAND 0x00480e10
+void AllocBlokeCounters(int count)
+{
+    OClsNode* p = g_objcls_head;
+
+    while (p) {
+        if (p->kind != 0 && p->kind != 2)
+            p->bloke_counters = (unsigned char*)MemAlloc(count);
+        else
+            p->bloke_counters = 0;
+        p = p->next;
+    }
+}
+
+// FUNCTION: LEGOLAND 0x00480e60
+void FreeBlokeCounters(void)
+{
+    OClsNode* p = g_objcls_head;
+
+    while (p) {
+        if (p->bloke_counters) {
+            MemFree(p->bloke_counters);
+            p->bloke_counters = 0;
+        }
+        p = p->next;
+    }
+}
+
+// FUNCTION: LEGOLAND 0x00480e90
+void ClearBlokeCounters(int index)
+{
+    OClsNode* p = g_objcls_head;
+
+    while (p) {
+        if (p->bloke_counters)
+            p->bloke_counters[index] = 0;
+        p = p->next;
+    }
+}
+
 // FUNCTION: LEGOLAND 0x00480ec0
 void IncrementBlokeCounter(Team* p, int idx)
 {
-    if (p->counters)
-        p->counters[idx]++;
+    if (p->bloke_counters)
+        p->bloke_counters[idx]++;
 }
 
 // FUNCTION: LEGOLAND 0x00480ee0
 int GetBlokeCounter(Team* p, int idx)
 {
-    return p->counters ? p->counters[idx] : 0;
+    return p->bloke_counters ? p->bloke_counters[idx] : 0;
 }
 
 // FUNCTION: LEGOLAND 0x00481690

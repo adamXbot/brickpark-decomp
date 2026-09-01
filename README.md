@@ -18,8 +18,8 @@ decompilations.
 
 <a href="https://adamxbot.github.io/legoland/LEGOLANDPROGRESS.HTML"><img src="https://adamxbot.github.io/legoland/LEGOLANDPROGRESS.SVG" width="100%" alt="LEGOLAND decompilation progress"></a>
 
-The current source contains **251 exact full-body function matches**: **230 of
-675 exported functions (34.1%)**, plus 21 recovered internal functions. Two
+The current source contains **254 exact full-body function matches**: **233 of
+675 exported functions (34.5%)**, plus 21 recovered internal functions. Two
 more functions are marked work in progress. The searchable
 [decompilation report](https://adamxbot.github.io/legoland/LEGOLANDPROGRESS.HTML)
 is generated directly from the committed reccmp annotations.
