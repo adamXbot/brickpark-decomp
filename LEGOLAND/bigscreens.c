@@ -613,8 +613,26 @@ extern void EnterSaveGameDetails(Icon* panel);                                /*
  * popup is up (delete popup: pulled up a row; new-save popup: the name
  * editor with the pending save type stamped), else the lit slot panel. The
  * popup prompt (0x8c / 0xc44 new save, 0x85 delete) is printed under a
- * corner mask. The Accept icon follows whether a slot is selected. */
-// WIP-FUNCTION: LEGOLAND 0x0048dd00
+ * corner mask. The Accept icon follows whether a slot is selected.
+ *
+ * 313/313 instructions, 952/952 bytes, exact except THREE: the header rect's
+ * right edge (0x14e) lands in ebp here and in ebx in the original
+ * (0x0048dd15 `mov ebx,14Eh` plus its two `mov [edx+8],ebx` stores). Both
+ * registers are pushed and neither interferes with the value, so this is a
+ * pure allocator tie-break: with exactly TWO call-crossing values in the
+ * header VC6 hands out edi then ebp; with three it hands out edi, ebx, ebp
+ * (measured by making a third rect field survive the second call), and with
+ * esi free it hands out esi then edi. The original wants the two-value case
+ * to pick edi then ebx. Ruled out as levers, all leaving the same three:
+ * every permutation of the four rc field assignments (the movs are emitted
+ * in field order regardless; the register follows the ASSIGNMENT order),
+ * right/bottom written relative to left/top, a separate WinRect for the
+ * header / loop / tail (any split), an inlined print helper, the string-id
+ * ternary hoisted into a local or spelled the other way round, the callee
+ * prototype's parameter types, `lit` declared at function scope / as char /
+ * unsigned / folded into the flag mask, sy+ty or cur+rc pinned in one
+ * aggregate, and reading g_side_icons at four different points. */
+// WIP-FUNCTION: LEGOLAND 0x0048dd00  (313/313 insns, 952/952 bytes, 3 mismatches: 0x14e in ebp vs ebx, see above)
 void PrintSavedGameDetails(void)
 {
     Icon* p = g_side_icons;

@@ -26,11 +26,13 @@
  * SetObjRectFlags is rf = 2.  The edit-cursor validation (ValidateCursor)
  * walks every rect of every chained cursor and calls SetCursorError(cursor, n)
  * with, in order of discovery: 4/3 (people in the footprint, CheckForPeople
- * -1/+1), 7 (off the map), 1 (blocked cell), 10 (an existing object of a
- * class with flag 0x200000 under the footprint), 6 (any other object under a
- * class that does not need one), 5 (0x800 cell), 9 (a class that needs a path
- * but the cell is a path tile without rf bit 0 — i.e. not a walkable path)
- * and 8 (a class that must NOT sit on a path, over a path tile or rf bit 0).
+ * -1/+1), 7 (off the map), 1 (blocked cell), 10 (an existing object under the
+ * footprint whose class is NOT the environment class and does NOT carry flag
+ * 0x200000 — 0x200000 is the "may be built over" bit, and error 10 skips
+ * straight to the path check), 6 (any other object under a class that does not
+ * need one), 5 (0x800 cell), 9 (a class that needs a path but the cell is a
+ * path tile without rf bit 0 — i.e. not a walkable path) and 8 (a class that
+ * must NOT sit on a path, over a path tile or rf bit 0).
  * SetCursorError keeps the WORST (lowest -n) code in +0x140c/+0x1410.
  *
  * RENDER ORDER (CalculateMapRenderOrder)
@@ -689,24 +691,49 @@ int ScreenToMapRef(Pos* screen, Pos* out, int mode)
 
 /* Rebuild the render chain (see the file header).  `p` is the scan position;
  * it is address-taken by the node helpers, which is why it lives in memory. */
-// WIP-FUNCTION: LEGOLAND 0x0045a4a0  (40.5%, scan loop shape)
+/* 54.5% (143/143 instructions, 444B exact, no ESCAPES; index-for-index over
+ * 0-41 apart from three prologue slots, and over 110-142 apart from renames).
+ * What the current shape already buys (do not undo it): the four setup
+ * statements in the order p.x / p.y+node_next / memset / link is the ONLY one
+ * of the 24 that gives 143 instructions — the others sink the ebx/ebp pushes
+ * past the width guard and tail-duplicate the epilogue (ESCAPES).  Writing the
+ * base-cell test as `if (!(cell->flags & 0xa0)) p.y++; else {...}` is what puts
+ * the two-instruction p.y++ arm inline, as the original has it.
+ *
+ * Residual is one register tie-break and the block layout it drags with it:
+ *   original: ebx = the hoisted g_map (reloaded after each call), esi = `link`
+ *             (spilled to [esp+0x10] and reused for the render node and for
+ *             &base->nx), eax = `base`;
+ *   ours:     esi = g_map, ebx = link, eax = the node and esi = base.
+ * Because `base` ends up in a callee-saved register, VC6 also lays the
+ * `p.x == right+bx || p.x == width-1` join out with the ELSE (step) arm inline
+ * and the THEN (emit) arm last, where the original falls through into the emit
+ * arm and puts the second disjunct test after it.  Tried: both arm orders, the
+ * fully explicit goto transcription of the original CFG, block-scoping the
+ * object-arm locals, `for(;;)`+break, unsigned char bx/by and hoisting
+ * width-1.  VC6 re-flattens every one of them to the same layout, so the lever
+ * has to be whatever makes g_map outrank `link` for ebx. */
+// WIP-FUNCTION: LEGOLAND 0x0045a4a0  (54.5%, g_map/link register tie-break and the || arm layout)
 void CalculateMapRenderOrder(void)
 {
     Pos             p;
-    unsigned short* link = &g_render_head;
+    unsigned short* link;
     Cell*           cell;
     Cell*           base;
     ObjDef*         def;
     RenderNode*     node;
     int             bx, by;
 
-    memset(g_render_nodes, 0, sizeof(g_render_nodes));
-    g_render_node_next = 0;
     p.x = 0;
     p.y = 0;
+    g_render_node_next = 0;
+    memset(g_render_nodes, 0, sizeof(g_render_nodes));
+    link = &g_render_head;
     while (p.x < g_map->width) {
         cell = MapCellAt(p.x, p.y);
-        if (cell->flags & 0xa0) {
+        if (!(cell->flags & 0xa0)) {
+            p.y++;
+        } else {
             bx = cell->bx;
             by = cell->by;
             base = MapCellAt(bx, by);
@@ -727,8 +754,6 @@ void CalculateMapRenderOrder(void)
                 p.x++;
                 TakeRenderNodeInColumn(&p);
             }
-        } else {
-            p.y++;
         }
         while (p.y >= g_map->height) {
             p.x++;
@@ -745,16 +770,27 @@ void CalculateMapRenderOrder(void)
  * byte is the cursor style (4 when valid) | 1 for left/right, | 2 for
  * top/bottom.  `refresh` (only honoured for the head cursor) re-checks the
  * footprint first. */
-/* 96.9%. Residual is the x-loop head: the original reloads y into edx, hoists
- * the r.left read into eax and sums in place ('sub ecx,edx / add edx,edi'
- * before both imuls); VC6 gives our y reload eax and builds the sum with lea
- * after the first imul. Tried: statement order, dx/dy temps, in-place
- * accumulation, inline helpers (by value and by argument), operand order,
- * reusing the third parameter as y — all identical.
+/* 96.3% (161/161 instructions, 544B vs 543B; index-for-index everywhere except
+ * six instructions at the head of the x-loop body).
+ *   original: mov edx,[y] / mov eax,[r.left] / mov ecx,edi / sub ecx,edx /
+ *             add edx,edi / imul ecx,[w2] / imul edx,esi
+ *   ours:     mov eax,[y] / mov ecx,edi / sub ecx,eax / imul ecx,[w2] /
+ *             lea edx,[edi+eax] / mov eax,[r.left] / imul edx,esi
+ * Same seven operations, same registers for the two results (ecx = sx,
+ * edx = sy).  The original loads `y` straight into edx — the register sy will
+ * live in — so the second sum is an in-place `add edx,edi`, which leaves both
+ * ALU ops adjacent and lets the scheduler hoist the r.left load into the gap
+ * before the two imuls.  VC6 here loads `y` into eax, so the sum needs a
+ * three-operand `lea` and the r.left load lands after it.  The choice is the
+ * allocator's, not the expression's: the two-step (`sx = x - y; sx *= w2;`),
+ * the accumulate-in-place, the swapped-operand and the fully-inlined forms all
+ * refold to the identical instruction list, and none of the declaration
+ * orders, block scopes, unsigned types, hoisting w2/h2 to the y-loop, or
+ * rephrasing the `x == r.left` guard moves it.
  * NOTE: the marker must stay on the line directly above the signature; the
  * verifier only looks 1-3 lines ahead, and this note used to sit between them,
  * which made the function silently uncounted. */
-// WIP-FUNCTION: LEGOLAND 0x0045f5f0  (96.9%, x-loop head sum order; see note above)
+// WIP-FUNCTION: LEGOLAND 0x0045f5f0  (96.3%, y lands in eax not edx at the x-loop head)
 void BuildCursorPtr(Cursor* c, void* unused, int refresh)
 {
     Rect  r;
@@ -815,25 +851,31 @@ void BuildCursorPtr(Cursor* c, void* unused, int refresh)
  * value, then either (footprint object, cell flag 0x80) tear the cells down
  * through RemoveObjectFromMap, or (a cursor-shaped `ctx` footprint) restore
  * the ground tile, clear the flags and RF and null the owner per cell; unless
- * the class is type 2 the instance record keyed by the cell is freed. */
-// WIP-FUNCTION: LEGOLAND 0x0045f220  (47.4%, arm layout / cell lookup)
+ * the class is type 2 the instance record keyed by the cell is freed.
+ * The by-value BPos is unpacked ONCE into a function-scope Pos whose address
+ * is what ClearObjectUserFlags is handed — that single 8-byte aggregate (and
+ * not two ints plus a scratch Pos) is what makes the frame 0x1c bytes and
+ * keeps all four register pushes in the prologue. */
+// FUNCTION: LEGOLAND 0x0045f220
 void StandardRemoveObject(MapObj* obj, BPos bp, Cursor* ctx)
 {
-    int     x0 = bp.x;
-    int     y0 = bp.y;
-    Cell*   cell = MapCellAt(x0, y0);
-    ObjDef* def = obj->cls;
+    Pos     pos;
+    Cell*   cell;
+    ObjDef* def;
     void*   inst;
+
+    pos.x = bp.x;
+    pos.y = bp.y;
+    cell = MapCellAt(pos.x, pos.y);
+    def = obj->cls;
 
     if (def->flags & 0x20000)
         g_bg_full_update = 1;
     AddBricks(GetObjSalvageValue(def, cell->life));
 
     if (cell->flags & 0x80) {
-        Pos p;      /* [sic] never initialised — original bug */
-
         ApplyDestrTileMap(obj, bp);
-        ClearObjectUserFlags(obj, &p);
+        ClearObjectUserFlags(obj, &pos);
         RemoveObjectFromMap(bp);
     } else {
         Rect r = ctx->rect;
@@ -858,9 +900,9 @@ void StandardRemoveObject(MapObj* obj, BPos bp, Cursor* ctx)
     if (def->type != 2) {
         BPos key;
 
-        key.x = (unsigned char)x0;
-        key.y = (unsigned char)y0;
-        cell = MapCellAt(x0, y0);
+        key.x = (unsigned char)pos.x;
+        key.y = (unsigned char)pos.y;
+        cell = MapCellAt(pos.x, pos.y);
         inst = GetInstanceOfClass(((MapObj*)cell->obj)->cls, &key);
         if (inst) {
             RemoveInstanceFromList(inst);
@@ -872,8 +914,34 @@ void StandardRemoveObject(MapObj* obj, BPos bp, Cursor* ctx)
 /* Find the base-cell id (packed {x,y}) of the placed object `def` whose
  * footprint offset (dx, dy) lands on the cell at the 24.8 world position, by
  * probing the four neighbours (above, below, left, right).  0 when none.
- * [sic] the "below" probe does not null-check its cell (the other three do). */
-// WIP-FUNCTION: LEGOLAND 0x0048a3e0  (35.8%, probe shape)
+ * [sic] the "below" probe does not null-check its cell (the other three do) —
+ * the original's `xor esi,esi` null landing pad falls straight into
+ * `test byte [esi+0xc],0x80`.
+ *
+ * 8.9% (191/191 instructions; the four probe bodies are the right shape and
+ * the tail-duplicated `pop edi/esi/ebp/ebx; ret` after each hit is reproduced).
+ * The whole residual is ONE allocation decision that then renames every
+ * register in the body:
+ *   original: eax=x, edi=y, ebp=def, ebx=(the CSE'd g_map->height, later
+ *             def->dy), esi=a rematerialised g_map, ecx=cell.
+ *             g_map->width is CSE'd into the stack slot [esp+0x14] and
+ *             g_map->height into ebx ACROSS PROBES 1 AND 2 ONLY; probes 3 and
+ *             4 reload both.  g_map itself is kept in esi with two one-
+ *             instruction reload stubs (`mov esi,g_map` at 0x48a4d9 and
+ *             0x48a547) placed immediately before the probe they feed, on the
+ *             paths where esi had been clobbered by the g_map_rows load.
+ *   ours:     ebx=g_map and ebp=g_map_rows are both hoisted into callee-saved
+ *             registers for the whole body, so nothing is ever rematerialised
+ *             and the width/height values are re-read per probe instead.
+ * Because both hoists are legal and cheaper by VC6's own cost model, no source
+ * phrasing tried moved it: probe-local `Cell*`, x/y declaration order and
+ * scope, `def->dx + c->bx` vs `c->bx + def->dx`, the two sums as named temps
+ * inside the guarded block (which is what the original's `mov esi,[ebp+0xc] /
+ * mov ebx,[ebp+0x10]` pair in probes 2-4 looks like), the `&&` chain flat vs
+ * nested, and reversing the compare operands.  The lever wanted is one that
+ * DEMOTES g_map_rows out of a callee-saved register — with only three long-
+ * lived values (x, y, def) plus one scratch there is no pressure to force it. */
+// WIP-FUNCTION: LEGOLAND 0x0048a3e0  (8.9%, g_map/g_map_rows hoisted where the original rematerialises)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {
     int   x = wpos->x >> 8;
@@ -901,12 +969,33 @@ unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 
 /* Validate an edit-cursor chain for class `def` (see the file header for the
  * error codes).  [sic] the map bound rect passed to IntersectRect reads the
- * map HEIGHT for both its right and bottom edges — original bug. */
-// WIP-FUNCTION: LEGOLAND 0x0045f810  (66.5%, error-check ordering)
+ * map HEIGHT for both its right and bottom edges — original bug.
+ *
+ * Two things the disassembly settled:
+ *  - the parameter `cur` IS the chain walker (VC6 coalesces the loop variable
+ *    with it and keeps the separate `root` copy in a stack slot); that is what
+ *    puts the cursor in ebp, the rect in edi, and folds the four pushes into
+ *    one prologue;
+ *  - error 10 fires for an object of a class WITHOUT flag 0x200000
+ *    (`test dword [under+0x1c],0x200000 / jne skip`), not with it.  An earlier
+ *    reconstruction had the test inverted; the file header is corrected.
+ *
+ * 74.1% (205/205 instructions, index-for-index over 0-41, 92-105 and 110-204).
+ * Residual is one scheduling difference and its knock-on shift:
+ *  - idx 42-91: the original keeps ONE `cur->origin.y` / `cur->origin.x` load
+ *    alive across the two `foot` stores that use it (and delays the
+ *    `bound.right` store past them); VC6 here reloads the origin field, because
+ *    the store into the address-taken `foot` is treated as a possible alias.
+ *    Hoisting the origins into locals does produce the load-once form but then
+ *    costs a `mov ecx,eax` copy — a net loss.  All 16 orderings of the
+ *    bound/foot stores, the interleaved forms and three shapes of the
+ *    `origin + x` sum were tried; the best is this one.
+ *  - idx 106-109: the cell address is built in the same three ops with
+ *    g_map_rows loaded one slot later. */
+// WIP-FUNCTION: LEGOLAND 0x0045f810  (74.1%, origin-field CSE across the address-taken foot rect)
 void ValidateCursor(Cursor* cur, ObjDef* def)
 {
     Cursor* root = cur;
-    Cursor* c;
     Rect*   r;
     WinRect bound;
     WinRect foot;
@@ -920,57 +1009,63 @@ void ValidateCursor(Cursor* cur, ObjDef* def)
         CheckCursorFootprint(cur);
     ResetCursorFootprint(cur);
 
-    for (c = cur; c; c = c->next) {
-        if (c->flags & 0x2000)
+    for (; cur; cur = cur->next) {
+        if (cur->flags & 0x2000)
             continue;
-        for (r = &c->rect; r; r = r->next) {
-            bound.left = 0;
+        for (r = &cur->rect; r; r = r->next) {
             bound.top = 0;
-            bound.right = g_map->height;
+            bound.left = 0;
             bound.bottom = g_map->height;
-            foot.top = r->top + c->origin.y;
-            foot.bottom = r->bottom + c->origin.y;
-            foot.left = r->left + c->origin.x;
-            foot.right = r->right + c->origin.x;
+            bound.right = g_map->height;
+            foot.top = r->top + cur->origin.y;
+            foot.bottom = r->bottom + cur->origin.y;
+            foot.left = r->left + cur->origin.x;
+            foot.right = r->right + cur->origin.x;
             if (IntersectRect(&hit, &foot, &bound)) {
                 people = CheckForPeople(&hit);
-                if (people == -1)
-                    SetCursorError(c, 4);
-                else if (people == 1)
-                    SetCursorError(c, 3);
+                if (people != -1) {
+                    if (people == 1)
+                        SetCursorError(cur, 3);
+                } else {
+                    SetCursorError(cur, 4);
+                }
             }
             for (y = r->top; y <= r->bottom; y++) {
                 for (x = r->left; x <= r->right; x++) {
-                    cell = MapCellAt(c->origin.x + x, c->origin.y + y);
+                    int mx = cur->origin.x + x;
+                    int my = cur->origin.y + y;
+
+                    cell = MapCellAt(mx, my);
                     if (!cell) {
-                        SetCursorError(c, 7);
+                        SetCursorError(cur, 7);
                         continue;
                     }
                     if (cell->flags & 0x40)
-                        SetCursorError(c, 1);
-                    under = 0;
+                        SetCursorError(cur, 1);
                     if (cell->flags & 0xa8) {
                         under = ((MapObj*)cell->obj)->cls;
                         if (under == g_env_class)
                             under = 0;
-                        else if (under && (under->flags & 0x200000)) {
-                            SetCursorError(c, 10);
-                            goto pathcheck;
-                        }
+                    } else {
+                        under = 0;
+                    }
+                    if (under && !(under->flags & 0x200000)) {
+                        SetCursorError(cur, 10);
+                        goto pathcheck;
                     }
                     if (!ClassAllowsObjects(def)) {
                         if (under)
-                            SetCursorError(c, 6);
+                            SetCursorError(cur, 6);
                         if (cell->flags & 0x800)
-                            SetCursorError(c, 5);
+                            SetCursorError(cur, 5);
                     }
 pathcheck:
                     if (ClassNeedsPath(def)) {
                         if ((cell->flags & 0x10) && !(cell->rf & 1))
-                            SetCursorError(c, 9);
+                            SetCursorError(cur, 9);
                     } else {
                         if ((cell->flags & 0x10) || (cell->rf & 1))
-                            SetCursorError(c, 8);
+                            SetCursorError(cur, 8);
                     }
                 }
             }
@@ -984,9 +1079,13 @@ pathcheck:
  * its power stats, run the class remove handler, roll the build statistics
  * back (mirror of PutObjOnMap), erase a pending repair order on its cell and,
  * when a destroy cursor with flag 0x1000 is active, tear down the path tiles
- * under that cursor's first rect.  Returns the map-dirty flags.
- * [sic] the Pos handed to UnmarkObjectTiles is never initialised. */
-// WIP-FUNCTION: LEGOLAND 0x00459c90  (73.1%, statistics switch / cursor loop)
+ * under that cursor's first rect.
+ * [sic] the Pos handed to UnmarkObjectTiles is never initialised.
+ * The repair-order cell coordinates live in their OWN block-scope pair of
+ * ints: that is what makes VC6 keep both halves of the packed BPos argument
+ * (the raw dword and the raw dword at +1) alive in callee-saved registers for
+ * the whole body, which is worth the 4th push. */
+// FUNCTION: LEGOLAND 0x00459c90
 void RemObjFromMap(ObjDef* def, MapObj* obj, BPos bp, void* ctx)
 {
     Cell*   cell;
@@ -1043,10 +1142,15 @@ void RemObjFromMap(ObjDef* def, MapObj* obj, BPos bp, void* ctx)
         g_area_total -= area;
     }
 
-    cell = MapCellAt(bp.x, bp.y);
-    if (cell->flags & 0x4000) {
-        RemoveRepairOrderAT(def, bp.x, bp.y);
-        cell->flags &= ~0x4000;
+    {
+        int x0 = bp.x;
+        int y0 = bp.y;
+
+        cell = MapCellAt(x0, y0);
+        if (cell->flags & 0x4000) {
+            RemoveRepairOrderAT(def, x0, y0);
+            cell->flags &= ~0x4000;
+        }
     }
 
     c = &g_destroy_cursor;

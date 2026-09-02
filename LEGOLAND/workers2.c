@@ -843,11 +843,34 @@ void Mechanic_Build(Bloke* b)
     }
 }
 
-/* Per-tick handling of the worker carried on the mouse (see header). */
-// WIP-FUNCTION: LEGOLAND 0x00470620  (184/184 insns but 665 vs 672 bytes, 178 mismatches: an early divergence cascades; demoted from a false FUNCTION claim left by an interrupted run)
+/* Per-tick handling of the worker carried on the mouse (see header).
+ *
+ * Codegen notes (this body is 184/184 instructions, 677 vs 672 bytes and
+ * index-for-index exact for the first 102 instructions):
+ *  - The work order found under/near the hit is a SEPARATE local from the
+ *    `o` parameter: the original homes it in the (by then dead) parameter
+ *    slot [esp+18h] and reloads it at the `place` join even on the path
+ *    where nothing was found, so the value read there is the uninitialised
+ *    local -- harmless because `found` is 0 on that path. Reusing `o` for it
+ *    instead enregisters the parameter in edi, costs a fourth callee-saved
+ *    push and hoists a `2` into ecx for the flag tests.
+ *  - VC6 only lifts the constant 1 into a callee-saved register (ebp here,
+ *    rematerialised wherever ebp is reused as scratch) once the function
+ *    contains at least four separate stores of 1 to memory; that is why the
+ *    0x103 arm's failure and the out-of-range-row arm spell out
+ *    `g_drag_lock = 1; ...` instead of sharing the `fail:` label. Both are
+ *    exactly equivalent to `goto fail`.
+ *  - RESIDUAL: the original gives the out-of-range-row arm its own copy of
+ *    the fail tail with a `mov ebp,1` rematerialisation (0x4707a3..0x4707b9);
+ *    ours merges that arm with the 0x103 arm into one immediate-store copy
+ *    placed after the `place` block, so everything from index 102 on is
+ *    shifted by those 8 instructions (66 mismatches, all of them that shift).
+ */
+// WIP-FUNCTION: LEGOLAND 0x00470620  (184/184 insns, 677 vs 672 bytes, 66 mismatches: block placement of the out-of-range-row fail tail, see the note above)
 void CheckWorkerOnMouseStatus(WorkOrder* o)
 {
     Pos  cell;
+    WorkOrder* w;
     int  found = 0;
     int  r;
 
@@ -861,19 +884,20 @@ void CheckWorkerOnMouseStatus(WorkOrder* o)
                 g_drag_lock = 0;
                 goto tail;
             }
-            o = WorkOrderUnderHit(&cell);
-            if (o) {
+            w = WorkOrderUnderHit(&cell);
+            if (w) {
                 g_drag_lock = 0;
                 found = 1;
                 goto place;
             }
-            o = WorkOrderNearHit(&cell);
-            if (o) {
+            w = WorkOrderNearHit(&cell);
+            if (w) {
                 g_drag_lock = 0;
                 found = 1;
                 goto place;
             }
-            goto fail;
+            g_drag_lock = 1;
+            goto tail;
         }
         if (g_hit_type == 0x10a || g_hit_type == 2)
             goto fail;
@@ -882,10 +906,9 @@ void CheckWorkerOnMouseStatus(WorkOrder* o)
         if (g_cursor.point.x < ((MapHdr*)g_map)->origin_x + 9)
             goto fail;
         ScreenToMapRef(&g_cursor.point, &cell, 0);
-        if (cell.x < 0 || cell.x >= g_map->width ||
-            cell.y < 0 || cell.y >= g_map->height)
+        if (cell.x < 0 || cell.x >= g_map->width || cell.y < 0)
             goto fail;
-        {
+        if (cell.y < g_map->height) {
             Cell* c = &g_map_rows[cell.y][cell.x];
             if (c && (c->rf & 2)) {
                 g_drag_lock = 1;
@@ -895,6 +918,13 @@ void CheckWorkerOnMouseStatus(WorkOrder* o)
                 }
                 goto tail;
             }
+        } else {
+            /* Out-of-range row: its own copy of the fail tail (the original
+             * cannot share the one below because ebp holds the row count
+             * here, not the 1 the shared block stores). */
+            g_drag_lock = 1;
+            SetWorkersPositionAtMouse();
+            return;
         }
         if (g_drag_lock)
             goto tail;
@@ -906,8 +936,8 @@ gardener:
             r = SetGardenerWorkOrderAtPostion(g_worker_on_mouse, cell.x, cell.y);
         } else {
             if (found) {
-                g_worker_on_mouse->world.x = ((o->ox + cell.x) << 8) + 0x80;
-                g_worker_on_mouse->world.y = ((cell.y - o->oy) << 8) + 0x80;
+                g_worker_on_mouse->world.x = ((w->ox + cell.x) << 8) + 0x80;
+                g_worker_on_mouse->world.y = ((cell.y - w->oy) << 8) + 0x80;
             } else {
                 g_worker_on_mouse->world.x = (cell.x << 8) + 0x80;
                 g_worker_on_mouse->world.y = (cell.y << 8) + 0x80;

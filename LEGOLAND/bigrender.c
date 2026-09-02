@@ -24,6 +24,59 @@
  *   0x007febb0  g_sp_w            source rect width
  *   0x00668160  g_zb_bits         bits left in the RLE control word
  *
+ * ---------------------------------------------------------------------------
+ * Recovered formats and rules (for the browser runtime)
+ * ---------------------------------------------------------------------------
+ * LLS animation record (ImageRec::lls when ImageRec::type is 2 or 3):
+ *     +0x00 short  current frame index
+ *     +0x10 short  frame count
+ *     +0x14 dword  flags; bit 0 = the frame list starts with a BASE image
+ *                  that must be painted before the selected frame
+ *     +0x18        the frame list itself
+ * Each frame is a variable-length record:
+ *     +0x00 int    byte length of this record (add it to walk to the next)
+ *     +0x04 int    count of 16-bit entries in the first (control) block
+ *     +0x08 int    byte length of the second block
+ *     +0x10        data: control[+0x04 entries * 2 bytes], then the 16-bit
+ *                  pixel block (second length), then the 8-bit block
+ * SoftBlitRLEFrame (0x468410) takes those three pointers plus
+ * (h, pitch, top, left, w, 0, mouse_pixel) -- it clips against the
+ * g_sp_top/g_sp_left/g_sp_w/g_sp_h window the caller has just set.
+ * Frame selection is the same rule everywhere in this file: take
+ * g_frame_override (0x4b9ca8) when it is >= 0, else the record's own
+ * current frame, then clamp to nframes - 1.
+ *
+ * Z buffer (ZBufferHelper): 0x200 bytes per row (128 dwords), one dword per
+ * pixel with the Z value in the top byte.  Frame 0 of the list carries a
+ * 0x200-byte table ahead of its RLE data (so the data starts at +0x208);
+ * later frames start at +8.  The control stream is read four bits at a
+ * time; the first pass skips src->top rows without painting, the second
+ * paints src height rows clipped to src->left / src width.
+ *
+ * SoftPrint_XBltFast picks its path from ImageRec::type: 2 -> SoftBlitAnim,
+ * 3 -> SoftBlitRLE unless the caller's colour has bit 31 set, in which case
+ * it paints the "highlight" pass itself (mask = ~GetNearestColour(15,15,15))
+ * through SoftBlitRLEFrame; 0 -> the 8-bit __asm loop with the palette at
+ * ImageRec::pal + 4 and a row pitch of (w + 3) & ~3; anything else -> the
+ * 16-bit __asm loop with a row pitch of w * 2.  Both loops skip
+ * g_transparent_colour and AND every surviving pixel with g_sp_recolour.
+ * A sprite with flag 0x20 is drawn from a GetSprite lock described by a
+ * synthetic 16-bit ImageRec built on the stack and released at the end.
+ *
+ * Cursor block (0x1834 bytes, see the Cursor struct): point count at +0,
+ * the outline point arrays at +2 / +0x802, a per-point kind byte at
+ * +0x1002 (bits 0-1 pick the segment shape, bits 2-3 the "special"
+ * colour), the map cell the footprint hangs off at +0x1404, the footprint
+ * Rect list at +0x1414, a style byte at +0x1428, flags at +0x1828 and the
+ * chained cursor at +0x1830.  Flag bits used here: 0x10 = do not paint the
+ * footprint tiles, 0x02 / 0x04 = force the "blocked" / "special" colour,
+ * 0x06 = paint every cell with tileset id2, 0x20 = use the A segment
+ * renderer instead of B, 0x400 = also draw the object's entrance arrow,
+ * 0x800 = and its exit arrow.  A cell is drawable when it is on the map
+ * and none of the bits 0x8f8 are set in cell+0xc; the tile is id0 when
+ * style & 0xc, else id1, and id3 (tinted 0xff0000) for a blocked cell.
+ * Every tile id resolves as g_tile_sprites[(id & 0xff) + *g_basic_tiles_data].
+ *
  * The scaled-blit worker keeps a lazily created system-memory surface
  * (0x0079861c, created flag 0x00798620) the size of the primary; it draws the
  * sprite into that with the software blitter and lets DirectDraw stretch it
@@ -349,7 +402,7 @@ extern int   GetObjExitDir(ObjDefRec* o);                 /* 0x0045e710 */
  * 13-instruction body exact.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x00488c50  (100% by matchfull; body ends in a noreturn exit(1) with no ret, audit.py cannot bound it)
+// WIP-FUNCTION: LEGOLAND 0x00488c50  (100%: all 13 instructions / 46 bytes exact plus the 2 nop pad bytes to 0x488c80; the body ends in a noreturn exit(1) with no ret, so audit.py's extent walk runs on into 0x00488c80 and reports orig=287i/1070B)
 int RenderTiledSprite(SpriteRec* s, int x, int y, int w, int h, int e, int f)
 {
     WinRect rc;
@@ -373,7 +426,20 @@ int RenderTiledSprite(SpriteRec* s, int x, int y, int w, int h, int e, int f)
  * succeeded, 0 when it failed (after one Restore retry).
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x00488c80
+/* Residual (measured 2026-09-02): 269/272 instructions, 1018/1022 bytes.
+ * The only difference is the ORDER of the two identical-shaped epilogue
+ * blocks: the original lays out [return 1] (0x488fcb) then [fail: return 0]
+ * (0x489026), so the last `test eax,eax` is `jne fail` and the two earlier
+ * `jne fail` at 0x488f0c/0x488f9f are rel32; we get [fail] then [return 1]
+ * (`je ok`), and the 0x488f9f branch shrinks to rel8 -- that is the whole
+ * 4-byte deficit.  The CFG is edge-for-edge identical and VC6 normalises
+ * every C spelling tried: goto-fail / goto-ok, an inline success arm, an
+ * inline failure arm, a duplicated `return 1`, an epilogue static __inline
+ * helper, and every textual order of the three exit blocks all compile to
+ * the same object.  Do NOT "simplify" the three epilogue copies: the
+ * original really has three (0x488f21 carries its own, differently
+ * scheduled, copy). */
+// WIP-FUNCTION: LEGOLAND 0x00488c80  (98.9%: 269/272 insns; the [return 1] and [fail] blocks come out in the opposite order, see the note above)
 int RenderSpriteScaledOffset(SpriteRec* s, int x, int y, int w, int h, Pos* off)
 {
     struct {
@@ -479,7 +545,7 @@ fail:
  * clipped to src->left / src width.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x00464a90  (100% by matchfull: 303/303 insns, 1099/1099 bytes identical; audit.py's norm() cannot normalise the rel8 target of `loop` (0x464ddf/0x464df4 are byte-identical e2 f2 / e2 f6) so it reports 2 mismatches)
+// WIP-FUNCTION: LEGOLAND 0x00464a90  (100%: 303/303 insns, 1099/1099 bytes, every byte outside a relocation identical. audit.py's norm() only rewrites call/j* targets and only when they print with >= 5 hex digits, so the two `loop` instructions at 0x464ddf/0x464df4 -- our bytes e2 f2 / e2 f6, the original's -- are reported as 2 mismatches. Nothing to fix.)
 void ZBufferHelper(char* lls, WinRect* src, Pos* dst, void* zbuf)
 {
     char* rows;
@@ -832,7 +898,43 @@ static __inline void DrawRLEFrame(void* dst, LLSFrame* f)
                      g_sp_top, g_sp_left, g_sp_w, 0, g_sp_mouse_pixel);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00465a40
+/* Residual (measured 2026-09-02): 368/392 instructions, 1174/1174 bytes.
+ * Two clusters are left, both in the type-3 "highlight" arm:
+ *   (a) 0x465bce..0x465c14, the g_sp_mouse_pixel + row computation.  Same
+ *       instructions, but ecx and edi swap roles and the multiply is
+ *       written the other way round: the original copies the live pitch
+ *       register and multiplies by memory (`mov ecx,edx` / `imul ecx,
+ *       [0x813a48]`) and evaluates dst->left before g_sp_left; we load
+ *       g_mouse_point.y and multiply by the register, and hoist the
+ *       g_sp_left load above the g_sp_mouse_pixel store.  The identical
+ *       source text one screen earlier (0x465add, where the pitch is not
+ *       yet live in a register) matches exactly, and every re-spelling
+ *       tried -- commuting the multiply, a named product temp, a named
+ *       pitch local, splitting `dst->left - g_sp_left` into its own
+ *       statement or into a `row +=`, swapping the two statements -- is
+ *       normalised to the same object.  14 instructions.
+ *   (b) 0x465c77..0x465c8f, the argument scheduling of the SECOND
+ *       DrawRLEFrame call (the one after the frame walk): the original
+ *       interleaves the pushes with the global loads, we compute f->n16
+ *       and its `lea ecx,[ecx+ecx+0x10]` first.  8 instructions.
+ * The last 2 are the `loop` normalisation artifact described on
+ * ZBufferHelper -- our bytes (e2 df / e2 e3) are the original's.
+ *
+ * THREE LEVERS took this from 125/392 to 368/392; all of them matter:
+ *   1. `image = &fake;` BEFORE the four fake.* stores, so the
+ *      `lea esi,[ebp-0x30]` is emitted ahead of them.
+ *   2. `f = lls->frames` derived IMMEDIATELY after `lls = image->lls`,
+ *      not where it is first used.  That early derivation is what makes
+ *      VC6 coalesce `image` with `f` (whose two frame-walk loops carry the
+ *      loop weight) in esi and `src` with `row` in edi.  Derived late, esi
+ *      goes to `src`, edi to `image`+`lls`, `row` is spilled into the dst
+ *      argument slot, and the register names change through the whole C
+ *      part of the function -- 224 of the 267 mismatches this started at.
+ *   3. the two-def frame clamp `colour = frame; if (frame >= nframes)
+ *      colour = nframes - 1;` together with the volatile flag-byte read
+ *      below.  These two are COUPLED: either one alone shifts every later
+ *      index by one and scores far worse (24 -> ~244 mismatches). */
+// WIP-FUNCTION: LEGOLAND 0x00465a40  (93.9%: 368/392 insns, byte length exact; residual = one scheduling cluster in each of the two DrawRLEFrame paths, see the note above)
 void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
 {
     SpriteHandle handle;
@@ -847,11 +949,11 @@ void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
 
     if (s->flags & 0x20) {
         GetSprite(&handle, s);
+        image = &fake;
         fake.lls = handle.pixels;
         fake.w = (short)handle.pitch / 2;
         fake.h = (short)handle.h;
         fake.type = 1;
-        image = &fake;
     } else {
         image = (ImageRec*)s->image;
         if (IsBadReadPtr(image->lls, 1)) {
@@ -871,8 +973,9 @@ void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
     } else if (image->type == 3) {
         if (colour & 0xff000000) {
             g_sp_recolour = ~GetNearestColour(0xf, 0xf, 0xf);
-            g_sp_rowlen = g_ddsd.lPitch;
             lls = (LLSRec*)image->lls;
+            f = (LLSFrame*)lls->frames;
+            g_sp_rowlen = g_ddsd.lPitch;
             g_sp_left = src->left;
             g_sp_w = src->right - src->left;
             g_sp_top = src->top;
@@ -881,13 +984,19 @@ void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
             if (frame < 0)
                 frame = lls->frame;
             nframes = lls->nframes;
-            if (frame >= nframes)
-                frame = nframes - 1;
             colour = frame;
+            if (frame >= nframes)
+                colour = nframes - 1;
             g_sp_mouse_pixel = (char*)g_ddsd.lpSurface + g_ddsd.lPitch * g_mouse_point.y + g_mouse_point.x * 2;
             row = (unsigned short*)((char*)g_ddsd.lpSurface + dst->top * g_ddsd.lPitch) + (dst->left - g_sp_left);
-            f = (LLSFrame*)lls->frames;
-            if (lls->flags & 1) {
+            /* CODEGEN LEVER: the original loads the flag byte into a
+             * register first (`mov cl,[ebx+0x14]` / `test cl,1`); every
+             * plain spelling -- lls->flags & 1, an unsigned char local, a
+             * ((unsigned char*)lls)[0x14] read -- folds into `test byte
+             * ptr [ebx+0x14],1`, one instruction short.  The volatile read
+             * is confined to this one test and means exactly the same
+             * thing (bit 0 of the little-endian dword at +0x14). */
+            if (*(volatile unsigned char*)&lls->flags & 1) {
                 unsigned int k;
                 DrawRLEFrame(row, f);
                 k = lls->frame + 1;
@@ -1023,7 +1132,40 @@ static __inline SpriteRec* TileSprite(int id)
     return g_tile_sprites[(id & 0xff) + *g_basic_tiles_data];
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0045ff00
+/* Residual (measured 2026-09-02): 181/454 instructions, 1438 vs 1429 bytes.
+ * Everything up to 0x45ffa3 is exact, and so are the segment loop's body
+ * (0x460150..0x4601b8) and the entrance/exit arrow tail.  What is left:
+ *   (a) From the first instruction of the tile-loop body (0x45ffa3) to the
+ *       end of that loop our scratch registers are the original's renamed
+ *       by the 3-cycle eax->ecx->edx->eax: the original opens the block
+ *       with `mov edx,[c+0x1404]` where we emit `mov eax,...`.  Nothing
+ *       else differs there -- the instruction sequence, the frame slots
+ *       and the loop registers (esi = x, edi = y, ebp = c) all match.
+ *       That rename is also why the `c->flags & 6` arm's tile id lands in
+ *       eax instead of edx, and therefore why VC6 cross-jumps that arm's
+ *       TileSprite tail into the g_tileset_id1 arm instead of into the red
+ *       g_tileset_id3 arm as the original does (0x4600b3).
+ *       Tried without effect: every order of the four t.x/t.y statements,
+ *       `t = c->origin` as a struct copy, named int temporaries, volatile
+ *       reads of the origin fields, pointer locals for &t and &tb, a
+ *       static __inline helper for the whole "build t then call
+ *       GetTileBounds" step, separate Pos/TileBounds locals for the tile
+ *       loop, separate x/y locals for the two loops, hoisting &vs into a
+ *       pointer local, and reordering the switch cases.
+ *   (b) The original cross-jumps the tails of cases 1 and 2 of the
+ *       DrawCursorSegmentA switch (0x4601c0 `push 2` / `jmp 0x4601cd`,
+ *       with `lea eax,[esp+0x74]; push eax; call; add esp,0x18; jmp`
+ *       shared) -- and does NOT do the same for the DrawCursorSegmentB
+ *       switch.  We emit both switches unmerged: that is the 4 extra
+ *       instructions and most of the 9 extra bytes.  The merge needs the
+ *       `lea eax,[esp+0x74]` to sit AFTER the `push <kind>`; VC6 schedules
+ *       it before, leaving only a 4-instruction tail, and declines.
+ * LEVER already applied (worth 124 mismatches and the ESCAPES failure):
+ * `t.x = c->origin.x; t.y = c->origin.y; t.x += x; t.y += y;` -- the
+ * separate load-then-accumulate form.  Written `t.x = c->origin.x + x`,
+ * VC6 emits `mov edx,esi / add edx,ebx` (two extra instructions per
+ * coordinate) and lays the loop out so a branch escapes the extent. */
+// WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%: 181/454 insns; residual = a 3-register rename inside the tile loop and two un-cross-jumped switch tails, see the note above)
 void RenderCursor(Cursor* c)
 {
     WinRect          view;
@@ -1057,8 +1199,10 @@ void RenderCursor(Cursor* c)
         if (!(c->flags & 0x10)) {
             for (y = r.top; y <= r.bottom; y++) {
                 for (x = r.left; x <= r.right; x++) {
-                    t.x = c->origin.x + x;
-                    t.y = c->origin.y + y;
+                    t.x = c->origin.x;
+                    t.y = c->origin.y;
+                    t.x += x;
+                    t.y += y;
                     GetTileBounds(&t, &tb);
                     if (c->flags & 6) {
                         PrintSprite(TileSprite(g_tileset_id2), tb.left, tb.top, 0, 0);

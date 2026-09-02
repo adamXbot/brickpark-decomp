@@ -438,7 +438,16 @@ int SuggestNextMove(Pos* from, Pos* to, Pos* out)
 }
 
 /* Place a bloke straight onto BNV frame `frame` of object `name`. */
-// WIP-FUNCTION: LEGOLAND 0x00484a70  (164/164 insns, 432/432 bytes, 8 mismatches; demoted from a false FUNCTION claim left by an interrupted run)
+/* 164/164 instructions, 432/432 bytes, index-for-index exact except FOUR:
+ * the vertex loop's `xor edi,edi` (i = 0) is scheduled at index 81, right
+ * after the third row's fsqrt, where the original has it at index 78, right
+ * before that row's last faddp; instructions 78..81 are therefore rotated.
+ * The residual is one free integer instruction's slot in VC6's post-pass
+ * scheduler: written as a standalone `i = 0;` anywhere before the sqrt the
+ * xor is hoisted all the way to the top of the FP block (index 19), and
+ * every loop spelling (for / while / do-while / pre- vs post-increment,
+ * unsigned i, `i = 0` after the reciprocal) lands it at 81. */
+// WIP-FUNCTION: LEGOLAND 0x00484a70  (164/164 insns, 432/432 bytes, 4 mismatches: the loop counter's xor is scheduled 3 slots late, see above)
 void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
                              int frame, float near_z, float far_z, int extra)
 {
@@ -450,6 +459,9 @@ void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
     int          sum_y = 0;
     float        inv;
     float        len2;
+    float        cx;
+    float        cy;
+    float        cz;
     float        skew;
     float        delta_z;
     int          height;
@@ -469,12 +481,19 @@ void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
     object->orientation[3] *= inv;
     object->orientation[4] *= inv;
     object->orientation[5] *= inv;
-    /* The third row is summed through a running float: the accumulator then
-     * lives in orientation[8]'s x87 slot (fmulp st(3) / faddp st(3)) instead
-     * of a slot pushed above the three loads as in the first two rows. */
-    len2 = object->orientation[8] * object->orientation[8];
-    len2 += object->orientation[6] * object->orientation[6] +
-            object->orientation[7] * object->orientation[7];
+    /* The third row is summed through a running float, and its three
+     * components are read into locals FIRST (z, y, x — that order is what
+     * fixes the fld order at 0x484ac6) so the accumulator ends up living in
+     * orientation[8]'s x87 slot: fld st(2)/fmulp st(3) squares z in place and
+     * the x and y squares are then faddp'd into it, instead of the pushed
+     * accumulator slot the first two rows use. Written as one expression the
+     * row compiles to the first two rows' shape instead. */
+    cz = object->orientation[8];
+    cy = object->orientation[7];
+    cx = object->orientation[6];
+    len2 = cz * cz;
+    len2 += cx * cx;
+    len2 += cy * cy;
     inv = 1.0f / (float)sqrt(len2);
     object->orientation[6] *= inv;
     object->orientation[7] *= inv;

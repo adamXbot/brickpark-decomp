@@ -530,8 +530,21 @@ int RenderEnergyBar(Icon* g)
  * loaded class hanging off BUILD MENU whose theme and sub-menu match (or
  * whose theme is COMMON THEME, on menu 0), then every child class of the
  * theme; then the side-panel icons. The counter starts at 1, so the list is
- * always "made up" (reproduced as the original has it). */
-// WIP-FUNCTION: LEGOLAND 0x00475720  (147/147 insns, 409/409 bytes, 13 mismatches; demoted from a false FUNCTION claim left by an interrupted run)
+ * always "made up" (reproduced as the original has it).
+ *
+ * Residual (13 of 147): every instruction is right; four callee-saved registers are
+ * permuted. Ours n=ebx, count=ebp, submenu-IV=edi, j=esi; the original n=edi,
+ * count=ebx, submenu-IV=ebp, j=esi. j takes the same register in both, so the pool
+ * order is [ebp, esi, edi, ebx] and only the RANK of the other three differs: ours
+ * ranks count > j > IV > n, the original IV > j > n > count. Dropping n entirely
+ * leaves count=ebp, IV=edi, j=esi (so n really is ranked last here), and none of
+ * these move it: exit(n) vs exit(1); `register`; declaration order; n as unsigned;
+ * n = 0/late init; an extra n++ at depth 1 in the second loop; a second `count`
+ * copy for the second loop; j vs i for the second loop's index; an explicit Menu*
+ * pointer walk (that one turns the signed `jl` into `jb`); a `Menu* base` local;
+ * a char* parameter or a hoisted m->name; while/do-while spellings of either loop;
+ * `if (!n) return 0;` tail shapes. Variants under scratchpad/fpui2/w2 (A..S, r_*). */
+// WIP-FUNCTION: LEGOLAND 0x00475720  (147/147 insns, 409/409 bytes, 13 mismatches: a callee-saved permutation, see above)
 int ObjectLinkedList(Menu* m)
 {
     LLElem* e;
@@ -589,7 +602,13 @@ int ObjectLinkedList(Menu* m)
  * COMMON THEME entries only under the first sub-menu, and every class not
  * yet researched (neither 0x04000000 nor 0x08000000) gets 0x04000000. No
  * icons are built; the list menu is recorded as g_menu_index + 4. */
-// WIP-FUNCTION: LEGOLAND 0x00475cd0  (148/148 body insns exact by matchfull; the body ends in a noreturn exit(1) with no ret, so audit.py cannot bound it and runs on into the next function)
+/* This body is EXACT - 148/148 instructions, 444/444 bytes, index for index - but
+ * audit.py cannot BOUND it: the original's last block is the 'push 1; call exit'
+ * stub that the in-loop guard jumps to, which sits past the function's only ret and
+ * ends in a noreturn call, so the extent walker runs on into the next function
+ * (0x00475e90) and reports 170i/501B. Verify with
+ *   python3 tools/matchfull.py LEGOLAND/fpui2.c RAndDLinkedList 0x475cd0 */
+// WIP-FUNCTION: LEGOLAND 0x00475cd0  (100% by matchfull; audit.py cannot bound a body whose last block is a noreturn exit)
 int RAndDLinkedList(Menu* m)
 {
     LLElem* e;
@@ -993,4 +1012,529 @@ void HTBubbleHelp(HelpRect* r, char* text, int font)
     RenderBlock(box.x0, box.y0, 1, box.y1 - box.y0, 0);
     RenderBlock(box.x1, box.y0, 1, box.y1 - box.y0, 0);
     PrintCachedEntry(ent, rc.left, rc.top);
+}
+
+
+/* ---- the build-object icon ---------------------------------------------- */
+/* The list-menu record @ 0x00668e64 is written as a byte (ObjectLinkedList,
+ * RAndDLinkedList) and read back as a dword masked to the low byte
+ * (MakeUpObjectList) — one union so the two views alias. */
+typedef union ListMenu {
+    char         menu;    /* which menu the object list was built for */
+    unsigned int word;
+} ListMenu;
+extern ListMenu g_list_menu_u;         /* 0x00668e64 */
+extern int      g_list_scroll[];       /* 0x00668e44 per-menu saved scroll */
+extern int      g_scroll_flags;        /* 0x006688b8 bit0 = up lit, bit1 = down lit (fpui.c) */
+extern int      g_edit_changed;        /* 0x008119b0 (objmap.c) */
+extern ObjDef*  g_edit_object;         /* 0x008119b8 (objmap.c) */
+extern const unsigned int g_dim_mode;  /* 0x004ba884 = 0xff000000, PrintSprite's dimmed mode */
+extern char     g_str_path[];          /* 0x004ba888 "Path" */
+extern char     g_fmt_int[];           /* 0x004b8a80 "%d" */
+extern Sprite*  g_ci_attract_hl_on;    /* 0x00668e74 Attract_Highlight_On.lls */
+extern Sprite*  g_ci_attract_hl_off;   /* 0x00668e78 Attract_Highlight_Off.lls */
+extern Sprite*  g_ci_attract_new_off;  /* 0x00668e7c Attract_New_Off.lls */
+extern Sprite*  g_ci_attract_new_on;   /* 0x00668e80 Attract_New_On.lls */
+extern Sprite*  g_ci_link_middle;      /* 0x00668e8c Link_Middle.lls */
+extern Sprite*  g_ci_link_bottom;      /* 0x00668e90 Link_Bottom.lls */
+extern int      GetObjCost(ObjDef* d);                /* 0x00480da0 */
+extern int      GetBrickCount(void);                  /* 0x004578e0 */
+extern int      GetBlink(void);                       /* 0x00499480 */
+extern void     Format(char* dest, const char* fmt, ...); /* 0x0049e573 */
+extern void     PrintCachedText(const char* text, int x, int y, int w, int h,
+                                int f1, int f2, int ink, int paper); /* 0x00455e50 */
+extern int strcmp(const char* a, const char* b);
+#pragma intrinsic(strcmp)
+
+/* Draw one object-list icon: its sprite (dimmed when it costs more bricks
+ * than the player has), the cost, the child link (kind 1 middle / 2 bottom),
+ * the highlight while it is the object being placed (unless that is a path)
+ * and the "new" flash while its class is still flagged 0x20000. Off-panel
+ * icons only feed the scroll-arrow lights. */
+/* Codegen notes: `buf` must be a char array of 9..11 (not 12): VC6 lays the frame's
+ * aggregates out by DECLARED size ascending (each rounded up to a 12/16.. slot), so a
+ * char[12] ties with the 12-byte BlitCtx and loses the tie, putting ctx at +0 instead
+ * of buf. The two highlight/new sprites are picked by writing the call TWICE, once per
+ * arm: VC6 merges the identical arms, hoists the four common pushes above the branch
+ * and leaves only the sprite register selected by it - a `s = A; if (c) s = B;` local
+ * or a ternary both emit the branch before the pushes instead. */
+// FUNCTION: LEGOLAND 0x0046e0a0
+int RenderBuildObjectIcon(Icon* p)
+{
+    char    buf[10];
+    BlitCtx ctx;
+
+    ctx.kind = 2;
+    ctx.owner.p = p;
+    ctx.owner.n = 0;
+    if (g_edit_changed == 1 && g_edit_object) {
+        if (g_edit_object->elem == ((ObjDef*)p->data)->elem)
+            ((ObjDef*)p->data)->elem->type_flags &= ~0x20000;
+    }
+    if (p->y > 0 && p->y < 0x174) {
+        int     cost = GetObjCost((ObjDef*)p->data);
+        ObjDef* d;
+        int     blink;
+        if (p->sprite) {
+            if (cost <= GetBrickCount())
+                PrintSprite(p->sprite, p->x, p->y, 0, &ctx);
+            else
+                PrintSprite(p->sprite, p->x, p->y, g_dim_mode, &ctx);
+        }
+        if (p->data) {
+            Format(buf, g_fmt_int, cost);
+            PrintCachedText(buf, p->x + 0x3c, p->y + 0x14, 0x41, 0x14, 1, 1, 0, 0xffffff);
+        }
+        switch (p->kind) {
+        case 1:
+            PrintSprite(g_ci_link_middle, p->x, p->y, 0, 0);
+            break;
+        case 2:
+            PrintSprite(g_ci_link_bottom, p->x, p->y, 0, 0);
+            break;
+        }
+        if (g_edit_changed == 1) {
+            d = g_edit_object;
+            if (d && strcmp(g_str_path, d->name) != 0 &&
+                d->elem == ((ObjDef*)p->data)->elem) {
+                blink = GetBlink();
+                if (!blink)
+                    PrintSprite(g_ci_attract_hl_on, p->x, p->y, 0, 0);
+                else
+                    PrintSprite(g_ci_attract_hl_off, p->x, p->y, 0, 0);
+            }
+        }
+        if (((ObjDef*)p->data)->elem->type_flags & 0x20000) {
+            blink = GetBlink();
+            if (blink)
+                PrintSprite(g_ci_attract_new_off, p->x, p->y, 0, 0);
+            else
+                PrintSprite(g_ci_attract_new_on, p->x, p->y, 0, 0);
+        }
+    }
+    if (((ObjDef*)p->data)->elem->type_flags & 0x20000) {
+        if (p->y < 0x3e) {
+            g_scroll_flags |= 1;
+            return 0;
+        }
+        if (p->h + p->y > 0x156)
+            g_scroll_flags |= 2;
+    }
+    return 0;
+}
+
+/* ---- the object list panel ---------------------------------------------- */
+/* The side-panel state @ 0x007fdd80 (bigscreens.c's PanelState). */
+typedef struct PanelState {
+    char f00;      /* +0x00 0x007fdd80 */
+    char pad[3];
+    int  f04;      /* +0x04 0x007fdd84  1 = rebuild off-panel (x = -122) */
+} PanelState;
+extern PanelState g_panel_state;       /* 0x007fdd80 */
+extern ObjNode*   g_object_list;       /* 0x00668e40 */
+extern void  RemoveObjectListIcons(int group);                       /* 0x0046fb40 */
+extern Icon* SetupInterfacePanelIcons(void* owner, int x, int y, int unused, int h, int group); /* 0x0046eaf0 */
+extern Icon* AddGBarClassIcon(void* owner, ObjDef* d, int x, int y, int group, short f16);      /* 0x0046f690 */
+extern void  ListChildrenBar(ObjNode* owner, int group, int x, int y);   /* 0x00475bb0 */
+extern void  CloseChildrenBar(ObjNode* owner, int group, int x, int y);  /* 0x00475c00 */
+extern void  RedrawObjectList(ObjListPanel* l, int dx, int dy);          /* 0x004758e0 */
+extern char  BuildObjectIconInput(Icon* p, int ev, short dx, short dy);  /* 0x00470000 (not exported) */
+int RenderBuildObjectIcon(Icon* p);
+
+/* Lay the object list out as icon group `group` at (x, y), h high: the list
+ * box, one class icon per kept node 0x42 apart, and for each run of child
+ * nodes (keep == 0) either a close bar plus the children (kinds 1/2 draw the
+ * link) when the parent class is expanded (elem flag 8) or a list bar that
+ * skips them. Off-panel lists move the scroll arrows and restore the saved
+ * scroll. The parent of the first child run is whatever `prev` holds —
+ * uninitialised when the list starts with a child [sic]. */
+// FUNCTION: LEGOLAND 0x00475960
+int MakeUpObjectList(int group, int x, int y, int h)
+{
+    ObjListPanel* p;
+    ObjNode*      node = g_object_list;
+    ObjNode*      prev;
+    Icon*         icon;
+    Icon*         last;
+    int           st;
+    int           ix;
+    int           iy;
+
+    RemoveObjectListIcons(group);
+    p = (ObjListPanel*)HeapAlloc_w(sizeof(ObjListPanel));
+    if (!p)
+        return 0;
+    st = g_panel_state.f04;
+    ix = x;
+    if (st == 1) {
+        ix = -0x7a;
+        g_panel_state.f00 = 0;
+    }
+    icon = SetupInterfacePanelIcons(p, ix, y, 1, h, group);
+    p->box = icon;
+    ix = icon->x;
+    p->box_x0 = ix;
+    p->list_x0 = ix;
+    iy = icon->y;
+    p->box_y0 = iy;
+    p->list_y0 = iy;
+    p->box_x1 = icon->x + icon->w;
+    p->box_y1 = icon->y + icon->h;
+    p->f04 = 1;
+    p->group = group;
+    SetNewGroup_Callbacks(0, RenderBuildObjectIcon, BuildObjectIconInput);
+    while (node) {
+        if (node->keep) {
+            AddGBarClassIcon(p, node->obj, ix, iy, group, 1);
+            prev = node;
+            node = node->next;
+            iy += 0x42;
+        } else if (prev->obj->elem->type_flags & 8) {
+            iy -= 0xa;
+            CloseChildrenBar(prev, group, ix, iy);
+            iy += 0x1a;
+            while (node && node->keep == 0) {
+                last = AddGBarClassIcon(p, node->obj, ix, iy, group, 1);
+                last->kind = 1;
+                prev = node;
+                node = node->next;
+                iy += 0x38;
+            }
+            last->kind = 2;
+            iy += 0xa;
+        } else {
+            iy -= 0xa;
+            ListChildrenBar(prev, group, ix, iy);
+            iy += 0x24;
+            while (node && node->keep == 0) {
+                prev = node;
+                node = node->next;
+            }
+        }
+    }
+    AddFullScreenIcon(group + 6);
+    p->list_x1 = ix;
+    p->list_y1 = iy;
+    if (iy < p->box->y + p->box->h) {
+        icon = FindIcon(group + 4);
+        if (icon) {
+            icon->y = (short)(y + h - 0x1e);
+            icon->flags |= 0x400;
+        }
+        icon = FindIcon(group + 3);
+        if (icon)
+            icon->flags |= 0x400;
+        g_list_scroll[g_list_menu_u.word & 0xff] = 0;
+    } else {
+        RedrawObjectList(p, 0, g_list_scroll[g_list_menu_u.word & 0xff]);
+    }
+    g_panel_state.f04 = 0;
+    return 1;
+}
+
+/* ---- the object info list ----------------------------------------------- */
+/* The class record as the info list reads it: origin offsets @+0x0c/+0x10,
+ * type @+0x20, exit offsets @+0x24/+0x25 and the footprint rect chain @+0x3c
+ * (legoland.h's ObjClass, plus the fields this walk reads). */
+typedef struct InfoCls {
+    char      pad00[0x0c];
+    int       ox;            /* +0x0c */
+    int       oy;            /* +0x10 */
+    char      pad14[0x20 - 0x14];
+    short     type;          /* +0x20 */
+    char      pad22[2];
+    unsigned char ex;        /* +0x24 */
+    unsigned char ey;        /* +0x25 */
+    char      pad26[0x3c - 0x26];
+    Rect      rect;          /* +0x3c */
+} InfoCls;
+/* A placed map object: its class record sits at +0x0c. */
+typedef struct InfoMapObj {
+    char      pad[0x0c];
+    InfoCls*  cls;           /* +0x0c */
+} InfoMapObj;
+/* The map cell with the object's origin as a packed {x,y} pair @+0x04. */
+typedef union CellPos {
+    struct { unsigned char x, y; } b;
+    unsigned short w;
+    Pos            p;
+} CellPos;
+typedef struct InfoCell {
+    InfoMapObj*    obj;      /* +0x00 */
+    struct { unsigned char x, y; } origin;   /* +0x04 */
+    char           pad06[0x0c - 0x06];
+    unsigned short flags;    /* +0x0c 0x80 has object, 0x400 info done */
+    char           pad0e[0x14 - 0x0e];
+} InfoCell;
+/* One info node (0x1c bytes; objmap.c's KeyNode @ 0x00669248). */
+typedef struct InfoNode {
+    struct InfoNode* next;   /* +0x00 */
+    InfoCls*         cls;    /* +0x04 */
+    unsigned short   pos;    /* +0x08 packed origin */
+    char             pad0a[2];
+    int              x;      /* +0x0c */
+    int              y;      /* +0x10 */
+    int              f14;    /* +0x14 */
+    unsigned char    ex;     /* +0x18 */
+    unsigned char    ey;     /* +0x19 */
+    char             pad1a[2];
+} InfoNode;
+extern InfoNode* g_info_head;          /* 0x00669248 */
+extern void ClearObjInfoList(void);     /* 0x00481170 (not exported) */
+extern int  rand(void);                 /* 0x0049e4b2 (CRT) */
+
+static __inline InfoCell* InfoCellAt(int x, int y)
+{
+    if (x >= 0 && x < g_map->width && y >= 0 && y < g_map->height)
+        return (InfoCell*)&g_map_rows[y][x];
+    return 0;
+}
+
+/* Rebuild the object info list: for every cell holding an object of a type
+ * other than 0/2 whose origin cell is not yet done, find or make the class's
+ * node (an existing one is re-aimed with probability 80/256), mark the
+ * origin done, skip to the end of the footprint rect on this row, and clear
+ * the mark again on the footprint's bottom row (the deepest rect bottom). */
+/* Codegen notes: the two loop counters are ONE `Pos cur` (an 8-byte aggregate), not two
+ * ints - that is what puts the 28-byte frame in the original's order (oc +0, pos +4,
+ * cur +0xc, origin +0x14; aggregates are laid out by size ascending after the scalars).
+ * The rect scan adds origin.x through the scalar copy `ox`: adding the aggregate member
+ * `origin.x` makes VC6 treat both operands of `r->left + origin.x` as memory and emit
+ * the register first, while a scalar gives the original's `mov ecx,[eax]; add ecx,ebx`. */
+// FUNCTION: LEGOLAND 0x00481200
+void BuildObjInfoList(void)
+{
+    InfoCell* c;
+    InfoCell* oc;
+    InfoCls*  cls;
+    InfoNode* n;
+    Rect*     r;
+    CellPos   pos;
+    Pos       origin;
+    Pos       cur;
+    int       ox;
+    int       top;
+
+    ClearObjInfoList();
+    for (cur.y = 0; cur.y < g_map->height; cur.y++) {
+        for (cur.x = 0; cur.x < g_map->width; cur.x++) {
+            c = InfoCellAt(cur.x, cur.y);
+            if (!(c->flags & 0x80))
+                continue;
+            pos.b.x = c->origin.x;
+            origin.x = pos.b.x;
+            ox = origin.x;
+            pos.b.y = c->origin.y;
+            origin.y = pos.b.y;
+            oc = InfoCellAt(origin.x, origin.y);
+            cls = oc->obj->cls;
+            if (cls->type != 0 && cls->type != 2 && !(oc->flags & 0x400)) {
+                for (n = g_info_head; n; n = n->next)
+                    if (n->cls == cls)
+                        break;
+                if (n) {
+                    if (rand() % 256 < 0x50) {
+                        n->x = cls->ox + origin.x;
+                        n->y = cls->oy + origin.y;
+                        n->ex = cls->ex + origin.x;
+                        n->ey = cls->ey + origin.y;
+                    }
+                } else {
+                    n = (InfoNode*)HeapAlloc_w(sizeof(InfoNode));
+                    n->next = g_info_head;
+                    g_info_head = n;
+                    n->cls = cls;
+                    n->pos = pos.w;
+                    n->x = cls->ox + origin.x;
+                    n->y = cls->oy + origin.y;
+                    n->ex = cls->ex + origin.x;
+                    n->ey = cls->ey + origin.y;
+                }
+                oc->flags |= 0x400;
+            }
+            for (r = &cls->rect; ; r = r->next) {
+                if (cur.x >= r->left + ox && cur.x <= r->right + ox)
+                    break;
+            }
+            cur.x = r->right + ox;
+            top = cls->rect.bottom;
+            for (r = cls->rect.next; r; r = r->next)
+                if (r->bottom > top)
+                    top = r->bottom;
+            if (cur.y - origin.y == top)
+                oc->flags &= 0xfbff;
+        }
+    }
+}
+
+/* ---- the pop-up info request -------------------------------------------- */
+/* The pop-up record @ 0x007fdec0 .. 0x007fdfc0 (bighelp.c's PopUpUI from
+ * its +0x1c): the request PopUpInfoSetUp fills, the state ResetInfoStruct
+ * clears and the class elements it compares against. */
+typedef struct PopUpInfo {
+    int       type;       /* +0x00 0x007fdec0 0x103 object, 0x306..0x308 workers */
+    void*     obj;        /* +0x04 0x007fdec4 */
+    int       ref;        /* +0x08 0x007fdec8 */
+    Pos       pos;        /* +0x0c 0x007fdecc */
+    char      pad14[0xbc - 0x14];
+    ObjDef*   cls;        /* +0xbc 0x007fdf7c */
+    int       pad_c0;
+    Cell*     cell;       /* +0xc4 0x007fdf84 */
+    unsigned short cellpos; /* +0xc8 0x007fdf88 packed cell */
+    char      pad_ca[2];
+    void*     worker;     /* +0xcc 0x007fdf8c */
+    int       w_f1c;      /* +0xd0 0x007fdf90 */
+    int       w_f20;      /* +0xd4 0x007fdf94 */
+    int       pad_d8;
+    int       kind;       /* +0xdc 0x007fdf9c */
+    int       active;     /* +0xe0 0x007fdfa0 */
+    int       pad_e4;
+    int       resize;     /* +0xe8 0x007fdfa8 */
+    int       pad_ec;
+    LLElem*   elem_shed;  /* +0xf0 0x007fdfb0 gardener's shed */
+    LLElem*   elem_hut;   /* +0xf4 0x007fdfb4 mechanic's hut */
+    void*     elem_path;  /* +0xf8 0x007fdfb8 */
+    void*     elem_entr;  /* +0xfc 0x007fdfbc */
+} PopUpInfo;
+extern PopUpInfo g_popup;               /* 0x007fdec0 */
+extern void*     g_sample_hire;         /* 0x004b92e4 */
+extern void*     g_sample_fire;         /* 0x004b9308 */
+/* A placed object / a worker as the pop-up reads it. */
+typedef struct WorkerRec {
+    char pad[0x1c];
+    int  f1c;     /* +0x1c */
+    int  f20;     /* +0x20 */
+} WorkerRec;
+typedef struct WorkOrder {
+    char pad[8];
+    Pos  pos;     /* +0x08 */
+} WorkOrder;
+typedef struct PopUpObj {
+    int         f00;
+    WorkerRec*  rec;      /* +0x04 */
+    int         f08;
+    union {
+        ObjDef* cls;      /* +0x0c placed object: its class */
+        short   kind;     /* +0x0c worker: its kind */
+    } u;
+    char        pad10[0x50 - 0x10];
+    WorkOrder*  order;    /* +0x50 */
+    char        pad54[0x60 - 0x54];
+    unsigned char cond;   /* +0x60 */
+} PopUpObj;
+extern void  ResetInfoStruct(void);                      /* 0x00471510 */
+extern int   CanHireGardener(void);                      /* 0x0049a120 (not exported) */
+extern int   CanHireMechanic(void);                      /* 0x0049a160 (not exported) */
+extern void* GenerateGardener(Pos* pos, int in_hut);     /* 0x0049a1a0 */
+extern void* GenerateMechanic(Pos* pos, int in_hut);     /* 0x0049a340 */
+extern void  PlayInstanceOfSample(void* def, int a, int b, void* src); /* 0x00496d20 */
+extern void  WorkerPopUp(int type, PopUpObj* obj);       /* 0x00470100 (not exported) */
+extern void  FreeMechanicOrder(WorkOrder* o);            /* 0x00499eb0 */
+
+static __inline Cell* MapCellAt(int x, int y)
+{
+    if (x >= 0 && x < g_map->width && y >= 0 && y < g_map->height)
+        return &g_map_rows[y][x];
+    return 0;
+}
+/* Same, reading the coordinates lazily through the Pos* (y after x passed). */
+static __inline Cell* MapCellAtPos(Pos* p)
+{
+    if (p->x >= 0 && p->x < g_map->width && p->y >= 0 && p->y < g_map->height)
+        return &g_map_rows[p->y][p->x];
+    return 0;
+}
+
+/* Open the pop-up for `type`: a placed object (0x103: hire from a shed or
+ * hut straight away, otherwise queue the object info), a worker (0x306
+ * copies its record; 0x307 hires, 0x308 fires — a mechanic on a job first
+ * has the job's cell unflagged and the order freed). `ref` packs the cell;
+ * the by-value `pos` slots are reused as the hire position. */
+/* Residual (3 of 192): the original emits the 'g_popup.cls = cls' store before the
+ * 'g_popup.cell' store and loads cls->elem after BOTH; VC6 keeps our load between the
+ * two stores. Writing the load after both stores instead frees esi at the load, which
+ * flips the whole block's register rotation - the constant 0 of the 'obj == 0' guard
+ * then lands in eax instead of ecx and a second 'xor ecx,ecx' appears for the
+ * 'pos.x = cell->bx' byte load, costing 9 more instructions (search grid in
+ * scratchpad/fpui2/w2/srch_pu.py). */
+// WIP-FUNCTION: LEGOLAND 0x00471950  (192/192 insns, 664/664 bytes, 3 mismatches)
+void PopUpInfoSetUp(int type, PopUpObj* obj, int ref, Pos pos)
+{
+    Cell*   cell;
+    ObjDef* cls;
+    LLElem* e;
+    LLElem* ce;
+    unsigned short w = (unsigned short)ref;
+    int cx = w & 0xff;
+    int cy = w >> 8;
+
+    cell = MapCellAt(cx, cy);
+    ResetInfoStruct();
+    g_popup.active = 1;
+    g_popup.resize = 1;
+    g_popup.pos = pos;
+    g_popup.cellpos = w;
+    g_popup.type = type;
+    g_popup.obj = obj;
+    g_popup.ref = ref;
+    switch (type) {
+    case 0x306:
+        g_popup.kind = type;
+        g_popup.worker = obj;
+        g_popup.w_f1c = obj->rec->f1c;
+        g_popup.w_f20 = obj->rec->f20;
+        return;
+    case 0x103:
+        if (obj == 0)
+            return;
+        if (obj == g_popup.elem_path || obj == g_popup.elem_entr)
+            break;
+        cls = obj->u.cls;
+        e = g_popup.elem_shed;
+        g_popup.cell = cell;
+        ce = cls->elem;
+        g_popup.cls = cls;
+        if (ce == e) {
+            g_popup.active = 0;
+            g_popup.kind = 0xa;
+            pos.x = cell->bx;
+            pos.y = cell->by;
+            if (!CanHireGardener())
+                return;
+            GenerateGardener(&pos, 1);
+            return;
+        }
+        if (ce == g_popup.elem_hut) {
+            g_popup.active = 0;
+            g_popup.kind = 0x14;
+            pos.x = cell->bx;
+            pos.y = cell->by;
+            if (!CanHireMechanic())
+                return;
+            GenerateMechanic(&pos, 1);
+            return;
+        }
+        g_popup.kind = 0x103;
+        return;
+    case 0x307:
+        if (obj->u.kind == 5)
+            break;
+        PlayInstanceOfSample(g_sample_hire, 0, 1, 0);
+        WorkerPopUp(0x307, obj);
+        ResetInfoStruct();
+        return;
+    case 0x308:
+        if (obj->u.kind == 5)
+            break;
+        if ((obj->u.kind == 0x13 && obj->cond >= 0x6b) ||
+            (obj->u.kind == 0x16 && obj->cond >= 0x6b)) {
+            WorkOrder* o = obj->order;
+            MapCellAtPos(&o->pos)->flags &= 0xbfff;
+            FreeMechanicOrder(o);
+        }
+        PlayInstanceOfSample(g_sample_fire, 0, 1, 0);
+        WorkerPopUp(0x308, obj);
+        break;
+    }
+    ResetInfoStruct();
 }
