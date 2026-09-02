@@ -31,8 +31,14 @@
  * side.
  *
  * ------------------------------------------------------------------------
- * THE JUNGLE CRUISE DATA MODEL (recovered from the load/save pair and the
- * remove handlers)
+ * THE JUNGLE CRUISE DATA MODEL (recovered from the load/save pair, the remove
+ * handlers and the river subsystem in junglecruise.c)
+ *
+ * CORRECTION (this pass): the two big lists were named the wrong way round.
+ * 0x0062fd2c is the WATER list -- the river squares, which really are the
+ * "JUNGLE CRUISE WATER" map objects -- and 0x00616164 is the BOAT list, whose
+ * 0x3f8-byte records carry three riders at +0x3e8 and an 80-frame animation
+ * buffer.  Everything below is the corrected reading.
  *
  * The ride keeps FIVE singly-linked global lists.  Unlike the rides in
  * ridesave.c -- which write `{ int32 1; record }`* + `int32 0` -- the jungle
@@ -45,23 +51,35 @@
  * `while (n-- != 0)`.)
  *
  *   list           head       size    next    patched on load
- *   ride/station   0x629c3c   0x44    +0x3c   5 bloke ids at +0x18..+0x28
- *   boat           0x62fd2c   0x1c    +0x10   --
- *   list C         0x629c30   0x0c    +0x08   --
- *   list D         0x629c2c   0x08    +0x04   --
- *   water/river    0x616164   0x3f8   +0x3f4  3 bloke ids at +0x3e8..+0x3f0
+ *   station        0x629c3c   0x44    +0x3c   5 bloke ids at +0x18..+0x28
+ *   water (river)  0x62fd2c   0x1c    +0x10   --
+ *   monkey fish    0x629c30   0x0c    +0x08   --
+ *   monkey tree    0x629c2c   0x08    +0x04   --
+ *   boat           0x616164   0x3f8   +0x3f4  3 bloke ids at +0x3e8..+0x3f0
  *
  * The bloke fields are saved as INDICES (SaveJungleCruise runs them through
  * GetBlokeNum, 0x00482fb0) and turned back into pointers here with
  * GetBlokePtr (0x00482fe0), the same index<->pointer pair savegame.c uses.
  *
- * Station record (0x44):  +0x00 u16 id (the map-object id the boats quote),
- * +0x04/+0x05 u8 map x/y, +0x18..+0x28 the five queueing/riding blokes,
- * +0x3c next, +0x40 the accumulated take (0x00436130 adds to it by id;
- * 0x00436160, the ride's cb_c0, reads it back).
- * Boat record (0x1c): +0x02 u16 owning station id, +0x10 next, +0x18 a
- * back-pointer cleared by the route rebuild.
- * ======================================================================== */
+ * Station record (0x44):  +0x00 u16 its own map square; +0x02/+0x03 the
+ * route START square and +0x04/+0x05 the route END square (both as {x,y}
+ * byte pairs compared 16 bits at a time); +0x08 the laid route; +0x14 the
+ * queue length; +0x18..+0x28 the five queue slots; +0x2c the dispatch timer;
+ * +0x30..+0x38 the party waiting to board; +0x3c next; +0x40 the ride's
+ * VALUE -- every piece of it is worth something (a water square or a monkey
+ * tree 1, a monkey fish 2; 0x00436130 adds by square, and 0x00436160, the
+ * ride's cb_c0, reports the largest value in the park).
+ *
+ * Water record (0x1c): +0x00 its own square, +0x02 the owning station's
+ * square, +0x04 the link bitmap (1 N, 2 E, 4 S, 8 W in steps of FIVE map
+ * cells), +0x08/+0x0c/+0x14/+0x18 the route walk's scratch, +0x10 next.
+ * Boat record (0x3f8): +0x00 the station that launched it, +0x04..+0x10 the
+ * square it is on and the one it is heading for, +0x14/+0x18 its screen
+ * position this frame, +0x1c 80 wobble pairs, +0x29c 80 sprite codes,
+ * +0x3e0 the mover state, +0x3e8 the three riders, +0x3f4 next.
+ *
+ * See LEGOLAND/junglecruise.c for the river geometry and the boat mover.
+  * ======================================================================== */
 
 /* ---- save-game primitives (LEGOLAND/saveprof.c) ------------------------- */
 extern int SaveGameRead(void* buf, unsigned int n);          /* 0x0047d730 */
@@ -185,13 +203,13 @@ typedef struct JcStation {
     int            take;            /* +0x40  accumulated income */
 } JcStation;                        /* 0x44 */
 
-typedef struct JcBoat {
+typedef struct JcWater {
     BPosW          pos;             /* +0x00 */
     BPosW          owner;           /* +0x02 */
     unsigned char  pad04[0x10 - 4];
-    struct JcBoat* next;            /* +0x10 */
+    struct JcWater* next;            /* +0x10 */
     unsigned char  pad14[0x1c - 0x14];
-} JcBoat;                           /* 0x1c */
+} JcWater;                           /* 0x1c */
 
 typedef struct JcMonkeyFish {
     BPosW          pos;             /* +0x00 */
@@ -215,12 +233,12 @@ typedef struct JcDeco {
     struct JcDeco* next;            /* +0x04 */
 } JcDeco;                           /* 0x08 */
 
-typedef struct JcWater {
+typedef struct JcBoat {
     BPosW          pos;             /* +0x00 */
     unsigned char  pad02[0x3e8 - 2];
     void*          blokes[3];       /* +0x3e8 */
-    struct JcWater* next;           /* +0x3f4 */
-} JcWater;                          /* 0x3f8 */
+    struct JcBoat* next;           /* +0x3f4 */
+} JcBoat;                          /* 0x3f8 */
 
 /* Rebuilds one station's boat route: clears the +0x18 back-pointer of every
  * boat quoting `id`, finds the station with that id, and re-runs the river
@@ -229,11 +247,11 @@ typedef struct JcWater {
 extern void JungleCruise_RebuildRoute(BPosW id);             /* 0x004373c0 */
 
 extern JcStation*    g_jc_stations;    /* 0x00629c3c */
-extern JcBoat*       g_jc_boats;       /* 0x0062fd2c */
+extern JcWater*       g_jc_water;       /* 0x0062fd2c */
 extern JcMonkeyFish* g_jc_fish;        /* 0x00629c30 */
 extern JcMonkeyTree* g_jc_trees;       /* 0x00629c2c */
 extern JcDeco*       g_jc_deco;        /* 0x00629c34 */
-extern JcWater*      g_jc_water;       /* 0x00616164 */
+extern JcBoat*      g_jc_boats;       /* 0x00616164 */
 
 /* The map rectangle the ride's own tiles cover, restored cell by cell when
  * the ride is torn down (four ints; the x loop stops one short of `right`
@@ -241,14 +259,14 @@ extern JcWater*      g_jc_water;       /* 0x00616164 */
 extern Rect  g_jc_area;                /* 0x00629c40 */
 
 /* The class descriptors of the four child object types. */
-extern ObjDef* g_jc_boat_cls;          /* 0x0081cb54 */
+extern ObjDef* g_jc_water_cls;          /* 0x0081cb54 */
 extern ObjDef* g_jc_deco_cls;          /* 0x0081cb64 */
 extern ObjDef* g_jc_tree_cls;          /* 0x0081cb70 */
 extern ObjDef* g_jc_fish_cls;          /* 0x0081cb74 */
 
 /* A scratch cursor the boat teardown drives (its footprint rect is stamped
  * with {-2,-2,2,2} first). */
-extern Cursor g_jc_boat_cursor;        /* 0x0082ae20 */
+extern Cursor g_jc_water_cursor;        /* 0x0082ae20 */
 
 /* ---- other subsystems --------------------------------------------------- */
 extern void StandardRemoveObject(MapObj* obj, BPosW bp, Cursor* ctx); /* 0x0045f220 */
@@ -259,13 +277,13 @@ extern void HeapFree_w(void* p);                             /* 0x0049e4d0 */
 
 /* The child classes' own remove handlers (0x00433fc0 and 0x00434670 are the
  * MONKEY TREE / MONKEY FISH cb_remove slots in SetCustomCallbacks). */
-extern void JcBoat_Remove(MapObj* obj, BPosW bp, Cursor* ctx);      /* 0x00436f30 */
+extern void JcWater_RemoveOne(MapObj* obj, BPosW bp, Cursor* ctx);      /* 0x00436f30 */
 extern void MonkeyTree_Remove(MapObj* obj, BPosW bp, Cursor* ctx);  /* 0x00433fc0 */
 extern void MonkeyFish_Remove(MapObj* obj, BPosW bp, Cursor* ctx);  /* 0x00434670 */
 extern void JcDeco_Remove(MapObj* obj, BPosW bp, Cursor* ctx);      /* 0x00434b40 */
 
-/* Unlinks one water record from g_jc_water and frees it. */
-extern void JcWater_Unlink(JcWater* w);                             /* 0x00432cb0 */
+/* Unlinks one water record from g_jc_boats and frees it. */
+extern void JcBoat_Unlink(JcBoat* w);                             /* 0x00432cb0 */
 
 /* =========================================================================
  * 0x00435ec0 -- LoadJungleCruise (JUNGLE CRUISE cb_load).
@@ -288,10 +306,10 @@ int LoadJungleCruise(void)
 {
     unsigned int n;
     JcStation* st = 0;
-    JcBoat* boat = 0;
+    JcWater* boat = 0;
     JcMonkeyTree* d = 0;
     JcMonkeyFish* c = 0;
-    JcWater* w;
+    JcBoat* w;
     void** q;
     int k;
 
@@ -313,10 +331,10 @@ int LoadJungleCruise(void)
     SaveGameRead(&n, 4);
     while (n-- != 0) {
         if (!boat)
-            boat = g_jc_boats = (JcBoat*)HeapAlloc_w(sizeof(JcBoat));
+            boat = g_jc_water = (JcWater*)HeapAlloc_w(sizeof(JcWater));
         else
-            boat = boat->next = (JcBoat*)HeapAlloc_w(sizeof(JcBoat));
-        SaveGameRead(boat, sizeof(JcBoat));
+            boat = boat->next = (JcWater*)HeapAlloc_w(sizeof(JcWater));
+        SaveGameRead(boat, sizeof(JcWater));
     }
 
     SaveGameRead(&n, 4);
@@ -337,14 +355,14 @@ int LoadJungleCruise(void)
         SaveGameRead(d, sizeof(JcMonkeyTree));
     }
 
-    w = g_jc_water;
+    w = g_jc_boats;
     SaveGameRead(&n, 4);
     while (n-- != 0) {
         if (!w)
-            w = g_jc_water = (JcWater*)HeapAlloc_w(sizeof(JcWater));
+            w = g_jc_boats = (JcBoat*)HeapAlloc_w(sizeof(JcBoat));
         else
-            w = w->next = (JcWater*)HeapAlloc_w(sizeof(JcWater));
-        SaveGameRead(w, sizeof(JcWater));
+            w = w->next = (JcBoat*)HeapAlloc_w(sizeof(JcBoat));
+        SaveGameRead(w, sizeof(JcBoat));
         q = w->blokes;
         k = 3;
         do {
@@ -375,7 +393,7 @@ int LoadJungleCruise(void)
  *     MapObj stub carrying that class, and a cursor whose origin has been
  *     repointed at the child's map square (the caller's cursor is borrowed
  *     and restored for three of the four lists; the boats get the scratch
- *     cursor g_jc_boat_cursor with a {-2,-2,2,2} footprint stamped in).
+ *     cursor g_jc_water_cursor with a {-2,-2,2,2} footprint stamped in).
  *     Each removal restarts the walk from the list head, because the child
  *     handler unlinks the record being pointed at.
  *  5. unlink the station, drop every water record of that ride, evict the
@@ -390,23 +408,23 @@ int LoadJungleCruise(void)
 
 /* The footprint stamped into the scratch cursor before the boats go: a 5x5
  * block centred on the boat (the original's constant at 0x004b7478). */
-static const Rect kJcBoatRect = { -2, -2, 2, 2, 0 };
+static const Rect kJcWaterRect = { -2, -2, 2, 2, 0 };
 
 // FUNCTION: LEGOLAND 0x00435470
 void JungleCruise_Remove(MapObj* obj, BPosW bp, Cursor* ctx)
 {
-    JcWater*      w;
+    JcBoat*      w;
     JcStation*    prev;
     MapObj        child;
     JcStation*    st;
-    JcBoat*       b;
+    JcWater*       b;
     JcMonkeyTree* t;
     JcMonkeyFish* f;
     JcDeco*       dc;
     int x, y;
 
     prev = 0;
-    w = g_jc_water;
+    w = g_jc_boats;
     st = g_jc_stations;
     StandardRemoveObject(obj, bp, ctx);
 
@@ -424,17 +442,17 @@ void JungleCruise_Remove(MapObj* obj, BPosW bp, Cursor* ctx)
     if (!st)
         return;
 
-    child.cls = g_jc_boat_cls;
-    IncrementObjectCount(g_jc_boat_cls);
-    IncrementObjectCount(g_jc_boat_cls);
-    g_jc_boat_cursor.rect = kJcBoatRect;
-    b = g_jc_boats;
+    child.cls = g_jc_water_cls;
+    IncrementObjectCount(g_jc_water_cls);
+    IncrementObjectCount(g_jc_water_cls);
+    g_jc_water_cursor.rect = kJcWaterRect;
+    b = g_jc_water;
     while (b) {
         if (b->owner.w == bp.w) {
-            g_jc_boat_cursor.origin.x = b->pos.b.x;
-            g_jc_boat_cursor.origin.y = b->pos.b.y;
-            JcBoat_Remove(&child, b->pos, &g_jc_boat_cursor);
-            b = g_jc_boats;
+            g_jc_water_cursor.origin.x = b->pos.b.x;
+            g_jc_water_cursor.origin.y = b->pos.b.y;
+            JcWater_RemoveOne(&child, b->pos, &g_jc_water_cursor);
+            b = g_jc_water;
         } else {
             b = b->next;
         }
@@ -498,8 +516,8 @@ void JungleCruise_Remove(MapObj* obj, BPosW bp, Cursor* ctx)
 
     while (w) {
         if (w->pos.w == bp.w) {
-            JcWater_Unlink(w);
-            w = g_jc_water;
+            JcBoat_Unlink(w);
+            w = g_jc_boats;
         } else {
             w = w->next;
         }
@@ -664,7 +682,7 @@ void MonkeyFish_CalcCursor(MapObj* o, int sx, int sy)
  *
  *   - JungleCruise_ProbeRiver on the removed cell gives the direction mask
  *     of the river arms that touched it (1 N, 2 E, 4 S, 8 W, five cells out);
- *   - JcBoat_Remove tears down this square's own boat/water object;
+ *   - JcWater_RemoveOne tears down this square's own boat/water object;
  *   - each arm that existed is re-probed and its tile rebuilt
  *     (UpdateRiverTile gives back the owning station's square, which
  *     RelinkRiverCell then uses to re-attach the cell to its ride);
@@ -716,7 +734,7 @@ extern Cell**  g_map_rows;          /* 0x00801400 (GameMap) */
 extern ObjDef* g_jc_station_cls;    /* 0x0081cb60 */
 
 /* Returns the water record covering the map square, or 0. */
-extern JcWater* JungleCruise_FindWaterAt(int x, int y);            /* 0x004371b0 */
+extern JcBoat* JcWater_FindAt(int x, int y);            /* 0x004371b0 */
 /* Rebuilds the river tile at (x, y) for the given direction mask and hands
  * back the owning station's map square. */
 extern void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner); /* 0x00436dc0 */
@@ -733,16 +751,22 @@ static __inline Cell* MapCellAt(int x, int y)
     return 0;
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00436a40  (327/328 insns, 37 scratch-register mismatches from idx 62)
+/* 328/328 instructions, 885 of 886 bytes.  The whole body -- the cell test,
+ * the four ProbeRiver/UpdateRiverTile/RelinkRiverCell blocks and the four
+ * diagonal ones -- is now exact; the residual is entirely in the tail, where
+ * the original keeps the station cursor in EDI (leaving ESI free as a fourth
+ * temporary, hence its extra `mov esi,edx` at 0x00436812) and this
+ * reconstruction puts it in ESI and needs only three.  Spelling the four
+ * `(mask & bit)` guards INLINE rather than through named locals was worth 16
+ * of the original 37 mismatches: VC6 CSEs the inline form into a spilled
+ * temporary and does NOT thread the `bit == 0` path across the next guard,
+ * which is what the original does. */
+// WIP-FUNCTION: LEGOLAND 0x00436a40  (328/328 insns, 21 register mismatches in the tail)
 void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
 {
     JcStation* st = g_jc_stations;
     Cell*      cell;
     int        mask;
-    volatile int north;
-    volatile int east;
-    volatile int south;
-    int        west;
     BPosW      owner;
 
     {
@@ -751,7 +775,7 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
         cell = MapCellAt(cx, cy);
     }
     /* Original: no null check -- an off-map square faults here. */
-    if (cell->obj != g_jc_boat_cls->c4) {
+    if (cell->obj != g_jc_water_cls->c4) {
         MapObj stub;
 
         stub.cls = g_jc_station_cls;
@@ -760,10 +784,9 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
     }
 
     mask = JungleCruise_ProbeRiver(ctx->origin.x, ctx->origin.y, &owner);
-    JcBoat_Remove(o, bp, ctx);
+    JcWater_RemoveOne(o, bp, ctx);
 
-    north = mask & 1;
-    if (north) {
+    if (mask & 1) {
         int ny = ctx->origin.y - 5;
         int nx = ctx->origin.x;
         BPosW probe;
@@ -772,8 +795,7 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
         JungleCruise_UpdateRiverTile(nx, ny, m, &owner);
         JungleCruise_RelinkRiverCell(nx, ny, &owner);
     }
-    east = mask & 2;
-    if (east) {
+    if (mask & 2) {
         int nx = ctx->origin.x + 5;
         int ny = ctx->origin.y;
         BPosW probe;
@@ -782,8 +804,7 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
         JungleCruise_UpdateRiverTile(nx, ny, m, &owner);
         JungleCruise_RelinkRiverCell(nx, ny, &owner);
     }
-    south = mask & 4;
-    if (south) {
+    if (mask & 4) {
         int ny = ctx->origin.y + 5;
         int nx = ctx->origin.x;
         BPosW probe;
@@ -792,8 +813,7 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
         JungleCruise_UpdateRiverTile(nx, ny, m, &owner);
         JungleCruise_RelinkRiverCell(nx, ny, &owner);
     }
-    west = mask & 8;
-    if (west) {
+    if (mask & 8) {
         int nx = ctx->origin.x - 5;
         int ny = ctx->origin.y;
         BPosW probe;
@@ -803,11 +823,11 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
         JungleCruise_RelinkRiverCell(nx, ny, &owner);
     }
 
-    if (north && west) {
+    if ((mask & 1) && (mask & 8)) {
         int nx = ctx->origin.x - 5;
         int ny = ctx->origin.y - 5;
 
-        if (JungleCruise_FindWaterAt(nx, ny)) {
+        if (JcWater_FindAt(nx, ny)) {
             BPosW probe;
             int m = JungleCruise_ProbeRiver(nx, ny, &probe);
 
@@ -815,11 +835,11 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
             JungleCruise_RelinkRiverCell(nx, ny, &owner);
         }
     }
-    if (north && east) {
+    if ((mask & 1) && (mask & 2)) {
         int nx = ctx->origin.x + 5;
         int ny = ctx->origin.y - 5;
 
-        if (JungleCruise_FindWaterAt(nx, ny)) {
+        if (JcWater_FindAt(nx, ny)) {
             BPosW probe;
             int m = JungleCruise_ProbeRiver(nx, ny, &probe);
 
@@ -827,11 +847,11 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
             JungleCruise_RelinkRiverCell(nx, ny, &owner);
         }
     }
-    if (south && west) {
+    if ((mask & 4) && (mask & 8)) {
         int nx = ctx->origin.x - 5;
         int ny = ctx->origin.y + 5;
 
-        if (JungleCruise_FindWaterAt(nx, ny)) {
+        if (JcWater_FindAt(nx, ny)) {
             BPosW probe;
             int m = JungleCruise_ProbeRiver(nx, ny, &probe);
 
@@ -839,11 +859,11 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
             JungleCruise_RelinkRiverCell(nx, ny, &owner);
         }
     }
-    if (south && east) {
+    if ((mask & 4) && (mask & 2)) {
         int nx = ctx->origin.x + 5;
         int ny = ctx->origin.y + 5;
 
-        if (JungleCruise_FindWaterAt(nx, ny)) {
+        if (JcWater_FindAt(nx, ny)) {
             BPosW probe;
             int m = JungleCruise_ProbeRiver(nx, ny, &probe);
 
@@ -913,7 +933,10 @@ extern void  BlokeSetFrame(Bloke* b, int frame);             /* 0x00440870 */
 extern void  BlokeWalkAnim(Bloke* b);                        /* 0x00440910 */
 extern Person3D* Find3DPersonFromBloke(Bloke* b);            /* 0x0043f890 */
 extern void  AdjustBlokePosition(Pos* p);                    /* 0x00442d60 */
-extern int   ScreenToMapRef2(Pos* screen, Pos* out);         /* 0x0045be00 */
+/* The call site here passes a THIRD argument the callee (pathtile2.c, two
+ * parameters) never reads -- the original pushes a zero for it, so the
+ * prototype this translation unit was compiled against had three. */
+extern int   ScreenToMapRef2(Pos* screen, Pos* out, int unused); /* 0x0045be00 */
 /* Declared with FIVE int parameters rather than the two by-value Pos of
  * workers2.c/blokeai.c: identical ABI, but it keeps the caller from building
  * the two aggregates and reproduces the original's push order here. */
@@ -927,7 +950,7 @@ extern void  JungleCruise_AdvanceBoats(void);                /* 0x004332f0 */
 extern void  JungleCruise_UpdateRiverAnim(int mode);         /* 0x00432d00 */
 /* Stamps the station's map square onto every water record and returns how
  * many of them there are (0 when the station's square is 0). */
-extern int   JungleCruise_StampAndCountRiver(JcStation* st); /* 0x004332c0 */
+extern int   JungleCruise_CountStationBoats(JcStation* st); /* 0x004332c0 */
 /* Puts a party of up to three riders onto the water at the station. */
 extern int   JungleCruise_TryLaunchBoat(BPosW key, Bloke* a, Bloke* b, Bloke* c); /* 0x00432b90 */
 
@@ -935,11 +958,23 @@ extern int    g_jc_anim_tick;        /* 0x00629c54 */
 /* Seat pixel offsets, indexed BACKWARDS: g_jc_seat_ofs[-slot]. */
 extern SeatOfs g_jc_seat_ofs[];      /* 0x004b72b0 */
 
-/* 76.0% full-body, 354/354 instructions, first divergence at index 110: the second
- * loop's station cursor lands in eax where the original uses ecx and the permutation
- * cascades from there; the frame also differs by the 4-byte hole the original leaves
- * at +0x08, so case 3's two Pos locals sit four bytes low. */
-// WIP-FUNCTION: LEGOLAND 0x00435750  (76.0%, register permutation from idx 110)
+/* 354/354 instructions, 1108 of 1114 bytes.  TWO SEMANTIC FIXES this pass:
+ *  - case 1's "find a free boat seat" loop exits straight to the case end
+ *    when no seat is free (the original threads the `i == 3` test away), and
+ *  - case 3's walk target is built from the INSTANCE's map square (`key`,
+ *    the two adjacent bytes at [esp+0x14]) and not from the screen point the
+ *    3D person was converted from -- the original reads a byte PAIR there,
+ *    which a Pos of two ints cannot produce.
+ * Also: the call to ScreenToMapRef2 passes a THIRD argument the two-parameter
+ * callee never reads (the original pushes a zero for it, and the merged
+ * `add esp,0x3c` counts 15 pushes in that case, not 14).
+ * The residual is a systematic register permutation: the original puts the
+ * function-wide constant zero in EBX and the instance cursor in EBP, this
+ * reconstruction the other way round, and the second loop's station cursor
+ * lands in EAX where the original uses ECX.  Both are pure allocator
+ * tie-breaks -- the instruction sequence is otherwise the same -- but they
+ * inflate the index-for-index mismatch count badly. */
+// WIP-FUNCTION: LEGOLAND 0x00435750  (354/354 insns, systematic ebx<->ebp / eax<->ecx swap)
 void JungleCruise_Tick(void)
 {
     ObjDef*    def = g_jc_station_cls;
@@ -967,7 +1002,7 @@ void JungleCruise_Tick(void)
             continue;
         if (st->route == 0)
             continue;
-        if (st->take <= 6 * JungleCruise_StampAndCountRiver(st))
+        if (st->take <= 6 * JungleCruise_CountStationBoats(st))
             continue;
         if (!JungleCruise_TryLaunchBoat(key, st->riders[0], st->riders[1], st->riders[2]))
             continue;
@@ -1042,16 +1077,15 @@ void JungleCruise_Tick(void)
                 if (b != st->blokes[0])
                     break;
                 for (i = 0; i < 3; i++) {
-                    if (st->riders[i] == 0)
+                    if (st->riders[i] == 0) {
+                        b->x = -0x270f;
+                        b->y = -0x270f;
+                        st->riders[i] = b;
+                        st->count--;
+                        st->blokes[0] = 0;
                         break;
+                    }
                 }
-                if (i == 3)
-                    break;
-                b->x = -0x270f;
-                b->y = -0x270f;
-                st->riders[i] = b;
-                st->count--;
-                st->blokes[0] = 0;
                 break;
             case 3:
                 screen.x = 0;
@@ -1064,13 +1098,13 @@ void JungleCruise_Tick(void)
                     screen.x = p->sx - screen.x - 0x10;
                     screen.y = p->sy - screen.y;
                 }
-                ScreenToMapRef2(&screen, &world);
+                ScreenToMapRef2(&screen, &world, 0);
                 b->flags &= (unsigned short)~0x80;
                 b->x = world.x;
                 b->y = world.y;
                 b->speed = 0xa;
-                b->tx = (((int)g_jc_station_cls->ox + (screen.x & 0xff)) << 8) - 0x180;
-                b->ty = (((int)g_jc_station_cls->oy + (screen.y & 0xff)) << 8) + 0x80;
+                b->tx = (((int)g_jc_station_cls->ox + key.b.x) << 8) - 0x180;
+                b->ty = (((int)g_jc_station_cls->oy + key.b.y) << 8) + 0x80;
                 b->dir8 = (unsigned char)(CalcMoveLine(b->x, b->y, b->tx, b->ty, &b->path) + 0x10);
                 b->action = 7;
                 NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));

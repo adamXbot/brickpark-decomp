@@ -494,7 +494,20 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
  * at 8-byte-aligned offsets (-0x10 and -8) with the four ints at -4, -0xc,
  * -0x14, -0x18; ours packs ctrl/data adjacent at -0x10/-0xc.  If a later
  * agent finds what makes VC6 8-align a spilled pointer home, that is the
- * lever. */
+ * lever.
+ * Re-tested this round and also inert: swapping the `npasses`/`data`
+ * declarations (confirming again that declaration order is irrelevant for
+ * this class), `unsigned char*` for data, `unsigned` npasses, a named local
+ * for the hoisted `lls->frames`, and a `while` form of the pass loop.  What
+ * DOES move the homes is the ORDER in which `ctrl` and `data` are assigned
+ * inside the three arms: 20 combinations of (arm 1 order x basepal order x
+ * arm 3 order) were measured and they produce exactly three layouts, all
+ * rotations of {ctrl, npasses, data} in the -0x10/-0xc/-8 run:
+ *     ctrl, data, npasses   (what we emit, from the committed spelling)
+ *     data, npasses, ctrl   (assign data before ctrl in arm 1)
+ *     ctrl, npasses, data   (THE ORIGINAL -- not reached by any of the 20)
+ * so the assignment order in the arms is the right dial; the combination
+ * that lands the third rotation has not been found. */
 // WIP-FUNCTION: LEGOLAND 0x00465240  (98.1%: 407/415 insns, 1544/1544 bytes; mismatch=8, all of them the npasses/data frame homes swapped -- see the note above)
 void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
 {
@@ -1065,7 +1078,32 @@ extern const char m_zone_western[];      /* 0x004b9f98 */
  * between cases 1 and 2, and case 10's inner switch really is written
  * 0,1,4,5,2,3).  That contradicts bigrender.c's "switch case order is not a
  * lever" note for this shape, so both readings are on the record. */
-// WIP-FUNCTION: LEGOLAND 0x00469400  (77.7%: 282/363 instructions align; ours 314i/1056B vs 363i/1155B -- the shared RemoveGoals tail is not duplicated into each case, see the note above)
+/* PROGRESS NOTE (this round): the body is now 359 instructions against the
+ * original's 363 (it was 314).  Writing the `RemoveGoals(g->code);` tail
+ * EXPLICITLY at the end of every case, followed by `continue;` -- instead of
+ * once after the switch -- is what reproduces the original's per-case tail;
+ * left as one shared statement, VC6 keeps a single tail and the body comes
+ * out 49 instructions short.  The trailing `RemoveGoals(g->code);` after the
+ * switch is kept because the out-of-range default path needs it, exactly as
+ * the original's `ja` arm does.  VC6 still cross-jumps the three-argument
+ * cases into one shared `call AddHelpMessage / add esp,0xc / tail` block, as
+ * the original does at 0x00469868.
+ *
+ * WHAT IS LEFT (11 instructions, and the index shift behind the reported
+ * mismatch): in each per-case tail the original keeps the two stack pops
+ * apart --
+ *     call AddHelpMessage / ... / add esp,8 /
+ *     mov edx,[esi+0xc] / push edx / call RemoveGoals / add esp,4
+ * -- whereas VC6 here pushes RemoveGoals' argument while AddHelpMessage's
+ * arguments are still on the stack and MERGES the two into one `add esp,0xc`.
+ * Ruled out: a volatile read for `g->code`, a `for(;;)` loop with the test
+ * hoisted, a `goto next;` label form, and an extra `continue` after the
+ * shared tail (the last two both collapse back to 307 instructions).  Note
+ * the reported mismatch went 328 -> 335 even though the body got 45
+ * instructions closer: the strict index-for-index compare is dominated by the
+ * one-instruction-per-case shift, so read the instruction count here, not the
+ * mismatch. */
+// WIP-FUNCTION: LEGOLAND 0x00469400  (359i/1184B vs the original's 363i/1155B; the 11 residual instructions are merged `add esp` pairs -- see above)
 void UpdateGoalHelpText(void)
 {
     Goal* g;
@@ -1076,13 +1114,16 @@ void UpdateGoalHelpText(void)
         case 0:
             AddHelpMessage(kFmtStr, g_hint_strings[g->strid]);
             g_last_hint = g->strid;
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 1:
             AddHelpMessage(m_build_more_of, g->count, g->target->cls->name);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 12:
             AddHelpMessage(m_research, g->target->cls->name);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 2:
             if (g->count == 0) {
                 if (g->target)
@@ -1095,40 +1136,48 @@ void UpdateGoalHelpText(void)
                 else
                     AddHelpMessage(m_link_all);
             }
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 3:
             if (g->amount != 0)
                 AddHelpMessage(m_build_new_range, g->amount, g->target->range_name);
             else
                 AddHelpMessage(m_build_more_range, g->count, g->target->range_name);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 4:
             if (g->amount != 0)
                 AddHelpMessage(m_delete_all_range, g->amount, g->target->range_name);
             else
                 AddHelpMessage(m_delete_range, g->count, g->target->range_name);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 5:
             AddHelpMessage(m_remove_items, g->count);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 6:
             AddHelpMessage(m_delete_obj, g->count, g->target->cls->name);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 7:
             AddHelpMessage(m_attract_people, g->count);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 8:
             if (g->count > 0)
                 AddHelpMessage(m_more_gardeners, g->count);
             else
                 AddHelpMessage(m_fewer_gardeners, -g->count);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 9:
             if (g->count > 0)
                 AddHelpMessage(m_more_mechanics, g->count);
             else
                 AddHelpMessage(m_fewer_mechanics, -g->count);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 10:
             switch (g->count) {
             case 0:
@@ -1150,34 +1199,42 @@ void UpdateGoalHelpText(void)
                 AddHelpMessage(m_cover_wonder, g->amount);
                 break;
             }
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 11:
             AddHelpMessage(m_path_scenery, g->amount);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 13:
             AddHelpMessage(m_save_coins, g->count);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 14:
             AddHelpMessage(m_happiness, g->count, g->amount);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 15:
             if (g->variant != 0)
                 AddHelpMessage(m_hunger_fewer, g->count, g->amount);
             else
                 AddHelpMessage(m_hunger_more, g->count, g->amount);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 16:
             AddHelpMessage(m_repairs, g->count, g->amount);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 17:
             AddHelpMessage(m_ride_people, g->count, g->target->cls->name);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 18:
             if (g->amount != 0)
                 AddHelpMessage(m_parts_diff, g->amount, g->target->cls->name);
             else
                 AddHelpMessage(m_parts_more, g->count, g->target->cls->name);
-            break;
+            RemoveGoals(g->code);
+            continue;
         case 19:
             switch (g->variant) {
             case 0:
@@ -1193,7 +1250,8 @@ void UpdateGoalHelpText(void)
                 AddHelpMessage(m_zone_western, g->count, g->amount);
                 break;
             }
-            break;
+            RemoveGoals(g->code);
+            continue;
         }
         RemoveGoals(g->code);
     }

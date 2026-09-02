@@ -751,7 +751,19 @@ static __inline Cell* RouteCellAt(Pos* p)
  * inside the condition, nested ifs, the store of g_open_head duplicated into
  * both arms, the route request as two Pos globals / one struct / an int
  * array) either reproduces this or flips the goal test's eax/ecx pair
- * instead, which costs the same three. */
+ * instead, which costs the same three.
+ * Re-measured this round: the residual is exactly ONE fact -- the original
+ * CSEs `cur->pos.x` across the goal test into the else block, so the
+ * y-comparison's global load has to go somewhere other than eax.  Writing the
+ * else block as two field assignments (`to.x = cur->pos.x; to.y =
+ * cur->pos.y - 1;`) DOES produce that CSE, but then VC6 gives the CSE'd value
+ * ecx (the original gives it eax) and the copy `mov ecx,eax` the original
+ * needs disappears -- 481 instructions instead of 482.  Passing
+ * `cur->pos.x` to RouteInBounds instead of `to.x` gives the CSE in eax but
+ * loses the store/push interleave.  All four operand orders of the goal test
+ * were tried against both else-block spellings; the struct-copy else is the
+ * only one that keeps 482 instructions.  Whoever gets the CSE into eax while
+ * keeping `to = cur->pos;` finishes this function. */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)
 {
@@ -923,7 +935,16 @@ void RequestRoute(Pos from, Pos to)
  * Y-first, leaves `a` in ecx and needs a closing `mov eax,edi`.  Swapping the
  * terms, splitting them into temporaries, `t += ...`, `1 == ...` and the
  * subtract-then-test form all reproduce the Y-first order.  Semantics are
- * identical. */
+ * identical.
+ * Re-tested this round with dx/dy computed before the abs(), an `unsigned`
+ * result, `const Pos*` parameters, a temporary for b->y alone (the original's
+ * Y term really does load b->y into edx first while its X term uses a memory
+ * operand, so the two terms are NOT symmetric in the original) and the
+ * branchy `if (d < 0) d = -d;` form -- all twelve produce byte-identical
+ * code.  This is the same commutative-sum canonicalisation joust.c's
+ * TempleSlide_Draw is stuck on: VC6 SP3 orders the operands of `A + B` where
+ * both are independent loads by its own key, and no source spelling reaches
+ * the other order.  Treat both as one open question, not two. */
 // WIP-FUNCTION: LEGOLAND 0x00450500  (95.8%, VC6 canonicalises the commutative sum to Y-first; one extra result move)
 int IsAdjacentPos(Pos* a, Pos* b)
 {

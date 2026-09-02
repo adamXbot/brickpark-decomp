@@ -24,7 +24,7 @@
  *   0x0042b2e0  BALLOONZ           cb_b0  depth-sorted overlay draw  WIP
  *   0x0042bcf0  CAROUSEL           cb_b0  depth-sorted overlay draw  WIP
  *   0x0042c820  CAROUSEL           cb_a8  per-rider state machine    documented
- *   0x0042d610  EARTH SLIDE RIDE   cb_a8  per-rider state machine    WIP 94.6%
+ *   0x0042d610  EARTH SLIDE RIDE   cb_a8  per-rider state machine    WIP 99.3%
  *   0x0042d9c0  ENTRANCE 1         cb_b0  depth-sorted overlay draw  100%
  *   0x0042f1a0  RESTAURANT 1       cb_a8  per-rider state machine    100%
  *   0x0042f4c0  RESTAURANT 1       cb_b0  depth-sorted overlay draw  100%
@@ -688,17 +688,29 @@ extern void*       g_slide_anim;   /* 0x006160e4  its 3D rider animation */
  *      release the "do not let anyone on" flag once the car has emptied
  * ========================================================================= */
 
-/* 261/276 instructions, 826 B vs 824 B, 15 mismatches by audit.py.  The body,
- * the switch layout and every frame slot are exact; what is left is one
- * callee-saved register TIE-BREAK: the original puts `item` in ebp (so item's
- * register becomes `tx`) and `key` in ebx (so key's register becomes `ty`),
- * while VC6 here picks the other way round -- item in ebx, key in ebp -- and
- * the same two registers come out swapped at 13 sites.  The remaining 2 are a
- * two-instruction schedule swap of `mov eax,[spot.y]` / `lea ecx,[b->path]`
- * in case 0.  Statement order, declaration order, key/kx/ky phrasing, loop
- * form and the coordinate expression order were all searched (~40 variants);
- * this shape is the best of them. */
-// WIP-FUNCTION: LEGOLAND 0x0042d610  (94.6%, ebx/ebp allocation tie-break)
+/* 274/276 instructions and 824/824 bytes -- mismatch 2 (it was 15).
+ *
+ * THE LEVER that fixed the ebx/ebp tie-break: INTERLEAVE the two coordinate
+ * sums instead of grouping the two key reads.  Writing
+ *     kx = key->bx; tx = item->base_x + kx; ky = key->by; ty = ...
+ * rather than
+ *     kx = key->bx; ky = key->by; tx = ...; ty = ...
+ * makes VC6 put `item` in ebp and `key` in ebx, which is what the original
+ * does -- `tx` then inherits item's register and `ty` inherits key's, and 13
+ * previously-swapped sites fall into place.  Both spellings are the same
+ * arithmetic; only the interleaving moves the allocator.
+ *
+ * The 2 that remain are a schedule swap in case 0 (indices 62/64): the
+ * original reads BOTH halves of the queue spot before it takes the address of
+ * b->path --
+ *     mov edx,[spot.x] / mov eax,[spot.y] / mov [b+0x24],edx /
+ *     lea ecx,[b+0x98] / mov [b+0x28],eax
+ * -- while VC6 here slots the `lea` between the two, reading spot.y after the
+ * x store.  Two int temporaries DO produce the original's schedule but then
+ * hand eax to spot.x and edx to spot.y (the original has them the other way
+ * round) and cost 65; `b->target = spot;` as a struct copy moves three frame
+ * homes; storing y before x costs 221.  2 is the floor of ~15 variants. */
+// WIP-FUNCTION: LEGOLAND 0x0042d610  (99.3%, one two-instruction schedule swap in case 0)
 void EarthSlide_Tick(RideElem* elem)
 {
     RideObject*   item = elem->data;
@@ -726,8 +738,8 @@ void EarthSlide_Tick(RideElem* elem)
         if (!rec)
             return;
         kx = key->bx;
-        ky = key->by;
         tx = item->base_x + kx;
+        ky = key->by;
         ty = item->base_y + ky;
         exit.x = item->qx + kx;
         exit.y = item->qy + ky;
@@ -1102,6 +1114,18 @@ extern SpriteObj* g_carousel_zspr;    /* 0x006160b8  z_Carousel.lls */
  * is still live.  ~30 variants searched (statement order, declaration order,
  * separate walk variables, aggregate-init placement, `n` hoisting, operand
  * order); the shape below is the closest found and is semantically exact. */
+/* The residual is one callee-saved TIE-BREAK, the mirror of the one that was
+ * just fixed in EarthSlide_Tick: the original puts the rider cursor `r` in
+ * esi and the per-square record `rec` in edi, and VC6 here picks the other
+ * way round, which renames two thirds of the body.  The original also loads
+ * `item->riders` very early (before the array zeroing, at index 9) whereas we
+ * emit it at index 15, and it stores `n = 0` as an immediate rather than
+ * reusing the `xor eax,eax` the zeroing set up.  Measured this round and all
+ * inert or worse: four positions for `n = 0;` in the opening run, moving
+ * `r = item->riders;` down to the `if (r)`, `rec == 0` / `r != 0` spellings
+ * of the two guards, and both declaration orders of r/rec.  The interleaving
+ * trick that fixed EarthSlide_Tick (splitting a grouped pair of reads so the
+ * two sums alternate) has no counterpart here -- worth looking for one. */
 // WIP-FUNCTION: LEGOLAND 0x0042bcf0  (32.8%, esi/edi allocation tie-break renames two thirds of the body)
 void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
@@ -1288,7 +1312,22 @@ extern void*      g_bz_car_blue; /* 0x0061605c  BZBlueCarM1.lls */
  * lands in the dead `elem` argument slot instead of the rider count.
  * Searched: char declaration order and types, `saved` placement/removal,
  * block-scope vs function-level pair locals.  Semantics are exact. */
-// WIP-FUNCTION: LEGOLAND 0x0042b2e0  (12%, one frame slot short: `saved` not spilled)
+/* FRAME ANALYSIS (this round, for whoever picks it up).  The whole body is
+ * shifted because the frame is ONE 4-byte slot short: the original is
+ * `sub esp,0x5c`, ours `sub esp,0x58`, and the six-entry `here` array (six
+ * `mov dword ptr [..],0` stores, contiguous once the interleaved pushes are
+ * unwound) sits at frame+0x2c in the original and frame+0x28 here.  The
+ * missing slot is BELOW the array: the original homes ALL THREE of the record
+ * bytes it stashes -- wheel at frame+0x04, flag at frame+0x03, car at
+ * frame+0x10 -- and puts the collected count `n` in the DEAD arg-1 slot
+ * (`mov byte ptr [esp+0x74],bl`, spilled immediately after `xor bl,bl` and
+ * still kept in bl).  We home only two of the three bytes, give the dead arg
+ * slot to `flag` instead, and never spill `n` at all.  So the question is not
+ * "why is `saved` not spilled" (the earlier guess) but "what makes VC6 spill
+ * the count to the dead parameter slot while keeping it in bl".  Moving
+ * `n = 0;` around the AdjustOffsetForViewMode/FindRec calls does not do it
+ * (three positions measured, all 0x58 and slightly worse). */
+// WIP-FUNCTION: LEGOLAND 0x0042b2e0  (12%, one frame slot short -- see the frame analysis above)
 void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
 {

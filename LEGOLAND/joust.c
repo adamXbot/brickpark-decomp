@@ -326,13 +326,21 @@ JoustRec* Joust_AddRecord(RideTile* tile)
  * ('mov dx,[eax] / cmp dx,[ecx]', repeated in the peeled first test and in the
  * loop); VC6 here hoists the loop-invariant tile key into a register instead
  * ('mov cx,[ecx]' once, then 'cmp [eax],cx' twice), which is one instruction
- * shorter. Measured: making BOTH reads volatile reproduces the original's
- * operand roles and all 16 instructions, leaving only the two independent
- * loads at indices 3/4 emitted in the opposite order (14/16); no phrasing
- * found so far (operand order, temporaries, rotated/goto/do-while/unrolled
- * loop forms, arithmetic compares, a volatile 'next') moves the argument load
- * ahead of the key load while keeping the record in the register. Left as WIP
- * rather than shipping the volatile, which does not match either. */
+ * shorter. Measured: making BOTH reads volatile
+ * (`((JoustRec volatile*)rec)->tile.key != ((volatile RideTile*)tile)->key`)
+ * reproduces the original's operand roles and all 16 instructions, leaving
+ * only the two independent loads at indices 3/4 emitted in the opposite order
+ * -- 14 of 16, twice as good as the 8/16 this body scores -- but it is NOT
+ * shipped, because it still is not a match and because the volatile is not in
+ * the original: C's rule that volatile accesses keep their source order is
+ * exactly what pins the record read AHEAD of the plain `mov ecx,[esp+4]`
+ * parameter load, and nothing moves that load earlier (a local copy of the
+ * parameter before or inside the guard, a `RideTile* volatile` parameter, a
+ * `volatile unsigned short*` taken from &tile->key, a hand-peeled first test,
+ * the rotated while form -- all 2/16 off in the same place).  Single-volatile
+ * variants get the ORDER right and the ROLES wrong (4/16 off).  The real
+ * question for a later agent is why the original's VC6 did not CSE the
+ * loop-invariant `tile->key` across the peeled test and the loop at all. */
 
 // WIP-FUNCTION: LEGOLAND 0x00407a20  (15 of 16 instructions, audit mismatch 8/16: invariant tile-key hoist, the original re-reads the tile key as the compare's memory operand)
 JoustRec* Joust_FindRecord(RideTile* tile)
@@ -389,17 +397,29 @@ TempleSlideRec* TempleSlide_FindRecord(RideTile* tile)
  * record they just found on the list.
  *
  * NOTE (both RemoveRecord bodies): all 32 instructions and the whole block
- * layout are reproduced, but the four live values land in a permuted register
- * set -- the original has (node ecx, target edx, lookahead esi, link eax) and
- * this source gives (node eax, target esi, lookahead edx, link ecx), so every
- * instruction differs textually and the strict index-for-index gate rejects
- * it. The shape needs the redundant reload the original performs (it loads the
- * lookahead from the NODE and then advances by loading through the LINK
- * pointer, i.e. the same address twice); only a volatile read reproduces that
- * here, and it is the volatile that appears to cost the target the scratch
- * register the original keeps it in. Left as WIP. */
+ * layout are reproduced; audit mismatch is 11/32 (was 18/32).  Moving the
+ * volatile from the ADDRESS (`*(T* volatile*)&p->next`) to the RECORD
+ * (`((T volatile*)p)->next`) AND writing the loop tail as `link = &p->next;`
+ * BEFORE `q = ...` -- while the pre-loop pair stays q-then-link -- recovers
+ * three of the four register roles: the target now lives in the scratch edx
+ * (so the parameter load lands at index 1, before `push esi`, as the original
+ * has it) and the lookahead in esi.  The 11 that remain are one pair of
+ * decisions:
+ *   - node/link are swapped (ours node eax, link ecx; the original node ecx,
+ *     link eax), and
+ *   - the original loads the lookahead with the DISPLACEMENT form
+ *     `mov esi,[ecx+4]` and then materialises the link separately with
+ *     `lea eax,[ecx+4]`, whereas VC6 here always computes the lea FIRST and
+ *     loads through it (`lea ecx,[eax+4]` / `mov esi,[ecx]`), i.e. it CSEs the
+ *     two identical address expressions.  Everything tried to break that CSE
+ *     (char or unsigned-char pointer arithmetic for the link, a volatile-
+ *     qualified address for either side, both statement orders in the
+ *     pre-loop and in the body, the link recomputed at the top of the body,
+ *     a rotated for(;;) form) reproduces the lea-first shape or costs more;
+ *     the floor over ~40 measured variants is 11.  Fixing the address CSE is
+ *     what is left. */
 
-// WIP-FUNCTION: LEGOLAND 0x00407a50  (32/32 instructions and block layout exact, audit mismatch 18/32: the four live values are in a permuted register set)
+// WIP-FUNCTION: LEGOLAND 0x00407a50  (32/32 instructions and block layout exact, audit mismatch 11/32: node/link registers swapped by an address CSE -- see above)
 void Joust_RemoveRecord(JoustRec* rec)
 {
     JoustRec* p = g_joust_head;
@@ -407,14 +427,14 @@ void Joust_RemoveRecord(JoustRec* rec)
     if (p == rec) {
         g_joust_head = rec->next;
     } else {
-        JoustRec* q = p->next;
+        JoustRec*  q = ((JoustRec volatile*)p)->next;
         JoustRec** link = &p->next;
         while (q != rec) {
             p = *link;
             if (p == 0)
                 break;
-            q = *(JoustRec* volatile*)&p->next;
             link = &p->next;
+            q = ((JoustRec volatile*)p)->next;
         }
         if (p)
             p->next = rec->next;
@@ -422,7 +442,7 @@ void Joust_RemoveRecord(JoustRec* rec)
     HeapFree_w(rec);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00416f00  (32/32 instructions and block layout exact, audit mismatch 18/32: same register permutation as Joust_RemoveRecord)
+// WIP-FUNCTION: LEGOLAND 0x00416f00  (32/32 instructions and block layout exact, audit mismatch 11/32: same address CSE as Joust_RemoveRecord)
 void TempleSlide_RemoveRecord(TempleSlideRec* rec)
 {
     TempleSlideRec* p = g_ts_head;
@@ -430,14 +450,14 @@ void TempleSlide_RemoveRecord(TempleSlideRec* rec)
     if (p == rec) {
         g_ts_head = rec->next;
     } else {
-        TempleSlideRec* q = p->next;
+        TempleSlideRec*  q = ((TempleSlideRec volatile*)p)->next;
         TempleSlideRec** link = &p->next;
         while (q != rec) {
             p = *link;
             if (p == 0)
                 break;
-            q = *(TempleSlideRec* volatile*)&p->next;
             link = &p->next;
+            q = ((TempleSlideRec volatile*)p)->next;
         }
         if (p)
             p->next = rec->next;
@@ -819,7 +839,14 @@ extern RenderList g_ts_blokelist;    /* 0x004cbf84 */
  * Measured as inert: all 24 operand permutations of the two four-term sums,
  * both declaration orders, function-level vs block-scope locals, an inlined
  * 4-argument adder, accumulation through a local temp, and assigning through
- * a pointer to the destination pair all produce the same schedule. */
+ * a pointer to the destination pair all produce the same schedule.  Re-tested
+ * this round with every parenthesisation of the four-term sums, both
+ * Offsets moved into the rider-loop block singly and together, and the two
+ * AdjustOffsetForViewMode blocks swapped (that one DOES change the output --
+ * it swaps the two frame homes and costs 6 -- so the fill order is right).
+ * This is the same immovable canonicalisation simcore.c's IsAdjacentPos hits:
+ * VC6 SP3 sorts the operands of a commutative sum of independent memory
+ * loads by its own key and no source spelling reaches the other order. */
 
 // WIP-FUNCTION: LEGOLAND 0x00416fa0  (116/120; two pairs of independent stack loads scheduled in the opposite order)
 void TempleSlide_Draw(RideElem* elem, int x, int y, RideTile* sq,
@@ -966,7 +993,22 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  * index-for-index gate rejects it even though the instruction sequence is
  * right. Left as WIP with the semantics recovered. */
 
-// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions and block layout, audit mismatch 317/347: frame is 0x28 not 0x30 and two callee-saved registers are swapped, which renames almost every line)
+/* FRAME ANALYSIS (this round).  The instruction COUNT and the block layout
+ * are right; the body is shifted because the frame is two 4-byte slots short
+ * -- the original is `sub esp,0x30`, ours `sub esp,0x28`.  Unwinding the
+ * interleaved pushes, the original's homes are: the rider cursor at
+ * frame+0x10 (the `mov [esp],eax` before the prologue pushes), `tw`/`th` at
+ * frame+0x20/+0x24 (the pair whose addresses go to GetTileDimensions), the
+ * case-5 offset pair at frame+0x24/+0x28 -- so it POOLS ofs.ox onto th, the
+ * two blocks being disjoint -- and `screen` at frame+0x34/+0x38.  Ours pools
+ * nothing: screen(8) + pos(8) + tw/th(8) + sx/sy(8) + ofs(8) is exactly the
+ * 40 bytes we emit, while the original needs 48, so it has one more 8-byte
+ * object than this reconstruction models AND it pools ofs with th.  Moving
+ * `ofs` into case 5's block and the case-3 locals into case 3's block was
+ * measured and does not change the frame size (both still 0x28).  Finding the
+ * twelfth slot is the way in; the register swap should follow the frame, as
+ * it did for Joust_Draw. */
+// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions and block layout, audit mismatch 317/347: the frame is two slots short -- see above)
 void TempleSlide_Update(RideElem* elem)
 {
     RideDef*   def = elem->data;
@@ -1185,7 +1227,34 @@ static __inline void Joust_DrawBand(Bloke** here, char n, int code)
  * for-loop vs a pointer do-while band helper, and passing the count by
  * address so it is memory-resident. Left as WIP. */
 
-// WIP-FUNCTION: LEGOLAND 0x00408580  (542 of 552 instructions under audit.py; the per-band count re-test is CSE'd into one register copy)
+/* PROGRESS NOTE (this round): the FRAME now matches exactly.  Declaring
+ * `seat` (and `b`/`p`) inside the rider-loop's if-block instead of at
+ * function level lets VC6 pool `seat` with `off` the way the original does,
+ * which took the frame from `sub esp,0x40` to the original's `sub esp,0x3c`
+ * and moved the eight-slot collection array back to [esp+0x2c], `screen` to
+ * [esp+0x24]/[esp+0x28] and `off`/`seat` to [esp+0x1c]/[esp+0x20].  Every
+ * frame reference now agrees; audit mismatch fell 484 -> 476.
+ *
+ * WHAT IS LEFT (and it is one decision, worth ~10 instructions plus the index
+ * shift behind almost all 476): per band the original emits
+ *      test bl,bl / jle END / lea esi,[esp+0x2c] / movsx edi,bl
+ * -- it re-tests the collected count and re-widens it 22 times.  VC6 here
+ * hoists the widening into a callee-saved register once
+ * (`movsx ebp,bl` + `mov edi,ebp` per band) and then FOLDS every later
+ * `n > 0` test, because once the first `jle` has fallen through it knows
+ * n > 0.  The hoist is what enables the fold, and the hoist needs a free
+ * callee-saved register: in the original ebp is busy for the whole band
+ * section (screen.ox from 0x4085d9, then `mode` from 0x4086e6 to 0x40889b,
+ * then the rider cursor), so there is nowhere to put it.  Ruled out here:
+ * `for (i = 0; i < n; i++) if (here[i]->action == K)` in place of the inline
+ * helper (that DOES restore a per-band guard, but on the widened int, and
+ * costs 567 instructions), `i = n; if (i > 0)`, an end-pointer walk, int/char
+ * temporaries for screen.ox/oy used in one, some or all of the sums, and a
+ * local copy of `mode` (VC6 rematerialises the parameter from its slot at
+ * every PrintSprite instead of parking it in ebp).  Find what makes VC6 hold
+ * `mode` in ebp across the three band-group PrintSprite calls and the rest
+ * should fall out. */
+// WIP-FUNCTION: LEGOLAND 0x00408580  (542 of 552 instructions under audit.py, mismatch 476; frame exact, per-band count re-test still folded -- see above)
 void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode)
 {
     RideDef*   def = elem->data;
@@ -1196,9 +1265,6 @@ void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode
     char       frame;
     Offset     screen;
     Offset     off;
-    Offset     seat;
-    Bloke*     b;
-    Person3D*  p;
 
     rec = Joust_FindRecord(sq);
     if (rec == 0)
@@ -1244,8 +1310,9 @@ void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode
             r = def->riders;
             while (r) {
                 if (sq->key == r->ride_id && (r->bloke->flags & 0x80)) {
-                    b = r->bloke;
-                    p = b->person;
+                    Bloke*    b = r->bloke;
+                    Person3D* p = b->person;
+                    Offset    seat;
                     seat.ox = 0;
                     seat.oy = -0x30;
                     p->local.ox = b->ride_dx;
