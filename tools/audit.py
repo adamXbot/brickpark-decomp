@@ -49,22 +49,59 @@ NAME = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
 
 
+_EXPORT_RVAS = None
+
+
+def export_rvas():
+    """Sorted RVAs of every exported symbol (symbols/legoland.exports.txt).
+
+    Used ONLY as an upper bound for deciding that a forward `jmp` leaves the
+    function; never as the function's end (see the module docstring)."""
+    global _EXPORT_RVAS
+    if _EXPORT_RVAS is None:
+        out = []
+        try:
+            for ln in open(os.path.join(ROOT, "symbols", "legoland.exports.txt")):
+                parts = ln.split()
+                if len(parts) >= 3 and parts[-1].startswith("0x"):
+                    out.append(int(parts[-1], 16))
+        except OSError:
+            pass
+        _EXPORT_RVAS = sorted(set(out))
+    return _EXPORT_RVAS
+
+
 def true_extent(d, secs, rva):
     """(instruction count, byte length) of the original function at rva.
 
-    Ends at the first `ret` that no earlier branch jumps past.
+    Ends at the first `ret` that no earlier branch jumps past, OR at an
+    unconditional `jmp` that leaves the function (a void tail call: target
+    before the entry, or at/after the next exported symbol) that nothing
+    jumps past. Without the second rule a ret-less tail-call wrapper such as
+    UnLoad_PopUpInfo (0x00471450) runs on into the following routine.
     """
     off = rva2off(secs, rva)
     if off is None:
         return None, None
     va = rva + 0x400000
+    exps = export_rvas()
+    nxt = None
+    for e in exps:
+        if e > rva:
+            nxt = e + 0x400000
+            break
     insns = list(md.disasm(d[off:off + 0x4000], va))
     furthest = va
     for i, x in enumerate(insns):
         if x.mnemonic.startswith("j"):
             m = re.match(r"^0x([0-9a-f]+)$", x.op_str.strip())
             if m:
-                furthest = max(furthest, int(m.group(1), 16))
+                tgt = int(m.group(1), 16)
+                external = tgt < va or (nxt is not None and tgt >= nxt)
+                if x.mnemonic == "jmp" and external and x.address >= furthest:
+                    return i + 1, sum(k.size for k in insns[:i + 1])
+                if not external:
+                    furthest = max(furthest, tgt)
         if x.mnemonic == "ret" and x.address >= furthest:
             return i + 1, sum(k.size for k in insns[:i + 1])
     return None, None
@@ -76,14 +113,22 @@ def end_of_body(insns):
     /Gy emits switch jump tables straight after the code, and disassembling them
     yields junk "instructions"; trailing alignment padding follows. Use the same
     rule as the original side: the body ends at the first `ret` that no earlier
-    branch jumps past.
+    branch jumps past, or at an unconditional `jmp` to an EXTERNAL symbol that
+    nothing jumps past. In an unlinked .obj an external jmp carries a
+    relocation and a zero rel32, so its decoded target is the very next byte;
+    an optimiser never emits an internal jump to the next instruction, so that
+    signature is unambiguous.
     """
     furthest = 0
     for i, x in enumerate(insns):
         if x.mnemonic.startswith("j"):
             m = re.match(r"^(?:0x([0-9a-f]+)|(\d+))$", x.op_str.strip())
             if m:
-                furthest = max(furthest, int(m.group(1), 16) if m.group(1) else int(m.group(2)))
+                tgt = int(m.group(1), 16) if m.group(1) else int(m.group(2))
+                if (x.mnemonic == "jmp" and x.size == 5 and tgt == x.address + x.size
+                        and x.address >= furthest):
+                    return insns[:i + 1]
+                furthest = max(furthest, tgt)
         if x.mnemonic == "ret" and x.address >= furthest:
             return insns[:i + 1]
     while insns and insns[-1].mnemonic in ("nop", "int3"):
