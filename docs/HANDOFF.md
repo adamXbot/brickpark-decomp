@@ -17,11 +17,17 @@ State (committed, `main` of `/Users/systemadmin/Downloads/legoland/legoland`):
 | | |
 | --- | --- |
 | Functions exact (committed `// FUNCTION:` markers) | 661 |
-| Code exports exact | 629 of 676 (93.0%) |
+| Code exports exact | 629 of 675 (93.2%) |
 | Recovered internal (unexported) functions | 32 |
-| Exports still to finish | 47 (13 of them exact but tooling-blocked) |
+| Exports still to finish | 46 (13 of them exact but tooling-blocked) |
 
-716 symbols are exported; 41 are data, so the denominator is 675.
+716 symbols are exported; 41 are data, so the denominator is 675. Beware:
+`tools/audit.py`'s `true_extent` will happily disassemble a data symbol and
+report a plausible instruction count, so a naive "unmatched exports" script
+invents targets. `SPRITE_ClipRect` 0x004bdea0 is the known case — it is the
+full-screen clip RECT `{0, 0, 640, 480}`, declared as data in gpu.c, rin.c,
+bigrender.c and printlist.c. Cross-check any "new" export against the
+disassembly before assigning it to a lane.
 
 Held as `// WIP-FUNCTION:` in committed files:
 
@@ -119,17 +125,15 @@ Batch 18's lanes: `objmap2.c` (6 WIPs), `bigrender.c` (5 WIPs), `fpui2.c`
 InitScreen + SetCustomCallbacks).
 
 Not yet assigned to any lane: `DrawPopUpInfo` 0x004724a0 (962i),
-`SPRITE_ClipRect` 0x004bdea0 (83i), `BuildObject` 0x0045eb30 (188i),
-`RenderTransSprite` 0x00489190 (188i).
+`BuildObject` 0x0045eb30 (188i), `RenderTransSprite` 0x00489190 (188i).
 
-## 6. What comes after batch 17
+## 6. What comes after batch 18
 
 Exports with no marker anywhere on disk at handoff (size = true extent in
 instructions):
 
 | insns | VA | name | suggested lane |
 | --- | --- | --- | --- |
-| 83 | 0x004bdea0 | SPRITE_ClipRect | small; pair with RenderTransSprite |
 | 188 | 0x00489190 | RenderTransSprite | printlist.c's lane missed it; new file `render3.c` |
 | 188 | 0x0045eb30 | BuildObject | with objmap2's placement cluster (new file `objmap3.c`) |
 | 470 | 0x0044e010 | __BMPLoader | bighelp.c (in flight) |

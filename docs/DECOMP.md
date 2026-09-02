@@ -63,9 +63,9 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-02: 661 functions at 100% — 629 of the 676 code exports
-(93.0%) plus 32 recovered internal functions.** (716 symbols are exported; 40
-are data.) 47 exports remain, and 13 of those are functions `tools/audit.py`
+**As of 2026-09-02: 661 functions at 100% — 629 of the 675 code exports
+(93.2%) plus 32 recovered internal functions.** (716 symbols are exported; 41
+are data.) 46 exports remain, and 13 of those are functions `tools/audit.py`
 certifies exact but the shared `match.py` cannot bound (void tail-jump
 wrappers, `RenderFrontEndScreen`, `KillAllSamplesFromSource`) — see "Tail-jump
 functions" below. The genuine partials carry their measured residual in a note
