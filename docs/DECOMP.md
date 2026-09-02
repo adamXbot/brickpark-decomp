@@ -88,19 +88,23 @@ no marker:
 
 | | |
 | --- | --- |
-| addresses with a marker | 708 |
-| distinct addresses called through an `extern` | 898 |
-| **unmatched callees** | **584, about 39,300 instructions** |
+| addresses with a marker | 772 |
+| distinct addresses called through an `extern` | 991 |
+| **unmatched callees** | **591, about 35,800 instructions** |
 
-So the reconstruction NAMES about 39k instructions of behaviour it does not yet
-reproduce, and for the browser runtime those are the gaps that matter most:
-`Draw3DPersonModel` (1023 instructions), the per-ride callback sets that
-`SetCustomCallbacks` installs (221 callees, ~18,800 instructions, mostly the
-`CB_4[23]xxxx` handlers), `RequestRoute`, `ScanBlokeSurroundings`,
-`GetPathNeighbours`, the software blitters, and the `Save/LoadBlock*` and
-`Save/LoadScripts` chunk writers that complete the `.sav` format.
+(The callee COUNT can rise while the instruction total falls: every new file
+declares externs for its own callees, so the frontier widens as the work goes
+deeper. The instruction total is the number to watch — it was 39,326.)
 
-Counting whole functions rather than exports: 708 of ~1,292 known (54.8%), and
+So the reconstruction NAMES tens of thousands of instructions of behaviour it
+does not yet reproduce, and for the browser runtime those are the gaps that
+matter most: the software 3D triangle rasterisers (`DrawGouraudTexTri`,
+`DrawFlatTexTri`, `DrawGouraudTri`, `DrawFlatTri` — 2743 instructions between
+them, the whole renderer core), `Draw3DPersonModel` (1023), the per-ride
+callback sets that `SetCustomCallbacks` installs (210 callees, ~15,400
+instructions), and the routing and perception internals.
+
+Counting whole functions rather than exports: 772 of ~1,363 known (56.6%), and
 there may be more that nothing references. Both numbers are true; quote the one
 that answers the question being asked.
 
