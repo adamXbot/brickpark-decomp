@@ -16,11 +16,12 @@ State (committed, `main` of `/Users/systemadmin/Downloads/legoland/legoland`):
 
 | | |
 | --- | --- |
-| Functions exact (committed `// FUNCTION:` markers) | 800 |
-| Code exports exact | 645 of 675 (95.6%) |
-| Recovered internal (unexported) functions | 155 |
+| Functions exact (committed `// FUNCTION:` markers) | 985 |
+| Code exports exact | 645 of 675 (95.6%) — but see the coverage note below |
+| Recovered internal (unexported) functions | 340 |
 | Exports still to finish | 30, but 15 are already exact and tooling-blocked, so **15 real** — `python3 tools/remaining.py` |
-| **Unmatched callees (unexported)** | **631, ~31,000 instructions — `python3 tools/callees.py`** |
+| **Bytes of game code matched** | **29.1% — `python3 tools/coverage.py`, the honest headline** |
+| Unmatched callees | 796, ~41,400 instructions — `python3 tools/callees.py` (this number moves in BOTH directions) |
 
 716 symbols are exported; 41 are data, so the denominator is 675. Beware:
 `tools/audit.py`'s `true_extent` will happily disassemble a data symbol and
@@ -42,6 +43,26 @@ Held as `// WIP-FUNCTION:` in committed files:
   `KillAllSamplesFromSource`. See "Tail-jump functions" in DECOMP.md; the
   fix is a one-function change to match.py that has NOT been applied because
   match.py is shared (§3).
+
+## 1b. Which progress number to quote
+
+Three measures, all true, only one of them a good headline:
+
+- `tools/remaining.py` — 645 of 675 EXPORTS (95.6%). Exports are only the
+  symbols the linker exposed. 985 functions are matched and just 645 are
+  exports, so this badly overstates completion. It was the right FIRST target
+  (exports are the subsystem entry points) and it is nearly finished.
+- `tools/callees.py` — the unmatched frontier. It moves in BOTH directions:
+  batch 24 matched 185 functions and this number ROSE from 631 callees /
+  31,000 instructions to 796 / 41,400, because new files declare externs for
+  their own callees. It measures the frontier, not progress.
+- `tools/coverage.py` — **bytes of matched code against bytes of game code**,
+  excluding the ~51 KB of statically-linked CRT above 0x0049e000. The
+  denominator is fixed, so it only moves by doing work: **29.1% exact**
+  (37.6% including partials) of ~628 KB of game code.
+
+Quote coverage.py. Roughly seventy per cent of the game's code is unexported
+and still ahead.
 
 ## 2. Toolchain and tools
 
