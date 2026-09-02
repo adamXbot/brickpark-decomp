@@ -379,6 +379,25 @@ the same rule (the change is the `true_extent`/`end_of_body` pair in
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **Frame layout (the lever that finished `SaveGame`, 1196 instructions).** VC6
+  lays the frame out as **[block-scope pool][function-level locals in
+  DECLARATION order, ascending]**, so the width of the block-scope pool decides
+  where the function-level run starts: one pooled slot puts the first
+  function-level local at 0x14, two would push it to 0x18. Address-taken locals
+  of **disjoint** blocks share one pool slot regardless of lexical DEPTH (a
+  local four levels down can share with one at the top level) — an earlier note
+  claiming they had to be sibling scopes at matching depth was wrong. The trap
+  is an enclosing block-scope variable that is live across those blocks: it
+  interferes with all of them, forces a second pool slot, and VC6 then gives the
+  OUTER variable the LOWER home, which no declaration order, name or nesting
+  depth can undo. When two frame homes come out swapped, look for that shape.
+- **`goto` block ordering.** VC6 lays a `goto LABEL` target block out BEFORE the
+  block the function merely falls through into at the end. When two identical
+  epilogues come out in the wrong order, make the one the original puts first
+  the labelled goto target (jumping INTO a compound statement is fine).
+- **Reading a disassembly**: an `[esp+N]` reference emitted between a `push` and
+  its `add esp,N` names a frame home 4 or 8 bytes LOWER than N. Several
+  parameters were misread this way before the rule was noticed.
 - **Register tie-breaks (`ClampScrollToMap`, 190/190 after sitting at 34%):**
   the source order of *independent multiplies* decides which product stays in
   eax in place — try all permutations early, it is cheap. A clamp written
