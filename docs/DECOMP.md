@@ -63,13 +63,17 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-02: 661 functions at 100% — 629 of the 675 code exports
-(93.2%) plus 32 recovered internal functions.** (716 symbols are exported; 41
-are data.) 46 exports remain, and 13 of those are functions `tools/audit.py`
-certifies exact but the shared `match.py` cannot bound (void tail-jump
-wrappers, `RenderFrontEndScreen`, `KillAllSamplesFromSource`) — see "Tail-jump
-functions" below. The genuine partials carry their measured residual in a note
-above the marker. Counts come from committed markers
+**As of 2026-09-02: 669 functions at 100% — 637 of the 675 code exports
+(94.4%) plus 32 recovered internal functions.** (716 symbols are exported; 41
+are data — `python3 tools/remaining.py --data`.) 38 exports remain, and 13 of
+those are functions `tools/audit.py` certifies exact but the shared `match.py`
+cannot bound (void tail-jump wrappers, `RenderFrontEndScreen`,
+`KillAllSamplesFromSource`) — see "Tail-jump functions" below. Every genuine
+partial carries its measured residual, and its first diverging instruction
+index, in a note above the marker; several are within a handful of
+instructions. Run `python3 tools/remaining.py` for the live list.
+
+Counts come from committed markers
 (`git ls-files 'LEGOLAND/*.c' | xargs grep -h '^// FUNCTION: LEGOLAND' | wc -l`);
 `tools/progress.py` reads the working tree, so run it on a clean checkout.
 `docs/HANDOFF.md` is the continuation guide and `docs/LANE_BRIEF.md` the
@@ -88,7 +92,8 @@ Files by subsystem: map pipeline (`loadmap.c`, `mapinit.c`, `mapbuild.c`,
 `bigscreens.c`, `bighelp.c`, `input.c`, `input2.c`, `wndenv.c`), audio
 (`audiomisc.c`, `audio2.c`, `audio3.c`, `music.c`), data (`llidb_odf.c`,
 `memdb.c`, `res.c`, `saveprof.c`, `profiles.c`, `loaders.c`, `data2.c`,
-`listdel.c`), plus `sweep1–5.c` (small accessors) and `util.c`.
+`listdel.c`, `savegame.c`, `screen.c`), and the renderers `renderview.c`
+and `bigrender.c`), plus `sweep1–5.c` (small accessors) and `util.c`.
 
 The map/render accessors, the `SetMapTile` family, and `GetRectArea` —
 **14/14 at 100%**:

@@ -16,10 +16,10 @@ State (committed, `main` of `/Users/systemadmin/Downloads/legoland/legoland`):
 
 | | |
 | --- | --- |
-| Functions exact (committed `// FUNCTION:` markers) | 661 |
-| Code exports exact | 629 of 675 (93.2%) |
+| Functions exact (committed `// FUNCTION:` markers) | 669 |
+| Code exports exact | 637 of 675 (94.4%) |
 | Recovered internal (unexported) functions | 32 |
-| Exports still to finish | 46 (13 of them exact but tooling-blocked) |
+| Exports still to finish | 38 (13 of them exact but tooling-blocked) — run `python3 tools/remaining.py` |
 
 716 symbols are exported; 41 are data, so the denominator is 675. Beware:
 `tools/audit.py`'s `true_extent` will happily disassemble a data symbol and
@@ -111,21 +111,23 @@ commit, and recount committed markers. Update the status block at the top of
 
 ## 5. Work in flight
 
-Workflow `ll-batch18` (7 lanes) was running when this was last updated. If that
-session is gone, the lane files are still on disk (untracked or partly
-committed) with `// WIP-FUNCTION:` on anything unfinished. For each, run
-`python3 tools/audit.py LEGOLAND/<file>.c`, commit what is `[OK]` if the file
-compiles and audit ends PASS, and relaunch a continuation lane using
-`docs/LANE_BRIEF.md` plus the lane's function list.
+Workflow `ll-batch19` (7 lanes) was running when this was last updated. If that
+session is gone, the lane files are still on disk with `// WIP-FUNCTION:` on
+anything unfinished. For each, run `python3 tools/audit.py LEGOLAND/<file>.c`,
+commit what is `[OK]` if the file compiles and audit ends PASS, and relaunch a
+continuation lane using `docs/LANE_BRIEF.md` plus the lane's function list.
 
-Batch 18's lanes: `objmap2.c` (6 WIPs), `bigrender.c` (5 WIPs), `fpui2.c`
-(2 WIPs + 4 new), a "nearmiss" lane owning `bnvmove.c` + `workers2.c` +
-`bigscreens.c` (one function each), `savegame.c` (SaveGame + LoadGame),
-`renderview.c` (RenderView + RenderFullMap), `screen.c` (__BMPLoader +
-InitScreen + SetCustomCallbacks).
+Batch 19's lanes: `savegame.c` (SaveGame, 29 mismatches), `bigrender.c` (5
+WIPs, two within 3), `renderview.c` (RenderView + RenderFullMap), `objmap2.c`
+(4 WIPs), `fpui2.c` (3 WIPs), a "nearmiss" lane owning `bigscreens.c` +
+`bnvmove.c` + `workers2.c` + `screen.c` (one function each), and `popup.c`
+(DrawPopUpInfo + BuildObject + RenderTransSprite, the last unstarted exports).
 
-Not yet assigned to any lane: `DrawPopUpInfo` 0x004724a0 (962i),
-`BuildObject` 0x0045eb30 (188i), `RenderTransSprite` 0x00489190 (188i).
+Not in any lane, for a later round: the older WIPs `InsertChildIntoList`
+0x00475630 (fpui.c, 78.5%), `LoadPalette` 0x00441f20 (rin.c, 80.6%),
+`InitExitCheckBox` 0x0048f0f0 (screens2.c, 92.2%), and
+`UpdateControllerFromMouseData` 0x00473b00 (input.c) which two agents have
+already exhausted — its residual is an allocator state no C construct reaches.
 
 ## 6. What comes after batch 18
 
