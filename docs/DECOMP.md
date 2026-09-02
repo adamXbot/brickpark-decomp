@@ -63,26 +63,30 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-02: 472 functions at 100% — 444 of the 675 code exports
-(65.8%) plus 28 recovered internal functions.** (716 symbols are exported; 41
-are data.) 9 WIP: one genuine partial (`UpdateControllerFromMouseData` 0x00473b00 at
-102/109 — the residual is an allocator mode, see input.c) and eight void
-tail-jump wrappers that `tools/audit.py` certifies exact but that are
-held only for tooling (see "Tail-jump functions" below). Counts come from
+**As of 2026-09-02: 581 functions at 100% — 550 of the 675 code exports
+(81.5%) plus 31 recovered internal functions.** (716 symbols are exported; 41
+are data.) 15 WIP: three genuine partials (`UpdateControllerFromMouseData`
+0x00473b00 at 102/109, `InsertChildIntoList` 0x00475630 at 78.5%, `LoadPalette`
+0x00441f20 at 80.6%) and twelve functions that `tools/audit.py` certifies exact
+but that are held only because the shared `match.py` cannot bound them (eleven
+void tail-jump wrappers and `RenderFrontEndScreen`, whose tail jmp is followed
+by its switch table; see "Tail-jump functions" below). Counts come from
 committed markers (`git ls-files 'LEGOLAND/*.c' | xargs grep -h '^// FUNCTION: LEGOLAND' | wc -l`);
 `tools/progress.py` reads the working tree, so run it on a clean checkout.
 `docs/LEGOLANDPROGRESS.HTML` is the generated report.
 
 Files by subsystem: map pipeline (`loadmap.c`, `mapinit.c`, `mapbuild.c`,
-`maprestore.c`, `pathgfx.c`, `pathsq.c`, `pathbuild.c`, `tilehelp.c`, `objmap.c`),
-simulation (`bnvpath.c`, `blokeai.c`, `blokemisc.c`, `blokeanim.c`,
-`blokelist.c`, `workers.c`, `rides.c`, `ridesave.c`, `power.c`, `money.c`,
-`buildtick.c`, `workorder.c`, `lifecycle.c`, `math3d.c`), rendering
-(`renderinit.c`, `renderlist.c`, `render2.c`, `layervis.c`, `surface.c`,
-`sprite_override.c`, `spritemisc.c`, `sprite2.c`, `scroll.c`, `scrolltick.c`),
-UI (`panelui.c`, `iconui.c`, `input.c`, `wndenv.c`), audio (`audiomisc.c`,
-`audio2.c`, `audio3.c`, `music.c`), data (`llidb_odf.c`, `res.c`, `saveprof.c`,
-`listdel.c`), plus `sweep1–5.c` (small accessors) and `util.c`.
+`maprestore.c`, `pathgfx.c`, `pathsq.c`, `pathbuild.c`, `pathtile2.c`,
+`tilehelp.c`, `objmap.c`), simulation (`bnvpath.c`, `blokeai.c`, `blokemisc.c`,
+`blokeanim.c`, `blokelist.c`, `workers.c`, `rides.c`, `ridesave.c`, `power.c`,
+`money.c`, `buildtick.c`, `workorder.c`, `lifecycle.c`, `math3d.c`), rendering
+(`renderinit.c`, `renderlist.c`, `render2.c`, `gpu.c`, `rin.c`, `layervis.c`,
+`surface.c`, `sprite_override.c`, `spritemisc.c`, `sprite2.c`, `scroll.c`,
+`scrolltick.c`, `text.c`), UI (`panelui.c`, `iconui.c`, `fpui.c`, `mapscreen.c`,
+`input.c`, `wndenv.c`), audio (`audiomisc.c`, `audio2.c`, `audio3.c`,
+`music.c`), data (`llidb_odf.c`, `memdb.c`, `res.c`, `saveprof.c`,
+`profiles.c`, `loaders.c`, `listdel.c`), plus `sweep1–5.c` (small accessors)
+and `util.c`.
 
 The map/render accessors, the `SetMapTile` family, and `GetRectArea` —
 **14/14 at 100%**:
@@ -314,10 +318,13 @@ A void wrapper whose last statement is a call compiles to a tail `jmp` with
 call RemoveIconGroup / add esp,4 / jmp 0x471170`) and `UnLoad_Interface_Icons`
 (0x00474800). `match.py`'s first-`ret` walk runs through the nop padding into
 the next routine and scores them 64% / 67% although they are exact. `audit.py`
-already handles this: an unconditional `jmp` whose target is before the entry
-or at/after the next exported symbol (original side) or carries a zero rel32
-relocation (compiled side) terminates the extent, provided nothing jumps past
-it. Both functions are committed as `// WIP-FUNCTION:` with a note, so
+already handles this: the original ends at the first `ret` or unconditional
+direct `jmp` that nothing jumps past (forward targets include the case blocks
+of a `switch` jump table, read from `.rdata`; a target before the entry, at or
+after the next export, or a 16-aligned address reached across nop padding is
+external), and the compiled body is trimmed to that extent and checked for
+branches that escape it (relocated targets carry match.py's 0x00990099
+sentinel and are external by construction). Both functions are committed as `// WIP-FUNCTION:` with a note, so
 `verify.py` stays green; flip them to `// FUNCTION:` once `match.py` applies
 the same rule (the change is the `true_extent`/`end_of_body` pair in
 `tools/audit.py`).

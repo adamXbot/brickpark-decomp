@@ -619,7 +619,11 @@ extern char    g_dll_path_fmt[]; /* 0x004bcea4 ".\\dlls\\%s.dll" */
  * through a pointer (they may alias), giving the original's reloads; the
  * 16-byte record copy is four register moves; the three unconditional slot
  * stores (+0xb4/+0xb8/+0xbc) are reordered by VC6 from source order. */
-// WIP-FUNCTION: LEGOLAND 0x00480f00  (100% by matchfull over the full 138i/489B body; audit.py cannot bound a function whose last instruction is an internal backward jmp)
+/* Exact over its full extent (138i/489B) including the out-of-line `found`
+ * block that ends in a backward jmp into the body; tools/audit.py bounds it
+ * since it learned that an unconditional jmp nothing jumps past ends the
+ * function. match.py stops at the earlier ret and matches up to there. */
+// FUNCTION: LEGOLAND 0x00480f00
 int LoadObjectLibrary(LibClass* obj, char* name)
 {
     IfaceTable t;

@@ -71,54 +71,114 @@ def export_rvas():
     return _EXPORT_RVAS
 
 
+def _table_targets(d, secs, op_str, lo, hi):
+    """Case targets of an indirect `jmp dword ptr [reg*4 + TABLE]` in the exe.
+
+    /Gy puts the table in .rdata; entries are VAs. Read consecutive dwords while
+    they land inside [lo, hi) — the function's plausible span — and stop at the
+    first that does not."""
+    m = re.search(r"\*4\s*\+\s*0x([0-9a-f]+)\]", op_str)
+    if not m:
+        return []
+    toff = rva2off(secs, int(m.group(1), 16) - 0x400000)
+    if toff is None:
+        return []
+    out = []
+    for i in range(0, 4 * 512, 4):
+        if toff + i + 4 > len(d):
+            break
+        v = int.from_bytes(d[toff + i:toff + i + 4], "little")
+        if not (lo <= v < hi):
+            break
+        out.append(v)
+    return out
+
+
 def true_extent(d, secs, rva):
     """(instruction count, byte length) of the original function at rva.
 
-    Ends at the first `ret` that no earlier branch jumps past, OR at an
-    unconditional `jmp` that leaves the function (a void tail call: target
-    before the entry, or at/after the next exported symbol) that nothing
-    jumps past. Without the second rule a ret-less tail-call wrapper such as
-    UnLoad_PopUpInfo (0x00471450) runs on into the following routine.
+    Walk from the entry tracking the furthest forward branch target seen —
+    including the case blocks of a `switch` jump table. The function ends at
+    the first `ret` or unconditional direct `jmp` that nothing jumps past:
+    after such an instruction nothing later is reachable by fall-through, and
+    by construction nothing branches past it. This covers plain returns,
+    early returns jumped past by guards, void tail calls (`jmp` out of the
+    function, with or without a trailing jump table), and an out-of-line
+    block that ends in a backward `jmp` into the body (LoadObjectLibrary).
     """
     off = rva2off(secs, rva)
     if off is None:
         return None, None
     va = rva + 0x400000
+    insns = list(md.disasm(d[off:off + 0x4000], va))
     exps = export_rvas()
     nxt = None
     for e in exps:
         if e > rva:
             nxt = e + 0x400000
             break
-    insns = list(md.disasm(d[off:off + 0x4000], va))
+    addr_index = {x.address: k for k, x in enumerate(insns)}
+
+    def external(tgt):
+        """A branch target outside this function: before the entry, at/after the
+        next exported symbol, or a 16-aligned address reached only across nop
+        padding (an unexported neighbour that /Gy aligned)."""
+        if tgt < va or (nxt is not None and tgt >= nxt):
+            return True
+        k = addr_index.get(tgt)
+        if k is not None and k > 0 and tgt % 16 == 0 and insns[k - 1].mnemonic == "nop":
+            return True
+        return False
+
     furthest = va
     for i, x in enumerate(insns):
         if x.mnemonic.startswith("j"):
             m = re.match(r"^0x([0-9a-f]+)$", x.op_str.strip())
             if m:
                 tgt = int(m.group(1), 16)
-                external = tgt < va or (nxt is not None and tgt >= nxt)
-                if x.mnemonic == "jmp" and external and x.address >= furthest:
+                if x.mnemonic == "jmp" and x.address >= furthest:
                     return i + 1, sum(k.size for k in insns[:i + 1])
-                if not external:
+                if not external(tgt):
                     furthest = max(furthest, tgt)
+            elif x.mnemonic == "jmp":
+                for t in _table_targets(d, secs, x.op_str, va, va + 0x4000):
+                    furthest = max(furthest, t)
         if x.mnemonic == "ret" and x.address >= furthest:
             return i + 1, sum(k.size for k in insns[:i + 1])
     return None, None
 
 
-def end_of_body(insns):
-    """Trim a compiled COMDAT to the function body.
+def compiled_body(insns, n_ins):
+    """Trim a compiled COMDAT to the ORIGINAL's extent (n_ins instructions).
 
-    /Gy emits switch jump tables straight after the code, and disassembling them
-    yields junk "instructions"; trailing alignment padding follows. Use the same
-    rule as the original side: the body ends at the first `ret` that no earlier
-    branch jumps past, or at an unconditional `jmp` to an EXTERNAL symbol that
-    nothing jumps past. In an unlinked .obj an external jmp carries a
-    relocation and a zero rel32, so its decoded target is the very next byte;
-    an optimiser never emits an internal jump to the next instruction, so that
-    signature is unambiguous.
-    """
+    /Gy emits switch jump tables straight after the code, and disassembling
+    them yields junk "instructions"; trailing alignment padding follows. The
+    original's extent is known exactly, so take that many instructions and
+    then require (in main) that no direct branch among them escapes past the
+    trimmed end — the compiled body may not hide reachable code beyond what
+    the original has. Returns (body, escapes)."""
+    if n_ins is None:
+        return end_of_body(insns), False
+    body = insns[:n_ins]
+    end = body[-1].address + body[-1].size if body else 0
+    code_len = sum(x.size for x in insns)
+    escapes = False
+    for x in body:
+        if x.mnemonic.startswith("j"):
+            m = re.match(r"^(?:0x([0-9a-f]+)|(\d+))$", x.op_str.strip())
+            if m:
+                tgt = int(m.group(1), 16) if m.group(1) else int(m.group(2))
+                # match.py patches every relocated field to the 0x00990099
+                # sentinel, so a call/jmp to another symbol decodes to a target
+                # far outside the COMDAT; only in-section targets can escape.
+                if 0 <= tgt < code_len and tgt >= end:
+                    escapes = True
+    return body, escapes
+
+
+def end_of_body(insns):
+    """Fallback trim when the original extent is unknown: first `ret` (or
+    external `jmp`, zero rel32) that no earlier branch jumps past."""
     furthest = 0
     for i, x in enumerate(insns):
         if x.mnemonic.startswith("j"):
@@ -165,18 +225,19 @@ def main():
         for name, addr, wip in annotated(f):
             rva = int(addr, 16) - 0x400000
             n_ins, n_bytes = true_extent(d, secs, rva)
-            comp = end_of_body(list(md.disasm(obj_function_code(obj, name), 0)))
+            comp, escapes = compiled_body(list(md.disasm(obj_function_code(obj, name), 0)), n_ins)
             c_bytes = sum(i.size for i in comp)
             off = rva2off(secs, rva)
             ob = list(md.disasm(d[off:off + max(64, n_bytes or 64)], rva + 0x400000))[:n_ins or 0]
             mism = sum(1 for i in range(max(len(ob), len(comp)))
                        if i >= len(ob) or i >= len(comp) or norm2(ob[i]) != norm2(comp[i]))
-            ok = (n_ins is not None and len(comp) == n_ins and c_bytes == n_bytes and mism == 0)
+            ok = (n_ins is not None and len(comp) == n_ins and c_bytes == n_bytes
+                  and mism == 0 and not escapes)
             tag = "WIP  " if wip else ("OK   " if ok else "REJECT")
             if not wip and not ok:
                 bad += 1
             print(f"  [{tag}] {addr} {name:28s} ours={len(comp):4d}i/{c_bytes:4d}B  "
-                  f"orig={n_ins}i/{n_bytes}B  mismatch={mism}")
+                  f"orig={n_ins}i/{n_bytes}B  mismatch={mism}{'  ESCAPES' if escapes else ''}")
     print(f"\n{'FAIL' if bad else 'PASS'}: {bad} function(s) failed the extent gate")
     return 1 if bad else 0
 
