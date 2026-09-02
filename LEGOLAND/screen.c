@@ -120,7 +120,7 @@ typedef struct ImageRec {
  * starting at +0x04. */
 typedef struct ImagePalette {
     unsigned short head[2];     /* +0x000 */
-    unsigned short entry[256];  /* +0x004 */
+    short entry[256];           /* +0x004 */
     unsigned short tail[2];     /* +0x204 */
 } ImagePalette;
 
@@ -198,45 +198,42 @@ static const char kLoadingBMP[] = "Loading BMP (%s)";
  * free() on the ImageRec itself, which the caller also owns and frees.
  *
  * ---------------------------------------------------------------------------
- * MATCH STATE: 470 instructions in both, 1396 B ours vs 1386 B; every block
- * is in the original's order and 454/470 (96.6%) line up index for index.
- * Only THREE residuals remain, all of them register/slot/encoding level:
+ * MATCH STATE: 470/470 instructions, 1386/1386 bytes, index for index.
  *
- *  1. Two stack-home PAIRS are swapped.  `offbits` and `palpos` sit at
- *     +14h/+1Ch in the original and +1Ch/+14h here (4 instructions:
- *     0x0044e14e, 0x0044e163, 0x0044e260, 0x0044e2a3); in the 24bpp packer
- *     the outer counter `y` and the row pointer `row` share the earlier
- *     `type` slot the other way round, +10h/+14h vs +14h/+10h (10
- *     instructions).  Home slots are NOT assigned by declaration order (all
- *     six permutations measured), nor by first assignment, nor by spill
- *     order -- moving `y = 0` ahead of `row`, folding either pair into one
- *     struct, splitting `palpos` into two statements and dropping `offbits`
- *     in favour of re-reading `fhdr.bfOffBits` were all measured and are
- *     worse (the struct forms also disturb the file handle's own slot).
- *  2. `and edx, 0FFF8h` vs `and edx, -8` (0x0044e359 and 0x0044e496; +3
- *     bytes each, and those 6 bytes are what pushes one `jne` at 0x0044e4d7
- *     from rel8 to rel32, so they account for all 10 excess bytes).  The
- *     MULTIPLY spelling (`* 32` / `* 8`, not `<< 5` / `<< 3`) is what makes
- *     VC6 widen the red byte FIRST (`movzx dx, byte ptr [..]`) and mask
- *     second, exactly as the original -- the shift spelling masks the byte
- *     instead (`and dl, 0F8h`).  But VC6 then also narrows the mask to the
- *     16-bit operand width.  Roughly 60 spellings have now been measured:
- *     int/unsigned/long/short/unsigned short temporaries for the red
- *     channel, a separate masked temporary of each of those types, an
- *     int/unsigned result temporary before the 16-bit store, casts on the
- *     operand, ~7 / -8 / 0xfff8 / 0xfffffff8 / ~7u, /8*8, >>3<<3, x-(x&7),
- *     mixed shift/multiply groupings and + instead of |.  None recovers the
- *     imm8 form.
+ * The last two residuals (a 10-byte size excess and two swapped stack-home
+ * pairs) both fell to type/scope levers, not to register tweaks:
  *
- * Resolved on the way here (each was worth 50-150 instructions):
+ *  1. The 16-bit destination is SIGNED.  `ImagePalette::entry` and the 24bpp
+ *     packer's output pointers are `short`, not `unsigned short`.  With an
+ *     unsigned destination VC6's narrowing pass takes the red channel's
+ *     `& ~7` down to the 16-bit operand width (`and dx, 0FFF8h`, 5 bytes);
+ *     with a signed one it leaves the mask 32-bit (`and edx, -8`, 3 bytes) on
+ *     top of the same 16-bit `movzx dx, byte ptr [..]` load the original has.
+ *     Those 2 x 3 bytes (0x0044e359 and 0x0044e496) were also what pushed the
+ *     `jne` at 0x0044e4d7 from rel8 to rel32, i.e. all 10 excess bytes.  The
+ *     red channel must still be spelled `(r & ~7) * 32` with `r` an unsigned
+ *     short: the MULTIPLY is what widens the byte before masking, and the
+ *     `<< 5` spelling masks the byte instead (`and dl, 0F8h`).
+ *  2. The 24bpp packer's frame homes follow the SCOPE nesting, not the
+ *     declaration order.  `y` is declared in the block that encloses both
+ *     depth branches while `row`/`p`/`src`/`x` are declared inside each
+ *     branch, so `y` is the enclosing block-scope variable live across two
+ *     disjoint inner blocks -- the shape DECOMP.md's frame-layout rule
+ *     describes -- and VC6 gives that OUTER variable the LOWER home
+ *     (y at +10h, row at +14h).  With all six in one block the pair comes out
+ *     swapped, and no permutation of their declaration order moves them.
+ *     Narrowing the inner scopes also re-widened the block pool by one slot,
+ *     which is what put `offbits` at +14h and `palpos` at +1Ch (they were
+ *     swapped too, and their own declaration order never mattered).
+ *
+ * Resolved earlier (each was worth 50-150 instructions):
  *  - The 8bpp flip's row stride must NOT be a named local.  As `int stride`
  *    it gets a home slot, VC6 emits a DEAD spill of it inside the loop, and
  *    the extra frame pressure flips the whole function's two callee-saved
  *    webs ({path, .lls size, raw} and {.lls file, BMP size}) from ebp/ebx to
  *    ebx/ebp -- 41 instructions differing by nothing but that substitution.
  *    Written twice as an expression it is CSE'd into ebx with no home and
- *    the register assignment falls into place. THIS was the ebx<->ebp
- *    "unfixable allocator tie-break" the previous note described.
+ *    the register assignment falls into place.
  *  - Which of two same-width locals lands in edx and which in edi follows
  *    the order they are ASSIGNED, so the flip loop assigns the bottom
  *    walker first, and the 24bpp packer steps p in the for-increment (after
@@ -254,7 +251,7 @@ static const char kLoadingBMP[] = "Loading BMP (%s)";
  *    cross-jumps them into the join, where the original keeps both copies.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x0044e010  (454/470 index-for-index, 96.6%; 1396 vs 1386 bytes; two stack-home pairs swapped and two `and` immediates widened, see MATCH STATE above)
+// FUNCTION: LEGOLAND 0x0044e010
 int __BMPLoader(ImageRec* image)
 {
     RGBQuad        palbuf[256];
@@ -418,7 +415,7 @@ bitmap:
                 unsigned char  g = (unsigned char)(palbuf[i].g & 0xfc);
                 unsigned char  bl = (unsigned char)(palbuf[i].b >> 3);
                 ((ImagePalette*)image->pal)->entry[i] =
-                    (unsigned short)((((r & ~7) * 32) | g) * 8 | bl);
+                    (short)((((r & ~7) * 32) | g) * 8 | bl);
             }
         } else {
             for (i = 0; i < 256; i++) {
@@ -426,9 +423,9 @@ bitmap:
                 unsigned char  g = (unsigned char)(palbuf[i].g & 0xf8);
                 unsigned char  bl = (unsigned char)(palbuf[i].b >> 3);
                 ((ImagePalette*)image->pal)->entry[i] =
-                    (unsigned short)((((unsigned short)r << 5
-                                      | (unsigned short)g) << 2)
-                                     | (unsigned short)bl);
+                    (short)((((unsigned short)r << 5
+                             | (unsigned short)g) << 2)
+                            | (unsigned short)bl);
             }
         }
         RES_CloseFile(f);
@@ -437,16 +434,13 @@ bitmap:
 
     RES_ReadFile(f, raw, size);
     {
-    unsigned short* out;
-    unsigned short* row;
-    unsigned short* p;
-    unsigned char*  src;
-    int             x, y;
+    short* out;
+    int             y;
     /* Through `size` (dead since the read above): passing the product
      * straight to the call computes it in ecx, the original uses eax. */
     size = bmi.bmiHeader.biWidth * bmi.bmiHeader.biHeight * 2;
     image->lls = (LLS*)HeapAlloc_w(size);
-    out = (unsigned short*)image->lls;
+    out = (short*)image->lls;
     if (!out) {
         HeapFree_w(raw);
         HeapFree_w(image);
@@ -455,6 +449,11 @@ bitmap:
     }
 
     if (g_screen_depth == 2) {
+        short* row;
+        short* p;
+        unsigned char* src;
+        int x;
+
         row = out + (image->h - 1) * image->w;
         src = raw;
         for (y = 0; y < image->h; y++) {
@@ -469,10 +468,15 @@ bitmap:
                 unsigned short r = src[2];
                 unsigned char  g = (unsigned char)(src[1] & 0xfc);
                 unsigned char  b = (unsigned char)(src[0] >> 3);
-                *p = (unsigned short)((((r & ~7) * 32) | g) * 8 | b);
+                *p = (short)((((r & ~7) * 32) | g) * 8 | b);
             }
         }
     } else {
+        short* row;
+        short* p;
+        unsigned char* src;
+        int x;
+
         row = out + (image->h - 1) * image->w;
         src = raw;
         for (y = 0; y < image->h; y++) {
@@ -483,9 +487,9 @@ bitmap:
                 unsigned char r = (unsigned char)(src[2] & 0xf8);
                 unsigned char g = (unsigned char)(src[1] & 0xf8);
                 unsigned char b = (unsigned char)(src[0] >> 3);
-                *p = (unsigned short)((((unsigned short)r << 5
-                                        | (unsigned short)g) << 2)
-                                       | (unsigned short)b);
+                *p = (short)((((unsigned short)r << 5
+                                | (unsigned short)g) << 2)
+                               | (unsigned short)b);
             }
         }
     }

@@ -439,24 +439,40 @@ int SuggestNextMove(Pos* from, Pos* to, Pos* out)
 
 /* Place a bloke straight onto BNV frame `frame` of object `name`. */
 /* 164/164 instructions, 432/432 bytes, index-for-index exact except FOUR:
- * the vertex loop's `xor edi,edi` (i = 0) is scheduled at index 81, right
+ * the vertex loop's `xor edi,edi` (i = 0) is scheduled at index 82, right
  * after the third row's fsqrt, where the original has it at index 78, right
- * before that row's last faddp; instructions 78..81 are therefore rotated.
- * The residual is one free integer instruction's slot in VC6's post-pass
- * scheduler: written as a standalone `i = 0;` anywhere before the sqrt the
- * xor is hoisted all the way to the top of the FP block (index 19), and
- * every loop spelling (for / while / do-while / pre- vs post-increment,
- * unsigned i, `i = 0` after the reciprocal) lands it at 81.  Also measured
- * and identical: `i = 0` written as a statement between the reciprocal and
- * the three normalisation multiplies, or between two of those multiplies
- * (both 81); before ANY of the third row's FP (19); and four restructurings
- * of the third row that keep its FP stream byte-identical -- the last two
- * adds folded into one statement, the sqrt taking `len2 + cy*cy`, a
- * two-step reciprocal (`inv = sqrt(..); inv = 1.0f/inv;`) and a (double)
- * cast on the argument -- all still 81.  The barrier the scheduler will not
- * hoist the xor past is the third row's fsqrt; the original's slot is one
- * FP instruction EARLIER than that, before the row's last faddp. */
-// WIP-FUNCTION: LEGOLAND 0x00484a70  (164/164 insns, 432/432 bytes, 4 mismatches: the loop counter's xor is scheduled 3 slots late, see above)
+ * before that row's last faddp; instructions 78..82 are therefore rotated.
+ *
+ * There are exactly TWO attractors and 78 is neither of them.  Sweeping
+ * `i = 0;` across EVERY statement boundary from the GetObjectFromName call
+ * down to the loop (scratchpad/nearmiss/bn_v22.py) gives a clean split:
+ *   - anywhere BEFORE the third row's `sqrt`  -> index 19, i.e. the first
+ *     slot after the last real call's `add esp,10h`;
+ *   - anywhere AFTER it                       -> index 82, i.e. the first
+ *     slot after that fsqrt.
+ * The third `sqrt` is the only barrier the xor will not float past, and the
+ * first two are not barriers at all (an `i = 0` written between the two
+ * earlier rows still floats to 19).  So the original's slot is one FP
+ * instruction EARLIER than the barrier, which no placement of a plain
+ * constant assignment can reach: VC6 moves it, sequence points and all.
+ *
+ * Measured and identical (all 19 or all 82, never 78): `i = 0` at each of the
+ * ~30 statement boundaries before the loop; every loop spelling (for / while
+ * / do-while, pre- vs post-increment, unsigned i, `i = 0` at the declaration);
+ * comma forms that put the assignment inside the last accumulation
+ * (`len2 += (i = 0, cy*cy)`, `len2 = (i = 0, len2) + cy*cy`,
+ * `len2 + (i = 0, cy)*cy`); a float temporary for `cy*cy` (block-scope AND
+ * function-scope) with `i = 0` between the multiply and the add; six
+ * restructurings of the third row that keep its FP stream byte-identical
+ * (last two adds folded, `sqrt(len2 + cy*cy)`, `len2 = len2 + cx*cx + cy*cy`,
+ * a two-step reciprocal, a (double) cast on the argument, `(float)(1.0/...)`);
+ * and a `static __inline SumSq3()` helper for the row, with `i = 0` before,
+ * inside and after it.
+ *
+ * Next thing to try: something that makes the assignment UNMOVABLE at index
+ * 78 -- a use of `i` there, or a second integer instruction competing for the
+ * post-fsqrt slot -- without adding an instruction.  Nothing found so far. */
+// WIP-FUNCTION: LEGOLAND 0x00484a70  (164/164 insns, 432/432 bytes, 4 mismatches, first at index 78: the loop counter's xor sits after the third fsqrt instead of before that row's last faddp, see above)
 void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
                              int frame, float near_z, float far_z, int extra)
 {

@@ -697,21 +697,50 @@ void InitNewSaveGamePOPUP(Icon* popup)
 /* The "really exit?" popup at (x, y): the big panel (with the "save first"
  * text) when leaving the game with more than a minute of unsaved play,
  * else the small info panel; OK at (+0x7d, +0xdc / +0x78) and close beside
- * it, all in group 0xe.
+ * it, all in group 0xe. */
+
+/* WIP -- our 116 instructions are the original's 119 minus exactly
+ * `push ebx` / `xor ebx,ebx` / `pop ebx`: the original parks its constant zero
+ * in ebx (`mov [798754],ebx` = g_exit_big_popup, `mov [7cb318],ebx`,
+ * `mov [7cb310],ebx`) where we emit three `mov dword ptr [..],0` immediates.
+ * Nothing else differs - insert those three and the whole body lines up.
  *
- * WIP -- 107/116 by matchfull, every instruction in place except that the
- * original keeps its constant zero in ebx (`push ebx` / `xor ebx,ebx` after
- * the sprite loads, `mov [798754],ebx` / `mov [7cb318],ebx` /
- * `mov [7cb310],ebx`, `pop ebx`) while VC6 emits the three stores here as
- * immediates; the four [esp+8]/[esp+0xc] parameter reads shift by 4 with it.
- * Measured on ~30 spellings: the shared small-panel block is reached both by
- * the goto below and by a threaded `big` flag (identical code); VC6 only
- * registerises the zero at four dword uses, and then into esi; a BYTE store
- * of zero (e.g. an icon->slot byte) is what puts it in ebx, but the original
- * has no byte use. A `char`-typed carrier (local, inline parameter, chained
- * assignment) is constant-propagated away. Whatever byte-class zero the
- * original had leaves no other trace. */
-// WIP-FUNCTION: LEGOLAND 0x0048f0f0  (92.2%, zero constant held in ebx in the original; see note)
+ * MEASURED THIS PASS (probe programs in scratchpad/oldwips/z*.c):
+ *  - VC6 hoists a constant zero into a callee-saved register at FOUR OR MORE
+ *    live uses, never at three.  Three dword stores (what we have) always come
+ *    out as immediates, whatever their placement, however many calls separate
+ *    them, and whether they are written as literals or through an `int` /
+ *    `char` carrier (the carrier is constant-propagated away).  A dead store
+ *    does not count: it is removed before the decision.
+ *  - The register is ESI unless the zero has a live BYTE use, in which case it
+ *    is EBX.  A word (16-bit) store, a `push 0` argument, an `== 0` compare, an
+ *    array-index use and a byte store of a DIFFERENT value all still give esi;
+ *    only `*(char*)&g = 0` (a live byte store of the zero itself) gives ebx.
+ *  - Both facts reproduce inside this function: adding any fourth dword zero
+ *    store (`g_7986f0 = 0;`) gives 120 instructions that match the original
+ *    everywhere except esi-for-ebx and the extra store (9 mismatches);
+ *    replacing that fourth store with `*(char*)&g_7986f0 = 0;` produces
+ *    `push ebx` / `xor ebx,ebx` and makes indices 0..113 match EXACTLY
+ *    (5 mismatches, all from the extra byte store at the tail).
+ *
+ * So the original had a fourth use of the zero and at least one of its uses
+ * was byte-class - yet the disassembly contains no byte store, no `bl`/`bh`
+ * operand and no fourth zero store anywhere in 0x48f0f0..0x48f2c4.  Every
+ * "free" byte use tried is removed before the count is taken: a dead
+ * `*(char*)&g = 0` killed by a following dword store, a byte field of an
+ * unused local struct, `if (0) ...`, a char local, a char inline parameter,
+ * and duplicate/adjacent stores.
+ *
+ * Also worth knowing: this is the ONLY function in legoland.exe whose sole
+ * callee-saved push is `push ebx` together with `xor ebx,ebx` - every other
+ * zero-in-ebx site (Create3DPerson 0x43f8c0, LLIDB_LoadODFData 0x47bf70,
+ * PrintSprite 0x4853a0, InitGameInterface 0x4749d0 ...) also pushes esi and/or
+ * edi, i.e. there the zero got ebx because esi was already taken.  Either this
+ * function's source has a byte-class zero whose store VC6 deleted after
+ * register allocation, or something forced a second callee-saved value that
+ * later evaporated.  Duplicating the small-panel block into both arms hoping
+ * for a cross-jump does NOT work - VC6 keeps both copies (126 instructions). */
+// WIP-FUNCTION: LEGOLAND 0x0048f0f0  (116/119 insns; only push ebx / xor ebx,ebx / pop ebx missing - see note)
 void InitExitCheckBox(int x, int y)
 {
     Icon* panel;

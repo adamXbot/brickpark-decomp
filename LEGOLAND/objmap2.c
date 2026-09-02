@@ -820,6 +820,43 @@ void CalculateMapRenderOrder(void)
  * versus copy the register operand" tie-break shows up in ValidateCursor's
  * mx/my sums, where passing the origin by value into an inline helper fixed
  * it; there is no equivalent here because `y` is already a stack local.
+ *
+ * MECHANISM PROVEN (2026-09, do not re-derive).  The residual is NOT in the
+ * sum expressions at all: it is that eax must already be BUSY when `y` is
+ * loaded.  Pinning the r.left load with one volatile read placed before the
+ * sums —
+ *     lft = *(volatile int*)&r.left;
+ *     sx = (x - y) * w2;  sy = (y + x) * h2;  ... if (x == lft && ...)
+ * — reproduces the original's allocation EXACTLY inside the block (edx = y
+ * consumed in place by `add edx,edi`, ecx = sx, eax = r.left, both imuls after
+ * both ALU ops).  Only TWO instructions of that block are then wrong: VC6
+ * emits the pinned load first, so 51 and 52 come out swapped (`mov
+ * eax,[r.left] / mov edx,[y]` instead of `mov edx,[y] / mov eax,[r.left]`).
+ * It is NOT an improvement overall — the volatile read cannot be CSE'd out of
+ * the loop rotation, so it costs one extra `mov edi,[r.left]` in the y-loop
+ * tail and the whole function lands at 19 mismatches / 546B versus the 6 / 544B
+ * here (the variant is scratchpad/objmap2/n_WC0.c).  So the wanted lever is
+ * anything that
+ * makes VC6 load r.left into eax at the top of the x-loop body WITHOUT being a
+ * scheduling barrier ahead of the y load.  Everything tried to order the two
+ * loads has failed: the volatile read moved after a y-consuming statement
+ * (register scramble, 66), a volatile read of `y` as well (`volatile int y`,
+ * `*(volatile int*)&refresh`) — that makes the variable address-taken, which
+ * costs the ARG-SLOT homes ([esp+0x30] = w2, [esp+0x38] = y) and blows up the
+ * frame (first divergence moves to index 24), so the volatile route is closed
+ * on the y side.  A plain (non-volatile) `lft` is always sunk to its use.
+ * Also measured and refolded to one of the two attractors: all 16 combinations
+ * of `(x-y)*w2` / `w2*(x-y)` with `(y+x)*h2` / `(x+y)*h2` / `h2*(y+x)` /
+ * `h2*(x+y)` in both statement orders; separate named temps for the two sums
+ * (d/s) with the multiplies in either order; both sums written BEFORE the
+ * w2/h2 computation; `lft` hoisted in five different positions; declaring
+ * w2/h2/sx/sy inside the inner block (four groupings); `x == AtEdge(x, r.left)`
+ * through a static __inline helper in three positions; four boolean edge flags
+ * (ESCAPES); `r.left == x`, `x - r.left == 0` and `!(c->flags & 0x100) && ...`
+ * orderings; computing h2 before w2 (that one is a real regression, index 19);
+ * and using the dead `refresh` PARAMETER itself as the y loop variable, which
+ * is byte-identical to a local (so the [esp+0x38] home is not evidence either
+ * way).
  * NOTE: the marker must stay on the line directly above the signature; the
  * verifier only looks 1-3 lines ahead, and this note used to sit between them,
  * which made the function silently uncounted. */
@@ -972,51 +1009,80 @@ void StandardRemoveObject(MapObj* obj, BPos bp, Cursor* ctx)
  * though it scores no better.  The left/right probes each keep their own null
  * check.
  *
- * 6.3% (191/191 instructions, 472B vs 477B; 12 exact, 40 identical up to
- * register naming).  The flat four-probe shape it replaces scored 8.9% — a
- * higher number for the wrong control flow, so it was not kept.  The whole
- * residual is one CSE decision and the register renaming it drags along:
- *   original: eax=x, edi=y, ebp=def, ebx=g_map->height CSE'd across the two
- *             vertical probes, [esp+0x14]=g_map->width CSE'd the same way,
- *             esi=scratch (g_map, then g_map_rows, then the cell).  The below
- *             probe RE-EMITS the x bounds tests and RE-COMPUTES x*5, and the
- *             two coordinate sums are both formed before the first compare.
- *   ours:     VC6 sees the below probe as dominated by the above probe's
- *             bounds tests, so it deletes the x tests there and CSEs x*20 into
- *             edi for both probes; that extra long-lived value pushes `def`
- *             out of a register into [esp+0x18], where it is reloaded twice.
- * Tried: the goto transcription of the same CFG, a second cell variable, a
- * second (differently spelled) MapCellAt for the below probe, re-reading
- * wpos->x / wpos->y inside the nest to defeat the CSE (ESCAPES), both
- * declaration orders of x/y, and every operand order of the two coordinate
- * sums.  VC6 folds them all back to the same code, so the lever wanted is
- * whatever stops the dominated-comparison deletion. */
-// WIP-FUNCTION: LEGOLAND 0x0048a3e0  (6.3%, VC6 deletes the below-probe bounds tests the original keeps)
+ * SPELLING NOTE (this is a codegen lever, not a style choice).  The map
+ * coordinates are written as the expressions `wpos->x >> 8` / `wpos->y >> 8`
+ * at EVERY use instead of being read once into `int x, y` locals.  VC6 CSEs
+ * them back into one value each (one load + one sar, exactly as the original),
+ * but the two spellings do NOT compile the same:
+ *   - with `int x` locals, VC6 proves the below-probe's x bounds tests are
+ *     dominated by the above-probe's and DELETES them (the original keeps all
+ *     four tests), and it then CSEs x*20 into a callee-saved register for both
+ *     vertical probes (the original recomputes `lea edx,[eax+eax*4]` per probe
+ *     and folds the *4 into the final `lea ecx,[ecx+edx*4]`);
+ *   - with the expression spelling, both of those go away: the below probe
+ *     re-emits `test x,x / cmp x,width / test y+1,y+1 / cmp y+1,height` and the
+ *     cell address is built with the original's two-lea form.
+ * Only the x spelling matters (the y one is free); mixing them was measured in
+ * all four combinations: locals everywhere 179 mismatches, expression in the
+ * probes only 174, expression in the probes AND in the x comparison 163.
+ *
+ * 14.7% (191/191 instructions, 480B vs 477B; 28 exact and most of the rest
+ * identical up to register naming — the block structure, the branch targets,
+ * the `xor esi,esi` landing pad and the four epilogues now line up
+ * index-for-index).  What is left is one register-allocation decision:
+ *   original: eax=x, edi=y, ebp=def (preloaded in the prologue), ebx=height,
+ *             and g_map->width SPILLED into the dead arg-1 slot [esp+0x14],
+ *             where the below probe reads it as a memory operand; esi is the
+ *             per-region scratch that holds g_map, then g_map_rows, then the
+ *             cell, and g_map is REMATERIALISED by the two one-instruction
+ *             stubs at 0x48a4d9 / 0x48a547 (it is not hoisted, because the
+ *             x<0 path reaches the left probe without ever loading it).
+ *   ours:     eax=x, ecx=y, ebp=width, edi=height, ebx=g_map hoisted above the
+ *             first branch and then reused as scratch — and `def` is the value
+ *             that loses, so it is re-read from its argument home [esp+0x18]
+ *             before each use (which also splits the original's adjacent
+ *             `mov ecx,[ebp+0xc] / mov ebx,[ebp+0x10]` pair).
+ * The lever still wanted is whatever stops the g_map hoist / makes VC6 rank
+ * `def` above `width`.  Tried and refolded: the goto transcription of the same
+ * CFG, a second cell variable, a second (differently spelled) MapCellAt for the
+ * below probe, an explicit (non-helper) bounds test in either or both vertical
+ * probes, the negated (`x < 0 || ...`) and unsigned forms, `w`/`h` cached by
+ * assignment inside the first bounds test, a MapCellAt taking (y, x) so the
+ * coordinates evaluate in the other order, a local copy of `def`, reversed
+ * operand order in the class and coordinate compares, and an inlined `Sum`
+ * helper for the coordinate sums — all give byte-identical output.  A volatile
+ * read of g_map inside the helper DOES stop the hoist and puts `def` back in a
+ * register, but it also kills the width/height CSE the below probe depends on
+ * (the below probe then reloads g_map), so it is a net loss (171/175); a
+ * volatile g_map_rows on top of that frees ebx and VC6 spends it on a
+ * `mov bl,0x80` constant register.  Head note: with this spelling VC6 fuses
+ * the x<0 test into the shift (`js`) because x's `sar` is the last flag-setter;
+ * the original's `sar eax,8 / sar edi,8 / test eax,eax` needs the x shift
+ * emitted FIRST, and no argument order or helper signature achieves that. */
+// WIP-FUNCTION: LEGOLAND 0x0048a3e0  (14.7%, def spilled / g_map hoisted where the original does the reverse)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {
-    int   x = wpos->x >> 8;
-    int   y = wpos->y >> 8;
     Cell* c;
 
-    c = MapCellAt(x, y - 1);
+    c = MapCellAt(wpos->x >> 8, (wpos->y >> 8) - 1);
     if (c) {
         if ((c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def &&
-            def->dx + c->bx == x && def->dy + c->by == y)
+            def->dx + c->bx == (wpos->x >> 8) && def->dy + c->by == (wpos->y >> 8))
             return *(unsigned short*)&c->bx;
         /* [sic] no null check on this fetch — the original reuses the one
          * above, so an off-map cell here dereferences 0. */
-        c = MapCellAt(x, y + 1);
+        c = MapCellAt(wpos->x >> 8, (wpos->y >> 8) + 1);
         if ((c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def &&
-            def->dx + c->bx == x && def->dy + c->by == y)
+            def->dx + c->bx == (wpos->x >> 8) && def->dy + c->by == (wpos->y >> 8))
             return *(unsigned short*)&c->bx;
     }
-    c = MapCellAt(x - 1, y);
+    c = MapCellAt((wpos->x >> 8) - 1, wpos->y >> 8);
     if (c && (c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def &&
-        def->dx + c->bx == x && def->dy + c->by == y)
+        def->dx + c->bx == (wpos->x >> 8) && def->dy + c->by == (wpos->y >> 8))
         return *(unsigned short*)&c->bx;
-    c = MapCellAt(x + 1, y);
+    c = MapCellAt((wpos->x >> 8) + 1, wpos->y >> 8);
     if (c && (c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def &&
-        def->dx + c->bx == x && def->dy + c->by == y)
+        def->dx + c->bx == (wpos->x >> 8) && def->dy + c->by == (wpos->y >> 8))
         return *(unsigned short*)&c->bx;
     return 0;
 }
@@ -1074,7 +1140,33 @@ static __inline void MakeFoot(WinRect* o, Rect* r, Pos p)
  *             it.  A source order of top,bottom,left,right restores the
  *             original's store order but then loses the early r->left load and
  *             the late origin.x load (27), because nothing makes the left/right
- *             adds wait. */
+ *             adds wait.
+ *
+ * Re-measured 2026-09; the following are dead ends, do not repeat them:
+ *  - all 24 field orders inside MakeFoot: any order ENDING in `right` gives
+ *    617B and 14 (tlbR / ltbR / lbtR / bltR), tRbl / bRtl / Rtbl / Rbtl give
+ *    15, every other order 616B and 27;
+ *  - all 24 orders of the four `bound` stores: the present tlbR is the only
+ *    14, the rest cost 15-20 and move the first divergence up to index 36-40;
+ *  - moving the MakeFoot call to every one of the five positions among the
+ *    bound stores, for four different bound orders: 23-34, first divergence 34;
+ *  - MakeFoot(o, r, int px, int py) / (o, r, int py, int px): 139 / 23;
+ *  - MakeFoot(o, r, Pos* p, int py) with the x sums reading p->x: VC6 reloads
+ *    p->x for the second sum (622B, 133);
+ *  - splitting into MakeFootY(o,r,int py) + MakeFootX(o,r,int px): the X call
+ *    DOES materialise origin.x late, exactly as the original, but the Y sums
+ *    then need an extra `mov ecx,eax` copy (the top sum's destination stops
+ *    being r->top's register) and the mx/my block downstream picks up the same
+ *    copy shape: 158/160.  Passing Pos by value to both halves changes the
+ *    frame (631B, first=0);
+ *  - naming any r-> load in a temp inside the helper (`int l = r->left;`,
+ *    with or without a block, one/two/three temps): frame changes, 607-612B;
+ *  - the four sums spelled inline with `int py = cur->origin.y;` and
+ *    cur->origin.x read directly: both origin fields reload, 620B, ~160.
+ * So the whole 14-instruction residual is the scheduler's choice of what to
+ * put in ONE slot: the original delays the `bound.right` store into it and
+ * loads origin.x only after all four r-> loads; ours puts the bound.right
+ * store before the block and spends the slot on an early origin.x load. */
 // WIP-FUNCTION: LEGOLAND 0x0045f810  (93.2%, foot-block scheduling: 14 insns at idx 42-55)
 void ValidateCursor(Cursor* cur, ObjDef* def)
 {

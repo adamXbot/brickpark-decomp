@@ -7,7 +7,9 @@
  *   0x0045eb30  BuildObject         188/188 instructions, 504/504 bytes,
  *                                   180 index-for-index (see its note)
  *   0x00489190  RenderTransSprite   100% full-body (188/188)
- *   0x004724a0  DrawPopUpInfo       961 vs 962 instructions (see its note)
+ *   0x004724a0  DrawPopUpInfo       962/962 instructions, 3120/3141 bytes,
+ *                                   257 index-for-index / 705 mismatches
+ *                                   (see its note)
  *
  * ---------------------------------------------------------------------------
  * WHAT THE OBJECT RECORDS ARE
@@ -133,22 +135,40 @@ extern void  PutObjOnMap(ObjDef* d, ObjElem* obj, Pos* pos);    /* 0x00459ad0 */
  * 0x0045eb30 -- build one object of class `obj` at map tile `pos`.
  * ------------------------------------------------------------------------- */
 
-/* 186/188 instructions, 188 vs 188, byte lengths equal.  The ONLY residual is
- * the scheduling of the four-instruction RequestRoute argument set-up, which
- * occurs twice (indices 100-103 and 168-171).  The original emits
- *     mov ecx,[eax+4] / push ecx / mov ecx,door.x / mov edx,[eax] / mov eax,door.y
- * (arg4 pushed the moment it is evaluated); VC6 here batches
- *     mov ecx,[eax+4] / mov edx,[eax] / mov eax,door.y / push ecx / mov ecx,door.x
- * (arg4 pushed only when ecx is needed for arg1).  Same eight instructions,
- * same register assignment, same push order — only the position of the first
- * push differs.  Ruled out: Pos-by-value parameters (both 2- and 3-arg forms),
- * hoisting ent->x / ent->y / door.x / door.y into temporaries, a pointer to the
- * door struct, an int[2] door, an unprototyped callee, a static __inline
- * wrapper taking Pos* (identical) or ints (much worse), and swapping the two
- * `door.? += pos->?` statements (regresses to index 83).  A register-pressure
- * replica in scratchpad/popup/micro4.c reproduces VC6's batched form exactly,
- * so the lever is not local register pressure. */
-// WIP-FUNCTION: LEGOLAND 0x0045eb30  (180/188 by audit.py, mismatch=8: the RequestRoute arg-push schedule, first diff at index 100)
+/* 180/188 instructions, 188 vs 188, byte lengths equal.  The ONLY residual is
+ * the EMISSION ORDER of the four loads that set up the RequestRoute call, which
+ * happens twice (indices 100-103 and 168-171).  Both sites push the same four
+ * values in the same order and give them the SAME registers; only the order in
+ * which the loads are emitted, and where the first push lands among them,
+ * differs.  Writing the arguments a1..a4 for RequestRoute(door.x, door.y,
+ * ent->x, ent->y):
+ *     site 1 (0x0045ec41)  original: a4, PUSH, a1, a3, a2   ours: a4, a3, a2, PUSH, a1
+ *     site 2 (0x0045ecfb)  original: a4, a2, PUSH, a1, a3   ours: a4, a3, a2, PUSH, a1
+ * Note the original's two sites differ from EACH OTHER while ours are the same,
+ * and that in both originals the load of a1 (door.x) is the one that comes
+ * straight after the push.  In every version measured, VC6 sinks the push of a4
+ * as far as it can (to just before the register it freed is reused for a1) and
+ * emits the other three strictly right-to-left; the original interleaves them.
+ * This looks like the instruction scheduler, not the code generator: the
+ * register allocation is already identical.
+ *
+ * Ruled out (all measured, all byte-identical output unless noted): Pos-by-value
+ * parameters in every 2-, 3- and 4-argument arrangement of RequestRoute;
+ * hoisting any subset of ent->x / ent->y / door.x / door.y into named
+ * temporaries (in any order); a pointer to the door struct; an int[2] door;
+ * reading the entrance through `int*` and `e[0]/e[1]`; an unprototyped callee;
+ * a static __inline wrapper taking Pos* (identical) or ints (much worse);
+ * swapping the two `door.? += pos->?` statements (regresses to index 83);
+ * a `volatile Pos*` over the DOOR reads (8 -> 11 mismatches).
+ * NEW this pass: a `volatile Pos*` over the ENTRANCE reads pins the a4 push
+ * immediately after its load at BOTH sites, which is what the original does at
+ * site 1 -- 8 mismatches drop to 7, first divergence moves from 100 to 101 --
+ * but it cannot pull a1's load forward, and forcing the whole read order with
+ * volatile temporaries perturbs the frame (esi/edi swap at index 5, 48-52
+ * mismatches).  Not adopted: one volatile cast is not worth one instruction.
+ * A register-pressure replica in scratchpad/popup/micro4.c reproduces VC6's
+ * batched form exactly, so the lever is not local register pressure. */
+// WIP-FUNCTION: LEGOLAND 0x0045eb30  (180/188 by audit.py, mismatch=8: the emission order of the four RequestRoute argument loads at both call sites -- same registers, same push order, scheduling only; first diff at index 100)
 int BuildObject(ObjElem* obj, Pos* pos)
 {
     ObjDef* def = obj->def;
@@ -423,15 +443,19 @@ typedef struct Icon {
     unsigned int  flags;        /* +0x34 */
 } Icon;
 
+/* The 12-byte pop-up identity record at 0x007fdec0, passed BY VALUE. */
+typedef struct PopUpKey { int type; void* obj; int ref; } PopUpKey;
+
 typedef struct PopUpUI {
     Icon*   icon_mech;          /* +0x000  0x007fdea4 */
     int     pad_004;
     void*   spr_full;           /* +0x008  0x007fdeac */
     void*   spr_norepair;       /* +0x00c */
     int     pad_010[3];
-    int     type;               /* +0x01c  0x007fdec0 */
-    void*   obj;                /* +0x020 */
-    int     ref;                /* +0x024 */
+    PopUpKey key;               /* +0x01c  0x007fdec0  type/obj/ref, passed BY
+                                 * VALUE as one 12-byte record to
+                                 * PopUpInfoSetUp (the original builds it with
+                                 * sub esp,0xc + three stores). */
     Pos     pos;                /* +0x028 */
     char    pad_030[0xd8 - 0x30];
     ObjDef* cls;                /* +0x0d8  0x007fdf7c */
@@ -519,7 +543,7 @@ extern int   FindObjectsPower(ObjDef* d);                           /* 0x00459fa
 extern int   GetGardenerCount(void);                                /* 0x00499550 */
 extern int   GetMechanicCount(void);                                /* 0x00499560 */
 extern char* GetVisitorName(void* bloke);                           /* 0x00482ba0 */
-extern void  PopUpInfoSetUp(int type, void* obj, int ref, Pos pos);  /* 0x00471950 */
+extern void  PopUpInfoSetUp(PopUpKey key, int x, int y);            /* 0x00471950 */
 extern void  DrawPopUpMock(void);                                   /* 0x004720a0 */
 extern int   MeasurePopUpTitle(const char* s, int a, int b, int c, int d, int e); /* 0x00471840 */
 extern int   MeasurePopUpBody(const char* s, int a, int b, int c, int d, int e);  /* 0x004717a0 */
@@ -638,7 +662,7 @@ extern char* strcat(char*, const char*);
  *      condition : frac = cell->life / cls->life
  *      build     : frac = g_build_slots[i].timer / GetBuildTime(cls), where
  *                  the slot is found by matching the packed cell
- *                  (short)g_popup.ref against BuildSlot.key over the 256
+ *                  (short)g_popup.key.ref against BuildSlot.key over the 256
  *                  slots at 0x006664f8 (buildtick.c).  When that ratio is
  *                  exactly 1.0 the pop-up re-opens itself as kind 0x103.
  *      With neither (no life and not building) the bar is skipped entirely.
@@ -657,46 +681,146 @@ extern char* strcat(char*, const char*);
  * that strip removes the icons again (ClosePopUpIcons), and an "expanded"
  * pop-up additionally runs DrawPopUpExtra.
  *
- * MATCH STATE: 961 compiled instructions against the original's 962; 3118
- * bytes against 3141.  Every block, call, string id, constant and branch
- * direction is present and in the original's order (checked block by block
- * against the disassembly); tools/audit.py reports mismatch=886 because the
- * whole body is shifted and register-permuted, not because blocks are
- * missing.  The residual is ONE codegen decision plus its knock-on effects:
+ * EVERY FIELD THE PANEL SHOWS, AND WHERE IT COMES FROM
+ * (offsets are into the PopUpUI block at 0x007fdea4 unless stated):
  *
- *   VC6 gives the constant 1 a virtual register (ebp, re-materialised three
- *   times) to serve the three `= 1` stores in cases 0x104, 0x306 and
- *   0x10b/0x10c, where the original stores the immediate.  It is a global
- *   value-numbering merge of the three identical constant defs into their
- *   common dominator (the switch head): set any ONE of those three to a
- *   different value and VC6 hoists THAT value instead, even when it then
- *   serves a single store.  With ebp taken, `lines` lands in edi and
- *   g_popup.pos.x in esi where the original has them the other way round, so
- *   most of the second half differs only by an esi/edi swap and by which
- *   scalar slot each flag was coloured into.
+ *   title text        char name[256], built by Format:
+ *                       kinds 0x103/0x14/0xa/0x104 : cls->name    (ObjDef +0x78)
+ *                       kind  0x306                : GetVisitorName(g_popup.worker)
+ *                       kinds 0x10b/0x10c          : *ride->name  (*(char**)(ride+4))
+ *   body text         char info[256] (+ char line[512] strcat'd onto it):
+ *                       0x103 : "<STR 0x76> %d\n<STR 0x77> %d" with
+ *                               GetObjRepairCost(cls, cell->life) and
+ *                               GetObjSalvageValue(cls, cell->life)
+ *                       0x14  : "<STR 0x93> : %d"  n = GetMechanicCount(), then
+ *                               "\n<STR 0x76> %d\n<STR 0x77> %d" appended
+ *                       0xa   : "<STR 0x91> : %d"  n = GetGardenerCount(), same tail
+ *                       0x104 : STR 0xa0 ("under construction")
+ *                       0x306 : "" (kEmpty)
+ *                       0x10b : STR 0xd2   0x10c : STR 0xd3
+ *   power line        only when g_power_available (0x0083298c); appended to info:
+ *                       FindObjectsPower(cls) < 0 -> "\n<STR 0x78> %d" with -power,
+ *                         plus "\n" + STR 0x7a when the cell is blacked out
+ *                         (Cell.flags +0x0c bit 0x100)
+ *                       > 0 -> cell->life >= (unsigned char)(cls->life >> 2)
+ *                         ? "\n<STR 0x79> %d" with power : "\n" + STR 0x7b
+ *                       = 0 -> nothing appended
+ *   worker labels     STR 0x8e (left half, flag 0x11) and STR 0x8f (right half)
+ *   mood sprite       GetBlokeMood(worker): 3 -> spr_sad (+0x124), 2 -> spr_happy
+ *                     (+0x174), else spr_norm (+0x140)
+ *   hunger sprite     GetBlokeAgeGroup(worker): 0 -> spr_full (+0x008),
+ *                     1 -> spr_peckish (+0x164), else spr_hungry (+0x12c)
+ *   bar value         condition bar: Cell.life (+0x11, unsigned char) / ObjDef.life
+ *                                    (+0x2c, unsigned char) -- fild/fidiv, both ints
+ *                     build bar    : BuildSlot.timer / GetBuildTime(cls).  The slot
+ *                                    is found by scanning the 256 12-byte records at
+ *                                    0x006664f8 for BuildSlot.key (+4, a WORD) equal
+ *                                    to (short)g_popup.key.ref; timer is +8.  A ratio
+ *                                    of exactly 1.0f (fcomp [0x4ab38c]) re-opens the
+ *                                    pop-up as kind 0x103.
+ *   bar colour        red   GetNearestColour(0xff,0,0) when ratio < 0.25 (a POOLED
+ *                           DOUBLE at 0x4ab520, fcomp qword) AND it is a condition bar
+ *                     green GetNearestColour(0,0xff,0) otherwise
+ *   panel height      g_popup.size (+0x108, a BYTE) = max(MeasurePopUpTitle(name,...,1),
+ *                     MeasurePopUpBody(info,...,2)), or a fixed 2 for kind 0x306
+ *   panel origin      g_popup.pos (+0x028) -- px = +0x028, py = +0x02c
+ *   delete allowed    kinds 0x103/0x14/0xa when !(Cell.flags & 0x40), gated again at
+ *                     draw time by PopUpCanDelete()
  *
- * Ruled out for the hoist (each measured): the order of the five flag
- * initialisations (all 24 permutations tried), putting the five flags in one
- * struct, declaring them at their declaration instead of assigning, moving
- * each `= 1` store within its case, making the two globals volatile, adding a
- * `default:` label, moving case 0x104 to the head of the switch, giving
- * `worker` extra uses, and holding g_popup.kind in a local for the switch.
- * `unsigned char` flags do remove the hoist but then the stores are byte-wide
- * and the frame shrinks to 0x428, so that is not it either.  A bisection of
- * the tail shows the hoist appears only once the icon-placement section is
- * large enough (cutting either the icon_mech block or the corner/mouse-bounds
- * block removes it), i.e. it is a threshold in VC6's allocator, not a
- * construct that can be spelled away locally.
+ * PopUpInfoSetUp TAKES ITS FIRST THREE PARAMETERS AS ONE 12-BYTE RECORD.
+ * A previous reconstruction called it PopUpInfoSetUp(type, obj, ref, Pos) --
+ * five dwords, which is what the CALLEE (fpui2.c, 0x00471950) reads.  But both
+ * call sites here build the argument area with `sub esp,0xc` + three stores
+ * through `mov reg,esp`, which is VC6's struct-by-value copy, not five pushes:
  *
- * Two rewrites that DID move the code closer are kept: the two ride cases
- * share one `goto reopen_build` block (the original has a single copy of the
- * PopUpInfoSetUp(0x104) tail, reached from case 0x10b by a backward branch),
- * which stopped VC6 also hoisting the constant 0x104 into ecx; and `top` is
- * computed before `right` in the icon section, which removes a reload of
- * g_popup.pos.y.
+ *      mov  edx,[0x7fded0]      ; pos.y          push edx
+ *      mov  ecx,[0x7fdecc]      ; pos.x          push ecx
+ *      sub  esp,0xc                              ; the 12-byte record
+ *      mov  eax,0x104
+ *      mov  [0x7fdec0],eax      ; g_popup.key.type = 0x104
+ *      mov  [edx],eax / [edx+4],[0x7fdec4] / [edx+8],[0x7fdec8]
+ *
+ * so the caller-side prototype is PopUpInfoSetUp(PopUpKey key, int x, int y)
+ * with PopUpKey = { int type; void* obj; int ref; } at 0x007fdec0.  The stack
+ * image is identical to the five-scalar form, which is why fpui2.c's
+ * definition still matches; only the CALLER's spelling differs, and spelling
+ * it as the record is what makes these two blocks come out instruction for
+ * instruction.  Writing it the old way costs six instructions and, worse,
+ * frees ebp early enough that VC6 hoists constants into it (see below).
+ *
+ * MATCH STATE (2026-09-03): 962 instructions against the original's 962,
+ * 3120 bytes against 3141, mismatch = 705 by tools/audit.py.  Every block,
+ * call, string id, constant and branch direction is present and in the
+ * original's order; what remains is BLOCK PLACEMENT and SPILL-SLOT COLOURING,
+ * and the mismatch count is inflated by a one-instruction shift that runs from
+ * index 221 to the end.
+ *
+ * Fixed this pass (each verified against the disassembly):
+ *   - PopUpInfoSetUp's 12-byte record, above.  This alone removed BOTH constant
+ *     hoists the previous note blamed for the second half: VC6 no longer keeps
+ *     1 in ebp at the switch head, nor 0x306 across the layout section, and
+ *     `mov ebp,0xfffffbff` in the icon section is now the only ebp constant --
+ *     exactly as the original has it.
+ *   - The text rectangle must be ONE aggregate (`struct { int left, top, right,
+ *     bottom; } box`).  With four separate ints VC6 propagates each corner's
+ *     definition into the `right - left` / `bottom - top` argument and
+ *     reassociates it -- `(py - top) + 0x19` instead of `(py + 0x19) - top` --
+ *     which costs an instruction in each PrintCachedText block and denies `top`
+ *     the ebp it has in the original.  With the struct both blocks are
+ *     instruction-for-instruction identical to 0x00472b4b and 0x00472b8e.
+ *   - `else if (power != 0)` (not `power > 0`): the original's second test is a
+ *     bare `je`, not `jle`.
+ *
+ * WHAT IS LEFT, precisely:
+ *   1. BLOCK PLACEMENT of the post-switch join.  The original places the
+ *      `if (g_popup.resize != 0)` block immediately after `object_common`, so
+ *      object_common FALLS INTO it and the join's leading `xor esi,esi`
+ *      (esi = 0 is clobbered by the strcat rep movsd) serves cases 0x103, 0x14
+ *      and 0xa at once; the other cases jump one instruction past it.  VC6 puts
+ *      our join after the LAST case block instead, which forces a second
+ *      `xor esi,esi` into case 0x103 (our index 221) and shifts everything
+ *      after it by one.  Ruled out, all measured, all byte-identical output:
+ *      reordering the switch cases (both groups, either way round), dropping
+ *      the last case's `break`, turning every other case's `break` into
+ *      `goto layout` with the label after the switch, hoisting the
+ *      `can_delete` test out of the switch into a block between the switch and
+ *      the join (with `default: goto layout;`), and moving the whole tail of
+ *      the function inside the last case so the join is textually its
+ *      continuation.  VC6 normalises all six to the same CFG and the same
+ *      layout, so this is a layout heuristic, not a spelling.
+ *   2. SPILL-SLOT COLOURING.  Both frames are 0x434 with the same 17 scalar
+ *      slots (info@0x44, name@0x144, line@0x244), but the colouring differs:
+ *          original  0x14 can_delete  0x18 has_life  0x20 cls  0x24 worker
+ *                    0x28 py  0x2c px  0x30 show_delete2  0x34 show_mech
+ *                    0x3c show_gardener   (0x1c and 0x38 hold other temps)
+ *          ours      0x18 has_life  0x1c worker  0x20 can_delete
+ *                    0x24 show_delete2  0x28 cls  0x30 px  0x34 py
+ *                    0x38 show_gardener  0x3c show_mech
+ *      Note the original gives py the LOWER slot of the pair and ours px.
+ *      Declaration order is not the lever here: all 120 permutations of the
+ *      five flag initialisations and a full reordering of the local block were
+ *      measured and every one produces the same slots (best 704 vs 705, noise).
+ *   3. The two arms of `if (has_life == 0) ... else ...` are laid out in the
+ *      opposite order: the original puts the `else` (condition ratio) arm right
+ *      after the search loop's not-found `ret` so it falls into the bar code,
+ *      and exiles the build-progress arm past the bar code with a backward
+ *      `je 0x472df6` re-entry.  Inverting the `if` in the source is much worse
+ *      (938 instructions) -- measured, do not repeat.
+ *   4. The `reopen_build` block (PopUpInfoSetUp(0x104)) sits between case
+ *      0x10c's guard and its body in the original; VC6 puts ours between case
+ *      0x10b's guard and its body.  Measured and identical: putting the label
+ *      in either case, inverting either guard, and writing the block out twice
+ *      (VC6 cross-jumps them back together in the same place).
+ *
+ * Still true from the earlier pass, kept so it is not re-derived: the two ride
+ * cases share one tail -- the original cross-jumps case 0x10c into case 0x10b
+ * at the `call GetString`, leaving only `push 0xd3 / jmp` behind.  Ours now
+ * does the same (it merged only at the later `call Format` before the
+ * PopUpInfoSetUp fix changed the register allocation).  `top` is computed
+ * before `right` in the icon section, which removes a reload of g_popup.pos.y.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004724a0  (961 vs 962 instructions, structure complete; VC6 hoists the constant 1 into ebp at the switch head and the second half is esi/edi-permuted, first diff at index 26)
+// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3120 vs 3141 bytes, mismatch=886->705 by audit.py; the constant-1/0x306 ebp hoists are GONE, what is left is the post-switch join's block placement (one extra 'xor esi,esi' at index 221 shifts the rest by one) and spill-slot colouring; first diff at index 26)
 void DrawPopUpInfo(void)
 {
     char    name[256] = {0};
@@ -710,7 +834,12 @@ void DrawPopUpInfo(void)
     int     show_mech;
     int     show_delete2;
     int     px, py;
-    int     left, top, right, bottom;
+    /* The text/icon rectangle.  It must be ONE aggregate: with four separate
+     * ints VC6 propagates each corner's definition into the `right - left` /
+     * `bottom - top` argument and reassociates it ((py - top) + 0x19 instead
+     * of (py + 0x19) - top), which costs an instruction in each of the two
+     * PrintCachedText blocks and stops `top` being given ebp. */
+    struct { int left, top, right, bottom; } box;
     int     lines;
     int     power;
     int     mood, cond;
@@ -756,7 +885,8 @@ void DrawPopUpInfo(void)
                     strcat(line, kFmtNl);
                     strcat(line, GetString(0x7a));
                 }
-            } else if (power > 0) {
+            } else if (power != 0) {   /* > 0; spelled != 0 -- the original's
+                                        * second test is a bare `je`, not `jle` */
                 if (g_popup.cell->life >= (unsigned char)(cls->life >> 2))
                     Format(line, kFmtNlSD, GetString(0x79), power);
                 else
@@ -807,8 +937,8 @@ object_common:
         if (((RideRec*)g_popup.ride)->f18 != 0
             && ((RideRec*)g_popup.ride)->rider->cond >= 0x6b) {
 reopen_build:
-            g_popup.type = 0x104;
-            PopUpInfoSetUp(g_popup.type, g_popup.obj, g_popup.ref, g_popup.pos);
+            g_popup.key.type = 0x104;
+            PopUpInfoSetUp(g_popup.key, g_popup.pos.x, g_popup.pos.y);
             return;
         }
         Format(name, kFmtStr, *((RideRec*)g_popup.ride)->name);
@@ -844,19 +974,19 @@ reopen_build:
     px = g_popup.pos.x;
     py = g_popup.pos.y;
     if (name) {
-        left = px + 0xc;
-        top = py + 6;
-        right = lines * 0x20 + px + 0xbc;
-        bottom = py + 0x19;
-        PrintCachedText(name, left, top, right - left, bottom - top,
+        box.left = px + 0xc;
+        box.top = py + 6;
+        box.right = lines * 0x20 + px + 0xbc;
+        box.bottom = py + 0x19;
+        PrintCachedText(name, box.left, box.top, box.right - box.left, box.bottom - box.top,
                         1, 1, 0xff0000, 0xffffff);
     }
     if (info) {
-        left = px + 0xc;
-        top = py + 0x23;
-        right = lines * 0x20 + px + 0xbc;
-        bottom = py + lines * 20 + 0x63;
-        PrintCachedText(info, left, top, right - left, bottom - top,
+        box.left = px + 0xc;
+        box.top = py + 0x23;
+        box.right = lines * 0x20 + px + 0xbc;
+        box.bottom = py + lines * 20 + 0x63;
+        PrintCachedText(info, box.left, box.top, box.right - box.left, box.bottom - box.top,
                         2, 0x10, 0xff0000, 0xffffff);
     }
     PopRenderingStatus();
@@ -864,44 +994,44 @@ reopen_build:
     if (g_popup.kind == 0x306) {
         mood = GetBlokeMood(worker);
         cond = GetBlokeAgeGroup(worker);
-        left = px + 0xc;
-        right = lines * 0x20 + px + 0xb0;
-        halfw = (right - left) / 2;
+        box.left = px + 0xc;
+        box.right = lines * 0x20 + px + 0xb0;
+        halfw = (box.right - box.left) / 2;
         ty = ((py + lines * 20 + 0x63) + (py + 0x23)) / 2;
-        PrintCachedText(GetString(0x8e), left, ty + 0x22, halfw, 0x14,
+        PrintCachedText(GetString(0x8e), box.left, ty + 0x22, halfw, 0x14,
                         2, 0x11, 0xff0000, 0xffffff);
-        PrintCachedText(GetString(0x8f), (left + right) / 2, ty + 0x22, halfw, 0x14,
+        PrintCachedText(GetString(0x8f), (box.left + box.right) / 2, ty + 0x22, halfw, 0x14,
                         2, 0x11, 0xff0000, 0xffffff);
         if (mood == 3) {
             ty -= 0x20;
-            PrintSprite(g_popup.spr_sad, left + (right - left) / 4 - 0x20, ty, 0, 0);
+            PrintSprite(g_popup.spr_sad, box.left + (box.right - box.left) / 4 - 0x20, ty, 0, 0);
         } else if (mood == 2) {
             ty -= 0x20;
-            PrintSprite(g_popup.spr_happy, left + (right - left) / 4 - 0x20, ty, 0, 0);
+            PrintSprite(g_popup.spr_happy, box.left + (box.right - box.left) / 4 - 0x20, ty, 0, 0);
         } else {
             ty -= 0x20;
-            PrintSprite(g_popup.spr_norm, left + (right - left) / 4 - 0x20, ty, 0, 0);
+            PrintSprite(g_popup.spr_norm, box.left + (box.right - box.left) / 4 - 0x20, ty, 0, 0);
         }
         if (cond == 0)
-            PrintSprite(g_popup.spr_full, right - (right - left) / 4 - 0x20, ty, 0, 0);
+            PrintSprite(g_popup.spr_full, box.right - (box.right - box.left) / 4 - 0x20, ty, 0, 0);
         else if (cond == 1)
-            PrintSprite(g_popup.spr_peckish, right - (right - left) / 4 - 0x20, ty, 0, 0);
+            PrintSprite(g_popup.spr_peckish, box.right - (box.right - box.left) / 4 - 0x20, ty, 0, 0);
         else
-            PrintSprite(g_popup.spr_hungry, right - (right - left) / 4 - 0x20, ty, 0, 0);
+            PrintSprite(g_popup.spr_hungry, box.right - (box.right - box.left) / 4 - 0x20, ty, 0, 0);
     }
 
     if (has_life == 0) {
         if (g_pu_building == 0)
             goto icons;
         for (i = 0; i < 256; i++)
-            if (g_build_slots[i].key == (short)g_popup.ref)
+            if (g_build_slots[i].key == (short)g_popup.key.ref)
                 break;
         if (i >= 256)
             return;
         frac = (float)g_build_slots[i].timer / (float)GetBuildTime(g_popup.cls);
         if (frac == 1.0f) {
-            g_popup.type = 0x103;
-            PopUpInfoSetUp(g_popup.type, g_popup.obj, g_popup.ref, g_popup.pos);
+            g_popup.key.type = 0x103;
+            PopUpInfoSetUp(g_popup.key, g_popup.pos.x, g_popup.pos.y);
             return;
         }
     } else {
@@ -917,53 +1047,53 @@ reopen_build:
                     GetNearestColour(0, 0xff, 0));
 
 icons:
-    top = py + (lines * 5 + 0x1e) * 4;
-    right = lines * 0x20 + px + 0xc8;
+    box.top = py + (lines * 5 + 0x1e) * 4;
+    box.right = lines * 0x20 + px + 0xc8;
     g_popup.icon_close->flags &= 0xfffffbff;
-    g_popup.icon_close->x = (short)(right - 0x27);
-    g_popup.icon_close->y = (short)top;
-    left = g_popup.icon_close->x;
+    g_popup.icon_close->x = (short)(box.right - 0x27);
+    g_popup.icon_close->y = (short)box.top;
+    box.left = g_popup.icon_close->x;
     if (show_delete2) {
         g_popup.icon_delete2->flags &= 0xfffffbff;
-        g_popup.icon_delete2->x = (short)(right - 0x4e);
-        g_popup.icon_delete2->y = (short)top;
-        left = g_popup.icon_delete2->x;
+        g_popup.icon_delete2->x = (short)(box.right - 0x4e);
+        g_popup.icon_delete2->y = (short)box.top;
+        box.left = g_popup.icon_delete2->x;
     }
     if (can_delete && PopUpCanDelete()) {
         g_popup.icon_delete->flags &= 0xfffffbff;
-        g_popup.icon_delete->x = (short)(right - 0x4e);
-        g_popup.icon_delete->y = (short)top;
-        left = g_popup.icon_delete->x;
+        g_popup.icon_delete->x = (short)(box.right - 0x4e);
+        g_popup.icon_delete->y = (short)box.top;
+        box.left = g_popup.icon_delete->x;
     }
     if (show_gardener) {
         g_popup.icon_gardener->flags &= 0xfffffbff;
-        g_popup.icon_gardener->y = (short)top;
+        g_popup.icon_gardener->y = (short)box.top;
         if (can_delete)
-            g_popup.icon_gardener->x = (short)(right - 0x75);
+            g_popup.icon_gardener->x = (short)(box.right - 0x75);
         else
-            g_popup.icon_gardener->x = (short)(right - 0x4e);
-        left = g_popup.icon_gardener->x;
+            g_popup.icon_gardener->x = (short)(box.right - 0x4e);
+        box.left = g_popup.icon_gardener->x;
     }
     if (show_mech) {
         g_popup.icon_mech->flags &= 0xfffffbff;
-        g_popup.icon_mech->y = (short)top;
+        g_popup.icon_mech->y = (short)box.top;
         if (can_delete)
-            g_popup.icon_mech->x = (short)(right - 0x75);
+            g_popup.icon_mech->x = (short)(box.right - 0x75);
         else
-            g_popup.icon_mech->x = (short)(right - 0x4e);
-        left = g_popup.icon_mech->x;
+            g_popup.icon_mech->x = (short)(box.right - 0x4e);
+        box.left = g_popup.icon_mech->x;
     }
-    g_popup.icon_corner->x = (short)left;
-    g_popup.icon_corner->y = (short)top;
+    g_popup.icon_corner->x = (short)box.left;
+    g_popup.icon_corner->y = (short)box.top;
     g_popup.icon_corner->flags &= 0xfffffbff;
-    bottom = top + 0x1b;
+    box.bottom = box.top + 0x1b;
     if (g_popup.expanded)
         halfw = g_popup.icon_close->x;
     else
         halfw = g_popup.icon_corner->x;
     if (g_popup.icon_close->x + 0x24 < g_input.point.x || g_input.point.x < halfw)
         ClosePopUpIcons();
-    if (bottom < g_input.point.y || g_input.point.y < top)
+    if (box.bottom < g_input.point.y || g_input.point.y < box.top)
         ClosePopUpIcons();
     if (g_popup.expanded)
         DrawPopUpExtra();

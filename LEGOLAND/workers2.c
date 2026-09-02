@@ -615,7 +615,6 @@ void IterateNoneWorkersRepairOrders(void)
     int          cx, cy;
     int          price;
     Cell*        cell;
-    MapInst*     inst;
     WClass*      cls;
 
     while (p) {
@@ -874,32 +873,50 @@ void Mechanic_Build(Bloke* b)
  *    return;`) makes VC6 SINK the whole arm past the place block to sit in
  *    front of `fail:`, which costs an extra jmp and puts eight instructions
  *    in the wrong place (that was the previous 677-byte reconstruction).
- *  - RESIDUAL, two instructions:
+ *  - RESIDUAL, two instructions (both single-instruction spelling choices;
+ *    every block, every branch target and the 672-byte length are right):
  *      (1) 0x4707a3: the original rematerialises the constant into ebp for
  *          the out-of-range arm's store -- `mov ebp,1; mov [g_drag_lock],ebp`
- *          (11 bytes) where we emit the one-byte-cheaper immediate store
- *          `mov [g_drag_lock],1`.  ebp holds the row count on entry to the
- *          arm (`xor ebp,ebp; mov bp,[map+16h]`), so a remat is needed in
- *          both; VC6 folds ours to the immediate because the constant is
- *          dead at the arm's end.  Ruled out as levers: a named `one` local
- *          (constant-propagated away), `found + 1`, `g_icon_clicked`,
- *          `goto fail` / `goto tail` from the arm, putting the `fail:` label
- *          inside the arm, and swapping the two arms.  A probe that adds a
- *          FIFTH store of 1 to the function leaves the arm on the immediate
- *          too, so the count threshold in the note above is not what decides
- *          this one: the register form is used in the blocks where the
- *          constant is still LIVE-OUT (the path-flag arm falls through to
- *          `place` and on to `fail`, which needs it), and folded in this arm
- *          because it dead-ends in a return.
+ *          where we emit the one-instruction `mov [g_drag_lock],1`.  ebp
+ *          holds the row count on entry to the arm (`xor ebp,ebp;
+ *          mov bp,[map+16h]`), so a remat is needed in both; VC6 folds ours
+ *          into the immediate because the constant dies at the arm's end
+ *          (the arm threads straight into the tail's call and epilogue).
+ *          The register form appears exactly where the constant is LIVE-OUT:
+ *          the path-flag arm above (0x470774) falls through to the join and
+ *          keeps `mov ebp,1`, in ours as in the original.
+ *          Ruled out: a named `one` local (constant-propagated away),
+ *          `found + 1`, `g_icon_clicked`, `goto fail` / `goto tail` from the
+ *          arm, `fail:` moved inside the arm, swapping the two arms, an
+ *          `if/else` written as `if (y >= h) ... else ...`, a FIFTH store of
+ *          1 elsewhere in the function, and (new this round) dead stores in
+ *          the arm meant to keep the constant alive (`found = 1;`, `r = 1;`,
+ *          `w = 0;` -- all DCE'd before the fold), `found = 1;
+ *          g_drag_lock = found;`, and spelling the threaded tail out inside
+ *          the arm with or without its `if (g_drag_lock)` guard (both sink
+ *          the arm past the place block: 677 bytes).
+ *          Also measured: making BOTH the 0x103 arm's failure and this arm
+ *          `goto fail` collapses the function to 173 instructions / 656
+ *          bytes -- the two spelled-out copies are what keep VC6 from
+ *          merging everything, so they must stay.
  *      (2) 0x470891: the original tests the placement call's result with
  *          `test eax,eax`; we get `cmp eax,edi` off the zero register that
- *          serves the other five compares against 0 in this function.
- *          Unaffected by r's type (int/unsigned/long/void*), by `!r` /
- *          `r == 0` / `r != 0`, by declaration order, or by dropping `r` and
- *          testing each call directly (which then stops VC6 merging the two
- *          `add esp,0Ch; test; jne` tails).
+ *          serves the other five compares against 0.  VC6 emits `test
+ *          eax,eax` for a call result consumed DIRECTLY (it does so at
+ *          0x470656, `if (WorkerHitOnRide())`, in ours too) and `cmp
+ *          reg,edi` for one that went through a variable -- but writing
+ *          `if (SetGardenerWorkOrderAtPostion(..))` / `if
+ *          (SetMechanicsOrderAtPostion(..))` in the two arms gives the
+ *          `test` and LOSES the cross-jump that folds both arms onto one
+ *          `add esp,0Ch; test; jne` (678 bytes, and the gardener arm grows
+ *          its own copy of the fail block + epilogue).  The original has
+ *          both, so the merge must survive a direct test somehow.
+ *          Unaffected: r's type (int/unsigned/long/void*), `!r` / `r == 0` /
+ *          `r != 0`, `if (r == 0) { fail: g_drag_lock = 1; }` with no goto,
+ *          `if (!r) goto fail; goto tail;`, and r's declaration order.
  *    Because (1) is a missing instruction, every index from 102 on is off by
- *    one and audit.py reports 82 index-for-index mismatches.
+ *    one and audit.py reports 82 index-for-index mismatches; a difflib
+ *    alignment still puts 181 of the 184 instructions together (98.4%).
  */
 // WIP-FUNCTION: LEGOLAND 0x00470620  (181/184 aligned = 98.4%, 672/672 bytes; two difference hunks, at 0x4707a3 and 0x470891, see above; the missing instruction shifts every later index so audit.py counts 82)
 void CheckWorkerOnMouseStatus(WorkOrder* o)

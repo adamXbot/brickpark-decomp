@@ -433,7 +433,70 @@ static __inline void EmitObjectSprite(SpriteDesc* desc, Pos at, int key,
  * change), and reordering the flag store before the array store (X 638).
  * The next thing to try is making `px` cheaper to keep than `count`: give px
  * an extra in-loop use, or move the two collect sites behind something that
- * lengthens count's live range further. */
+ * lengthens count's live range further.
+ *
+ * MEASURED THIS ROUND (no change to the count -- 633 -- but two more pieces of
+ * the mechanism are now pinned down; a register/offset-NORMALISED diff scores
+ * 803 of 903 identical, so only ~100 slots are structurally wrong):
+ *  - Indices 61..87 are already normalised-identical: the whole tile-geometry
+ *    block is right and only the ebx/ebp naming (sx vs tw) differs.  The next
+ *    STRUCTURAL break is at 88.  The original spends ebx as the DIVISOR
+ *    register and spills `rx`:
+ *        88 mov ebx,[esp+0x10]  (th)   90 mov [esp+0x14],edx  (spill rx)
+ *        92 idiv ebx  (qy)             96 idiv ebx  (ry)
+ *        97 mov ebx,[esp+0x14]  (rx back)
+ *    where we keep `rx` in ebx and divide from memory
+ *    (`idiv dword ptr [esp+0x1c]` twice).  Same instruction count, same
+ *    order -- it is the same ebx tie-break as the count-vs-px one below,
+ *    seen 160 instructions earlier, and it decides the frame offsets from
+ *    here on.  So there is really ONE tie-break to win, not two.
+ *  - The other big block of divergence, indices 352-391, is the FUNCTION-WIDE
+ *    ZERO REGISTER.  We emit `xor edi,edi` at 352 (just before the ODF
+ *    pre-render walk) and then spend edi on `cmp esi,edi` at 353/358/365/368,
+ *    on `visible[count] = edi` at 369 and on all six SpriteDesc zero stores at
+ *    380-387.  The original has NO such register there: it writes
+ *    `test esi,esi` / `test eax,eax` for every one of those guards, stores an
+ *    IMMEDIATE zero (`mov dword ptr [esp+eax*4+0xc0], 0`) for
+ *    `visible[count] = 0`, and materialises TWO SHORT-LIVED zeros INSIDE the
+ *    object-queue loop -- `xor edx,edx` at 376 and `xor ecx,ecx` at 378 --
+ *    using edx for sd.f0c/sd.mode/sd.layer_mask + g_sort_count and ecx for
+ *    sd.sprite/sd.dx/sd.dy and the `cell->obj != 0` test.  Our SpriteDesc
+ *    store ORDER is already right (f0c, mode, sprite, dx, dy, layer_mask --
+ *    confirmed against the original's 0x7c,0x80,0x70,0x74,0x78,0x84).  What is
+ *    wrong is only that VC6 hoisted one zero above the ODF walk instead of
+ *    rematerialising it twice inside the loop; killing that hoist is the
+ *    second thing to attack, and it is independent of the ebx tie-break.
+ *  - Frame arithmetic, for whoever continues: `visible[]` sits at frame+0xb0
+ *    in the original and frame+0xac in ours (`[esp+0xc0]` vs `[esp+0xbc]` at
+ *    index 369/371) -- the whole 4-byte deficit is below the array, and the
+ *    known slot map is th@+0x00, rx@+0x04, tile.x@+0x08, tile.y@+0x0c,
+ *    tw@+0x10, count@+0x14, qx@+0x18, view@+0x34..0x40, cls@+0x44,
+ *    saved@+0xa0, visible@+0xb0.  Ours has rx@+0x00, tile.x@+0x04,
+ *    tile.y@+0x08, th@+0x0c, tw@+0x10, qx@+0x1c, count@+0x28.
+ *  - AND THE TWO ARE THE SAME BUG.  The tail's zero register is what forces
+ *    the DoBuildEffects counter into ebx: the original loads `count` straight
+ *    into edi at index 865 and does `test edi,edi` / `dec edi`, while we have
+ *    edi tied up as the zero, so we load count into esi (hoisted ABOVE the
+ *    three RenderPeople/RenderWorkers/DrawAndClearPrintList calls, index 862)
+ *    and copy it to ebx at 868.  That extends ebx's live range PAST
+ *    DrawAndClearPrintList -- which is exactly where the original pops ebp and
+ *    ebx (indices 866/868).  With ebx live to the end of the function VC6 can
+ *    no longer sink its push, so all four saves go to the entry.  Kill the
+ *    tail zero register and the split prologue should follow.
+ *
+ * Also ruled out this round, all measured (X = score.py's untrimmed count;
+ * baseline 639 / audit 633):
+ *   - `count != 0` instead of `count > 0` for the object-queue gate (640);
+ *   - `cls != 0` / `cls->prerender != 0` explicit forms (639);
+ *   - `if ((cls->flags & 0x20) && cls->prerender)` as one test (639);
+ *   - the ODF pre-render walk as a `static __inline` helper taking the head
+ *     by value (639);
+ *   - moving `visible[count] = 0;` above the ODF walk (662 -- worse);
+ *   - `g_sort_count = 0;` before the six SpriteDesc zero stores (639);
+ *   - `if (cell->obj)` vs `!= 0` in the queue loop (639);
+ *   - three more DoBuildEffects tail spellings: `while (--count)` reusing the
+ *     gather counter (653), `n = count` moved inside the `if` (653), and
+ *     explicit `!= 0` on both tail guards (639). */
 // WIP-FUNCTION: LEGOLAND 0x0045b180  (903/903 insns, mismatch=633; split-prologue register-pair tie-break)
 void RenderView(void)
 {
@@ -1112,19 +1175,102 @@ static __inline int FullMapY(TileBounds* t, int scale_y)
  * distinct Pos temporaries -- one per GetTileBounds site -- which is what the
  * inlined TileBoundsAt helper buys and what most of the frame difference was.
  *
+ * FIXED THIS ROUND (1064 -> 893 mismatches, instruction count still exactly
+ * 1161/1161, no ESCAPES):
+ *   1. `saved_ox`/`saved_oy` are **int**, not `unsigned short`.  The original
+ *      emits `xor ecx,ecx / mov cx,[eax+0x20] / mov DWORD [esp+0x94],ecx`
+ *      (indices 142-150): a zero-extending load into a 4-byte spill home, not
+ *      a 2-byte store.  Worth 151 mismatches on its own -- the single biggest
+ *      lever found on this function.  Whenever a `u16` field is stashed and
+ *      restored, check the width of the STORE before believing the local is
+ *      also 16 bits.
+ *   2. The TRACK arm reads the CELL COPY's base (`c.base.x/.y`), not the
+ *      separate 2-byte `bpos`.  Original index 715 is
+ *      `mov eax,[esp+0xf8] / and eax,0xff` -- an unaligned dword read of the
+ *      Cell copy at frame+0xe8/0xe9 -- while the ROADS arm (index 590/592) and
+ *      the sprite/ILF arm (index 688) read the packed `bpos` at frame+0x2c.
+ *      Both spellings exist in the original and they are not interchangeable.
+ *   3. `p1`, `h0`, `h1` and `link` are BLOCK-SCOPE locals of the track arm,
+ *      not function-level ones (worth 4).
+ *   4. The mark grid is written with plain array indexing,
+ *      `i = ((c.base.y>>3)<<5) + (c.base.x>>3); g_map_marks[i].x = ...`.
+ *      The original emits `shr/shl 5/shr/add` then ONE `shl esi,3` and two
+ *      `[esi + 0x8119c0]` / `[esi + 0x8119c4]` stores.  Spelling it as
+ *      `*(int*)((char*)g_map_marks + i)` with `i` pre-scaled by 8 lets VC6
+ *      fold the scale into an `lea` and costs 16 (worth 16).
+ *
  * FIRST DIVERGING INDEX: 0 -- `sub esp,0xf8` vs `sub esp,0xec`.  The frame is
- * still 12 bytes (three slots) short, and that is the honest summary of the
- * residual: the block STRUCTURE, the branch senses, the split prologue
- * (push ebp at index 1, push ebx/esi/edi at 42-44 behind the guard) and the
- * call sequence are all reproduced -- all 70 calls, in order -- but the frame
- * layout and therefore every [esp+N] and every register assignment downstream
- * still differ, which is what keeps the strict index-for-index count at 1064.
- * Converting the remaining GetTileBounds sites to TileBoundsAt overshoots the
- * frame to 0x104 and makes the count worse (measured); the three missing slots
- * are somewhere else.
+ * still 12 bytes short and that is the whole remaining story: the block
+ * STRUCTURE, the branch senses, the split prologue (push ebp at index 1,
+ * push ebx/esi/edi at 42-44 behind the `g_fullmap_busy` guard) and the call
+ * sequence are all reproduced -- all 70 calls, in order -- and a
+ * register/offset-NORMALISED diff now scores 847 of 1161 identical.  What is
+ * left is frame slot assignment plus the register renaming it forces.
+ *
+ * THE ORIGINAL'S FRAME, MEASURED (offsets relative to esp immediately after
+ * `sub esp,0xf8`; the four callee-saves put canonical esp at base-16, so a
+ * disassembly `[esp+N]` outside a call-argument run is base+N-16):
+ *
+ *     +0x00  h0 / fsy (shared)        +0xa8  link
+ *     +0x08  tb (16B, passes 1-3)     +0xac  sd (SpriteDesc, 24B)
+ *     +0x18  fsx                      +0xc4  Pos: roads-arm TileBoundsAt
+ *     +0x1c  tile / off (8B, shared)  +0xcc  Pos: sprite-draw TileBoundsAt
+ *     +0x24  h1                       +0xd4  Pos: mark-block TileBoundsAt
+ *     +0x2c  bpos (2B) +0x2d          +0xdc  Pos: p1 AND the ILF-loop temp
+ *     +0x44  clip (16B) SHARED with            (shared -- disjoint arms)
+ *            the pass-1/2 Cell copy    +0xe4  the pass-4 Cell copy (20B)
+ *     +0x5c  tw   +0x68  th          -> top of frame 0xf8
+ *     +0x70..+0xa4  the ElemID/LoadSprite/pen/saved_ox/saved_oy spill homes
+ *
+ * OURS is identical from +0xa8 up to +0xdc except that (a) the four Pos slots
+ * are handed out in a different ORDER (sprite-draw, mark, ILF, roads) and
+ * p1 does NOT share with the ILF temp, so p1 takes +0xe4; and (b) the pass-4
+ * Cell copy is colour-shared with the pass-1/2 one down at +0x54 instead of
+ * getting its own 20-byte slot at the top.  20 - 8 = 12: that IS the missing
+ * frame.  So the ONE thing left to reproduce is: force the pass-4 Cell copy
+ * to its own top-of-frame slot and let p1 pool with the ILF loop's Pos.
+ *
+ * Ruled out this round, all measured, do not repeat:
+ *   - splitting the pass-4 Cell into a second named local `cc` (no change:
+ *     VC6 colours the two into one slot because their live ranges are
+ *     disjoint), with `cc` declared before or after `c`;
+ *   - declaring the pass-1/2 Cell and/or the pass-4 Cell block-scope inside
+ *     their loops, in any of the four combinations (no change);
+ *   - moving `off`/`fsx`/`fsy` into the pass-2 inner block (X 910 -> 1010 and
+ *     it flips the zero register from ebp to ebx -- clearly wrong);
+ *   - declaring `tb` or `sd` inside the pass-4 loop (X 1021 / compile error
+ *     shapes; `tb` gets frame 0xf4 but the body is 3 instructions short);
+ *   - a named `Pos` in the ILF loop instead of the inlined TileBoundsAt (no
+ *     change -- it still will not pool with p1);
+ *   - hoisting `(th+1)>>1` into a local before the RenderBlock call, in three
+ *     spellings (X 910 -> 1009); a named `int thv = th;` copy used in the
+ *     g_fm_h2 / g_fm_cy expressions, three spellings (X 910 -> 1092).  The
+ *     original really does keep `th` in esi across the two __ftol calls
+ *     (index 95 `mov esi,[esp+0x84]`, then `inc esi`/`sar esi,1` at 127/131)
+ *     and we reload it from memory at 152, but every source form that buys
+ *     the register copy costs more elsewhere;
+ *   - writing the clip fills in the original's store order (left, right, top,
+ *     bottom): no change, VC6 reorders adjacent stores anyway;
+ *   - `(unsigned char)(c.base.y & 0xf8)` to buy the original's `and al,0xf8`
+ *     (X 910 -> 929);
+ *   - giving the `if (link)` LineTo its own Pos (frame 0xf4 but +1
+ *     instruction: the original really does mutate `tile.x` in place);
+ *   - a goto form (`goto static_desc` / `have_desc:`) for the descriptor
+ *     selection, aimed at the original's out-of-line placement of the
+ *     `sd`-fill block: no change (X 910), normalised equality 847 -> 846.
+ *
+ * The other visible layout difference, for whoever picks this up: the
+ * original lays the second half of the chain loop out as
+ * [single-sprite head 688-706][sd fill 707-714][TRACK ARM 715-953]
+ * [HalfOffset join 954-961][single-sprite tail 962-1005][ILF loop 1006+],
+ * i.e. the track arm sits BETWEEN a HalfOffset expansion's branch (index 702)
+ * and its `v >= 0` join block (index 954).  We emit the track arm after the
+ * whole sprite path instead.  That accounts for ~160 instructions of the
+ * residual on its own and is worth attacking next, together with the Cell
+ * slot above.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004567a0  (1161/1161 insns, mismatch=1064; frame 0xec vs 0xf8)
+// WIP-FUNCTION: LEGOLAND 0x004567a0  (1161/1161 insns, mismatch=893; frame 0xec vs 0xf8)
 void RenderFullMap(void)
 {
     Elem*       e_track;
@@ -1141,7 +1287,6 @@ void RenderFullMap(void)
     TileBounds  tb;
     Pos         tile;
     Pos         off;
-    Pos         p1;
     Cell        c;
     Cell*       chain;
     SpriteDesc  sd;
@@ -1153,16 +1298,14 @@ void RenderFullMap(void)
     ObjDef*     def;
     RoadRec*    road;
     void*       cls;
-    unsigned short saved_ox;
-    unsigned short saved_oy;
+    int         saved_ox;
+    int         saved_oy;
     BPos        bpos;
     int         tw, th;
     int         scale_x, scale_y;
     int         x, y, i;
     int         mx, my;
     int         x0, y0;
-    int         link;
-    float       h0, h1;
     float       fsx, fsy;
     unsigned int tcode;
 
@@ -1313,9 +1456,9 @@ void RenderFullMap(void)
         c = *chain;
         if ((c.flags & 0x200) && !(c.flags & 4)) {
             TileBoundsAt((c.base.x & ~7) + 4, (c.base.y & ~7) + 4, &tb);
-            i = (((c.base.y >> 3) << 5) + (c.base.x >> 3)) * 8;
-            *(int*)((char*)g_map_marks + i) = FullMapX(&tb, scale_x);
-            *(int*)((char*)g_map_marks + i + 4) = FullMapY(&tb, scale_y);
+            i = ((c.base.y >> 3) << 5) + (c.base.x >> 3);
+            g_map_marks[i].x = FullMapX(&tb, scale_x);
+            g_map_marks[i].y = FullMapY(&tb, scale_y);
         }
         def = ((Obj*)c.obj)->def;
         if (!(def->flags & 4) && !(def->flags & 0x400)) {
@@ -1346,8 +1489,15 @@ void RenderFullMap(void)
         cls = def->ctx;
         if (cls == e_track || cls == e_track_h || cls == e_track_h0
             || cls == e_track_hp || cls == e_castle) {
-            tile.x = bpos.x;
-            tile.y = bpos.y;
+            Pos   p1;
+            float h0, h1;
+            int   link;
+
+            /* the track arm reads the CELL COPY's base, not `bpos` -- that is
+             * what keeps the 20-byte Cell live across the arm dispatch in the
+             * original (see the residual note above). */
+            tile.x = c.base.x;
+            tile.y = c.base.y;
             if (GetTrackSegment(&tile, &h0, &p1, &h1, &link)) {
                 void* hdc;
                 void* old;

@@ -788,23 +788,66 @@ char CheckFocussedIcon(void)
  * the node is dropped again (and, in list mode, the class is added on its
  * own).
  *
- * WIP at 51/65 (78.5%): the control flow, both loops, the call order
- * (GetObjCost(p->obj) first, then GetObjCost(n->obj)) and every memory access
- * match; the last 14 instructions differ only in register allocation. The
- * original keeps `push ebp` in the prologue (ours is sunk past the not-found
- * exit), holds n->obj in ebx across the first call, and spills the first
- * cost through edx into the SECOND argument slot (`mov edx,eax /
- * mov [esp+0x1c],edx`) -- hence the otherwise-dead `unused` parameter.
- * ~40 phrasings tried (goto/break/inline-body structure, cost as local /
- * parameter / volatile / loop-scoped / expression temp, n->obj as a local,
- * K&R and cast callee declarations, __inline wrappers for the cost, the
- * compare and the whole sorted insert); none produced the edx copy-in /
- * copy-out around the first call. */
-// WIP-FUNCTION: LEGOLAND 0x00475630  (78.5%, register allocation of the sorted-insert loop; see note)
-void InsertChildIntoList(ObjDef* d, int unused)
+ * SEMANTIC FIX (the previous note was wrong): this takes ONE parameter, not two.
+ * The `mov [esp+0x1c],edx` spill inside the loop is emitted between a `push` and
+ * its `add esp,8`, so it names a frame home 8 bytes LOWER -- [esp+0x14] in the
+ * body, which with four prologue pushes and no `sub esp` is the FIRST argument.
+ * VC6 is reusing the (by then dead) `d` slot as the spill home for the first
+ * GetObjCost result; there is no second argument. The old `int unused` parameter
+ * was that misreading (docs/DECOMP.md "READING esp"); both call sites in fpui2.c
+ * always passed one argument.
+ *
+ * WIP at 49/68 (72%), 68/68 instructions, 168B vs 171B, first diverging index 36.
+ * Instructions 0..35 (prologue, node fill, parent search, the whole not-found
+ * exit) and 56..67 (the walk step and both stores + epilogue) are exact,
+ * index for index; only the found-block head and the compare loop differ:
+ *
+ *   ours   test esi,esi / mov ebp,esi / je notfound   <- two instructions the
+ *   orig   mov ebp,esi                                   original does not have
+ *   ours   mov ecx,[edi+4] ... push eax / call / mov ebx,eax / mov eax,[edi+4]
+ *   orig   mov ebx,[edi+4] ... mov edx,eax / push edx / call / mov edx,eax /
+ *          push ebx / mov [esp+0x1c],edx / call / mov ecx,[esp+0x1c]
+ *
+ * i.e. the original holds n->obj in ebx ACROSS the first call and spills the
+ * first cost to d's slot; ours keeps the cost in ebx and reloads n->obj.
+ *
+ * What was measured this round (all with tools in scratchpad/lists):
+ *  - `push ebp` is in the ORIGINAL prologue. VC6 sinks that push to the found
+ *    block whenever prev's first definition is there; the ONLY spelling that
+ *    keeps it at entry is `prev = 0` before the search loop plus a real
+ *    `if (prev)` test after it (a dead `prev = 0`, or `prev = p` inside the
+ *    search loop, or a `goto found`, all let it sink again). That test costs
+ *    the two extra instructions above -- VC6 cannot prove p != 0 on the break
+ *    path, so it emits `test esi,esi / je`. Keeping the sink instead costs a
+ *    whole-body index shift (mismatch 67), so this shape is strictly better.
+ *  - Holding n->obj in a local (`ObjDef* a = n->obj;`) DOES produce the
+ *    original's spill sequence -- `mov edx,eax / push edx / ... /
+ *    mov [esp+0x1c],edx / mov edx,[esp+0x1c]` appears verbatim with the
+ *    expression form `if (GetObjCost(a) <= GetObjCost(p->obj))` -- but VC6 then
+ *    ranks `a` above `n`, so a takes edi and n takes ebx (the original is the
+ *    other way round) AND prev loses ebp, which undoes the prologue. ~90
+ *    spellings tried: a at loop/function scope, a assigned before/after the
+ *    parent compare, a+b locals, both compare operand orders, cost as local /
+ *    function-scope / expression temp / two separate c1,c2, the three field
+ *    store orders, alloc-before/after the head read, `p = prev->next` stepping,
+ *    __inline Cost(ObjNode*), Cost(ObjDef*,ObjDef*), Dearer(node,node) and a
+ *    whole-sorted-insert __inline. NONE gives n=edi together with a=ebx.
+ *  - Also ruled out: while/for/do-while/for(;;) forms of both loops, goto-found
+ *    vs goto-notfound vs single-exit `goto done`, the found body inlined in the
+ *    search loop, `ObjNode** link` instead of prev, `if (!p)` after a break
+ *    (adds a jmp + test), and `prev = p` at the search-loop top (that keeps the
+ *    prologue push but hoists `mov ebp,esi / mov esi,[esi]` into the search
+ *    loop: 65 insns, first divergence 17).
+ *
+ * The sibling InsertObjectNode (0x004755c0, not ours) is the same list insert
+ * with `prev = 0` + `if (!prev)` and DOES sink `push ebp` -- so the two
+ * functions really do differ in that one source detail, and this shape is the
+ * one that reproduces the original's prologue. Variants: scratchpad/lists/. */
+// WIP-FUNCTION: LEGOLAND 0x00475630  (72%, 68/68 insns, 168B vs 171B; found-block head + compare-loop register allocation, see note)
+void InsertChildIntoList(ObjDef* d)
 {
     ObjNode* p = g_object_list;
-    ObjNode* prev;
+    ObjNode* prev = 0;
     ObjNode* n = (ObjNode*)HeapAlloc_w(sizeof(ObjNode));
     int cost;
 
@@ -812,28 +855,29 @@ void InsertChildIntoList(ObjDef* d, int unused)
     n->keep = 0;
     n->next = 0;
     for (; p; p = p->next) {
-        if (p->obj->elem == d->parent)
-            goto found;
+        if (p->obj->elem == d->parent) {
+            prev = p;
+            break;
+        }
+    }
+    if (prev) {
+        p = p->next;
+        while (p) {
+            if (n->obj->parent != p->obj->parent)
+                break;
+            cost = GetObjCost(p->obj);
+            if (GetObjCost(n->obj) <= cost)
+                break;
+            prev = p;
+            p = p->next;
+        }
+        prev->next = n;
+        n->next = p;
+        return;
     }
     if (g_object_list_mode)
         InsertObjectNode(d);
     HeapFree_w(n);
-    return;
-
-found:
-    prev = p;
-    p = p->next;
-    while (p) {
-        if (n->obj->parent != p->obj->parent)
-            break;
-        cost = GetObjCost(p->obj);
-        if (GetObjCost(n->obj) <= cost)
-            break;
-        prev = p;
-        p = p->next;
-    }
-    prev->next = n;
-    n->next = p;
 }
 
 /* ---- control icons ------------------------------------------------------ */

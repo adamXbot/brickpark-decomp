@@ -97,7 +97,9 @@
  *   parameter slots of item/inst (deferred push edi, loop-only locals).
  * - LoadPalette: the r byte is homed in the dead fname slot; g and b sit
  *   below the 8-byte header.  The 565/555 packing is written with u16 casts
- *   so the byte ANDs / xor-mov widenings come out as in the original.
+ *   so the byte ANDs / xor-mov widenings come out as in the original; the 565
+ *   arm additionally carries a deleted-by-VC6 ghost compare that keeps its red
+ *   term widened before it is masked (see the note above the function).
  * --------------------------------------------------------------------------- */
 #include "legoland.h"
 
@@ -411,21 +413,69 @@ BNVBin* LoadBinV(const char* fname)
     return 0;
 }
 
-/* WIP (83/103 by matchfull, audit REJECT). Everything matches except the
- * RGB565 arm's red term. The original widens FIRST and masks SECOND:
- *     movzx dx, byte ptr [r] / and edx, 0FFFFFFF8h / shl edx, 5
- * whereas the RGB555 arm (which does match) masks first and widens second:
- *     mov dl, [r] / and dl, 0F8h / xor ax,ax / mov al,dl.
- * VC6 SP3 /O2 range-narrows EVERY spelling of the former back to the latter:
- * (u16)r & 0xf8 / 0xfff8 / ~7 / 0x1f8, (x>>3)<<8, (x<<5)&0x1f00, u16 and int
- * temporaries (copy-propagated across blocks), static __inline helpers with
- * u16 params, volatile reads, `char` under /J, /G3../G6, /O1, /Ox, /Os, /Ot,
- * /Oa, /Ob1 - 40+ variants, all identical. The same idiom appears twice in
- * the unmatched __BMPLoader (0x44e352, 0x44e48e) so it is a real construct,
- * just one this compiler run has not reproduced. The ONE lever that did move
- * the score: declaring r/g/b in the post-guard scope homes `r` in the dead
- * `fname` argument slot ([esp+0x20]), exactly as the original. */
-// WIP-FUNCTION: LEGOLAND 0x00441f20  (80.6%, RGB565 red term: original widens before masking, VC6 narrows every spelling)
+/* WIP -- 101/101 instructions, 275 B vs 273 B, 32 mismatches by audit.py
+ * (was 52 before this pass).  First divergence: index 49, the RGB565 arm.
+ *
+ * ORIGINAL 565 arm (15 insns):
+ *     movzx dx,byte[r] / mov al,[g] / and edx,0FFFFFFF8h / and al,0FCh /
+ *     xor cx,cx / shl edx,5 / mov cl,al / mov al,[b] / or edx,ecx /
+ *     xor cx,cx / shr al,3 / shl edx,3 / mov cl,al / or edx,ecx /
+ *     mov [edi],dx
+ * OURS:
+ *     movzx ax,byte[r] / mov dl,[g] / xor cx,cx / and dl,0FCh /
+ *     and eax,0FFF8h  / mov cl,dl / mov dl,[b] / shl eax,5 / or ecx,eax /
+ *     xor ax,ax / shr dl,3 / shl ecx,3 / mov al,dl / or ecx,eax /
+ *     mov [edi],cx
+ *
+ * SOLVED this pass: the widen-before-mask order.  `movzx r16,byte[mem]` is
+ * VC6's u8 -> unsigned short conversion, and it only survives when the
+ * converted value has a SECOND CONSUMER; with one consumer VC6 sinks the mask
+ * into the byte load (`mov dl,[r] / and dl,0F8h`) and widens afterwards, which
+ * is what every earlier spelling produced.  The ghost `if (t != r)` supplies
+ * that consumer and is then deleted (t is a u16 copy of an unsigned char, so
+ * the test is always false).  All ghost forms that VC6 can fold - `t != r`,
+ * `t != (unsigned short)r`, `t != r` before or after the store, storing
+ * through *p, `p = pal`, calling RES_CloseFile - produce byte-identical code;
+ * ghosts VC6 CANNOT fold (`t & 0x8000`, `t > 0xff`, `t >> 8`, `(t^r) != 0`,
+ * `(unsigned char)t != r`) leave their compare in and score worse.
+ *
+ * REMAINING (two symptoms, one cause): the original's red value is UNCLEAN in
+ * bits 16-31 - `and edx,0FFFFFFF8h` (83 E2 F8, 3 B) leaves the movzx's garbage
+ * upper half alone, because only dx is ever stored.  Ours is CLEAN: VC6 folds
+ * the u16->int zero-extension into the mask (`and eax,0FFF8h`, 81 E0 F8 FF, 6 B
+ * = the +3 B) and, being a clean standalone value, red is then OR'ed INTO
+ * green's register instead of being the accumulator - which also rotates the
+ * registers of the (otherwise correct) 555 arm.
+ *
+ * Ruled out for the mask, all byte-identical to `t & ~7`: 0xfff8, 0xfffffff8,
+ * -8, ~7u, (unsigned short)(t & ~7), (t>>3)<<3, (t>>3)*8, (t/8)*8, t^(t&7),
+ * (t|7)&~7, (t^7)&~7, (t&0xfff8)&~7, (t|0x10000)&~7, (t|0xffff0000)&~7,
+ * (t+0x10000)&~7, (t&0xffff)&~7, (t*1)&~7, (t+0)&~7;  temp types int /
+ * unsigned int / short / unsigned long (int types also move r out of the dead
+ * fname slot and cost ~45 more); u16-domain chains (t &= 0xfff8; t <<= 5; ...);
+ * a `static __inline int` component reader called twice (its compare survives,
+ * n=113); `if ((r & ~7) != (r & 0xf8))` (survives, n=108); green spelled
+ * ((unsigned short)g & 0xfc) / (g & 0xfc) / (unsigned short)((unsigned char)(g
+ * & 0xfc)) and blue with/without & 0x1f - all identical.
+ *
+ * THE LEAD.  Spelling red `((t | 7) ^ 7)` - the same value, but two ops, so no
+ * single `and` is formed and the result stays UNCLEAN - drops the residual to
+ * 15 mismatches: red becomes the accumulator (`shl eax,5 / or eax,ecx /
+ * shl eax,3`) and the ENTIRE 555 arm then matches instruction for instruction
+ * (indices 65-81), which it does not in any clean-value variant.  That is the
+ * proof that "unclean red" is the missing property; it just costs `or al,7 /
+ * xor eax,7` where the original has one `and`, and the two arms then share one
+ * `mov [edi],ax`.  What is still wanted is a SINGLE unclean mask instruction.
+ * A fuzz of ~75 red spellings x 3 ghost forms never produced `and r32,-8`
+ * after a movzx; note the only four `and r32,0FFFFFFF8h` sites in the whole
+ * binary are here, twice in __BMPLoader (0x44e359 / 0x44e496 - the same
+ * 565/555 palette idiom, same asymmetry, so this is a shared construct) and
+ * once in RenderFullMap (0x456f6c), where the operand is an INT already
+ * cleaned by a separate `and edi,0FFh` and has a second use (`shr edi,3`) -
+ * i.e. an int-typed byte value with two consumers.  Getting that shape here
+ * without disturbing r's home in the dead fname argument slot is the next
+ * thing to try. */
+// WIP-FUNCTION: LEGOLAND 0x00441f20  (68.3%, 101/101 insns; 565 red value is clean where the original leaves it unclean)
 unsigned short* LoadPalette(const char* fname)
 {
     unsigned short* pal;
@@ -449,7 +499,19 @@ unsigned short* LoadPalette(const char* fname)
                 RES_ReadFile(f, &g, 1);
                 RES_ReadFile(f, &b, 1);
                 if (g_screen_depth == 2) {
-                    *p = (unsigned short)(((((unsigned short)r & 0xf8) << 5)
+                    /* The 565 red term is the one place the original WIDENS r
+                     * before masking (`movzx dx,byte[r]` / `and edx,-8`); every
+                     * other component - and the 555 arm's red - masks the byte
+                     * first.  VC6 only leaves the widen unfused when the u16
+                     * conversion has a second consumer, so the compare below is
+                     * a GHOST: t is a u16 copy of an unsigned char, so `t != r`
+                     * is always false and VC6 deletes the whole `if`, but it is
+                     * still present when the narrowing decision is made.  See
+                     * the WIP note above for what is left. */
+                    unsigned short t = r;
+                    if (t != r)
+                        g_screen_depth = 1;
+                    *p = (unsigned short)((((t & ~7) << 5)
                                            | (unsigned short)(g & 0xfc)) << 3)
                        | (unsigned short)(b >> 3);
                 } else {

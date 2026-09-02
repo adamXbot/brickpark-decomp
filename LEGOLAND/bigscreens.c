@@ -617,30 +617,59 @@ extern void EnterSaveGameDetails(Icon* panel);                                /*
  *
  * 313/313 instructions, 952/952 bytes, exact except THREE: the header rect's
  * right edge (0x14e) lands in ebp here and in ebx in the original
- * (0x0048dd15 `mov ebx,14Eh` plus its two `mov [edx+8],ebx` stores). Both
- * registers are pushed and neither interferes with the value, so this is a
- * pure allocator tie-break: with exactly TWO call-crossing values in the
- * header VC6 hands out edi then ebp; with three it hands out edi, ebx, ebp
- * (measured by making a third rect field survive the second call), and with
- * esi free it hands out esi then edi. The original wants the two-value case
- * to pick edi then ebx. Ruled out as levers, all leaving the same three:
- * every permutation of the four rc field assignments (the movs are emitted
- * in field order regardless; the register follows the ASSIGNMENT order),
- * right/bottom written relative to left/top, a separate WinRect for the
+ * (0x0048dd15 `mov ebx,14Eh` plus its two `mov [edx+8],ebx` stores).  Both
+ * registers are pushed, both are free over the value's whole range (it dies
+ * at the second NewPrintCent, and `lit`/`sy` only start inside the loop), so
+ * this is a pure allocator tie-break.
+ *
+ * The rule behind it, measured this round by making extra header rect fields
+ * survive the second call (probes P_l_re / P_b_surv / P_t_surv in
+ * scratchpad/nearmiss/bs_v6.py) -- the values that CROSS the two calls are
+ * handed registers in FIELD order out of a list that depends on how many
+ * there are:
+ *      1 crossing value  -> edi
+ *      2 crossing values -> edi, ebp          <- what this function has
+ *      3 crossing values -> edi, ebx, ebp
+ * With three, `right` DOES land in ebx (l->edi, r->ebx, b->ebp), which is the
+ * original's assignment; with two, ebx is skipped.  So the fix would be a
+ * THIRD value live across both calls that costs no instruction -- and there
+ * is none: `top` and `bottom` are re-materialised for the second call
+ * (`mov eax,38h` / `mov ecx,6Ah`), and any second-call value spelled off the
+ * first (`bottom + 14h`, `top + 32h`) is constant-folded, which kills the
+ * crossing range again.  Assignment order is NOT a lever: all 24 permutations
+ * give l->edi, r->ebp.
+ *
+ * Two cut-down probes (scratchpad/nearmiss/bs_v8.py) show the list is really
+ * about which registers the FUNCTION ends up using: header + a loop that only
+ * needs esi gives 0x14e -> ebx (3 pushes, no ebp); header + a loop that needs
+ * a third register gives 0x14e -> ebp (3 pushes, no ebx).  Note ebx is the
+ * only callee-saved BYTE register and this loop needs one twice
+ * (`test byte ptr [esi+20h], bl`, `mov bl, byte ptr [esi+1Ch]`), which is the
+ * likely reason the two-value case leaves ebx alone.
+ *
+ * Ruled out, all leaving the same three: every permutation of the four rc
+ * field assignments, right/bottom written relative to left/top, re-assigning
+ * left and/or right before the second call (that re-materialises 0x14e into a
+ * volatile register instead -- 283+ mismatches), a separate WinRect for the
  * header / loop / tail (any split), an inlined print helper, the string-id
  * ternary hoisted into a local or spelled the other way round, the callee
  * prototype's parameter types, `lit` declared at function scope / as char /
- * unsigned / folded into the flag mask, sy+ty or cur+rc pinned in one
+ * unsigned / folded into the flag mask, `sy`+`ty` or `cur`+`rc` pinned in one
  * aggregate, and reading g_side_icons at four different points.  Ruled out
- * since: inlining `owner` away (reading p->u18.owner at both use sites),
- * declaring it char*, reading it before rc.left instead of between the two
- * rect stores, an extra dead local ahead of the guard, and an initialised
- * `cur`.  Note the sibling lever found in screen.c this round -- a named
- * local whose home slot the function does not otherwise need can flip a
- * whole function's callee-saved assignment -- does NOT apply here: this
- * frame is `sub esp,14h` = the 16-byte rect plus cur's slot in both, and
- * every local already has to be there. */
-// WIP-FUNCTION: LEGOLAND 0x0048dd00  (313/313 insns, 952/952 bytes, 3 mismatches: 0x14e in ebp vs ebx, see above)
+ * since: inlining `owner` away, declaring it char*, reading it before
+ * rc.left, an extra dead local ahead of the guard, and an initialised `cur`.
+ * Ruled out this round: `(p->u20.flags20 & lit)` spelling the mask CSE out,
+ * the walk as a `for`, declaring rc first, `unsigned lit`, `lit` moved inside
+ * the guarded block or the guard split into nested ifs, swapping the `owner
+ * && lit` test order, swapping `sy`/`ty`, all six dependency-legal
+ * permutations of BOTH popup tails' four rect assignments (they change the
+ * tail but never index 17), a block-scoped `Icon* d = g_delete_icon` for the
+ * leading guard, `flags = flags | 400h`, and `p` read after the guard.
+ * The screen.c lever found this round -- an enclosing block-scope local live
+ * across two disjoint inner blocks takes the LOWER frame home -- does not
+ * apply: this frame is `sub esp,14h` (the 16-byte rect plus cur's slot) in
+ * both, and nothing here is a home-slot problem. */
+// WIP-FUNCTION: LEGOLAND 0x0048dd00  (313/313 insns, 952/952 bytes, 3 mismatches, first at index 17: 0x14e in ebp vs ebx -- needs a third call-crossing header value, see above)
 void PrintSavedGameDetails(void)
 {
     Icon* p = g_side_icons;
