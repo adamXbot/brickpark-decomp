@@ -160,7 +160,7 @@ typedef struct IDSoundVtbl {
 } IDSoundVtbl;
 struct IDSound { IDSoundVtbl* lpVtbl; };
 
-extern void DeletePlayableSamples(int flag);   /* 0x00492b90 */
+extern void DeletePlayableSamples(void* def);  /* 0x00492b90: SampleDef* filter, 0 = all (audio3.c) */
 
 extern int      g_samples_ready;   /* 0x007988c0  non-zero once brought up */
 extern IDSound* g_dsound;          /* 0x007cad40  IDirectSound object */

@@ -187,6 +187,6 @@ typedef struct Sample {
 } Sample;
 
 extern SndObj* g_snd_mgr;   /* 0x007cad40 */
-extern void    DeletePlayableSamples(int flag);   /* 0x00492b90 */
+extern void    DeletePlayableSamples(void* def);  /* 0x00492b90: SampleDef* filter, 0 = all (audio3.c) */
 extern Sample* MakePlayable(void);                /* 0x00492110 */
 

@@ -131,7 +131,7 @@ extern int   RenderScaledSprite(SpriteRec* s, int x, int y, int w, int h);
                                                                     /* 0x00489080 */
 extern int   PrintSprite(void* s, int x, int y, int mode, BlitCtx* ctx);
                                                                     /* 0x004853a0 */
-extern void  UpdateSoundVols(void);                                 /* 0x00495a90 */
+extern int   UpdateSoundVols(void);                                 /* 0x00495a90 (returns 0; audio3.c) */
 extern void  ReadGameButtons(void);                                 /* 0x00452460 */
 extern void  PushRenderingStatusAndLockVideoSurface(void);          /* 0x00463fc0 */
 extern void  PopRenderingStatus(void);                              /* 0x004641f0 */
