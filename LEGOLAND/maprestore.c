@@ -100,85 +100,71 @@ typedef struct MapObj {
 extern void HeapFree_w(void* p);                          /* 0x0049e4d0 */
 extern int  GetObjSalvageValue(void* desc, int elapsed);  /* 0x00480db0 */
 extern void AddBricks(int amount);                        /* 0x004578a0 */
+/* Declared with `unsigned short tile` HERE on purpose: the callers below load
+ * the tile word 16-bit and this prototype is what produces that codegen. The
+ * definition in pathtile2.c takes `int` (dword param load; the value is never
+ * read). ABI-identical — evidently the original header and TU disagreed, as
+ * with LoadSpriteIcon (saveprof.c vs iconui.c). */
 extern void RemovePathTile(Pos* pos, unsigned short tile);/* 0x0045daa0 */
 
-/* Put the cell's GROUND tile back on display.
+/* Put the cell's GROUND tile back on display: the one-word copy base -> tile.
  *
- * WIP — 5 of the original's 13 instructions.  The body below is the function's
- * whole observable effect, but the original ends with three instructions we
- * have not been able to provoke out of VC6:
+ * The original ends with a DEAD `and dx, 0x20` (0x0045da8f): it reads
+ * g_tile_recs[base].code, masks the reserved bit, and never stores or
+ * branches on the result.  That is the ghost of a degenerate branch -- the
+ * same artefact LoadBaseMap carries at 0x00462333 (a dead `test byte ptr
+ * [..], 0x20` with no jump behind it).  VC6 merges identical if/else arms
+ * late, in the backend, and the jump-to-next-instruction that leaves is
+ * peeled off after instruction selection; the flag-setting instruction is
+ * never revisited.  So the source is a branch on the reserved flag whose
+ * arms all do the same thing.  The arms below are deliberately identical;
+ * do not "simplify" them.
  *
- *      0..5   lea eax, [ecx+eax*4]              ; c = &g_map_rows[y][x]
- *      6      mov cx,  word ptr [eax+0xa]       ; base = c->base
- *      7,8    mov edx, ecx / and edx, 0xffff    ; base zero-extended to index
- *      9      mov dx,  word ptr [edx*8+0x801f44]; g_tile_recs[base].code
- *      10     mov word ptr [eax+8], cx          ; c->tile = base  <-- our last
- *      11     and dx,  0x20                     ; ...result then DISCARDED
- *      12     ret
- *
- * The `and` writes a register nothing reads, and no branch or store follows.
- * It is dead in the shipped binary, and it is the ONLY trailing dead 16-bit
- * `and` in the whole executable (a byte scan for `66 83 E? ?? C3` finds this
- * one site and nothing else), so it is not a recurring macro — it is one
- * unlucky function.
- *
- * WHAT IT ALMOST CERTAINLY IS.  `and dx,0x20` is 4 bytes; `test dx,0x20` is 5
- * (a 16-bit test takes a full imm16, F7 /0 iw).  VC6 swaps `test` for `and`
- * whenever the destination register is dead afterwards and the `and` encodes
- * shorter — which for a WORD register it does, and for a BYTE register it does
- * not (both 3 bytes, so byte comparands keep `test`).  So instruction 11 is a
- * *test* whose conditional jump landed on the very next instruction and was
- * peeled off by the final peephole.  The source is therefore an `if` on
- * `g_tile_recs[base].code & 0x20` whose arms generate nothing.
- *
- * WHAT WE COULD NOT DO: make VC6 keep BOTH the full-word load and the mask.
- * Everything below was compiled and inspected; each fails in one of two ways.
- *   (a) Dead value, everything vanishes — an empty `if`, `if (...) return;`,
- *       `while (...) break;`, `do {...} while (0)` + break, an empty `switch`,
- *       `goto` to the next line, an inlined empty function call, a body whose
- *       only statement CSEs away, assignment to an unused local / a parameter
- *       / a `register` local, and a bare `expr;` statement (which earns only
- *       warning C4552).  All collapse to the 9-instruction body below.
- *   (b) Live value, and then VC6 will give us the word load or the mask but
- *       never both, because a 0x20 mask lets it narrow the load to a byte:
- *         - degenerate branch `if (code & 0x20) c->tile = base; else c->tile =
- *           base;` merges the arms and DOES keep the condition — but as
- *           `mov bl,byte [..]` + `test bl,0x20` (byte register, so `test`
- *           wins), plus a push/pop ebx pair.
- *         - `(code & 0x20) == 0x20` with the same degenerate arms yields
- *           `mov dl,byte` / `and dl,0x20` / `cmp dl,0x20` — the mask survives
- *           because the compare needs its value, but still byte-wide.
- *         - keeping `code` live-out instead (degenerate arms that are no-ops)
- *           gives the full-word `mov dx,word [edx*8+..]` and drops the mask,
- *           replacing instruction 11 with a dead `mov [esp+4],edx` spill.
- *           That form is 13 instructions / 52 bytes — the original's exact
- *           length, with exactly one instruction different — but it is
- *           nonsense source (`if (code) base = base; else base = base;`), so
- *           it is not what we ship.
- *         - returning the pair as an 8-byte `struct { Cell* cell; unsigned
- *           short flag; }` (cell in EAX, flag in EDX) emits all 13 original
- *           instructions in order, then adds a `sub esp,8` frame and a
- *           `mov [esp+4],dx / mov edx,[esp+4]` round-trip to assemble the
- *           sub-dword member.  Widening that member to `unsigned int` removes
- *           the round-trip but re-narrows the load to `mov dl,byte` and the
- *           mask to `and edx,0x20`.  VC6 always round-trips a sub-dword
- *           member of a register-returned struct, so this is a dead end.
- *         - marking the table `volatile` keeps the full-word load (matching
- *           instructions 0..10) but still drops the mask.
- * The missing ingredient is whatever makes VC6 hold the tile code in a 16-bit
- * register while treating it as dead.  Ideas for the next attempt: a 16-bit
- * comparand that spans both bytes of the word in the ORIGINAL source (folded
- * to 0x20 only after narrowing decisions), or a `code` whose second use lives
- * in a block removed after register allocation. */
-// WIP-FUNCTION: LEGOLAND 0x0045da60  (5/13 = 38.5%, trailing dead `and dx,0x20` unreproduced)
+ * Why it is a 16-bit `and` on a full-word load, and not LoadBaseMap's
+ * `test byte ptr` (every lever below was measured; see scratchpad/rbm):
+ *   - `if (code & 0x20) X; else X;` alone is a pure flag test: VC6 narrows
+ *     the load to a byte and emits `test bl, 0x20` (+ push/pop ebx) or
+ *     `test byte ptr [..], 0x20` straight from memory.
+ *   - A u16 register temp `f = code & 0x20` is int-typed: the mask becomes
+ *     `and edx, 0x20` (VC6 treats and-immediate as a free zero-extension
+ *     and widens every single-use one) and the load is byte-narrowed again.
+ *   - The `and` stays 16-bit only when the masked value has MORE THAN ONE
+ *     consumer that needs it as a 16-bit VALUE.  Here that is the equality
+ *     compare `reserved == TILE_RESERVED` -- a compare against the flag
+ *     value, not against zero (`else if (reserved)` / `!= 0` collapse back
+ *     to the byte test) -- plus the first arm's test, which the optimiser
+ *     CSEs with it.  Two consumers block the widening, and a value compare
+ *     cannot be byte-narrowed, so the word load survives.
+ *   - VC6 knows `x & 0x20` is 0 or 0x20, so once the first arm has tested
+ *     it against zero the second compare folds away; the first test is
+ *     fused into the `and` (same width), the three arms merge, both jumps
+ *     go, and only the value-producing `and dx, 0x20` is left.
+ *   - The register allocation (c in EAX, base in CX, index/code in EDX) is
+ *     the other half of the lever: deriving `reserved` from a `code` local
+ *     instead of a second `g_tile_recs[base].code` read, or swapping the
+ *     first two arms, makes VC6 fold the base load into the address
+ *     (`mov dx, [ecx+eax*4+0xa]`) and lands the body in the EAX/ECX swap:
+ *     13 instructions, 52 bytes, 7 mismatches.  Reading the table word
+ *     twice (CSE'd into one load) keeps the `lea` first.
+ * A u16 memory destination (`c->flags = code & 0x20; if (c->flags) ...`)
+ * also yields the 16-bit `and` but leaves its store behind; a `volatile`
+ * read keeps the word load but drops the mask.  Neither is needed. */
+#define TILE_RESERVED 0x20   /* tile code bit: build-footprint reserved */
+
+// FUNCTION: LEGOLAND 0x0045da60
 void RestoreBaseMap(int x, int y)
 {
     Cell* c = &g_map_rows[y][x];
     unsigned short base = c->base;
+    unsigned short reserved = g_tile_recs[base].code & TILE_RESERVED;
 
-    c->tile = base;
-    /* The original then reads g_tile_recs[base].code, masks it with 0x20 and
-     * throws the result away.  Omitted: VC6 removes it. See the note above. */
+    /* All three arms are the same on purpose (see above). */
+    if ((g_tile_recs[base].code & TILE_RESERVED) == 0)
+        c->tile = base;
+    else if (reserved == TILE_RESERVED)
+        c->tile = base;
+    else
+        c->tile = base;
 }
 
 /* Free the whole perimeter/cliff terrain-object list and null the head.

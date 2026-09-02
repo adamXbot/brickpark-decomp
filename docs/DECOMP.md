@@ -65,9 +65,9 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 **As of 2026-09-02: 472 functions at 100% — 444 of the 675 code exports
 (65.8%) plus 28 recovered internal functions.** (716 symbols are exported; 41
-are data.) 11 WIP: three genuine partials (`ClampScrollToMap` 0x00461290,
-`UpdateControllerFromMouseData` 0x00473b00, `RestoreBaseMap` 0x0045da60) and
-eight void tail-jump wrappers that `tools/audit.py` certifies exact but that are
+are data.) 10 WIP: two genuine partials (`ClampScrollToMap` 0x00461290 at 187/190,
+`UpdateControllerFromMouseData` 0x00473b00 at 102/109) and eight void
+tail-jump wrappers that `tools/audit.py` certifies exact but that are
 held only for tooling (see "Tail-jump functions" below). Counts come from
 committed markers (`git ls-files 'LEGOLAND/*.c' | xargs grep -h '^// FUNCTION: LEGOLAND' | wc -l`);
 `tools/progress.py` reads the working tree, so run it on a clean checkout.
@@ -323,6 +323,17 @@ the same rule (the change is the `true_extent`/`end_of_body` pair in
 `tools/audit.py`).
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
+
+- **A dead `and dx, 0x20` is a merged-arm ghost, not a peephole.** `RestoreBaseMap`
+  (0x0045da60) computes `code & 0x20` into dx and never uses it. The C that
+  produces it: a u16 temp `reserved = code & 0x20` consumed by a compare against
+  the flag *value* (`reserved == 0x20`, not `!= 0`) inside a three-arm
+  `if / else if / else` whose arms are all the same one-word store. VC6's range
+  knowledge folds the second compare, fuses the first test into the `and`, merges
+  the identical arms late and peels the jump — leaving only the `and`. A
+  register-resident flag *test* is spelled `test dl, 0x20`; a 16-bit *value* op
+  survives only with more than one 16-bit consumer. `LoadBaseMap` has the same
+  ghost at 0x00462333 (`test byte ptr [..], 0x20` with no jump).
 
 Recorded so they are not re-derived; several cost hundreds of measured variants:
 
