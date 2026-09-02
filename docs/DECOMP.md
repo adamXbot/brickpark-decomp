@@ -384,6 +384,24 @@ the same rule (the change is the `true_extent`/`end_of_body` pair in
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **Stashed u16 fields are not always u16 locals.** A `u16` field saved into a
+  local and restored later may well be an `int` local: check the width of the
+  STORE. `xor ecx,ecx / mov cx,[map+0x20] / mov DWORD [esp+N],ecx` is a
+  zero-extending load into a FOUR-byte spill home, where an `unsigned short`
+  local emits a 2-byte `mov word ptr`. In `RenderFullMap` that one type change
+  was worth 151 of 1064 mismatches.
+- **A zero register displaces, it does not just substitute.** A function-wide
+  constant zero parked in a callee-saved register costs more than the
+  `test reg,reg` forms: it pushes whatever WOULD have used that register into
+  another callee-saved one, whose live range then runs to the end of the
+  function, so VC6 can no longer sink that register's push. One zero in a tail
+  can therefore turn a split prologue into an entry prologue, rename every
+  register and shift the whole frame by a slot (`RenderView`). When asking "why
+  are the pushes at the entry", look at which register the ORIGINAL frees at
+  its pop point, not at first use.
+- **Array indexing form decides scaling.** `arr[i].x` with an unscaled `i`
+  gives `shl`/`add` plus based stores; `*(int*)((char*)arr + i)` with `i`
+  pre-scaled lets VC6 fold the scale into an `lea`.
 - **Frame layout (the lever that finished `SaveGame`, 1196 instructions).** VC6
   lays the frame out as **[block-scope pool][function-level locals in
   DECLARATION order, ascending]**, so the width of the block-scope pool decides
