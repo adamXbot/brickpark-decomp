@@ -710,6 +710,30 @@ extern void*       g_slide_anim;   /* 0x006160e4  its 3D rider animation */
  * hand eax to spot.x and edx to spot.y (the original has them the other way
  * round) and cost 65; `b->target = spot;` as a struct copy moves three frame
  * homes; storing y before x costs 221.  2 is the floor of ~15 variants. */
+/* THIS ROUND the two remaining instructions were pinned down to a choice
+ * between TWO spellings, each of which gets half of the pair right, and the
+ * halves are mutually exclusive:
+ *   * SCHEDULE.  An inlined two-scalar setter whose body stores y then x --
+ *     `static __inline void Set(Bloke* b, int y, int x) { b->target.y = y;
+ *     b->target.x = x; }` -- produces the original's exact schedule
+ *     (load x, load y, store x, `lea ecx,[esi+0x98]`, store y): VC6 emits the
+ *     argument loads in the REVERSE of the body's use order, and the address
+ *     of the CalcMoveLine path argument then sinks between the two stores.
+ *     But the whole block comes out rotated one register (x in eax, y in edx,
+ *     the lea in eax) where the original has x in edx, y in eax, lea in ecx,
+ *     and that rotation costs 65.  Param order in the call is inert; only the
+ *     helper body's statement order moves the loads.
+ *   * REGISTERS.  Making the spot.y read volatile
+ *     (`b->target.y = *(volatile int*)&spot.y;`) keeps the original's
+ *     registers AND fixes the lea's position, leaving a different pair of two
+ *     -- the x store now precedes the y load instead of following it.  Same
+ *     score, an extra volatile that is not in the original, so not shipped.
+ * `b->target = spot;` (the natural 8-byte-pair spelling, which is what the
+ * original's shape suggests) is rejected for a THIRD reason, now understood:
+ * the struct assignment re-pools the two address-taken Pos locals -- `exit`
+ * moves 0x18 -> 0x20 and `spot` 0x34 -> 0x2c -- and no permutation of the
+ * thirteen declarations moves them back (address-taken locals pool by FIRST
+ * USE, not declaration order; all six orders were measured identical). */
 // WIP-FUNCTION: LEGOLAND 0x0042d610  (99.3%, one two-instruction schedule swap in case 0)
 void EarthSlide_Tick(RideElem* elem)
 {

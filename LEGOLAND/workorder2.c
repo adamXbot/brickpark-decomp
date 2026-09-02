@@ -798,26 +798,40 @@ int WorkerHitOnRide(void)
  * already carries CF_REPAIRORDER (0x4000) is refused; a new order sets it.
  * `cell` (optional) receives the order's near corner. As in WorkerHitOnRide
  * the cell and its object are dereferenced with no null check. */
-/* Same instruction count as the original (129) and the same shape all the way
- * through -- the 0x4000 mask living in a register, the u16 cell flags spilled
- * to a dword home, the goto-merged failure returns, the two sample arms and
- * the `out` fill are all there. The residual is one register decision that
- * renames everything downstream: the original parks the MAP POINTER in EBX
- * (so `push ebx` sits at the entry and the two extent temps take EAX and EDX),
- * where VC6 gives us the map in EDX, reuses EAX for both extent temps, and
- * sinks the `push ebx` into the post-guard path -- EBX then only ever holds
- * the mask. The map's live range ends before AddRepairOrderForObject, so
- * nothing in the source makes VC6 prefer a callee-saved register for it;
- * declaration order, guard polarity, `register`, mask width and an
- * initialised mask were all tried and change nothing. */
-// WIP-FUNCTION: LEGOLAND 0x004704b0  (129/129 insns, map in EDX not EBX: the ebx push sinks and every register downstream is renamed)
+/* SOLVED (129/129, 363/363 bytes) by three separate source facts, all of
+ * which are worth reusing:
+ *
+ * 1. THE MAP POINTER LIVES IN EBX because the `map` LOCAL is used ONLY by the
+ *    bounds guard; the two service tests read the GLOBAL directly
+ *    (`g_wmap->gardeners` / `g_wmap->mechanics`).  Reading them through the
+ *    local instead makes VC6 keep `map` in a caller-saved EDX, reuse EAX for
+ *    both u16 extent temps and SINK the `push ebx` into the post-guard path.
+ *    Counter-intuitively, giving a value FEWER source uses is what buys it a
+ *    callee-saved home: with one live range that dies at the guard VC6 parks
+ *    it in EBX and rematerialises the global at each later use, which is
+ *    exactly what the original does (it even reloads EBX at 0x47053a after
+ *    borrowing it to compare the worker type).
+ *
+ * 2. THE FAILURE RETURN MUST BE THE FUNCTION'S LAST BLOCK.  Written as
+ *    `if (!(flags & 0x88)) goto none;` with `none: return 0;` at the bottom,
+ *    VC6 inverts the test and emits the 4-pop `return 0` epilogue INLINE
+ *    there, so every later block shifts.  Wrapping the whole body in
+ *    `if (flags & 0x88) { ... }` and ending with a bare `return 0;` keeps the
+ *    success path falling through and puts the second epilogue at the end,
+ *    where the original has it.
+ *
+ * 3. `o = 0` MUST BE INITIALISED BEFORE `y`.  The zeroing of the result and
+ *    the `h >> 8` are independent, and VC6 emits them in declaration order:
+ *    with `y` declared first the `shr eax,8` beats `xor esi,esi` and the
+ *    interleaved `push edi` lands on the wrong side of both. */
+// FUNCTION: LEGOLAND 0x004704b0
 WorkOrder* WorkOrderNearHit(Pos* cell)
 {
     WMap*          map = g_wmap;
     unsigned int   h = g_hit_cell & 0xffff;
     int            x = h & 0xff;
-    int            y = h >> 8;
     WorkOrder*     o = 0;
+    int            y = h >> 8;
     Cell*          c;
     unsigned short flags;
     WClass*        cls;
@@ -828,42 +842,41 @@ WorkOrder* WorkOrderNearHit(Pos* cell)
     else
         c = 0;
     flags = c->flags;
-    if (!(flags & 0x88))
-        goto none;
-    cls = ((MapInst*)c->obj)->cls;
-    if (!cls->max_cond)
-        goto done;
-    if ((cls->flags & 0x200000) && g_worker_on_mouse_type == 0x307
-        && map->gardeners) {
-        mask = 0x4000;
-        if (flags & mask)
+    if (flags & 0x88) {
+        cls = ((MapInst*)c->obj)->cls;
+        if (!cls->max_cond)
             goto done;
-        o = AddRepairOrderForObject(cls, x, y);
-        if (!o)
+        if ((cls->flags & 0x200000) && g_worker_on_mouse_type == 0x307
+            && g_wmap->gardeners) {
+            mask = 0x4000;
+            if (flags & mask)
+                goto done;
+            o = AddRepairOrderForObject(cls, x, y);
+            if (!o)
+                goto done;
+        } else if ((cls->flags & 0x400000) && g_worker_on_mouse_type == 0x308
+                   && g_wmap->mechanics) {
+            mask = 0x4000;
+            if (flags & mask)
+                goto done;
+            o = AddRepairOrderForObject(cls, x, y);
+            if (!o)
+                goto done;
+        } else {
             goto done;
-    } else if ((cls->flags & 0x400000) && g_worker_on_mouse_type == 0x308
-               && map->mechanics) {
-        mask = 0x4000;
-        if (flags & mask)
-            goto done;
-        o = AddRepairOrderForObject(cls, x, y);
-        if (!o)
-            goto done;
-    } else {
-        goto done;
-    }
-    c->flags |= (unsigned short)mask;
-    if (cell) {
-        cell->x = o->pos.x + o->rects->left;
-        cell->y = o->rects->bottom + o->pos.y;
-    }
-    if (g_worker_on_mouse_type == 0x307)
-        PlayInstanceOfSample(g_sample_gardener, 0, 1, 0);
-    else
-        PlayInstanceOfSample(g_sample_mechanic, 0, 1, 0);
+        }
+        c->flags |= (unsigned short)mask;
+        if (cell) {
+            cell->x = o->pos.x + o->rects->left;
+            cell->y = o->rects->bottom + o->pos.y;
+        }
+        if (g_worker_on_mouse_type == 0x307)
+            PlayInstanceOfSample(g_sample_gardener, 0, 1, 0);
+        else
+            PlayInstanceOfSample(g_sample_mechanic, 0, 1, 0);
 done:
-    return o;
-none:
+        return o;
+    }
     return 0;
 }
 
@@ -1104,18 +1117,31 @@ WorkOrder* AddMechanicWorkOrder(ObjElem* elem, Pos* pos, int kind)
  * RF direction bits are dropped, the path tile and a path square are laid, and
  * the map is marked dirty (0x10). Finally the INTERIOR of the selected
  * footprint (inset by one on every side) is re-tiled. */
-/* 191 of 201 instructions, and the whole control-flow skeleton (the two
- * cursor walks with their duplicated epilogue, the rect-list accumulation, the
- * three-deep re-tile nest and the interior pass) is index-for-index exact. The
- * residual is five PAIRS of adjacent loads in the interior pass: for
- * `origin + rect_field +/- 1` the original loads origin.y first in the y bound
- * and the rect field first in both x expressions, where VC6 gives us the
- * reverse for x and for the y bound. The two `mov`s are otherwise identical
- * and the `lea` that consumes them matches; only which register holds which
- * load differs. Source operand order does not reach it: every permutation
- * tried (a+b+/-1, a+(b+/-1), (a+/-1)+b, while- instead of for-loops, the rect
- * reached through a Rect* local) produces the same schedule. */
-// WIP-FUNCTION: LEGOLAND 0x0045d770  (191/201 insns, 5 swapped load pairs in the interior re-tile nest)
+/* SOLVED, and the lever generalises -- write it down.  201/201.
+ *
+ * The interior pass computes four bounds of the form `origin_field +
+ * rect_field +/- 1`, each folded into one `lea`.  Which of the two loads VC6
+ * emits FIRST is NOT decided by source operand order: every permutation
+ * (a+b+/-1, a+(b+/-1), (a+/-1)+b, -1+a+b, while- instead of for-loops, an
+ * inlined field getter, and even a flat struct with the same offsets) emits
+ * the identical schedule.  VC6 SP3 canonicalises a commutative sum of two
+ * independent loads by an internal key.
+ *
+ * What DOES move that key is giving one side a DIFFERENT BASE SYMBOL: assign
+ * `Rect* r = &sel->rect;` / `Pos* o = &sel->origin;` and spell the operand
+ * `r->bottom` instead of `sel->rect.bottom`.  VC6 still folds the address
+ * back to `[ebp+0x1420]`, so not one instruction changes -- but the operand
+ * now sorts on `r` rather than on `sel`, and the pair flips.  The key follows
+ * the ORDER THE ALIASES ARE CREATED (assigning `o` before `r` flips every
+ * site the other way), and it is global to the region, so the four sites
+ * cannot be tuned independently -- the fourth bound has to fall back to the
+ * direct `sel->origin.x` spelling to land on the original's order.
+ * Aliases only work when they introduce a genuinely new base: `&a->x` (a
+ * zero offset) and a pointer to a whole stack local both fold away and change
+ * nothing, which is why simcore.c's IsAdjacentPos and joust.c's
+ * TempleSlide_Draw -- the same canonicalisation over two POINTER PARAMETERS
+ * and over two STACK LOCALS -- are still open. */
+// FUNCTION: LEGOLAND 0x0045d770
 void RefreshObjList(Cursor* head)
 {
     Pos     p;
@@ -1123,6 +1149,7 @@ void RefreshObjList(Cursor* head)
     Cursor* c;
     Cursor* sel;
     Rect*   r;
+    Pos*    o;
     int     i;
 
     c = head;
@@ -1183,10 +1210,12 @@ found:
         } while (i < g_obj_rect_count);
     }
     g_path_gfx_batch = 1;
-    for (p.y = sel->rect.top + sel->origin.y + 1;
-         p.y <= sel->origin.y + sel->rect.bottom - 1; p.y++) {
-        for (p.x = sel->rect.left + sel->origin.x + 1;
-             p.x <= sel->rect.right + sel->origin.x - 1; p.x++)
+    r = &sel->rect;
+    o = &sel->origin;
+    for (p.y = r->top + o->y + 1;
+         p.y <= o->y + r->bottom - 1; p.y++) {
+        for (p.x = r->left + o->x + 1;
+             p.x <= r->right + sel->origin.x - 1; p.x++)
             AddPathTileGFX(&p, *(unsigned short*)g_path_tile_ptr);
     }
     g_path_gfx_batch = 1;

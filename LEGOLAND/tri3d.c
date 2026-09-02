@@ -372,6 +372,25 @@ void Render_SetPixelFormat(int greenBits)
  *      `short`, an `int` intermediate assigned then cast, `(unsigned int)a <<
  *      shift`, `a * (1 << shift)` (which rewrites the whole prologue), and a
  *      second `unsigned short` copy of `a`. */
+/* THIRD PASS, both halves re-measured, no movement:
+ *  (a) THE ZERO REGISTER is a register-choice, not a schedule, problem.  The
+ *      original zeroes ECX -- the register that held the shift count -- which
+ *      it can only do AFTER `shr eax,cl`, so the xor lands between the shift
+ *      and the first push.  VC6 here finds EDX free and zeroes it before the
+ *      shift.  Confirmed again that `m = max;` before `i = 0;` moves the xor
+ *      but drops the frame to `sub esp,8` (VC6 then overlaps `i` with the
+ *      dead u64 staging slot), so the current order is still the only one
+ *      with the original's 0xc frame.
+ *  (b) THE 16-BIT STASH.  Four more spellings of the c2 term measured and
+ *      rejected: `(unsigned short)((unsigned short)a << shift)`, the bare
+ *      `a << shift` with the implicit narrowing at the store, an explicit
+ *      `0xffff & (a << shift)` mask, and a second `unsigned short` copy of `a`
+ *      feeding the shift.  All four still emit the 32-bit `mov edi,eax` and
+ *      shift through edx.  Note the original's `mov eax,edi / shl eax,cl` is
+ *      reading edi's DIRTY high half on purpose -- the low 16 bits of a left
+ *      shift depend only on the low 16 bits of the operand, and the result is
+ *      stored as a word -- which is why it can afford the 16-bit `mov di,ax`
+ *      in the first place. */
 // WIP-FUNCTION: LEGOLAND 0x004860f0  (43/43 insns, 9 mismatches: `mov di,ax` narrowing)
 void BuildChannelTables(void)
 {

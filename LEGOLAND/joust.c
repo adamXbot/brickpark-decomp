@@ -353,6 +353,27 @@ JoustRec* Joust_AddRecord(RideTile* tile)
  * operand, a hand-peeled first test, a goto-form loop, and the rotated
  * `while ((rec = rec->next) != 0)` walk -- every one of them hoists the tile
  * key.  The both-volatile form still measures 14/16 and is still not shipped. */
+/* THIRD PASS.  The volatile family was re-measured properly this round and it
+ * splits the residual into two INDEPENDENT halves, which is new information:
+ *   * ROLES (which side of `cmp` is the register).  Casting the RECORD read
+ *     volatile -- `((volatile JoustRec*)rec)->tile.key != *pk` with
+ *     `volatile unsigned short* pk = &tile->key;` -- reproduces the original's
+ *     `mov dx,[eax] / cmp dx,[ecx]` exactly, 16 instructions, 14/16.  The rule
+ *     the measurements imply: the volatile operand takes the register, and
+ *     when both are volatile the LEFT one does.
+ *   * ORDER (which of the two independent loads comes first).  In that shape
+ *     VC6 emits the record's volatile read before the plain `mov ecx,[esp+4]`
+ *     that materialises the tile pointer.  Making the PARAMETER read volatile
+ *     as well (`RideTile* volatile tile`, or `*(RideTile* volatile*)&tile`)
+ *     does put `mov ecx,[esp+4]` first -- but it also flips the roles back.
+ *     Every combination of the two was tried (10 shapes); no spelling gets
+ *     both, and hoisting the pk assignment above the head test, using a
+ *     Pos-style alias, or a plain local copy of the parameter do not move it.
+ * Also re-confirmed dead: an inlined `SameTile(&rec->tile, tile)` helper, a
+ * `for (;;)` with the key read into a local, and a double-test loop -- VC6
+ * hoists `tile->key` out of the loop in all of them.  The shipped body stays
+ * volatile-free; the open question is still why the original's VC6 never
+ * hoisted that loop-invariant load. */
 // WIP-FUNCTION: LEGOLAND 0x00407a20  (15 of 16 instructions, audit mismatch 8/16: invariant tile-key hoist, the original re-reads the tile key as the compare's memory operand)
 JoustRec* Joust_FindRecord(RideTile* tile)
 {
@@ -890,6 +911,22 @@ extern RenderList g_ts_blokelist;    /* 0x004cbf84 */
  * volatile puts rider first at index 84) but wrecks the add direction and
  * costs 12-13.  This is the same commutative canonicalisation as simcore.c's
  * IsAdjacentPos; treat the two as one open question. */
+/* THE LEVER THAT FINISHED workorder2.c's RefreshObjList DOES NOT REACH THIS
+ * ONE, and the reason is worth recording.  There the same canonicalisation
+ * (VC6 SP3 sorting the two independent loads of a commutative sum by an
+ * internal key that no source operand order touches) was moved by spelling one
+ * operand through a pointer local with a DIFFERENT BASE SYMBOL --
+ * `Rect* r = &sel->rect;` then `r->bottom`.  VC6 folds the address straight
+ * back, so no instruction changes, but the operand sorts on `r` instead of on
+ * `sel` and the pair flips.  Here the two operands are two whole STACK LOCALS
+ * (`rider`, `exit`), and `Offset* pr = &rider;` folds to the same
+ * `[esp+0x24]` with no new symbol at all: measured, all three of pr/pe/both
+ * leave the schedule bit-identical.  Putting the two Offsets in one aggregate
+ * (`struct { Offset exit; Offset rider; }` or `Offset eo[2]`, in either
+ * order) DOES create a new symbol, but an aggregate local is placed at the top
+ * of the frame, which moves every home and costs 12-13.  Volatile on either
+ * operand flips the order and wrecks the add direction (12-13).  So the four
+ * instructions stand. */
 // WIP-FUNCTION: LEGOLAND 0x00416fa0  (116/120; two pairs of independent stack loads scheduled in the opposite order)
 void TempleSlide_Draw(RideElem* elem, int x, int y, RideTile* sq,
                       void* clip, int mode)
@@ -1326,6 +1363,20 @@ static __inline void Joust_DrawBand(Bloke** here, char n, int code)
  * straight out; ebp's value is dead two instructions later, so it is a pure
  * allocator artefact -- but it is the only other place ebp is claimed before
  * the bands. */
+/* THIS ROUND: the diagnosis above is confirmed by an LCS alignment of the two
+ * bodies (scratchpad/finish/f2/lcs.py) -- the ONLY structural difference is
+ * the five/twenty-two dropped `test bl,bl / jle` guards plus the `movsx`
+ * hoist that enables them, and the `mov ebp,eax` at index 28.  Four more
+ * spellings measured and rejected: a `char` loop counter in the band helper
+ * (504 instructions -- VC6 then keeps the whole count in a byte register and
+ * the shape diverges further), an `int n` helper parameter (567), swapping
+ * the helper's `i = n;` and `p = here;` (identical), and a function-like
+ * MACRO in place of the static __inline (identical).  Also re-measured: a
+ * local `int m = mode;` assigned at the top of the `n != 0` block and used
+ * for the three grouped PrintSprite calls is completely inert -- VC6
+ * rematerialises the parameter from `[esp+0x70]` at each call whatever the
+ * source says, so the only way to free ebp for `mode` is to stop the count
+ * hoist, not to make `mode` look more valuable. */
 // WIP-FUNCTION: LEGOLAND 0x00408580  (542 of 552 instructions under audit.py, mismatch 476; frame exact, per-band count re-test still folded -- see above)
 void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode)
 {

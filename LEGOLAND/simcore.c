@@ -782,6 +782,18 @@ static __inline Cell* RouteCellAt(Pos* p)
  * the goal test x 2 else-block spellings, `to = cur->pos`, field assignments
  * in both orders, a named `cx` temporary defined before or inside the else,
  * and hoisting `to = cur->pos` above the test.) */
+/* THIS ROUND, three more shapes measured and all rejected -- the residual is
+ * unchanged at indices 31/32/38.  (i) A `Pos* cp = &cur->pos;` alias for the
+ * else block, for the goal test, or for both: VC6 folds the alias back to
+ * `[esi+8]` but then treats it as a SEPARATE value, so the goal test's read is
+ * not CSE'd at all and index 38 stays a reload -- the opposite of what is
+ * wanted.  (This is the lever that finished workorder2.c's RefreshObjList; it
+ * moves a commutative operand ORDER, it does not create a register copy.)
+ * (ii) `to.x = cur->pos.x; to.y = cur->pos.y - 1;` with the RouteInBounds
+ * argument spelled `cur->pos.x` (three uses) still reproduces indices 25-37
+ * exactly and only loses the store/push interleave.  (iii) All four operand
+ * orders of the goal test are inert -- the compare direction follows the
+ * source but the register assignment does not. */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)
 {
@@ -980,6 +992,22 @@ void RequestRoute(Pos from, Pos to)
  * leaving the two terms in source order; that single fact also fixes the
  * register roles (a in esi, b in edi, |dx| in ecx) and the extra
  * `mov eax,edi`. */
+/* SAME CANONICALISATION AS workorder2.c's RefreshObjList, and this round's
+ * lever does NOT reach it.  There, `origin_field + rect_field +/- 1` came out
+ * with the two loads in the wrong order until one side was spelled through a
+ * pointer local with a DIFFERENT BASE SYMBOL (`Rect* r = &sel->rect;` ->
+ * `r->bottom`), which VC6 folds back to the identical addressing mode but
+ * sorts on the new base -- that finished RefreshObjList exactly.  Here the two
+ * operands already come from two DIFFERENT base symbols (the parameters `a`
+ * and `b`), so there is no new base to introduce: `int* ay = &a->y;` folds to
+ * `a` + 4 and changes nothing, and neither do temporaries for the two abs()
+ * results in either order, `abs(b->x - a->x)`, an explicit
+ * `if (d < 0) d = -d;` (20 instructions, a different shape), `1 == sum`, or
+ * parenthesising the sum.  The whole 24-instruction body is a rotation of the
+ * original's: the original computes the X term first into ecx and the Y term
+ * second into eax (so `add eax,ecx` leaves the result in eax and the two pops
+ * interleave into the dead operand registers), where VC6 gives us Y first in
+ * edi and a closing `mov eax,edi`. */
 // WIP-FUNCTION: LEGOLAND 0x00450500  (95.8%, VC6 canonicalises the commutative sum to Y-first; one extra result move)
 int IsAdjacentPos(Pos* a, Pos* b)
 {

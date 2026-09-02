@@ -526,6 +526,27 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
  * flow graph, not from anything spellable in the declarations -- that is the
  * open question, and it is worth answering once because the same swap is the
  * whole residual. */
+/* THIS ROUND.  softblit2.c's SoftBlitAnimPlain (0x00464480), the plain sibling
+ * of this function, is now matched at 100%, and its five pool homes come out in
+ * exactly the order this one wants:  f, pass, ctrl, npasses, data (ascending).
+ * The only structural difference between the two is that AnimPlain's `frame`
+ * lands in the DEAD `lls` parameter slot -- AnimPlain never touches `lls`
+ * inside the pass loop, so the parameter home is free -- whereas here `lls` is
+ * re-read in arms 1 and 3 (`lls->frame`), its home stays live, and `frame`
+ * takes a pool slot at -4.  Adding `frame` at the head of the pool is what
+ * flips data and npasses: without it we get the original's order, with it we
+ * get the reverse.  That is a real clue: whatever orders the pool is sensitive
+ * to how many entries precede these two, not to how they are spelled.
+ * Also measured inert this round (all byte-identical to the committed body):
+ * five more declaration orders (confirming again that declaration order does
+ * nothing here); `npasses = 1` moved after the clamp, spelled as an if/else,
+ * as a ternary, or with g_sp_rowlen first; routing `frame` through a register
+ * temp (`n = g_frame_override; if (n < 0) n = lls->frame; frame = n;`);
+ * flipping arm 1's `goto basepal` polarity; giving arm 3 an `n16` temp;
+ * reordering ctrl/data/n16/g_sp_pal16 inside arms 2 and 3; and every
+ * post-decrement (`while (n--)`) spelling of both frame walks -- the walk
+ * itself already matches here because `frame` is dead after arm 1's loop, so
+ * VC6 uses its register in place and needs no copy at all. */
 // WIP-FUNCTION: LEGOLAND 0x00465240  (98.1%: 407/415 insns, 1544/1544 bytes; mismatch=8, all of them the npasses/data frame homes swapped -- see the note above)
 void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
 {
@@ -1121,7 +1142,47 @@ extern const char m_zone_western[];      /* 0x004b9f98 */
  * instructions closer: the strict index-for-index compare is dominated by the
  * one-instruction-per-case shift, so read the instruction count here, not the
  * mismatch. */
-// WIP-FUNCTION: LEGOLAND 0x00469400  (359i/1184B vs the original's 363i/1155B; the 11 residual instructions are merged `add esp` pairs -- see above)
+/* SOLVED THIS ROUND (the diagnosis, not the codegen).  The original's source
+ * is the SHARED-TAIL form -- one `RemoveGoals(g->code);` after the switch, not
+ * one per case -- and VC6 duplicated that five-instruction tail into all 21
+ * predecessors during final block layout.  Three independent proofs:
+ *   (a) VC6 ALWAYS folds two adjacent __cdecl cleanups.  Measured on isolated
+ *       one-line functions: `A(f,x); R(y);` gives `call A / mov / push / call R
+ *       / add esp,0Ch` with no `add esp,8`, and that holds with a statement
+ *       between them, with an unprototyped callee, and with a value-returning
+ *       callee.  The ONLY thing that splits the pair is a basic-block boundary
+ *       (`if (c) R(y);` gives `add esp,8 ... add esp,4`).  So the original's 21
+ *       split pairs CANNOT come from source-level `AddHelpMessage(); 
+ *       RemoveGoals();` in one block, however it is spelled.
+ *   (b) All 21 of the original's tails are byte-identical
+ *       (`mov edx,[esi+0Ch] / push edx / call 4693B0 / add esp,4 /
+ *        jmp 469406`) yet are NOT cross-jumped, while our per-case form gets
+ *       cross-jumped into 9 shared blocks grouped by cleanup size.  Identical
+ *       blocks that survive cross-jumping can only have been created AFTER
+ *       that pass -- i.e. by late duplication.
+ *   (c) The arithmetic closes exactly.  Rewriting the body with one shared tail
+ *       (each case just `break;`) compiles to 285 instructions whose cleanup
+ *       histogram is the original's minus the duplicates: 18x `add esp,8`,
+ *       1x `add esp,0Ch`, 3x `add esp,4` against the original's 18 / 1 / 23.
+ *       Un-rotating the loop saves 2 (the rotated latch `mov esi,g /
+ *       add esp,4 / test / jne` becomes `add esp,4 / jmp header`), and
+ *       duplicating the 5-instruction tail over 20 predecessors that currently
+ *       end in `jmp tail` adds 4 each:  285 - 2 + 80 = 363, the original's
+ *       exact count.
+ * WHAT BLOCKS IT: our VC6 build ROTATES the loop, pulling `mov esi,g_goal_list
+ * / test esi,esi / jne` into the latch so the tail is no longer a block ending
+ * in an unconditional jump, and the duplication never fires.  Measured and all
+ * still rotated: `while ((g = g_goal_list) != 0)`, `for (;;) { g = ...; if (!g)
+ * break; }`, the same with `return` instead of `break`, a `goto` loop, testing
+ * the global and loading `g` separately, hoisting `g = g_goal_list` to the
+ * bottom of the body, a `volatile` global, an extra `continue` back edge, and
+ * wrapping the tail in `if (g != 0)`.  Find what stops the rotation and this
+ * function falls out at 363 exactly.
+ * The body left in place is the per-case form (359 instructions) because it is
+ * the closer of the two by instruction count and reproduces every case's
+ * argument sequence; the shared-tail form scores 285 but is, per the above,
+ * the true source. */
+// WIP-FUNCTION: LEGOLAND 0x00469400  (98.9% by count: 359i/1184B vs the original's 363i/1155B; source shape now PROVEN, the residual is VC6 loop rotation blocking the tail duplication -- see above)
 void UpdateGoalHelpText(void)
 {
     Goal* g;

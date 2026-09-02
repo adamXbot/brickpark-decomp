@@ -1722,6 +1722,19 @@ char SaveSlotInput(Icon* p, int buttons, int a3, int a4)
  * so has to duplicate the return block. Neither statement order, an extra
  * scope, split guards, an `rc` local nor a volatile store moves it; a volatile
  * store DOES fix the store order (popup before checkbox) but not the eax. */
+/* RE-MEASURED: the residual is ONE constant-propagation decision.  The body
+ * stores 1 to a dword global and the function returns the char 1; VC6 sees the
+ * constant twice, materialises `mov eax,1`, uses it for the store, and can
+ * then no longer share the `mov al,1` of the two early-exit paths, so it
+ * duplicates the return block (the ESCAPES the audit reports).  The original
+ * stores the immediate (`mov dword ptr [0x798700],1`) and falls into the
+ * shared `pop esi / mov al,1 / ret`.  Tried and inert: both store orders, the
+ * guards as three leading `return 1;` early exits (that one splits the guard
+ * into three separate `mov al,1 / ret` blocks and costs more), a de Morgan'd
+ * single guard, an explicit `return 1;` inside the if as well, and volatile
+ * stores (which fix the store ORDER -- popup before checkbox -- but not the
+ * eax materialisation).  Whatever stops VC6 promoting that 1 into a register
+ * finishes this function; nothing in the statement shape does. */
 // WIP-FUNCTION: LEGOLAND 0x0048e4f0  (81%, tail return block duplicated)
 char SaveEmptySlotInput(Icon* p, int buttons, int a3, int a4)
 {
@@ -1770,6 +1783,11 @@ void ResetSaveTimer(void)
  * in eax (`mov eax,esi / ... / mov [g],eax`). Every loop spelling tried
  * (while/do-while/for, chained assignment, an explicit break on `next`)
  * produces the same register choice. */
+/* Re-measured: 13 of 14 index-for-index, the single mismatch is index 10 --
+ * the original writes the head from the COPY (`mov eax,esi` at index 8 is
+ * already there in both, and the original then stores eax) where VC6 stores
+ * esi directly, knowing the two registers hold the same value.  Tail-jmp, so
+ * it cannot be promoted even at 14/14; left as WIP. */
 // WIP-FUNCTION: LEGOLAND 0x004828f0  (93%, head store from esi not eax; also a tail-jmp function)
 void sub_4828f0(void)
 {
