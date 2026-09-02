@@ -152,31 +152,49 @@ void ScanMouse(void)
  * for the delta write-back, `and al,0f8h`, `mov dl,80h` for the three button
  * tests and the pops interleaved with the first test -- is exact.
  *
- * What the residual is (measured, scratchpad/ucfm/):
- *  - The volatile cast on the second stage-1 read is the lever that stops VC6
- *    global-CSEing the two reads of accel_t1 (same lever as renderinit.c).
- *    Without it VC6 keeps the CSE temp in ebp (push/pop ebp, 111 insns) and
- *    renames three later temps onto ebp.  Nothing else breaks that CSE: two
- *    `if`s, `else if`, goto, De Morgan, ternary, do/while(0), switch, a hoisted
- *    `int t1 = c->accel_t1` at any scope (VC6 sinks the load back to the use),
- *    `static __inline` reader/compare helpers, int/long/enum unions and casts
- *    at the same offset, an overlay struct, dead `if (c == 0) goto` edges into
- *    the second read (threaded away before CSE), `register`, `long`+`labs`.
- *  - The 0 is a register-allocation mode effect, not a spelling: VC6 puts the
- *    0 in edx (and the second g_screen load in edi) exactly when ebp is in the
- *    allocator's pool -- either used by some candidate (our CSE build, or any
- *    value live across stage 1) or reserved as the frame pointer.  With ebp
- *    reserved (/Oy-, or an empty `__asm {}`) this body compiles to 108/112:
- *    every instruction of the original plus only push ebp/mov ebp,esp/[ebp+8]/
- *    pop ebp.  With ebp free and unused the 0 stays an immediate whatever the
- *    clamps look like (`< 0`, `0 >`, `!(>= 0)`, ternary, `int lo = 0` at any
- *    scope, opaque zeros such as `dx - dx`, `>= w` vs `> w - 1`), while -1 and
- *    1 ARE enregistered in the same position, so it is specific to the 0.
- *    The original is FPO (`mov ecx,[esp+4]`) and uses no ebp, so its compiler
- *    had ebp in the pool without spending it; no /O2-compatible flag or pragma
- *    reproduces that state here (/Oy-, /Og-, /Ot-, /Oi-, /Ob0-2, /Os, /G3-/G6, /Gs, /Ge,
- *    /Gh, /GX, /Op, /Za, /TP, /MD, /MT, /QI0f, /QIfdiv all tried).
- * Best attempt and the experiment log live in scratchpad/wipfix.c.
+ * What the residual is (measured; scratchpad/ucfm/ and scratchpad/ucfm2/):
+ *  - It is one register-allocator effect, not two.  With ebp out of the pool
+ *    (/Oy-) this body compiles to 108/112 = the original plus only
+ *    push ebp / mov ebp,esp / mov ecx,[ebp+8] / pop ebp -- WITH OR WITHOUT the
+ *    volatile cast: in that mode VC6 both declines to CSE the two accel_t1
+ *    reads (it reloads them, as the original does) and holds the 0 in edx.
+ *    Under FPO the accel_t1 temp takes ebp whenever it exists (push/pop ebp,
+ *    111 insns), and once the volatile removes the temp the 0 is left as an
+ *    immediate.  The 0 goes to edx exactly when ebp is opened by some other
+ *    candidate or reserved; the volatile cast is the lever for the CSE half
+ *    only.  (Same c2: the original's 141 game objects are Utc12_C build 8447
+ *    like ours; its 123 objects at 8168 are the static CRT -- libc.lib stamps
+ *    8168 -- so this is not a compiler-version difference.)
+ *  - The constant is one candidate whose range starts at the null check: in
+ *    a reduced function the null check itself becomes `xor edx,edx / cmp
+ *    eax,edx` and the same edx serves both low clamps.  Every spelling of the
+ *    guard (`!c`, `(void*)0`, `(Controller*)0`, `0L`, unsigned copy, an inline
+ *    IsNull, the body under `if (c)`) unifies with the clamp 0; /Oy- alone
+ *    does not split the candidate (a null+add+clamp reduction keeps the
+ *    immediates under /Oy- too), and a genuine `== 0` compare added after
+ *    the pops does not flip it either.
+ *  - Ruled out as the source of the enregistered 0 (all 109/109, 102/109 or
+ *    worse): `static __inline` clamp helpers in every form (ternary, if,
+ *    by pointer, Max(v,0)/Max(0,v), Min/Max pair, three-argument Clamp with
+ *    the screen field or field-1 as the bound), a MAX macro, `static const
+ *    int zero` (the exact shape, but VC6 reloads it after each store through
+ *    c -- aliasing -- 108/111), `static int`/extern zero, a local `lo` at
+ *    every scope including a copy of the static, enum/char/long/inline-fn
+ *    zeros, late-foldable zeros ((dx&1)&2, (dx+dy)-(dy+dx), (accel+1)-
+ *    (accel+1), &0, *0, %1, /2, dx!=dx: all folded early), hoisted t1/t2 at
+ *    every placement, old-position locals x0/y0 (VC6 keeps them in ebp),
+ *    new-position locals, every button-test spelling (!= 0, ternary,
+ *    == 0x80, sign test, int local), volatile on the first/both reads or
+ *    the field, labs/__forceinline abs, and the flags /Oa /Ow /Os /O1 /Ob0
+ *    /Ob2 /GB /G5 /G6, no /Gy, and per-function #pragma optimize s/t/g/a/w
+ *    (+ #pragma intrinsic(abs)); /Os de-inlines abs and breaks the TU's
+ *    neighbours (ScanKeyboard 80%, ProcessSystemEvents 43%), so the TU is /O2.
+ *  - Corpus precedent: a materialised 0 held in a register in an FPO function
+ *    appears only where a caller-saved register is free over the whole
+ *    candidate range (CreateFunctionBasedSprite, ClearObjectCounters); every
+ *    "0 after an early test" hit is the `xor r,r / mov r16,[..]` idiom.
+ * Best attempt and the experiment log live in scratchpad/wipfix.c (ucfm) and
+ * scratchpad/ucfm2/ (batch1-11.py, best.c).
  */
 // WIP-FUNCTION: LEGOLAND 0x00473b00  (109/109 insns, 102/109 = 93.6%; the two low clamps hold 0 in edx in the original -- see note)
 void UpdateControllerFromMouseData(Controller* c)
