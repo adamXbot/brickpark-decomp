@@ -745,11 +745,16 @@ void CalculateMapRenderOrder(void)
  * byte is the cursor style (4 when valid) | 1 for left/right, | 2 for
  * top/bottom.  `refresh` (only honoured for the head cursor) re-checks the
  * footprint first. */
-// WIP-FUNCTION: LEGOLAND 0x0045f5f0  (96.9%, x-loop head: the original reloads y into edx,
-//   hoists the r.left read into eax and sums in place ('sub ecx,edx / add edx,edi' before both
-//   imuls); VC6 gives our y reload eax and builds the sum with lea after the first imul.
-//   Tried: statement order, dx/dy temps, in-place accumulation, inline helpers (by value and
-//   by argument), operand order, reusing the third parameter as y — all identical.)
+/* 96.9%. Residual is the x-loop head: the original reloads y into edx, hoists
+ * the r.left read into eax and sums in place ('sub ecx,edx / add edx,edi'
+ * before both imuls); VC6 gives our y reload eax and builds the sum with lea
+ * after the first imul. Tried: statement order, dx/dy temps, in-place
+ * accumulation, inline helpers (by value and by argument), operand order,
+ * reusing the third parameter as y — all identical.
+ * NOTE: the marker must stay on the line directly above the signature; the
+ * verifier only looks 1-3 lines ahead, and this note used to sit between them,
+ * which made the function silently uncounted. */
+// WIP-FUNCTION: LEGOLAND 0x0045f5f0  (96.9%, x-loop head sum order; see note above)
 void BuildCursorPtr(Cursor* c, void* unused, int refresh)
 {
     Rect  r;
