@@ -739,7 +739,48 @@ void InitNewSaveGamePOPUP(Icon* popup)
  * function's source has a byte-class zero whose store VC6 deleted after
  * register allocation, or something forced a second callee-saved value that
  * later evaporated.  Duplicating the small-panel block into both arms hoping
- * for a cross-jump does NOT work - VC6 keeps both copies (126 instructions). */
+ * for a cross-jump does NOT work - VC6 keeps both copies (126 instructions).
+ *
+ * PASS N+1 - the two rules re-measured and one of them corrected.
+ *
+ * WHY ebx AND NOT esi: esi HAS NO 8-BIT SUB-REGISTER.  That is the whole rule.
+ * A zero with only dword-class uses can live in esi and does; the moment one
+ * use needs the low byte, VC6 must pick a byte-addressable callee-saved
+ * register, and ebx is the only one.  Re-measured in this function:
+ *   - 4, 5 and 6 dword zero stores all give `push esi` (so the count is not
+ *     the register lever - the count is only the hoist threshold, and it is 4:
+ *     three uses never hoist, whatever their placement or width).
+ *   - a WORD store (`*(short*)&g = 0`) and a short struct field (`icon->x=0`)
+ *     still give esi - si exists, so word class is not enough.
+ *   - `*(char*)&g_7986f0 = 0;` or `*(char*)&g_exit_7cb310 = 0;` as the fourth
+ *     use gives `push ebx` with indices 0..115 EXACT and only the extra byte
+ *     store left over (120 instructions where the original has 119).
+ *   - splitting one of the three dword stores into byte + byte + word gives
+ *     `push ebx` with indices 0..113 exact, at a cost of two instructions.
+ * So the target is unchanged and now precisely stated: a FOURTH, BYTE-CLASS
+ * use of the zero that emits no instruction.
+ *
+ * CORRECTION to the note above: a `char` carrier is NOT constant-propagated
+ * away.  `char big; ... big = 0; g_exit_big_popup = big; g_exit_7cb318 = big;
+ * g_exit_7cb310 = big;` compiles to `push ebx` and exactly 119 instructions -
+ * the right count and the right register, from three stores, with no extra
+ * store anywhere.  It fails for two other reasons: VC6 SINKS `xor ebx,ebx`
+ * into the small-panel arm (our index 53, the original has it at index 28
+ * before `cmp eax,5`), and the last two stores become `movsx eax,bl` + `mov
+ * [..],eax` because the char -> int conversion is real.  `unsigned char` and
+ * `char` with an unsigned cast put the value in ECX instead (not callee-saved
+ * at all).  Carrying the `= 1` through the same char variable keeps ebx but
+ * turns the big arm's `mov [g],1` into `mov ebx,1 / mov [g],ebx`.
+ *
+ * NEXT STEP: the char carrier is the most promising lead and is new.  What is
+ * wanted is a value that is byte-class enough to demand ebx but int-valued at
+ * every store (no movsx) and constant enough to be hoisted before the branch
+ * (no sunk xor).  Things to try: a char carrier with a second, int-typed
+ * definition; a union of a char and an int member written through the char
+ * and read through the int; a char carrier plus a fourth int zero store (so
+ * the hoist threshold is met by the int stores and the byte class by the
+ * carrier); and a char carrier declared with `= 0` at declaration so its live
+ * range starts at the top of the function. */
 // WIP-FUNCTION: LEGOLAND 0x0048f0f0  (116/119 insns; only push ebx / xor ebx,ebx / pop ebx missing - see note)
 void InitExitCheckBox(int x, int y)
 {

@@ -532,74 +532,35 @@ int RenderEnergyBar(Icon* g)
  * theme; then the side-panel icons. The counter starts at 1, so the list is
  * always "made up" (reproduced as the original has it).
  *
- * Residual (13 of 147, first diverging index 5): every instruction, every branch and
- * every stack slot is right (including all five frame homes: e@0x10, e_theme@0x14,
- * e_build@0x18, e_menu@0x1c, e_common@0x20); the four callee-saved registers are
- * permuted. Ours n=ebx, count=ebp, submenu-IV=edi, j=esi; the original n=edi,
- * count=ebx, submenu-IV=ebp, j=esi.
+ * MATCHED 147/147 instructions, 409/409 bytes, index for index, after sitting at
+ * 13 mismatches (a four-way callee-saved permutation) for several rounds. The whole
+ * residual was ONE source-shape decision, and the exact sibling next door had the
+ * answer all along:
  *
- * Measured, not guessed: compiling the body with `n` deleted makes VC6 push only
- * ebp/esi/edi (ebx is NOT pushed) and gives count=ebp, j=esi, IV=edi, so VC6's
- * callee-saved preference list here is [ebp, esi, edi, ebx] - ebx is the last-resort
- * register - and the register a value gets is purely its RANK in that list. Ours
- * ranks count > j > IV > n; the original ranks IV > j > n > count. Dropping `count`
- * from first place to last and lifting the outer induction variable above `j` is the
- * whole residual. (The sibling RAndDLinkedList, which is exact, ranks the same way as
- * the original - scratch temp > j > i > count - which is what says the ranking, not
- * the dataflow, is what differs. The same "the variable holding a CALL RESULT is
- * ranked top by us and last by the original" shows up in the neighbouring
- * InsertChildIntoList (fpui.c), so it is one systematic effect, not two.)
+ *   the two theme arms are NOT an `||` inside one `if` -- they are an
+ *   `if / else if` with the InsertObjectNode(d); n++; body written out TWICE,
+ *   exactly as RAndDLinkedList (0x00475cd0) below writes its own two arms.
  *
- * WHAT ACTUALLY MOVES THE MAP (this round, all under scratchpad/lists/):
- *  - Nothing that leaves the 147 instructions unchanged moves it. Sixty-odd further
- *    spellings were compiled and every one reproduced n=ebx, count=ebp, IV=edi
- *    exactly: `int count = LLIDB_GetCount()` as a block-scope declaration wrapping
- *    both loops; count copied into a second variable for one loop, the other, or
- *    both (VC6 coalesces the copy away and the rank with it); `d` deleted entirely
- *    (every use written `((ObjDef*)e->data)->...`, which VC6 CSEs back to the same
- *    code) or `d` declared in each inner loop; an `unsigned tf = e->type_flags`
- *    temp; `continue`-style guards instead of nested ifs in either loop; the second
- *    loop's three tests nested; `d->parent` last vs first; a `while` outer loop with
- *    an explicit `i++`; the parameter typed `char* name` instead of `Menu*`;
- *    `i` initialised at the top or before the GetCount call; a separate index for
- *    the second loop; the whole second loop moved into a `static __inline` helper
- *    (that one DOES change the map but also gives the helper its own `e` slot:
- *    frame 0x18, 150 insns).
- *  - Two things DO move it, both at the cost of instructions, so both are wrong -
- *    but they say where the sensitivity lives, which is the useful part:
- *      * `if (count < 0) count = 0;` after the GetCount call (a second DEF of
- *        count) demotes count to edi and promotes the IV to ebp - i.e. giving
- *        `count` more than one definition is what drops it down the ranking.
- *        Costs 3 instructions (test/jns/xor), 150 total.
- *      * Restructuring the inner `||` - swapping the two arms, or factoring the
- *        shared `d->submenu == e_menu` out of them - gives count=ebx and IV=ebp,
- *        the original's two hardest assignments, but changes the emitted compare
- *        chain (146-150 insns). The original's chain is not factored: it tests
- *        `[eax+0x60]` against e_menu TWICE.
- *    So the answer is probably a source form in which `count` has a second
- *    definition (or a split live range) that VC6 optimises back to a single
- *    `mov ebx,eax` - not a re-spelling of the loops.
+ * VC6 merges the duplicated tails back into one block, so the emitted compare chain
+ * is identical either way (both spellings test [eax+0x60] against e_menu twice) --
+ * but the `if/else if` spelling ranks the four callee-saved values the way the
+ * original does: n=edi, count=ebx, submenu-IV=ebp, j=esi. The `||` spelling gives
+ * n=ebx, count=ebp, IV=edi and nothing else moves it: ~200 measured variants (exit(n)
+ * vs exit(1), `register`, declaration order, n unsigned / assigned late / n += 1,
+ * `if (n > 0)`, a dead `count = 0`, a second `count` for the second loop, `d` deleted
+ * or re-declared, a `Menu* p` pointer walk, while/do-while forms of every loop, the
+ * second loop in a helper, and every store/guard permutation) left that map untouched.
+ * Only two things ever moved it and both cost instructions: a second DEFINITION of
+ * count (`if (count < 0) count = 0;`), and factoring the shared
+ * `d->submenu == e_menu` out of the two arms -- the latter was the near miss that
+ * pointed here, because it produced count=ebx + IV=ebp while wrecking the chain.
  *
- * Ruled out earlier (register map unchanged in every one): exit(n) vs exit(1);
- * `register`; declaration order of any local; n as unsigned; n = 0 / n assigned late
- * (that only moves the `mov reg,1` out of index 5 and costs 5 more diffs); n++ before
- * the call; n += 1; `if (n > 0)`; a dead `count = 0` before the call, and
- * `int count = 0`; j vs i for the second loop's index, j hoisted to function scope,
- * the second loop in its own block with its own index; a `Menu* p` walk bounded by
- * `p < g_submenus + 4` (that one is the only change that alters the code at all -
- * `jl` becomes `jb`, 14 diffs) and the same walk with the bound cast to int
- * (identical to the array form, `jl` kept, 13 diffs); p initialised at the top of the
- * function / before the GetCount call / in the for-init; `p[i].name` through a base
- * pointer; a `(char*)` cast of the element address; while/do-while spellings of
- * either loop; the second loop moved into a static __inline helper (150 insns,
- * worse); `4 > i`; a combined `int n = 1, count, i;` declaration; `d` declared in the
- * innermost scopes (`e` declared there instead costs 18 more diffs - it must stay one
- * function-level out-param). The only thing that ever produced the original's
- * count=ebx + IV=ebp without extra instructions was keeping BOTH an `int i` and a
- * `Menu* p` live (5 candidates), which spills `n` to the stack: 152 insns, wrong.
- * Variants under scratchpad/fpui2/oll (A..NN), scratchpad/fpui2/w2 (A..S, r_*) and
- * scratchpad/lists (o_*, p_*, q_*, r_*, s_*, t_*, u_*, x2_*, y_*, z_*). */
-// WIP-FUNCTION: LEGOLAND 0x00475720  (147/147 insns, 409/409 bytes, 13 mismatches: a callee-saved permutation, see above)
+ * The general lever, worth keeping: when two arms of an `||` share a body, whether
+ * the source writes ONE body under `||` or TWO bodies under `if/else if` is invisible
+ * in the emitted instruction stream (VC6 tail-merges them) but is NOT invisible to
+ * the register allocator. If a function is index-for-index right and only the
+ * callee-saved assignment is permuted, look for a merged tail and split it. */
+// FUNCTION: LEGOLAND 0x00475720
 int ObjectLinkedList(Menu* m)
 {
     LLElem* e;
@@ -628,11 +589,15 @@ int ObjectLinkedList(Menu* m)
             LLIDB_GetElement(j, &e);
             if ((e->type_flags & 0x13) == 0x13) {
                 d = (ObjDef*)e->data;
-                if (d->parent == e_build &&
-                    ((d->theme == e_theme && d->submenu == e_menu) ||
-                     (d->theme == e_common && g_menu_index == 0 && d->submenu == e_menu))) {
-                    InsertObjectNode(d);
-                    n++;
+                if (d->parent == e_build) {
+                    if (d->theme == e_theme && d->submenu == e_menu) {
+                        InsertObjectNode(d);
+                        n++;
+                    } else if (d->theme == e_common && g_menu_index == 0 &&
+                               d->submenu == e_menu) {
+                        InsertObjectNode(d);
+                        n++;
+                    }
                 }
             }
         }

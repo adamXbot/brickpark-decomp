@@ -95,11 +95,25 @@
  * SWITCH CASE ORDER IS NOT A LEVER: VC6 sorts a switch's cases by value, so
  * permuting the case labels in the source produces a byte-identical object.
  *
- * `loop`/`loope`/`loopne` DEFEAT tools/audit.py: its norm2() rewrites branch
- * targets only for mnemonics starting with `call`/`j`, and match.py's norm()
- * only blanks 5+-hex-digit immediates, so a `loop` compares equal only by
- * accident.  ZBufferHelper and SoftPrint_XBltFast are both capped at
- * mismatch=2 by this and can never print [OK] until that is fixed in tools/.
+ * (OBSOLETE, kept for the record: `loop`/`loope`/`loopne` used to defeat
+ * tools/audit.py, whose norm2() rewrote branch targets only for mnemonics
+ * starting with `call`/`j`, capping ZBufferHelper and SoftPrint_XBltFast at
+ * mismatch=2.  audit.py now normalises `loop` targets; ZBufferHelper prints
+ * [OK] and SoftPrint_XBltFast's honest target is ZERO mismatches.)
+ *
+ * CROSS-JUMPING (tail merging).  Per join, VC6 SP3 picks exactly ONE
+ * canonical tail -- the LAST predecessor block in layout order, the one the
+ * join falls through from -- and merges every other predecessor into it, at
+ * whatever depth each one's own suffix matches (mid-block entry is fine and
+ * different predecessors enter at different depths).  It never merges two
+ * NON-canonical predecessors with each other, however long their shared
+ * tail.  An allocator-inserted reload sitting in the canonical block (a
+ * `mov reg,[esp+N]` between a `call` and its `add esp,N`) makes that block
+ * unmergeable at every depth after the reload, so a switch whose last-laid-
+ * out case spills a callee-saved register merges nothing at all.  Derived
+ * from the standalone repro pair in scratchpad/bigrender/run2/ -- see the
+ * RenderCursor note for the full statement and for the case it does NOT
+ * explain.
  *
  * ---------------------------------------------------------------------------
  * The scaled-blit worker keeps a lazily created system-memory surface
@@ -989,6 +1003,17 @@ static __inline void DrawRLEFrame(void* dst, LLSFrame* f)
  *   * the flag test at a different width: `*(volatile unsigned short*)` and
  *     `*(volatile unsigned int*)` both give the identical object to the
  *     `unsigned char` form (22), so the volatile is not the lever here.
+ *   Re-verified 2026-09-03 (every one byte-identical to the current body,
+ *   so the note above is accurate -- do not spend time here again):
+ *   commuting the mouse-pixel product, a named `int` pitch local feeding
+ *   g_sp_rowlen and both products in either operand order, an extra pair of
+ *   parentheses round the product+offset, spelling the row product as
+ *   `g_ddsd.lPitch * dst->top`, swapping the two statements, and -- the
+ *   load-then-accumulate form that IS the lever for RenderCursor's tile
+ *   loop -- `n = dst->left; n -= g_sp_left;` (and `n = n - g_sp_left;`) as
+ *   separate statements ahead of the row expression.  Hoisting that pair
+ *   ABOVE the g_sp_mouse_pixel assignment does change the output, but for
+ *   the wrong reason (156 mismatches from index 104, 1170 bytes).
  *   * ALIASING (the DECOMP 'two globals that must may-alias must be ONE
  *     struct' lever): declaring g_sp_mouse_pixel / g_sp_top / g_sp_left /
  *     g_sp_h / g_sp_w as members of ONE padded extern struct at 0x007fe9a8
@@ -1270,6 +1295,32 @@ static __inline SpriteRec* TileSprite(int id)
  *       two loops, hoisting &vs into a pointer local, and reordering the
  *       switch cases.  Note `t.x = c->origin.x + x` (the fused form) is NOT
  *       equivalent -- see the LEVER at the bottom.
+ *       WHAT THE COLOURING ACTUALLY IS (2026-09-03).  The block allocates
+ *       four temps in creation order and the pattern is always the same:
+ *       temp1 = first free scratch, temp2 = next free, temp3 = the one
+ *       remaining free scratch, temp4 (&t) = temp1's register, which the
+ *       store on the line above has just freed.  Ours comes out
+ *       (eax, ecx, edx, eax); the original is (edx, eax, ecx, edx).  So
+ *       the whole residual is the choice of temp1, and across roughly
+ *       twenty further spellings measured today temp1 is ALWAYS eax -- no
+ *       statement order, temporary, pointer local or cast moves it.  The
+ *       lever therefore has to make eax unavailable (or less preferred) at
+ *       0x45ffa3, i.e. it is a whole-function allocation-order lever, not
+ *       a re-spelling of these five lines.  Ruled out today on top of the
+ *       list above: `Pos* org = &c->origin;`, a comma-expression argument,
+ *       `t.x -= -x`, `t.x = t.x + x`, both t.y-first orderings, named int
+ *       temporaries for either coordinate, and (in the flags&6 arm, to try
+ *       to force its tile id into edx directly) a `SpriteRec* sp =
+ *       TileSprite(g_tileset_id2);` local, an `int id2` local and a
+ *       volatile read of g_tileset_id2 -- all three byte-identical.
+ *       DO NOT move t/tb into a block scope: it is the CURRENT
+ *       function-level declaration that produces the original's frame.
+ *       Measured map (S = esp just after `sub esp,0x68`): S+0x00 compiler
+ *       temp (the c->py walk pointer), S+0x04 t, S+0x0c tb, S+0x1c view,
+ *       S+0x2c saved, S+0x3c r, S+0x50 vs, and `i`'s spill home is S+0x6c
+ *       -- the incoming `c` ARGUMENT slot, which VC6 reuses because c
+ *       lives in ebp.  Declaring t/tb inside the tile loop moves t to
+ *       S+0x00 and shifts everything (measured: 302 mismatches).
  *
  *   (b) The original cross-jumps the tails of cases 1 and 2 of the
  *       DrawCursorSegmentA switch (0x4601c0 `push 2` / `jmp 0x4601cd`, with
@@ -1346,12 +1397,66 @@ static __inline SpriteRec* TileSprite(int id)
  *           arm entirely: still no merge, so the second switch is not the
  *           blocker.
  *         * `else if (flags & 0x40)`: 268, ESCAPES.
+ *
+ *       HOW VC6 SP3's CROSS-JUMPER ACTUALLY WORKS (established 2026-09-03
+ *       from a 40-line standalone repro -- scratchpad/bigrender/run2/
+ *       repro_nomerge.c reproduces OUR output for this region exactly and
+ *       repro_merge.c the merging one; drive them with run2/sw.py).  This
+ *       supersedes the "only when EVERY case shares the tail / only the
+ *       LAST switch" model above, which was an artefact of too-simple
+ *       repros:
+ *         1. Per join, VC6 chooses exactly ONE canonical tail: the LAST
+ *            predecessor block in layout order -- the one the join falls
+ *            through from.  Every other predecessor merges into THAT block,
+ *            entering it at whatever depth its own suffix matches; different
+ *            predecessors enter at different depths and mid-block entry is
+ *            fine (repro_merge.c: case 2 enters the shared tail at the
+ *            `lea`, case 1 four instructions later at the `call`).
+ *         2. It NEVER merges two non-canonical predecessors with each other,
+ *            even when they share a five-instruction tail and identical
+ *            registers.  That is exactly what A1/A2 would need.
+ *         3. An allocator-inserted reload in the canonical block -- our
+ *            `mov ebx,[esp+0x94]` sitting between the `call` and its
+ *            `add esp,0x18` -- makes the canonical unmergeable at every
+ *            depth AFTER the reload.  Only a predecessor whose own tail
+ *            contains the same reload can still merge, which is precisely
+ *            the one merge we do get (A0 into B0's reload+cleanup).  Make
+ *            the case-0 argument a SIGNED short (`movsx edx,[..]`, one
+ *            register, no ebx clobber, no reload) and the second switch
+ *            immediately merges all three cases -- measured, and not
+ *            committable because the original really does emit
+ *            `xor edx,edx / mov dx,[ebx+0x18]`.
+ *         4. Corollary: only the arm laid out LAST can merge.  Confirmed
+ *            three ways: a third `else if` arm merges only the third arm;
+ *            `if (!(flags & 0x20)) {B} else {A}` merges A (which VC6 then
+ *            lays out second); and replacing the B arm with an if/else-if
+ *            chain -- where case 0 is laid out FIRST -- merges that arm's
+ *            cases 1/2 despite the reload, because the canonical is then
+ *            the clean case-2 block.
+ *       THE PARADOX, restated with that model: the original merges the
+ *       0x45fca0 arm, which is the FALL-THROUGH (first) arm of
+ *       `test dl,0x20 / je <0x45fad0 arm>`.  Under rule 1 the merged arm
+ *       must be the one laid out LAST.  No C spelling tried reaches that
+ *       combination: the negated condition, the goto form, `continue` in
+ *       the then-arm, two sequential ifs and else-if all normalise to the
+ *       same [0x45fca0 arm][0x45fad0 arm] layout with `je` to the second.
+ *       So the next attempt must find a construct that emits the 0x45fca0
+ *       arm SECOND while keeping `je` to the 0x45fad0 dispatch -- or must
+ *       accept that this arm's case 0 is not part of that switch in the
+ *       original.  Iterate in the repro (a build is ~0.3 s), not on the
+ *       full function.
+ *       Also ruled out 2026-09-03, all byte-identical to what we emit:
+ *       `default: break;` in either or both switches, braces round each
+ *       case body, a block-scope `unsigned short h = g_map->tile_h;` in
+ *       case 0, an added empty `case 3:`, `switch (c->kind[i])` unmasked,
+ *       either or both case-0 arms calling a third function, and extra
+ *       code added before or after the segment loop.
  * LEVER already applied (worth 124 mismatches and the ESCAPES failure):
  * `t.x = c->origin.x; t.y = c->origin.y; t.x += x; t.y += y;` -- the
  * separate load-then-accumulate form.  Written `t.x = c->origin.x + x`,
  * VC6 emits `mov edx,esi / add edx,ebx` (two extra instructions per
  * coordinate) and lays the loop out so a branch escapes the extent. */
-// WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%: 181/454 insns, 1438 vs 1429 bytes, audit.py mismatch=273; first diverging index 48, a 3-cycle rename of the tile loop's four scratch temps (23 mismatches); the other 250 all come from residual (b), the un-cross-jumped DrawCursorSegmentA switch tail at index 204, which shifts every later index -- see the note above)
+// WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%: 181/454 insns, 1438 vs 1429 bytes, audit.py mismatch=273; first diverging index 48, a 3-cycle rename of the tile loop's four scratch temps (23 mismatches); the other 250 all come from residual (b), the un-cross-jumped DrawCursorSegmentA switch tail at index 204, which shifts every later index.  2026-09-03: (b) is now characterised exactly -- VC6 merges into ONE canonical tail per join, the last predecessor in layout, and our canonical carries the ebx reload that blocks it; the original merges the FIRST arm, which no C shape reaches.  Repro pair in scratchpad/bigrender/run2/.  See the note above)
 void RenderCursor(Cursor* c)
 {
     WinRect          view;

@@ -288,7 +288,6 @@ extern void       SetClipping(ClipRect* r);                       /* 0x0048a5c0 
 extern void       RestoreClipping(void);                          /* 0x0048a690 */
 extern void       LLSPlayOnce(void* lls, ImageRec* img);          /* 0x0047d580 */
 extern int        GetObjCost(ObjDef* d);                          /* 0x00480da0 */
-static __inline int ObjCost(ObjDef* d) { return GetObjCost(d); }
 
 extern Icon*      InsertIcon(short x, short y, unsigned short group, SpriteRec* s); /* 0x0046d6c0 */
 extern void       SetIconSprite(Icon* p, SpriteRec* s);           /* 0x0046d680 */
@@ -788,96 +787,129 @@ char CheckFocussedIcon(void)
  * the node is dropped again (and, in list mode, the class is added on its
  * own).
  *
- * SEMANTIC FIX (the previous note was wrong): this takes ONE parameter, not two.
- * The `mov [esp+0x1c],edx` spill inside the loop is emitted between a `push` and
- * its `add esp,8`, so it names a frame home 8 bytes LOWER -- [esp+0x14] in the
- * body, which with four prologue pushes and no `sub esp` is the FIRST argument.
- * VC6 is reusing the (by then dead) `d` slot as the spill home for the first
- * GetObjCost result; there is no second argument. The old `int unused` parameter
- * was that misreading (docs/DECOMP.md "READING esp"); both call sites in fpui2.c
- * always passed one argument.
+ * SEMANTICS (recovered, and a previous note here had them wrong): this takes ONE
+ * parameter, not two. The `mov [esp+0x1c],edx` spill inside the loop is emitted
+ * between a `push` and its `add esp,8`, so it names a frame home 8 bytes LOWER --
+ * [esp+0x14] in the body, which with four prologue pushes and no `sub esp` is the
+ * FIRST argument. VC6 is reusing the (by then dead) `d` slot as the spill home for
+ * the first GetObjCost result; there is no second argument. The old `int unused`
+ * parameter was that misreading (docs/DECOMP.md "READING esp"); both call sites in
+ * fpui2.c always passed one argument.
  *
- * WIP at 49/68 (72%), 68/68 instructions, 168B vs 171B, first diverging index 36.
- * Instructions 0..35 (prologue, node fill, parent search, the whole not-found
- * exit) and 56..67 (the walk step and both stores + epilogue) are exact,
- * index for index; only the found-block head and the compare loop differ:
+ * WIP at 67 real instructions / 169B against the original's 68 / 171B, FIRST
+ * DIVERGING INDEX 46. (tools/audit.py reports 68i/170B because it trims our COMDAT
+ * to the original's 171-byte extent and so counts one byte of 0x90 alignment padding
+ * as an instruction; the body itself is 67/169.)
+ * Indices 0..45 are exact index for index -- the whole prologue (all four pushes at
+ * entry, not sunk), the node fill, the parent search, the entire not-found exit, the
+ * found-block head and the compare loop down to and including its `jne`. Indices
+ * 46..67 are the original's 22-instruction tail shifted by one, because we emit
  *
- *   ours   test esi,esi / mov ebp,esi / je notfound   <- two instructions the
- *   orig   mov ebp,esi                                   original does not have
- *   ours   mov ecx,[edi+4] ... push eax / call / mov ebx,eax / mov eax,[edi+4]
- *   orig   mov ebx,[edi+4] ... mov edx,eax / push edx / call / mov edx,eax /
- *          push ebx / mov [esp+0x1c],edx / call / mov ecx,[esp+0x1c]
+ *     push eax                   where the original has     mov edx, eax
+ *                                                           push edx
  *
- * i.e. the original holds n->obj in ebx ACROSS the first call and spills the
- * first cost to d's slot; ours keeps the cost in ebx and reloads n->obj.
+ * for the FIRST GetObjCost argument. That single 2-byte `mov edx,eax` is the entire
+ * residual (169 + 2 = 171 bytes), and it also drags the spill reload with it: the
+ * original reloads the saved cost into ecx (`mov ecx,[esp+0x1c]`), we reload into edx,
+ * because in the original edx is already carrying the argument temp.
  *
- * What was measured this round (all with tools in scratchpad/lists):
- *  - `push ebp` is in the ORIGINAL prologue. VC6 sinks that push to the found
- *    block whenever prev's first definition is there; the ONLY spelling that
- *    keeps it at entry is `prev = 0` before the search loop plus a real
- *    `if (prev)` test after it (a dead `prev = 0`, or `prev = p` inside the
- *    search loop, or a `goto found`, all let it sink again). That test costs
- *    the two extra instructions above -- VC6 cannot prove p != 0 on the break
- *    path, so it emits `test esi,esi / je`. Keeping the sink instead costs a
- *    whole-body index shift (mismatch 67), so this shape is strictly better.
- *  - Holding n->obj in a local (`ObjDef* a = n->obj;`) DOES produce the
- *    original's spill sequence -- `mov edx,eax / push edx / ... /
- *    mov [esp+0x1c],edx / mov edx,[esp+0x1c]` appears verbatim with the
- *    expression form `if (GetObjCost(a) <= GetObjCost(p->obj))` -- but VC6 then
- *    ranks `a` above `n`, so a takes edi and n takes ebx (the original is the
- *    other way round) AND prev loses ebp, which undoes the prologue. ~90
- *    spellings tried: a at loop/function scope, a assigned before/after the
- *    parent compare, a+b locals, both compare operand orders, cost as local /
- *    function-scope / expression temp / two separate c1,c2, the three field
- *    store orders, alloc-before/after the head read, `p = prev->next` stepping,
- *    __inline Cost(ObjNode*), Cost(ObjDef*,ObjDef*), Dearer(node,node) and a
- *    whole-sorted-insert __inline. NONE gives n=edi together with a=ebx.
- *  - Also ruled out: while/for/do-while/for(;;) forms of both loops, goto-found
- *    vs goto-notfound vs single-exit `goto done`, the found body inlined in the
- *    search loop, `ObjNode** link` instead of prev, `if (!p)` after a break
- *    (adds a jmp + test), and `prev = p` at the search-loop top (that keeps the
- *    prologue push but hoists `mov ebp,esi / mov esi,[esi]` into the search
- *    loop: 65 insns, first divergence 17).
+ * WHAT WAS FIXED THIS ROUND (this was the whole previously-recorded residual):
+ * the register allocation is now the original's -- n=edi, p=esi, prev=ebp,
+ * n->obj=ebx -- and `push ebp` is back in the ENTRY prologue instead of being sunk
+ * into the found block. The lever is NOT any re-spelling of the loop: it is that the
+ * two loop exits write the link out IN FULL rather than `break`ing to one shared
+ * copy. Writing
  *
- * The sibling InsertObjectNode (0x004755c0, not ours) is the same list insert
- * with `prev = 0` + `if (!prev)` and DOES sink `push ebp` -- so the two
- * functions really do differ in that one source detail, and this shape is the
- * one that reproduces the original's prologue. Variants: scratchpad/lists/. */
-// WIP-FUNCTION: LEGOLAND 0x00475630  (72%, 68/68 insns, 168B vs 171B; found-block head + compare-loop register allocation, see note)
+ *     if (...) { prev->next = n; n->next = p; return; }
+ *
+ * at the break sites (VC6 tail-merges the copies back into the single block the
+ * original has, so the emitted stream is unchanged) makes VC6 rank n above n->obj,
+ * which puts n in edi and n->obj in ebx, and with TWO callee-saved registers then
+ * confined to the found block VC6 stops sinking the ebp push. One duplicated exit is
+ * enough; with both `break`s going to a shared tail (or to one `goto`), the map
+ * reverts to n=ebx / n->obj=edi and the ebp push sinks again, which is where this
+ * function sat for three rounds. This is the same lever that finished ObjectLinkedList
+ * (fpui2.c) in the same session: a merged tail is invisible in the instruction stream
+ * but NOT invisible to VC6's register allocator.
+ *
+ * WHAT WAS RULED OUT for the remaining `mov edx,eax` (all under scratchpad/lists/icl,
+ * ~120 compiled variants this round, every one landing on `push eax` at index 46):
+ *  - Naming the first argument: `b = p->obj` at function scope, in the loop, in an
+ *    inner block, `register`, assigned before or after the parent test, `b` shared
+ *    with the search loop (that one flips the loop-top load order instead), and
+ *    `GetObjCost(b = p->obj)`.
+ *  - Defeating the CSE by re-spelling it: `*&p->obj`, `(0, p->obj)`, `(p)->obj`,
+ *    `((ObjNode*)p)->obj`, `*(ObjDef**)((char*)p + 4)`, casts through char*, void*,
+ *    unsigned and LLElem*, and the same re-spellings on the parent side.
+ *  - Prototype levers on GetObjCost: `void*`, `const ObjDef*`, an unrelated struct
+ *    plus casts, `__cdecl`, and an empty parameter list.
+ *  - Cost temporaries: one `c1`, `c1`+`c2`, block-scope `int c1 = ...`, the
+ *    assignment inside the compare, and both compare polarities (`c2 <= c1`,
+ *    `c1 >= c2`, `!(a > b)`). `c1`+`c2` as named locals DOES buy the original's
+ *    `mov ecx,[esp+0x1c]` reload register, but loses the `mov edx,eax` that saves
+ *    the first result -- 66 instructions, one worse.
+ *  - Inline helpers: Cost(x), Id(x), Dearer(x,y), Cheaper(x,y) with and without
+ *    internal cost locals, Stop(ObjDef*,ObjDef*), StopN(ObjNode*,ObjNode*) reading
+ *    both objects itself, and the whole sorted insert as one __inline.
+ *  - Loop shapes: while / do-while / for(;;) with the step first, the found body
+ *    inlined in the search loop, the search loop rotated as
+ *    `if (p) while (p->obj->elem != d->parent)`, and link-store order swapped.
+ *
+ * NEXT STEP. The missing instruction is an un-coalesced copy of a CSE into an
+ * argument temp, so the thing to look for is a source form in which `p->obj` is TWO
+ * webs that VC6 proves equal but does not coalesce -- not another spelling of one
+ * web. Two untried leads: (1) a value that reaches the call site through a
+ * tail-merged block, i.e. a phi copy -- the OLL lever applied to the CALL rather
+ * than to the link, so look for a shape in which GetObjCost(p->obj) is written at
+ * two sites that VC6 merges; (2) the second `mov edx,eax` (the c1 save) and the ecx
+ * reload come free with named `c1`/`c2` locals, so a form that has named cost locals
+ * AND keeps the argument copy would be exact -- combining those two behaviours is
+ * probably one source form away. Variants: scratchpad/lists/icl/ (tools: ../batch.py,
+ * which reports insns/bytes/first-divergence plus the recovered n/a/p/prev register
+ * map, and ../oll.py for the sibling in fpui2.c). */
+// WIP-FUNCTION: LEGOLAND 0x00475630  (67 of 68 insns, 169B vs 171B; audit.py prints 68i/170B counting a pad byte. First diverging index 46: one missing `mov edx,eax` argument copy, see note)
 void InsertChildIntoList(ObjDef* d)
 {
     ObjNode* p = g_object_list;
-    ObjNode* prev = 0;
+    ObjNode* prev;
+    ObjDef*  a;
     ObjNode* n = (ObjNode*)HeapAlloc_w(sizeof(ObjNode));
-    int cost;
 
     n->obj = d;
     n->keep = 0;
     n->next = 0;
     for (; p; p = p->next) {
-        if (p->obj->elem == d->parent) {
-            prev = p;
-            break;
-        }
-    }
-    if (prev) {
-        p = p->next;
-        while (p) {
-            if (n->obj->parent != p->obj->parent)
-                break;
-            cost = GetObjCost(p->obj);
-            if (GetObjCost(n->obj) <= cost)
-                break;
-            prev = p;
-            p = p->next;
-        }
-        prev->next = n;
-        n->next = p;
-        return;
+        if (p->obj->elem == d->parent)
+            goto found;
     }
     if (g_object_list_mode)
         InsertObjectNode(d);
     HeapFree_w(n);
+    return;
+
+found:
+    prev = p;
+    p = p->next;
+    while (p) {
+        a = n->obj;
+        /* Both exits write the link out in full: VC6 merges the copies back into
+         * one block, but the un-merged source is what gives n edi, n->obj ebx and
+         * keeps `push ebp` in the entry prologue.  See the note above. */
+        if (a->parent != p->obj->parent) {
+            prev->next = n;
+            n->next = p;
+            return;
+        }
+        if (GetObjCost(a) <= GetObjCost(p->obj)) {
+            prev->next = n;
+            n->next = p;
+            return;
+        }
+        prev = p;
+        p = p->next;
+    }
+    prev->next = n;
+    n->next = p;
 }
 
 /* ---- control icons ------------------------------------------------------ */

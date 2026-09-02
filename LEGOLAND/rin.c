@@ -474,7 +474,71 @@ BNVBin* LoadBinV(const char* fname)
  * cleaned by a separate `and edi,0FFh` and has a second use (`shr edi,3`) -
  * i.e. an int-typed byte value with two consumers.  Getting that shape here
  * without disturbing r's home in the dead fname argument slot is the next
- * thing to try. */
+ * thing to try.
+ *
+ * ---------------------------------------------------------------------------
+ * PASS N+1 (no change to the count; the mechanism is now pinned down).
+ *
+ * THE MASK WIDTH IS NOT RANGE-DRIVEN.  Micro-probes (scratchpad/threefiles/
+ * micro.c, m3.c) feed `v & ~7` to VC6 with v an unsigned short of PROVABLY
+ * UNKNOWN range - a u16 function return, a u16 global, a u16 read through a
+ * pointer - and every one still emits `and eax,0FFF8h`.  So the 0xFFF8 is not
+ * VC6 narrowing -8 with range knowledge about r; it is VC6 FOLDING THE u16 ->
+ * int ZERO-EXTENSION INTO THE MASK.  Hiding r's byte range therefore cannot
+ * help, and every K in `t & K` (0xf8, 0xf8u, (unsigned char)0xf8, ~7, 0xfff8,
+ * 0xfffffff8u) canonicalises to the same `and eax,0FFF8h`.
+ *
+ * WHAT DECIDES IT IS THE OR-CHAIN SPINE.  `and r32,-8` is the SHORTER encoding
+ * (83 /4 ib, 3 B) and VC6 picks it only in "upper 16 bits are dead" mode.  It
+ * enters that mode for the value that sits on the accumulator SPINE - the one
+ * register that runs unbroken from the operand into the final 16-bit store.
+ * Original: `and edx,-8 / shl edx,5 / or edx,ecx / shl edx,3 / or edx,ecx /
+ * mov [edi],dx` - one register, red is the spine, upper half left as garbage.
+ * Ours: `... / shl eax,5 / or ecx,eax / shl ecx,3 / or ecx,eax / mov [edi],cx`
+ * - GREEN is the spine and red is only a source operand, so red is cleaned.
+ * The `(t|7)^7` lead is the proof in the other direction: there red IS the
+ * spine and VC6 happily writes `or al,7` (a byte op that leaves bits 16-31
+ * garbage) with no cleanup at all.  Both symptoms in the note above are this
+ * one fact.
+ *
+ * AND THE SPINE CHOICE IS DECIDED BY THE eax SHORT FORM.  The only encodings
+ * in this arm that prefer eax are `and eax,imm32` (25 xx, 5 B vs 6) and
+ * `and al,0FCh` (24 FC, 2 B vs 3) - i.e. red's mask and green's mask both want
+ * eax.  When red's mask needs an imm32 red takes eax first, green is pushed to
+ * dl/cx, and VC6 makes GREEN the OR destination.  In the original red's mask
+ * is an imm8 (`and edx,-8`), which has no accumulator short form, so eax goes
+ * to green's `and al,0FCh`, red stays in edx and red is the spine.  The whole
+ * residual is that circle: imm32 mask -> red in eax -> green is the spine ->
+ * red must be clean -> imm32 mask.  Breaking it anywhere breaks it everywhere.
+ *
+ * ALSO RULED OUT this pass (all 32 mismatches, first at index 49, unless
+ * noted): u16 compound-assignment chains WITH the ghost (`t &= ~7; t <<= 5;
+ * t |= gg; t <<= 3; t |= bb; *p = t;`) - byte-identical to the expression
+ * form, so the earlier note's "u16-domain chains" entry holds with the ghost
+ * too; every operand permutation of the two `|`s (green first, blue first,
+ * the unfactored `(t&~7)<<8 | (g&0xfc)<<3 | (b>>3)`); `(t>>3)<<11`,
+ * `(t>>3)<<8`, `(t/8)*8`, `t*32`, `((t>>3)<<3)<<5`; named u16 temps for red,
+ * for green, and for both; a second ghost; the ghost after the store; green
+ * without its cast and as `(unsigned short)g & 0xfc`; `static __inline`
+ * widen/mask helpers (`unsigned short W(unsigned char)`, `unsigned short
+ * M(unsigned short)`) - the helper with its own ghost is identical to the
+ * inline ghost, the one without is 52; ghosts `if (t!=r) *p = t;`,
+ * `if (t!=r) p = pal;`, `t != (unsigned short)(unsigned char)r`;
+ * `(unsigned char)t != r` (55, first at 46); sharing one `unsigned short t`
+ * between BOTH arms (52 - VC6 re-narrows in the 555 arm and loses the movzx);
+ * and writing the depth test as `if (g_screen_depth != 2) {555} else {565}`
+ * (34, first at 48).
+ *
+ * NEXT STEP.  Do not look for another red spelling - look for a way to stop
+ * red claiming eax.  Anything that makes green's `and al,0FCh` take eax first
+ * should flip the spine and, with red on the spine, the mask should collapse
+ * to the imm8 form on its own.  Candidates not yet tried: a green term with a
+ * SECOND eax-preferring byte op (so its Sethi-Ullman cost beats red's), a blue
+ * term that keeps eax busy across the red mask, and forcing red's mask to the
+ * 16-bit `and dx,0FFF8h` encoding (66 81 E2 F8 FF) which has no accumulator
+ * short form for edx.  Confirming the spine theory on __BMPLoader's copy of
+ * the same idiom (0x44e352, where green widens with `movzx di,bl` instead of
+ * `xor cx,cx / mov cl,al`) would be a cheap cross-check. */
 // WIP-FUNCTION: LEGOLAND 0x00441f20  (68.3%, 101/101 insns; 565 red value is clean where the original leaves it unclean)
 unsigned short* LoadPalette(const char* fname)
 {

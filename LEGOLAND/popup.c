@@ -7,8 +7,8 @@
  *   0x0045eb30  BuildObject         188/188 instructions, 504/504 bytes,
  *                                   180 index-for-index (see its note)
  *   0x00489190  RenderTransSprite   100% full-body (188/188)
- *   0x004724a0  DrawPopUpInfo       962/962 instructions, 3120/3141 bytes,
- *                                   257 index-for-index / 705 mismatches
+ *   0x004724a0  DrawPopUpInfo       960 vs 962 instructions, 3120/3141 bytes,
+ *                                   398 mismatches (was 886, then 705)
  *                                   (see its note)
  *
  * ---------------------------------------------------------------------------
@@ -160,14 +160,32 @@ extern void  PutObjOnMap(ObjDef* d, ObjElem* obj, Pos* pos);    /* 0x00459ad0 */
  * a static __inline wrapper taking Pos* (identical) or ints (much worse);
  * swapping the two `door.? += pos->?` statements (regresses to index 83);
  * a `volatile Pos*` over the DOOR reads (8 -> 11 mismatches).
- * NEW this pass: a `volatile Pos*` over the ENTRANCE reads pins the a4 push
- * immediately after its load at BOTH sites, which is what the original does at
- * site 1 -- 8 mismatches drop to 7, first divergence moves from 100 to 101 --
- * but it cannot pull a1's load forward, and forcing the whole read order with
- * volatile temporaries perturbs the frame (esi/edi swap at index 5, 48-52
- * mismatches).  Not adopted: one volatile cast is not worth one instruction.
+ * NEW (pass 2): the full 16-way VOLATILE MATRIX over the four arguments was
+ * measured -- a `*(volatile int*)` cast on any subset of door.x / door.y /
+ * ent->x / ent->y.  The best is a cast on ent->x ALONE (or ent->x + ent->y):
+ * 7 mismatches, first divergence at 101, because it pins the a4 push
+ * immediately after a4's load at BOTH sites, which is what the original does
+ * at site 1.  It still cannot pull a1's (door.x) load in front of a3's
+ * (ent->x): every volatile arrangement gives a4, PUSH, a3, a2, a1 where the
+ * original wants a4, PUSH, a1, a3, a2.  Casts on the DOOR arguments make it
+ * worse (9-12).  Not adopted: one instruction is not worth a volatile.
+ * Also measured and byte-identical: a `const Pos* dp = &door` alias;
+ * `((int*)ent)[0]/[1]`; an unprototyped `RequestRoute()`; a varargs
+ * `RequestRoute(int, int, ...)`.  Measured and much worse: replacing the
+ * address-taken `door` with two plain int locals `dx`/`dy` computed from
+ * `door.? + pos->?` (170 instructions -- VC6 then keeps nothing in the frame,
+ * so the address-taken Pos IS required); a `Pos* volatile ent` (194
+ * instructions); an inner-scope `ent` re-read per branch (189).
  * A register-pressure replica in scratchpad/popup/micro4.c reproduces VC6's
- * batched form exactly, so the lever is not local register pressure. */
+ * batched form exactly, so the lever is not local register pressure.
+ * READ THIS BEFORE TRYING AGAIN: the register ALLOCATION is already identical
+ * at both sites (site 1 ecx=a4 then a1, edx=a3, eax=ent then a2; site 2
+ * edx=a4 then a1, eax=ent then a3, ecx=a2), the push ORDER is identical, and
+ * the two original sites differ from EACH OTHER while every C spelling tried
+ * gives the same schedule at both.  The remaining freedom is the emission
+ * order of three loads around one push, which looks like the instruction
+ * scheduler.  If anything cracks it, it will be a change that alters what is
+ * LIVE across the push, not a rephrasing of the call. */
 // WIP-FUNCTION: LEGOLAND 0x0045eb30  (180/188 by audit.py, mismatch=8: the emission order of the four RequestRoute argument loads at both call sites -- same registers, same push order, scheduling only; first diff at index 100)
 int BuildObject(ObjElem* obj, Pos* pos)
 {
@@ -748,79 +766,179 @@ extern char* strcat(char*, const char*);
  * instruction.  Writing it the old way costs six instructions and, worse,
  * frees ebp early enough that VC6 hoists constants into it (see below).
  *
- * MATCH STATE (2026-09-03): 962 instructions against the original's 962,
- * 3120 bytes against 3141, mismatch = 705 by tools/audit.py.  Every block,
- * call, string id, constant and branch direction is present and in the
- * original's order; what remains is BLOCK PLACEMENT and SPILL-SLOT COLOURING,
- * and the mismatch count is inflated by a one-instruction shift that runs from
- * index 221 to the end.
+ * RUNTIME STATE BLOCK (absolute VAs, for the browser runtime).  Everything
+ * the panel needs is in the PopUpUI record based at 0x007fdea4; the fields
+ * this function reads or writes are:
+ *      0x007fdea4  icon_mech      +0x000   hire-mechanic icon
+ *      0x007fdec0  key.type       +0x01c   the kind PopUpInfoSetUp was given
+ *      0x007fdec4  key.obj        +0x020
+ *      0x007fdec8  key.ref        +0x024   packed {u8 x, u8 y} map cell, and
+ *                                          the build-slot search key
+ *      0x007fdecc  pos.x          +0x028   panel origin, px
+ *      0x007fded0  pos.y          +0x02c   panel origin, py
+ *      0x007fdf7c  cls            +0x0d8   ObjDef* of the object shown
+ *      0x007fdf80  ride           +0x0dc   RideRec* (kinds 0x10b / 0x10c)
+ *      0x007fdf84  cell           +0x0e0   Cell* under the pop-up
+ *      0x007fdf8c  worker         +0x0e8   RideBloke* (kind 0x306)
+ *      0x007fdf98  named          +0x0f4   set for a named visitor
+ *      0x007fdf9c  kind           +0x0f8   selects the whole panel content
+ *      0x007fdfa0  active         +0x0fc   0 off, 1 panel, 2 mock panel
+ *      0x007fdfa4  expanded       +0x100   run DrawPopUpExtra as well
+ *      0x007fdfa8  resize         +0x104   recompute `size` this frame
+ *      0x007fdfac  size           +0x108   panel height in lines (a BYTE)
+ *      0x007fdfc0  icon_close     +0x11c
+ *      0x007fdfc8  spr_sad        +0x124
+ *      0x007fdfcc  icon_delete2   +0x128
+ *      0x007fdfd0  spr_hungry     +0x12c
+ *      0x007fdfd8  icon_corner    +0x134
+ *      0x007fdfdc  icon_delete    +0x138
+ *      0x007fdfe0  icon_gardener  +0x13c
+ *      0x007fdfe4  spr_norm       +0x140
+ *      0x007fdeac  spr_full       +0x008
+ *      0x007fe008  spr_peckish    +0x164
+ *      0x007fe018  spr_happy      +0x174
+ * plus, outside the block:
+ *      0x0066895c  g_pu_building  set by kind 0x104 -> the bar is a BUILD bar
+ *      0x0083298c  g_power_available   gates the power line
+ *      0x008119b0  EditMode       non-zero closes the pop-up
+ *      0x00813a40  GamePad        g_input: mouse_c.state bit 2 closes it,
+ *                                 point.x/point.y drive the icon hover strip
+ *      0x006664f8  g_build_slots  256 x 12-byte {?, u16 key @+4, timer @+8}
+ * An Icon is positioned by writing x at +0x0c and y at +0x0e (both SHORT) and
+ * cleared of the hidden bit with flags(+0x34) &= ~0x400.
  *
- * Fixed this pass (each verified against the disassembly):
- *   - PopUpInfoSetUp's 12-byte record, above.  This alone removed BOTH constant
- *     hoists the previous note blamed for the second half: VC6 no longer keeps
- *     1 in ebp at the switch head, nor 0x306 across the layout section, and
- *     `mov ebp,0xfffffbff` in the icon section is now the only ebp constant --
- *     exactly as the original has it.
- *   - The text rectangle must be ONE aggregate (`struct { int left, top, right,
- *     bottom; } box`).  With four separate ints VC6 propagates each corner's
- *     definition into the `right - left` / `bottom - top` argument and
- *     reassociates it -- `(py - top) + 0x19` instead of `(py + 0x19) - top` --
- *     which costs an instruction in each PrintCachedText block and denies `top`
- *     the ebp it has in the original.  With the struct both blocks are
- *     instruction-for-instruction identical to 0x00472b4b and 0x00472b8e.
- *   - `else if (power != 0)` (not `power > 0`): the original's second test is a
- *     bare `je`, not `jle`.
+ * MATCH STATE (2026-09-03, second pass): 957 instructions against the
+ * original's 962, 3120 bytes against 3141, mismatch = 398 by tools/audit.py
+ * (was 705 at the start of this pass, 886 before that).  Every block, call,
+ * string id, constant and branch direction is present and in the original's
+ * order; what remains is REGISTER/SPILL-SLOT ALLOCATION in the worker-extras
+ * block plus two block placements it drags with it.
  *
- * WHAT IS LEFT, precisely:
- *   1. BLOCK PLACEMENT of the post-switch join.  The original places the
- *      `if (g_popup.resize != 0)` block immediately after `object_common`, so
- *      object_common FALLS INTO it and the join's leading `xor esi,esi`
- *      (esi = 0 is clobbered by the strcat rep movsd) serves cases 0x103, 0x14
- *      and 0xa at once; the other cases jump one instruction past it.  VC6 puts
- *      our join after the LAST case block instead, which forces a second
- *      `xor esi,esi` into case 0x103 (our index 221) and shifts everything
- *      after it by one.  Ruled out, all measured, all byte-identical output:
- *      reordering the switch cases (both groups, either way round), dropping
- *      the last case's `break`, turning every other case's `break` into
- *      `goto layout` with the label after the switch, hoisting the
- *      `can_delete` test out of the switch into a block between the switch and
- *      the join (with `default: goto layout;`), and moving the whole tail of
- *      the function inside the last case so the join is textually its
- *      continuation.  VC6 normalises all six to the same CFG and the same
- *      layout, so this is a layout heuristic, not a spelling.
- *   2. SPILL-SLOT COLOURING.  Both frames are 0x434 with the same 17 scalar
- *      slots (info@0x44, name@0x144, line@0x244), but the colouring differs:
- *          original  0x14 can_delete  0x18 has_life  0x20 cls  0x24 worker
- *                    0x28 py  0x2c px  0x30 show_delete2  0x34 show_mech
- *                    0x3c show_gardener   (0x1c and 0x38 hold other temps)
- *          ours      0x18 has_life  0x1c worker  0x20 can_delete
- *                    0x24 show_delete2  0x28 cls  0x30 px  0x34 py
- *                    0x38 show_gardener  0x3c show_mech
- *      Note the original gives py the LOWER slot of the pair and ours px.
- *      Declaration order is not the lever here: all 120 permutations of the
- *      five flag initialisations and a full reordering of the local block were
- *      measured and every one produces the same slots (best 704 vs 705, noise).
- *   3. The two arms of `if (has_life == 0) ... else ...` are laid out in the
- *      opposite order: the original puts the `else` (condition ratio) arm right
- *      after the search loop's not-found `ret` so it falls into the bar code,
- *      and exiles the build-progress arm past the bar code with a backward
- *      `je 0x472df6` re-entry.  Inverting the `if` in the source is much worse
- *      (938 instructions) -- measured, do not repeat.
- *   4. The `reopen_build` block (PopUpInfoSetUp(0x104)) sits between case
- *      0x10c's guard and its body in the original; VC6 puts ours between case
- *      0x10b's guard and its body.  Measured and identical: putting the label
- *      in either case, inverting either guard, and writing the block out twice
- *      (VC6 cross-jumps them back together in the same place).
+ * FIXED THIS PASS (each verified against the disassembly):
  *
- * Still true from the earlier pass, kept so it is not re-derived: the two ride
+ *   1. THE `can_delete` TEST IS WRITTEN OUT THREE TIMES, once at the end of
+ *      each object case (0x103, 0x14, 0xa), NOT routed through a shared
+ *      `goto object_common:` label.  This was worth 705 -> 432 on its own and
+ *      is the biggest lever found for this function.
+ *        Both spellings produce the same single three-predecessor block (VC6
+ *      cross-jumps the copies), but they place the POST-SWITCH JOIN
+ *      differently.  With the goto, the join's only fall-through predecessor
+ *      is the LAST case block (0x10b), so VC6 puts the join after it, and the
+ *      shared `xor esi,esi` -- esi is this function's zero register and the
+ *      inlined strcat's rep movsd clobbers it -- has to be duplicated into
+ *      case 0x103, shifting every instruction from index 221 on by one.  With
+ *      the three copies, the cross-jumped block falls out of case 0xa and the
+ *      join follows it, exactly as the original has it: object_common falls
+ *      into a one-instruction `xor esi,esi` block, and the cases that do NOT
+ *      clobber esi jump one instruction past it (0x476 vs 0x478).
+ *
+ *   2. `box.top` and `box.bottom` are RE-ESTABLISHED in the worker block
+ *      before the mid-point is taken (`ty = (box.bottom + box.top) / 2`).
+ *      Spelled as one expression, `((py + lines*20 + 0x63) + (py + 0x23)) / 2`
+ *      is reassociated by VC6 into `2*(py + 10*lines) + 0x86` with a single
+ *      reload of py; the original computes `py + lines*20 + 0x63` with an
+ *      `lea [eax+edx*4+0x63]` and reloads py again for the `+ 0x23` term.
+ *      Worth 432 -> 398.  (Assigning the two fields the other way round, or
+ *      moving `halfw` between them, is 1-2 instructions worse; measured.)
+ *
+ * BLOCK ORDER IS NOT SOURCE ORDER -- a lever that does NOT exist here.  VC6
+ * emits the case blocks of a switch in DESCENDING CASE VALUE within each
+ * dispatch group: the low group tests 0xa, 0x14, 0x103 ascending and emits
+ * 0x103, 0x14, 0xa; the pivot 0x104 follows; then the `jg` chain tests
+ * 0x10b, 0x10c, 0x306 and emits 0x306, 0x10c, 0x10b.  Every permutation of
+ * the seven cases in the source compiles BYTE-IDENTICALLY (three orderings
+ * measured), as does adding an empty `default: break;` anywhere, as does
+ * moving the whole tail of the function inside the switch after
+ * object_common with the other cases jumping to it.  Do not reorder cases.
+ *
+ * WHAT IS LEFT, precisely (the first divergence is at index 25):
+ *
+ *   1. SPILL-SLOT COLOURING.  Both frames are 0x434 with the same thirteen
+ *      scalar slots 0x10..0x40 (plus info@0x44, name@0x144, line@0x244).
+ *      `can_delete`@0x14 and `worker`/`mood`@0x24 now agree; the rest is a
+ *      permutation:
+ *          slot   original          ours
+ *          0x10   ty + frac         (right-left) + frac
+ *          0x14   can_delete        can_delete        <- agrees
+ *          0x18   has_life          cond
+ *          0x1c   cond              has_life
+ *          0x20   cls               py
+ *          0x24   worker / mood     worker / mood     <- agrees
+ *          0x28   py                show_delete2
+ *          0x2c   px                halfw
+ *          0x30   show_delete2      px
+ *          0x34   show_mech         cls
+ *          0x38   halfw             show_gardener
+ *          0x3c   show_gardener     show_mech
+ *      Declaration order is NOT the lever: the whole local block reordered
+ *      into the original's slot order compiles byte-identically, as do all
+ *      120 permutations of the five flag initialisers (measured twice now).
+ *      Splitting the icon section's reuse of `halfw` into its own variable is
+ *      byte-identical too.  This is downstream of item 2.
+ *
+ *   2. THE FIVE MISSING INSTRUCTIONS ARE ALL IN THE WORKER-EXTRAS BLOCK
+ *      (kind 0x306), and they come from ONE allocation decision.  Six values
+ *      are live across the two PrintCachedText calls -- `lines`, `box.left`,
+ *      `box.right`, `w = box.right - box.left`, `halfw` and `ty` -- for four
+ *      callee-saved registers, so two must be spilled.  Both spill `halfw`;
+ *      the original then spills `ty` and keeps `w` in ebx (ebp = box.left,
+ *      edi = box.right), while VC6 gives us edi = ty and spills `w`
+ *      (ebx = box.left, ebp = box.right).  A spilled `ty` costs a
+ *      load/add/store in each of the three mood arms where a spilled `w`
+ *      costs only a load -- exactly the five instructions we are short -- and
+ *      it is also why the original tail-merges the three `push <sprite>` with
+ *      the shared `call PrintSprite` (all three arms hold the sprite in eax)
+ *      while ours cannot (eax/edx/ecx).  Everything between indices 570 and
+ *      720 follows from this one choice.  Measured and byte-identical, so NOT
+ *      the lever: a named `int w` local; `halfw / 2` in the arms;
+ *      `switch (mood)` instead of the if/else chain; carrying `ty` or `halfw`
+ *      in a `box` field; block-scoping mood/cond/halfw/ty; every permutation
+ *      of the assignments at the head of the block (only the
+ *      box.top/box.bottom pair matters -- see FIXED 2).  Hoisting
+ *      `ty -= 0x20` out of the three arms loses instructions (936).
+ *      PROOF, and the NEXT STEP.  Declaring `volatile int ty;` (a diagnostic
+ *      probe, not a candidate) forces exactly the original's shape in the
+ *      three mood arms -- `mov reg,[esp+0x10] / sub reg,0x20 /
+ *      mov [esp+0x10],reg`, `w` back in ebx, and index 664
+ *      (`lea edx,[ebx+ebp-0x20]`) matching instruction for instruction -- so
+ *      the diagnosis is certain.  It overshoots by four instructions (966 vs
+ *      962) because `volatile` also re-reads `ty` for each use of `ty + 0x22`
+ *      instead of spilling that sum once, and the earlier code is perturbed
+ *      (mismatch 472).  The lever wanted is therefore whatever makes VC6
+ *      spill an ORDINARY `ty`: most likely a use of `w` (or of
+ *      `box.right - box.left`) that this reconstruction spells as something
+ *      else, or a seventh value live across the two PrintCachedText calls.
+ *
+ *   3. The `reopen_build` block (PopUpInfoSetUp(0x104)) sits between case
+ *      0x10c's guard and its BODY in the original (0x10c falls into it, 0x10b
+ *      jumps back to it); VC6 puts ours between case 0x10b's guard and its
+ *      body.  Worth ~30 mismatches.  Measured and byte-identical: the label
+ *      in either case, either guard inverted, the guard rewritten as
+ *      `if (!cond) goto body;` so the reopen arm is the fall-through, and the
+ *      block written out twice (VC6 cross-jumps the copies straight back to
+ *      the same place -- unlike the `can_delete` duplication above, which
+ *      moved the merged block).
+ *
+ *   4. The build-progress arm of `if (has_life == 0) ... else ...` is exiled
+ *      by the original to between the two colour-push blocks of the bar and
+ *      re-entered by a backward branch, while its `else` arm falls straight
+ *      into the bar code; ours keeps the build arm inline.  Worth ~78
+ *      mismatches.  Measured and byte-identical: rewriting it as
+ *      `if (has_life == 0) { ... goto found; ... return; }` +
+ *      `frac = cell->life / cls->life;` + a `bar:` label with the `found:`
+ *      block moved textually after the bar code and a `goto bar` back.
+ *      Inverting the `if` outright is much worse (938 instructions).
+ *
+ * Still true from earlier passes, kept so it is not re-derived: the two ride
  * cases share one tail -- the original cross-jumps case 0x10c into case 0x10b
- * at the `call GetString`, leaving only `push 0xd3 / jmp` behind.  Ours now
- * does the same (it merged only at the later `call Format` before the
- * PopUpInfoSetUp fix changed the register allocation).  `top` is computed
- * before `right` in the icon section, which removes a reload of g_popup.pos.y.
+ * at the `call GetString`, and ours does the same.  `top` is computed before
+ * `right` in the icon section, which removes a reload of g_popup.pos.y.
+ * PopUpInfoSetUp's first three arguments are ONE 12-byte record (see above);
+ * writing them as three scalars costs six instructions and frees ebp early
+ * enough that VC6 hoists constants into it.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3120 vs 3141 bytes, mismatch=886->705 by audit.py; the constant-1/0x306 ebp hoists are GONE, what is left is the post-switch join's block placement (one extra 'xor esi,esi' at index 221 shifts the rest by one) and spill-slot colouring; first diff at index 26)
+// WIP-FUNCTION: LEGOLAND 0x004724a0  (960 vs 962 instructions, 3120 vs 3141 bytes, mismatch=886->705->398 by audit.py; the post-switch join and the `xor esi,esi` are now placed as the original has them -- what is left is the ty-vs-w spill choice in the kind-0x306 worker block, the spill-slot colouring it drags with it, and two block placements; first diff at index 25)
 void DrawPopUpInfo(void)
 {
     char    name[256] = {0};
@@ -897,7 +1015,15 @@ void DrawPopUpInfo(void)
         }
         if (cls->life != 0)
             has_life = 1;
-        goto object_common;
+        /* The `can_delete` test is written out in all three object cases (VC6
+         * cross-jumps them into the single block at 0x004728e3 that the
+         * original has).  Routing them through one `goto object_common:` label
+         * instead compiles to the same three-predecessor block but places the
+         * post-switch join AFTER the last case, which costs the shared
+         * `xor esi,esi` and shifts every later instruction. */
+        if (!(g_popup.cell->flags & 0x40))
+            can_delete = 1;
+        break;
     case 0x14:
         Format(name, kFmtStr, cls->name);
         Format(info, kFmtColon, GetString(0x93), GetMechanicCount());
@@ -906,7 +1032,9 @@ void DrawPopUpInfo(void)
                GetString(0x77), GetObjSalvageValue(cls, g_popup.cell->life));
         strcat(info, line);
         show_mech = 1;
-        goto object_common;
+        if (!(g_popup.cell->flags & 0x40))
+            can_delete = 1;
+        break;
     case 0xa:
         Format(name, kFmtStr, cls->name);
         Format(info, kFmtColon, GetString(0x91), GetGardenerCount());
@@ -915,7 +1043,6 @@ void DrawPopUpInfo(void)
                GetString(0x77), GetObjSalvageValue(cls, g_popup.cell->life));
         strcat(info, line);
         show_gardener = 1;
-object_common:
         if (!(g_popup.cell->flags & 0x40))
             can_delete = 1;
         break;
@@ -996,8 +1123,16 @@ reopen_build:
         cond = GetBlokeAgeGroup(worker);
         box.left = px + 0xc;
         box.right = lines * 0x20 + px + 0xb0;
+        /* box.top/box.bottom are re-established here (they still hold these
+         * values from the `info` block) so VC6 keeps the two halves of the
+         * midpoint apart: spelled as one expression it reassociates into
+         * 2*(py + 10*lines) + 0x86 and reloads py only once, where the
+         * original recomputes `py + lines*20 + 0x63` with an lea and reloads
+         * py for the `+ 0x23` term. */
+        box.top = py + 0x23;
+        box.bottom = py + lines * 20 + 0x63;
         halfw = (box.right - box.left) / 2;
-        ty = ((py + lines * 20 + 0x63) + (py + 0x23)) / 2;
+        ty = (box.bottom + box.top) / 2;
         PrintCachedText(GetString(0x8e), box.left, ty + 0x22, halfw, 0x14,
                         2, 0x11, 0xff0000, 0xffffff);
         PrintCachedText(GetString(0x8f), (box.left + box.right) / 2, ty + 0x22, halfw, 0x14,

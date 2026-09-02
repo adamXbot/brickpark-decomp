@@ -917,6 +917,52 @@ void Mechanic_Build(Bloke* b)
  *    Because (1) is a missing instruction, every index from 102 on is off by
  *    one and audit.py reports 82 index-for-index mismatches; a difflib
  *    alignment still puts 181 of the 184 instructions together (98.4%).
+ *
+ *    PASS N+1 - what 0x4707a3 ACTUALLY IS.  Compare it byte for byte with
+ *    `fail:` at 0x470895:
+ *        0x470895  mov [g_drag_lock],ebp / call SetWorkersPositionAtMouse /
+ *                  pop edi / pop esi / pop ebp / add esp,8 / ret
+ *        0x4707a3  mov ebp,1 / mov [g_drag_lock],ebp / call ... / pop edi /
+ *                  pop esi / pop ebp / add esp,8 / ret
+ *    The out-of-range arm is a TAIL-DUPLICATED COPY of the fail block, with
+ *    `mov ebp,1` prepended because the row-count load (`xor ebp,ebp;
+ *    mov bp,[map+16h]`) clobbered the constant register on the way in.  That
+ *    is why the store is the register form and why no `g_drag_lock = 1`
+ *    spelling reproduces it: the store was never compiled from a `= 1` in
+ *    that arm at all, it is fail's own store copied.  Writing the arm as
+ *    `goto fail;` makes VC6 SHARE the block instead of copying it (181
+ *    instructions / 665 bytes - exactly the 12-byte copy replaced by a 5-byte
+ *    jmp), so the open question is what makes VC6 duplicate rather than jump.
+ *
+ *    Ruled out this pass, all measured: `g_drag_lock = 1; goto tail;` in the
+ *    arm (66 mismatches, 184 insns but 677 bytes - the arm SINKS past the
+ *    place block, same failure as the spelled-out tail); the same with a dead
+ *    `w = 0;` (identical); an explicit `join:` label between the arm and the
+ *    test (183/671, unchanged); `else if (found == 0)`, `w = (WorkOrder*)0;`
+ *    and `found = 1;` inside the arm (all DCE'd, 183/671, unchanged);
+ *    swapping the two arms so the out-of-range case is the `if` (98
+ *    mismatches, first at index 84 - the whole locked arm moves); hoisting the
+ *    height test out as `if (cell.y >= g_map->height) g_drag_lock = 1;` after
+ *    the block (147 mismatches, 662 bytes); and a shared `int one = 1;` local
+ *    feeding every store of 1 in the function, and feeding only the arm and
+ *    fail - both constant-propagated away (183/671, unchanged), confirming
+ *    the earlier `one` finding.
+ *
+ *    Residual (2), re-measured: `if (SetGardener...(...)) goto tail; goto
+ *    fail;` in BOTH arms DOES give `test eax,eax` and lands on 184
+ *    instructions, but 678 bytes - the gardener arm grows its own copy of the
+ *    fail block plus the epilogue where the original cross-jumps into the
+ *    mechanic arm's `add esp,0Ch` (`jmp 0x47088e`).  `if (... == 0) goto
+ *    fail;` with a trailing `goto tail` is worse still (681 bytes).  Keeping
+ *    the `r` variable is what buys the cross-jump; the direct call test is
+ *    what buys `test eax,eax`; nothing tried yet buys both.
+ *
+ *    NEXT STEP for (1): stop trying to spell the arm's store and instead find
+ *    what makes VC6 tail-duplicate a `goto fail;` here rather than share it -
+ *    e.g. a fail block that is cheaper to copy than to jump to, or an arm
+ *    whose predecessor edge is the only one reaching fail from a
+ *    register-clobbering path.  Both residuals are one instruction each; fix
+ *    (1) alone and audit.py drops from 82 to 1.
  */
 // WIP-FUNCTION: LEGOLAND 0x00470620  (181/184 aligned = 98.4%, 672/672 bytes; two difference hunks, at 0x4707a3 and 0x470891, see above; the missing instruction shifts every later index so audit.py counts 82)
 void CheckWorkerOnMouseStatus(WorkOrder* o)

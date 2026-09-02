@@ -857,6 +857,44 @@ void CalculateMapRenderOrder(void)
  * and using the dead `refresh` PARAMETER itself as the y loop variable, which
  * is byte-identical to a local (so the [esp+0x38] home is not evidence either
  * way).
+ *
+ * 2026-09 PASS 2.  No improvement, but the plateau is now bounded and one part
+ * of the diagnosis above is WRONG.
+ *  - EXHAUSTIVE statement-order search: the block was rewritten as the six
+ *    statements w2 / h2 / sx=x-y / sy=y+x / sx*=w2 / sy*=h2 and every one of
+ *    the 80 dependency-valid permutations compiled.  They collapse into
+ *    exactly FOUR outcomes: 6 mismatches / 544B (this code), 108 / 546B,
+ *    120 / 549B and 120 / 546B.  No statement order reaches the original.
+ *  - Measured with a difflib-ALIGNED, register-normalised diff (see the
+ *    TOOLING note on GetObjectUID), the entire residual is an edit distance of
+ *    TWO: the original's `add R,R` against our `lea R,[R+R]`.  Everything else
+ *    in the function, register naming included, is identical.
+ *  - The two attractors are decided ONLY by the order of the two multiplies.
+ *    `sx *= w2` before `sy *= h2` gives one y load plus the `lea` (this code);
+ *    `sy *= h2` first gives `mov edx,[y] / add edx,edi` exactly as the
+ *    original but a SECOND `mov eax,[y]` for the subtraction (108).  Routing
+ *    the subtraction through a named copy of y (`t = y; sx = x - t;
+ *    sy = t + x;`) restores the single load but drops straight back to
+ *    attractor 1: VC6 will not give one load AND the in-place add together.
+ *  - CORRECTION: "eax must already be BUSY when y is loaded" is not what the
+ *    original does.  The x-loop body is entered at 0x45f695 from the preheader
+ *    and from the back edge at 0x45f7db, and NEITHER leaves anything live in
+ *    eax - eax is dead at the body head in the original too.  What differs is
+ *    the order in which VC6 CREATES the two temps: it hands out eax, ecx, edx
+ *    in creation order, so in the original the r.left temp is created BEFORE
+ *    the y temp, which therefore gets edx (sy's home) and is consumed in
+ *    place.  The volatile pin reproduces that creation order, which is why it
+ *    works; being "busy" is the symptom, not the mechanism.  The lever wanted
+ *    is a spelling in which the r.left VALUE exists in the IR before the y
+ *    value without being a scheduling barrier ahead of the y load.
+ *  - Also measured and refolded to this same 6/544B: `int yy = y` used in the
+ *    sums only, and used in the sums plus the y==r.top / y==r.bottom tests;
+ *    `int xx = x` in the sums; the two sums as members of a block-scope
+ *    struct; `unsigned` and `long` sx/sy; a static __inline helper writing
+ *    both sums through int* out-parameters.  Hoisting the w2/h2 statements out
+ *    of the x loop into the y-loop body is a REAL regression (559B, first
+ *    divergence at index 1, ESCAPES for four of the six orders): it changes
+ *    the frame, so they must stay inside the inner loop and be hoisted by VC6.
  * NOTE: the marker must stay on the line directly above the signature; the
  * verifier only looks 1-3 lines ahead, and this note used to sit between them,
  * which made the function silently uncounted. */
@@ -1058,7 +1096,67 @@ void StandardRemoveObject(MapObj* obj, BPos bp, Cursor* ctx)
  * `mov bl,0x80` constant register.  Head note: with this spelling VC6 fuses
  * the x<0 test into the shift (`js`) because x's `sar` is the last flag-setter;
  * the original's `sar eax,8 / sar edi,8 / test eax,eax` needs the x shift
- * emitted FIRST, and no argument order or helper signature achieves that. */
+ * emitted FIRST, and no argument order or helper signature achieves that.
+ *
+ * 2026-09 PASS 2.  *** THE LEVER THE PARAGRAPH ABOVE ASKS FOR IS FOUND. ***
+ * It trades against two other hoists, so the committed body is unchanged (it
+ * still has the best index-for-index count) - but start here, not from
+ * scratch.
+ *   LEVER: spell the map x as a LOCAL `int x = wpos->x >> 8;` (used BOTH in
+ *   the probe arguments and in the coordinate comparisons; y stays an
+ *   expression) AND read g_map through a helper-local pointer, in a private
+ *   copy of MapCellAt:
+ *       static __inline Cell* CellL(int x, int y)
+ *       {
+ *           Map* m = g_map;
+ *           if (x >= 0 && x < m->width && y >= 0 && y < m->height)
+ *               return &g_map_rows[y][x];
+ *           return 0;
+ *       }
+ *   With that, VC6 stops CSE'ing width and height into two callee-saved
+ *   registers and puts `def` in EBP exactly as the original - every probe then
+ *   emits `cmp dword ptr [edx+0xc], ebp` with no [esp+0x18] reload - and the
+ *   head comes out `mov eax,[ecx] / mov ebp,[esp+0x10] / sar eax,8 /
+ *   sar esi,8 / test eax,eax`, i.e. the x shift FIRST and the separate `test`
+ *   that the paragraph above calls unreachable.  The body is then 477 bytes,
+ *   EXACTLY the original's length (this code is 480).  Full variant:
+ *   scratchpad/objmap2/o5/v_QL1100.c.
+ *   COST, and why it is not committed: index-for-index the count goes
+ *   163 -> 167, purely because of the one extra instruction in (a) below
+ *   shifting the rest; the difflib-ALIGNED raw edit distance improves a lot,
+ *   152 -> 132.  Two defects remain in that variant:
+ *     (a) `mov ebx,[g_map]` is still hoisted above the first branch - one
+ *         extra instruction at index 2, which IS the whole index shift - and
+ *         g_map_rows is hoisted into ebp;
+ *     (b) because x is a local, x*20 is CSE'd across the two vertical probes
+ *         (`lea edi,[eax+eax*4] / shl edi,2 ... add ecx,edi`) instead of the
+ *         original's per-probe `lea edx,[eax+eax*4] / lea ecx,[ecx+edx*4]`.
+ *   Kill (a) and (b) and the function falls.  Volatile reads of g_map and/or
+ *   g_map_rows inside the helper do kill the hoists but cost the width/height
+ *   CSE the below probe depends on; ranked by aligned raw edits, volatile-map
+ *   130, volatile-rows 133 and the plain local 132 are all within noise of one
+ *   another and all beat this code's 152, but none is index-for-index better.
+ *   Measured and BYTE-IDENTICAL to this code (do not repeat): a `UidHit`
+ *   static __inline carrying the whole content test with `def` as an argument;
+ *   a `CellM(Map* m, int x, int y)` helper with `g_map` passed at every call
+ *   site; the two coordinate sums written as separate `int sx = ...;
+ *   int sy = ...;` statements before the compare (VC6 still short-circuits
+ *   after the x compare, where the original computes both sums first, so that
+ *   ordering is allocation-driven too, not a source spelling); and all four
+ *   addend orders in those sums.  Worse: `&` and `|` non-short-circuit
+ *   spellings of the coordinate test (496B / 492B, both ESCAPE).
+ *   The full 2x2x2x2 local/expression matrix (x and y, probe argument and
+ *   comparison) crossed with both helpers is measured: the winner for the
+ *   REGISTER ALLOCATION is (x local everywhere, y expression); the winner for
+ *   the index-for-index count is (both expressions), which is this code.
+ *   TOOLING for the next agent: scratchpad/objmap2/o5/fast.py compiles a
+ *   variant in-process in ~0.15s and returns the mismatch count, the byte
+ *   length AND a difflib-aligned edit distance over the raw and the
+ *   register-normalised instruction streams (score2.py wraps it).  For these
+ *   allocation puzzles the ALIGNED distance is the number that moves; the
+ *   index-for-index count mostly measures how far one inserted instruction
+ *   shifted the rest of the body, and it hid this lever from two earlier
+ *   passes. */
 // WIP-FUNCTION: LEGOLAND 0x0048a3e0  (14.7%, def spilled / g_map hoisted where the original does the reverse)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {
@@ -1166,7 +1264,63 @@ static __inline void MakeFoot(WinRect* o, Rect* r, Pos p)
  * So the whole 14-instruction residual is the scheduler's choice of what to
  * put in ONE slot: the original delays the `bound.right` store into it and
  * loads origin.x only after all four r-> loads; ours puts the bound.right
- * store before the block and spends the slot on an early origin.x load. */
+ * store before the block and spends the slot on an early origin.x load.
+ *
+ * 2026-09 PASS 2.  No improvement; three exhaustive searches are now closed
+ * and the residual is characterised exactly.
+ *  - The 14 instructions at 42-55 are a PERMUTATION of the same multiset in
+ *    both builds: the difflib-ALIGNED, register-normalised edit distance is
+ *    FOUR (two moves).  Nothing is missing or extra - only the order and the
+ *    register roles differ.
+ *  - WHAT actually differs (this is the thing to attack): the original loads
+ *    origin.y into eax, uses it for the top sum (`add ecx,eax`, accumulating
+ *    into r->top's register) and then LETS IT DIE IN PLACE at the bottom sum
+ *    (`add eax,ecx` - its last use), which frees eax for origin.x, loaded late
+ *    and used by the two x sums back to back (`add edx,eax / add ecx,eax`).
+ *    Ours pins origin.y in ecx and origin.x in eax across the whole block and
+ *    rotates edx as the only scratch, so both origin halves are loaded up
+ *    front and neither dies.  The lever wanted is whatever makes VC6 give the
+ *    two origin halves the SAME register sequentially.  (This is the same
+ *    "consume the operand in place on its last use" tie-break as
+ *    BuildCursorPtr's `add edx,edi` - the two are almost certainly one bug.)
+ *  - Sweep 1, 2880 variants: all 24 MakeFoot field orders x all 24 `bound`
+ *    store orders x all 5 positions of the MakeFoot call among the bound
+ *    stores.  The present tlbR / top,left,bottom,right / call-last is the
+ *    UNIQUE optimum (aligned edit 4, 14 mismatches, 617B); the next best is
+ *    aligned edit 6.
+ *  - Sweep 2, 384 variants: all 24 field orders x all 16 combinations of
+ *    operand order inside the four sums (`r->top + p.y` vs `p.y + r->top`,
+ *    and so on).  VC6 canonicalises addend order COMPLETELY - all 16 flips are
+ *    byte-identical for every field order.  So the original's `add eax,ecx`
+ *    for the bottom sum is the allocator consuming origin.y in place, NOT a
+ *    reversed source spelling; do not go looking for one.
+ *  - Sweep 3, 128 variants: the MakeFootY + MakeFootX split with both field
+ *    orders, all operand flips and both call orders - aligned edit 7, strictly
+ *    worse than the single helper.
+ *  - Also refolded to this same 14: `const Rect*` on the helper, the helper's
+ *    parameters in a different order (Rect*, Pos, WinRect*), and
+ *    `MakeFoot(&foot, r, *(Pos*)&cur->origin)`.  Worse: naming the four sums
+ *    in helper-local ints (608B, 178), naming the r->left / r->right loads in
+ *    helper-local ints (608B, 175), and copying the origin either through a
+ *    `Pos p = cur->origin;` temp at the call site or through a `const Pos*`
+ *    parameter dereferenced into a helper-local Pos - both 618B / 163,
+ *    because both add a `mov edx,ecx`.
+ *  - PARTIAL WIN worth continuing from: MUTATING the by-value parameter is a
+ *    real lever (unlike operand order, which canonicalises).  Writing the
+ *    helper as
+ *        o->top = r->top + p.y;  o->left = r->left + p.x;
+ *        p.y += r->bottom;       o->bottom = p.y;
+ *        p.x += r->right;        o->right = p.x;
+ *    (semantically identical - p is a by-value copy with no later use) makes
+ *    VC6 emit the original's in-place accumulate `add eax,ebx` with origin.y
+ *    dying in eax, and puts origin.y in eax at 0x45f89b exactly as the
+ *    original.  It costs 616B / 27 / aligned edit 7 because VC6 then grabs
+ *    EBX as a fourth scratch and still loads origin.x early into ecx; the
+ *    variants that batch the two mutations (aligned edit 5) do the same.  So
+ *    the last question is only why the original spends ONE register on both
+ *    origin halves.  It is NOT register pressure: ebx is genuinely dead across
+ *    this block in the original too - its first definition is the x-loop
+ *    variable at 0x45f91f, well after the block. */
 // WIP-FUNCTION: LEGOLAND 0x0045f810  (93.2%, foot-block scheduling: 14 insns at idx 42-55)
 void ValidateCursor(Cursor* cur, ObjDef* def)
 {

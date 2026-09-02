@@ -637,7 +637,58 @@ extern void EnterSaveGameDetails(Icon* panel);                                /*
  * (`mov eax,38h` / `mov ecx,6Ah`), and any second-call value spelled off the
  * first (`bottom + 14h`, `top + 32h`) is constant-folded, which kills the
  * crossing range again.  Assignment order is NOT a lever: all 24 permutations
- * give l->edi, r->ebp.
+ * of the four header assignments were re-run with the REGISTER printed (not
+ * just the mismatch count), and the rule is sharper than the line above:
+ * whichever crossing value is assigned FIRST gets edi and the other gets ebp
+ * -- `p_rltb`/`p_trlb` put 0x14e in EDI and 0x5c in ebp, at a cost of 6
+ * mismatches.  ebx is never reachable from this side.
+ *
+ * WHAT DECIDES IT IS THE TAIL, NOT THE HEADER (measured this round).  With
+ * the two popup tails deleted the header compiles to `mov ebx,14Eh`.  Better:
+ * leave the whole function intact and change ONLY the shape of the tail's
+ * NewPrintCent call -- replace the three `NewPrintCent(GetString(id), 2, rc,
+ * 1)` with a `G1(WinRect)` and the body matches the original index for index
+ * up to 237 INCLUDING `mov ebx,14Eh`; only the tail (which now calls a
+ * different function) differs.  A table over the tail call's signature, with
+ * everything else untouched:
+ *      G1(rc)                 -> ebx      G3(int, rc)          -> ebp
+ *      G2(rc, int)            -> ebx      G4(int, rc, int)     -> ebp
+ *      G6(rc, int, int)       -> ebp      G5(char*, int, rc)   -> ebp
+ *      NewPrintCent(t,f,rc,w) -> ebp
+ * i.e. a 16-byte by-value argument in the TAIL that is not the call's first
+ * (and only, or first-of-two) parameter is what pushes the header's `right`
+ * out of ebx into ebp.  That knob is not available: the disassembly pins the
+ * prototype (`push 1` / `sub esp,10h` / `mov edx,esp` / `push 2` / `push
+ * text` / four `mov [edx+N]` / `call` / `add esp,1Ch` = text, font, rect,
+ * white).  Loop content is irrelevant -- ablating either popup branch, either
+ * save-type stamp, the g_save_7cb328 light-up or the whole `owner` print all
+ * leave 0x14e in ebp.
+ *
+ * The guard IS a lever but not a usable one: moving `if (g_delete_icon)` to
+ * sit between `rc.right = 0x14e` and `rc.bottom` gives `mov ebx,14Eh`, but
+ * VC6 then hoists left/top/right above the guard's `je` (19 mismatches, first
+ * at 8).  All 5 guard positions x all 24 assignment permutations were swept;
+ * every guard position other than the top costs >= 6 mismatches.
+ *
+ * Ruled out this round as well: all 120 permutations of the local
+ * declarations; splitting `rc` into header/loop/tail rects in every two-way
+ * grouping (header+tail sharing one rect with the loop separate; header
+ * separate; loop separate) -- all still 313i/952B, 3 mismatches, ebp; using
+ * ONE int local for both the header's `right` and the loop's `lit` (the
+ * "carrying a value in a scratch local lets VC6 coalesce two names into one
+ * register" lever -- VC6 splits the live range anyway); prototype tweaks
+ * (`white` as int / unsigned char, PrintSprite's ctx as int, text as const
+ * void*); merging the tail's three calls by hand into one with a `goto` and
+ * an `id` local; PrintSprite moved ahead of the tail rect assignments; `cur`
+ * assigned per-branch or after the inner if; `owner` read after the `name:`
+ * label; `p = g_side_icons` read before/after the guard; and hoisting
+ * g_save_7cb328 into a local (it lands in a stack slot, not a register, so it
+ * does not become a third crossing value).
+ *
+ * NEXT STEP: still the third crossing value.  It must be created AFTER
+ * `rc.right`, be live across both NewPrintCent calls, land in a REGISTER (not
+ * a spill slot), and cost zero instructions.  Everything tried so far either
+ * constant-folds, spills, or adds an instruction.
  *
  * Two cut-down probes (scratchpad/nearmiss/bs_v8.py) show the list is really
  * about which registers the FUNCTION ends up using: header + a loop that only

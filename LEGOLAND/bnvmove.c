@@ -469,9 +469,52 @@ int SuggestNextMove(Pos* from, Pos* to, Pos* out)
  * and a `static __inline SumSq3()` helper for the row, with `i = 0` before,
  * inside and after it.
  *
- * Next thing to try: something that makes the assignment UNMOVABLE at index
- * 78 -- a use of `i` there, or a second integer instruction competing for the
- * post-fsqrt slot -- without adding an instruction.  Nothing found so far. */
+ * The two-attractor split was re-derived independently this round and holds.
+ * New measurements that narrow it:
+ *
+ *  - The slots FILL FORWARD from each attractor, so the previous note's
+ *    "next thing to try -- a second integer instruction competing for the
+ *    post-fsqrt slot" is now measured and RULED OUT: it pushes the wrong way.
+ *    Moving `sum_z = 0.0f;` to sit just after the third sqrt (ahead of
+ *    `i = 0;`) makes the `mov dword ptr [esp+18h],0` take slot 82 and the xor
+ *    lands at 83, never 78.  Same with the `i = 0;` first: 82 then 83.
+ *  - Constant-zero assignments are hoisted MUCH further than the scheduler
+ *    could move them, and calls are not barriers: `sum_x = 0;` written after
+ *    the third sqrt still comes out at index 7, above BOTH calls (the object
+ *    is byte-identical to the baseline).  It hoists because its zero has an
+ *    earlier consumer -- `sum_y = 0` is emitted as `mov [esp+1Ch],ebp`, i.e.
+ *    it reuses sum_x's zero register.  `i` has no such partner, which is
+ *    probably why its def is the one left floating.  If a zero-cost EARLIER
+ *    consumer of `i`'s zero could be found around index 78, that is the shape
+ *    that would pin the xor there.
+ *  - Rows 1 and 2 are confirmed non-barriers from the other side too: `i = 0`
+ *    placed immediately after row 1's and after row 2's `inv = 1.0f/sqrt(..)`
+ *    statement both give 19.  Only row 3's sqrt statement -- the one whose
+ *    operand is a named local and whose tail carries the `fxch st(2)` pair --
+ *    splits the block.
+ *
+ * Also measured and identical (19 or 82, never 78) this round: non-constant
+ * zeroing forms `i ^= i` / `i -= i` / `i &= 0` / `i *= 0` at three anchors;
+ * `register int i`; `i` declared in a block containing only the loop; reusing
+ * the dead parameter `frame` as the loop counter; renaming the accumulator
+ * (`inv` reused, or a block-scope `l2`); commas in the sqrt argument
+ * (`sqrt((len2 += cy*cy, i = 0, len2))`, `sqrt((i = 0, len2 += cy*cy))`);
+ * a commutated last add (`len2 = cy*cy + (i = 0, len2)`, and with `i ^= i`);
+ * `inv = 1.0f / (i = 0, (float)sqrt(len2))`; a `skew = (float)sqrt(len2);
+ * i = 0; inv = 1.0f/skew;` split; `(i = 0, inv)` inside each of the three
+ * multiply-backs; an explicit `float* orient = &object->orientation[0];` at
+ * four positions (the `lea ebx,[esi+10h]` hoists to index 22 regardless, so
+ * it cannot be made to compete); and all 6 permutations of the three
+ * accumulator initialisers (note: with the initialisers ON the declarations,
+ * declaration order is NOT irrelevant here -- putting sum_x or sum_y first
+ * costs 4 bytes of frame and 5-6 mismatches).  Swapping the cx/cy
+ * accumulation order moves the xor to 85 and costs 8.
+ *
+ * Next thing to try: the placement rule now looks like "fill forward from the
+ * start of the enclosing scheduling region", with exactly two regions here,
+ * [19..] and [82..].  Reaching 78 therefore needs a region that STARTS at 78,
+ * i.e. something that terminates the first region at `fmul st(2)` (index 77).
+ * Nothing found; the other open lead is the zero-sharing one above. */
 // WIP-FUNCTION: LEGOLAND 0x00484a70  (164/164 insns, 432/432 bytes, 4 mismatches, first at index 78: the loop counter's xor sits after the third fsqrt instead of before that row's last faddp, see above)
 void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
                              int frame, float near_z, float far_z, int extra)
