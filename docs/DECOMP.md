@@ -77,35 +77,34 @@ leaves **18 genuinely unfinished functions**, each carrying its measured
 residual and first diverging instruction index in a note above its marker.
 Run `python3 tools/remaining.py` for the live list.
 
-### What the export percentage does NOT measure
+### Three progress numbers, and which one to quote
 
-The headline figure counts EXPORTED functions, and exports are only the symbols
-the linker happened to expose — roughly half the game. The matched files reach
-the rest through `extern` declarations carrying the callee's address in a
-trailing comment, and `python3 tools/callees.py` lists every such address with
-no marker:
+| measure | tool | value |
+| --- | --- | --- |
+| exported functions matched | `tools/remaining.py` | 645 of 675 (95.6%) |
+| unmatched callees | `tools/callees.py` | 796, ~41,400 instructions |
+| **bytes of game code matched** | **`tools/coverage.py`** | **29.1% (37.6% with partials)** |
 
-| | |
-| --- | --- |
-| addresses with a marker | 871 |
-| distinct addresses called through an `extern` | 1113 |
-| **unmatched callees** | **631, about 31,000 instructions** |
+The first two are both true and both misleading on their own.
 
-(The callee COUNT can rise while the instruction total falls: every new file
-declares externs for its own callees, so the frontier widens as the work goes
-deeper. The instruction total is the number to watch — it was 39,326.)
+**Exports are a fraction of the game.** They are only the symbols the linker
+exposed; 985 functions are matched but just 645 of them are exports. Quoting
+95.6% as "the project is nearly done" is wrong by a wide margin.
 
-So the reconstruction NAMES tens of thousands of instructions of behaviour it
-does not yet reproduce, and for the browser runtime those are the gaps that
-matter most: the software 3D triangle rasterisers (`DrawGouraudTexTri`,
-`DrawFlatTexTri`, `DrawGouraudTri`, `DrawFlatTri` — 2743 instructions between
-them, the whole renderer core), `Draw3DPersonModel` (1023), the per-ride
-callback sets that `SetCustomCallbacks` installs (210 callees, ~15,400
-instructions), and the routing and perception internals.
+**The unmatched-callee number moves in both directions.** Every newly matched
+file declares `extern`s for its own callees, so a productive round can RAISE
+it: batch 24 matched 185 functions and the figure went from 631 callees /
+31,000 instructions to 796 / 41,400, because the new files revealed more
+frontier than they consumed. It measures the frontier, not progress.
 
-Counting whole functions rather than exports: 871 of ~1,502 known (58.0%), and
-there may be more that nothing references. Both numbers are true; quote the one
-that answers the question being asked.
+**Bytes of matched code against bytes of game code is the honest headline.**
+It only moves by doing work. `.text` is 679 KB, of which about 51 KB is the
+statically-linked CRT (from 0x0049e000 up) and not a decompilation target,
+leaving ~628 KB of game code. 183 KB of that is matched exactly.
+
+So: nearly every EXPORTED function is done, and that was the right first
+target because exports are the subsystem entry points — but roughly seventy
+per cent of the game's code is unexported and most of it is still ahead.
 
 Counts come from committed markers
 (`git ls-files 'LEGOLAND/*.c' | xargs grep -h '^// FUNCTION: LEGOLAND' | wc -l`);
