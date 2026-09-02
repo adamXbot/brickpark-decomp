@@ -138,30 +138,47 @@ void ScanMouse(void)
         IconBarWheelUp();
 }
 
-/* Instruction-for-instruction this is the original except for one coupled pair
- * of VC6 decisions in the middle:
- *   - the original RELOADS c->accel_t1 for the second half of the stage-1 `||`
- *     (`mov edx,[ecx+0x1c]` twice), so it never needs a 4th callee-saved
- *     register and pushes only ebx/esi/edi.  Our build global-CSEs that load
- *     and parks it in ebp, which adds a push/pop and shifts three later temps
- *     off eax onto ebp.  (Stage 2 *does* CSE its threshold into ebx in the
- *     original -- ebx is free there because `accel` is dead -- so the source
- *     spelling of the two stages is certainly the same; it is purely whether
- *     VC6 decides to spend a 4th register.)
- *   - the original keeps the 0 of the two low clamps in a register
- *     (`xor edx,edx` / `cmp eax,edx` / `mov [ecx+8],edx` / `cmp [ecx+0xc],edx`);
- *     ours uses immediates.
- * The two are linked: qualifying accel_t1 `volatile` kills the CSE (and the ebp
- * push) but then VC6 also stops enregistering the 0 -- 13 mismatching bytes
- * either way.  Tried and rejected: two `if`s instead of `||`, reversed compare
- * operands, a union/second pointer to break the CSE, a local `int lo = 0`, the
- * ternary max form, `>=`-vs-`>` clamp spellings, and statement reordering.
+/* 109 of the original's 109 instructions in order; 7 differ (280 vs 272 bytes):
+ * the two low clamps.  The original holds the constant 0 in edx across them
+ *      mov  eax,[ecx+8] / xor edx,edx / cmp eax,edx / jge / mov [ecx+8],edx
+ *      mov  edi,[g_screen] ... / cmp dword [ecx+0ch],edx / jge / mov [ecx+0ch],edx
+ * while ours emits `test eax,eax` + `mov dword ptr [..],0` and takes the second
+ * g_screen reload in edx instead of edi.
+ *
+ * Everything else -- the split prologue (push ebx / mov ebx,[ecx+24h] /
+ * push esi / push edi straddling the null guard), the stage-1 threshold
+ * re-read (`mov edx,[ecx+1ch]` before each compare), stage 2's threshold in
+ * ebx, `add esi,esi` vs `shl esi,1` for the two doublings, x0/y0 in edi/esi
+ * for the delta write-back, `and al,0f8h`, `mov dl,80h` for the three button
+ * tests and the pops interleaved with the first test -- is exact.
+ *
+ * What the residual is (measured, scratchpad/ucfm/):
+ *  - The volatile cast on the second stage-1 read is the lever that stops VC6
+ *    global-CSEing the two reads of accel_t1 (same lever as renderinit.c).
+ *    Without it VC6 keeps the CSE temp in ebp (push/pop ebp, 111 insns) and
+ *    renames three later temps onto ebp.  Nothing else breaks that CSE: two
+ *    `if`s, `else if`, goto, De Morgan, ternary, do/while(0), switch, a hoisted
+ *    `int t1 = c->accel_t1` at any scope (VC6 sinks the load back to the use),
+ *    `static __inline` reader/compare helpers, int/long/enum unions and casts
+ *    at the same offset, an overlay struct, dead `if (c == 0) goto` edges into
+ *    the second read (threaded away before CSE), `register`, `long`+`labs`.
+ *  - The 0 is a register-allocation mode effect, not a spelling: VC6 puts the
+ *    0 in edx (and the second g_screen load in edi) exactly when ebp is in the
+ *    allocator's pool -- either used by some candidate (our CSE build, or any
+ *    value live across stage 1) or reserved as the frame pointer.  With ebp
+ *    reserved (/Oy-, or an empty `__asm {}`) this body compiles to 108/112:
+ *    every instruction of the original plus only push ebp/mov ebp,esp/[ebp+8]/
+ *    pop ebp.  With ebp free and unused the 0 stays an immediate whatever the
+ *    clamps look like (`< 0`, `0 >`, `!(>= 0)`, ternary, `int lo = 0` at any
+ *    scope, opaque zeros such as `dx - dx`, `>= w` vs `> w - 1`), while -1 and
+ *    1 ARE enregistered in the same position, so it is specific to the 0.
+ *    The original is FPO (`mov ecx,[esp+4]`) and uses no ebp, so its compiler
+ *    had ebp in the pool without spending it; no /O2-compatible flag or pragma
+ *    reproduces that state here (/Oy-, /Og-, /Ot-, /Oi-, /Ob0-2, /Os, /G3-/G6, /Gs, /Ge,
+ *    /Gh, /GX, /Op, /Za, /TP, /MD, /MT, /QI0f, /QIfdiv all tried).
+ * Best attempt and the experiment log live in scratchpad/wipfix.c.
  */
-// WIP-FUNCTION: LEGOLAND 0x00473b00  (111 vs 109 insns, 55 mismatches)
-/* A closer attempt reaching 109/109 instructions and only 13 mismatches is
- * preserved in scratchpad/wipfix.c — there the remaining difference is that
- * the original keeps 0 in edx across the two low clamps. It is not spliced in
- * here because it depends on that file's surrounding declarations. */
+// WIP-FUNCTION: LEGOLAND 0x00473b00  (109/109 insns, 102/109 = 93.6%; the two low clamps hold 0 in edx in the original -- see note)
 void UpdateControllerFromMouseData(Controller* c)
 {
     int dx;
@@ -176,7 +193,11 @@ void UpdateControllerFromMouseData(Controller* c)
     dy = g_mouse_state.lY;
     accel = c->accel;
     if (accel != 0) {
-        if (abs(dx) > c->accel_t1 || abs(dy) > c->accel_t1) {
+        /* The volatile cast is a codegen lever, not semantics: it is what
+           makes VC6 re-read accel_t1 for the second half of the `||` as the
+           original does, instead of CSEing it into a fourth callee-saved
+           register (see the note above). */
+        if (abs(dx) > c->accel_t1 || abs(dy) > *(volatile int*)&c->accel_t1) {
             dx += dx;
             dy += dy;
         }
