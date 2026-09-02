@@ -12,14 +12,14 @@ function-by-function — and, eventually, a browser runtime that plays the game.
 The recovered mechanics and data layouts in the commit messages and file
 headers are the runtime's spec.
 
-State at handoff (committed, `main` of `/Users/systemadmin/Downloads/legoland/legoland`):
+State (committed, `main` of `/Users/systemadmin/Downloads/legoland/legoland`):
 
 | | |
 | --- | --- |
-| Functions exact (committed `// FUNCTION:` markers) | 620 |
-| Code exports exact | 589 of 675 (87.3%) |
-| Recovered internal (unexported) functions | 31 |
-| Exports with no marker anywhere on disk | 15 (list in §6) |
+| Functions exact (committed `// FUNCTION:` markers) | 661 |
+| Code exports exact | 629 of 676 (93.0%) |
+| Recovered internal (unexported) functions | 32 |
+| Exports still to finish | 47 (13 of them exact but tooling-blocked) |
 
 716 symbols are exported; 41 are data, so the denominator is 675.
 
@@ -103,24 +103,24 @@ Then `git add` only the lane files (never `scratchpad/`, never `vc60.pdb`),
 commit, and recount committed markers. Update the status block at the top of
 "## Status" in `docs/DECOMP.md` when the tally moves.
 
-## 5. Work in flight at handoff — check this FIRST
+## 5. Work in flight
 
-Workflow `ll-batch17` (7 continuation lanes) was running when this was
-written. If that session is gone, the lane files are still on disk (untracked)
-with `// WIP-FUNCTION:` on anything unfinished. For each, run
+Workflow `ll-batch18` (7 lanes) was running when this was last updated. If that
+session is gone, the lane files are still on disk (untracked or partly
+committed) with `// WIP-FUNCTION:` on anything unfinished. For each, run
 `python3 tools/audit.py LEGOLAND/<file>.c`, commit what is `[OK]` if the file
-compiles and audit ends PASS, and relaunch a continuation lane for the rest
-using `docs/LANE_BRIEF.md` plus the lane's function list below.
+compiles and audit ends PASS, and relaunch a continuation lane using
+`docs/LANE_BRIEF.md` plus the lane's function list.
 
-| File | Assigned functions | State when batch 17 started |
-| --- | --- | --- |
-| `objmap2.c` | SPGetRFFlags 0x401820, SPEnter 0x401890, SPLeave 0x401900, RemoveObjectFromMap 0x45f100, BasicObjectDCalcCursor 0x480bb0, AddBasicObject 0x45efe0, AddObjectToMap 0x45dd80, SetObjRectFlags 0x45dee0, PointToIsoPlane 0x45bcd0, CalculateMapRenderOrder 0x45a4a0, ScreenToMapRef 0x45be90, BuildCursorPtr 0x45f5f0, StandardRemoveObject 0x45f220, GetObjectUID 0x48a3e0, ValidateCursor 0x45f810, RemObjFromMap 0x459c90 | 9 OK, 7 WIP |
-| `bnvmove.c` | NavigMoveLine 0x4807f0, CalcMoveLine 0x480740, ControlPeople 0x450990, NewBNVPath 0x484c20, PTPSuggestNextMove 0x4824d0, SuggestNextMove 0x482050, SetBlokePositionFromBNV 0x484a70, DoRndWalkPathTileAction 0x483920 | 7 OK, SetBlokePositionFromBNV 8 mismatches |
-| `workers2.c` | AddRepairOrderForObject 0x49b930, GenerateMechanic 0x49a340, SetMechanicsOrderAtPostion 0x49b430, GenerateGardener 0x49a1a0, WorkOrderBuildObject 0x49ab30, DoBuildEffects 0x450d90, IterateNoneWorkersRepairOrders 0x49b750, CheckWorkerOnMouseStatus 0x470620, Gardener_Build 0x49a4e0, Mechanic_Build 0x49a7f0 | 9 OK, CheckWorkerOnMouseStatus 178 mismatches |
-| `fpui2.c` | ControlIndicators 0x46feb0, GetIconAtPos 0x46f360, Add2FreePlayPanelLists 0x48b110, RenderEnergyBar 0x46e4d0, ObjectLinkedList 0x475720, FreePlayObjectList 0x48b2a0, InitFreePlayLists 0x48ad00, RAndDLinkedList 0x475cd0, BuildObjInfoList 0x481200, InitFreePlayScreen 0x48a8a0, PopUpInfoSetUp 0x471950, MakeUpObjectList 0x475960, RenderBuildObjectIcon 0x46e0a0, HTBubbleHelp 0x4557c0 | 5 OK, 3 rejects, 6 not started |
-| `bigscreens.c` | InitProgressScreen 0x48b7e0, PrintProfileDetails 0x48cf10, InitSavedGameScreen 0x48d4b0, PrintSavedGameDetails 0x48dd00, InitGameInterface 0x4749d0 | 4 OK, PrintSavedGameDetails 3 mismatches |
-| `bigrender.c` | RenderTiledSprite 0x488c50, ZBufferHelper 0x464a90, SoftPrint_XBltFast 0x465a40, RenderCursor 0x45ff00 (+ bonus RenderSpriteScaledOffset 0x488c80) | 0 OK, 5 WIP (ZBufferHelper 4 mismatches) |
-| `bighelp.c` | ReadGameButtons 0x452460, BubbleHelp 0x455370, InitPopUpInfo 0x470bb0, __BMPLoader 0x44e010 | 2 OK, 2 not started |
+Batch 18's lanes: `objmap2.c` (6 WIPs), `bigrender.c` (5 WIPs), `fpui2.c`
+(2 WIPs + 4 new), a "nearmiss" lane owning `bnvmove.c` + `workers2.c` +
+`bigscreens.c` (one function each), `savegame.c` (SaveGame + LoadGame),
+`renderview.c` (RenderView + RenderFullMap), `screen.c` (__BMPLoader +
+InitScreen + SetCustomCallbacks).
+
+Not yet assigned to any lane: `DrawPopUpInfo` 0x004724a0 (962i),
+`SPRITE_ClipRect` 0x004bdea0 (83i), `BuildObject` 0x0045eb30 (188i),
+`RenderTransSprite` 0x00489190 (188i).
 
 ## 6. What comes after batch 17
 

@@ -63,32 +63,32 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-02: 620 functions at 100% — 589 of the 675 code exports
-(87.3%) plus 31 recovered internal functions.** (716 symbols are exported; 41
-are data.) Held as WIP: `UpdateControllerFromMouseData` 0x00473b00 (102/109 —
-the residual is an allocator state, see input.c), `InsertChildIntoList`
-0x00475630 (78.5%), `LoadPalette` 0x00441f20 (80.6%), `InitExitCheckBox`
-0x0048f0f0 (92.2%), plus the functions that `tools/audit.py` certifies exact
-but the shared `match.py` cannot bound (void tail-jump wrappers,
-`RenderFrontEndScreen`, `KillAllSamplesFromSource`; see "Tail-jump functions"
-below). Counts come from committed markers
+**As of 2026-09-02: 661 functions at 100% — 629 of the 676 code exports
+(93.0%) plus 32 recovered internal functions.** (716 symbols are exported; 40
+are data.) 47 exports remain, and 13 of those are functions `tools/audit.py`
+certifies exact but the shared `match.py` cannot bound (void tail-jump
+wrappers, `RenderFrontEndScreen`, `KillAllSamplesFromSource`) — see "Tail-jump
+functions" below. The genuine partials carry their measured residual in a note
+above the marker. Counts come from committed markers
 (`git ls-files 'LEGOLAND/*.c' | xargs grep -h '^// FUNCTION: LEGOLAND' | wc -l`);
 `tools/progress.py` reads the working tree, so run it on a clean checkout.
-`docs/LEGOLANDPROGRESS.HTML` is the generated report.
+`docs/HANDOFF.md` is the continuation guide and `docs/LANE_BRIEF.md` the
+verbatim brief every matching agent receives.
 
 Files by subsystem: map pipeline (`loadmap.c`, `mapinit.c`, `mapbuild.c`,
 `maprestore.c`, `pathgfx.c`, `pathsq.c`, `pathbuild.c`, `pathtile2.c`,
-`tilehelp.c`, `objmap.c`), simulation (`bnvpath.c`, `blokeai.c`, `blokemisc.c`,
-`blokeanim.c`, `blokelist.c`, `workers.c`, `rides.c`, `ridesave.c`, `power.c`,
-`money.c`, `buildtick.c`, `workorder.c`, `lifecycle.c`, `math3d.c`, `bigsim.c`),
-rendering
-(`renderinit.c`, `renderlist.c`, `render2.c`, `gpu.c`, `rin.c`, `layervis.c`,
-`surface.c`, `sprite_override.c`, `spritemisc.c`, `sprite2.c`, `scroll.c`,
-`scrolltick.c`, `text.c`, `printlist.c`), UI (`panelui.c`, `iconui.c`, `fpui.c`,
-`mapscreen.c`, `screens2.c`, `input.c`, `input2.c`, `wndenv.c`), audio (`audiomisc.c`, `audio2.c`, `audio3.c`,
-`music.c`), data (`llidb_odf.c`, `memdb.c`, `res.c`, `saveprof.c`,
-`profiles.c`, `loaders.c`, `data2.c`, `listdel.c`), plus `sweep1–5.c` (small accessors)
-and `util.c`.
+`tilehelp.c`, `objmap.c`, `objmap2.c`), simulation (`bnvpath.c`, `bnvmove.c`,
+`blokeai.c`, `blokemisc.c`, `blokeanim.c`, `blokelist.c`, `workers.c`,
+`workers2.c`, `rides.c`, `ridesave.c`, `power.c`, `money.c`, `buildtick.c`,
+`workorder.c`, `lifecycle.c`, `math3d.c`, `bigsim.c`), rendering
+(`renderinit.c`, `renderlist.c`, `render2.c`, `printlist.c`, `bigrender.c`,
+`gpu.c`, `rin.c`, `layervis.c`, `surface.c`, `sprite_override.c`,
+`spritemisc.c`, `sprite2.c`, `scroll.c`, `scrolltick.c`, `text.c`), UI
+(`panelui.c`, `iconui.c`, `fpui.c`, `fpui2.c`, `mapscreen.c`, `screens2.c`,
+`bigscreens.c`, `bighelp.c`, `input.c`, `input2.c`, `wndenv.c`), audio
+(`audiomisc.c`, `audio2.c`, `audio3.c`, `music.c`), data (`llidb_odf.c`,
+`memdb.c`, `res.c`, `saveprof.c`, `profiles.c`, `loaders.c`, `data2.c`,
+`listdel.c`), plus `sweep1–5.c` (small accessors) and `util.c`.
 
 The map/render accessors, the `SetMapTile` family, and `GetRectArea` —
 **14/14 at 100%**:
