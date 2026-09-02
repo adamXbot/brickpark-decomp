@@ -446,7 +446,16 @@ int SuggestNextMove(Pos* from, Pos* to, Pos* out)
  * scheduler: written as a standalone `i = 0;` anywhere before the sqrt the
  * xor is hoisted all the way to the top of the FP block (index 19), and
  * every loop spelling (for / while / do-while / pre- vs post-increment,
- * unsigned i, `i = 0` after the reciprocal) lands it at 81. */
+ * unsigned i, `i = 0` after the reciprocal) lands it at 81.  Also measured
+ * and identical: `i = 0` written as a statement between the reciprocal and
+ * the three normalisation multiplies, or between two of those multiplies
+ * (both 81); before ANY of the third row's FP (19); and four restructurings
+ * of the third row that keep its FP stream byte-identical -- the last two
+ * adds folded into one statement, the sqrt taking `len2 + cy*cy`, a
+ * two-step reciprocal (`inv = sqrt(..); inv = 1.0f/inv;`) and a (double)
+ * cast on the argument -- all still 81.  The barrier the scheduler will not
+ * hoist the xor past is the third row's fsqrt; the original's slot is one
+ * FP instruction EARLIER than that, before the row's last faddp. */
 // WIP-FUNCTION: LEGOLAND 0x00484a70  (164/164 insns, 432/432 bytes, 4 mismatches: the loop counter's xor is scheduled 3 slots late, see above)
 void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
                              int frame, float near_z, float far_z, int extra)

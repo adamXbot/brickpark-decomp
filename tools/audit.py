@@ -28,16 +28,26 @@ sys.path.insert(0, HERE)
 from match import load_exe, rva2off, obj_function_code, norm  # noqa: E402
 
 
-def norm2(insn):
-    """norm() plus a fix for branch targets printed WITHOUT an 0x prefix.
+BRANCHY = ("call", "loop", "loope", "loopne", "loopz", "loopnz")
 
-    Capstone renders a small relative target as bare decimal (e.g. `jmp 8`), and
-    match.py's norm() only rewrites 0x-prefixed ones, so an otherwise identical
-    branch compares unequal. Normalise any pure-numeric branch operand to <t>.
-    (match.py is shared; fixing it there needs coordination, so we compensate
-    locally.)
+
+def norm2(insn):
+    """norm() plus two fixes for branch targets.
+
+    (a) Capstone renders a small relative target as bare decimal (e.g. `jmp 8`),
+        and match.py's norm() only rewrites 0x-prefixed ones, so an otherwise
+        identical branch compares unequal.
+    (b) `loop`/`loope`/`loopne` are relative branches too, but their mnemonics
+        do not start with "j", so neither norm() nor the old rule here touched
+        them: an EXACT function containing a `loop` still reported mismatches,
+        because the original's absolute target (0x464ddf) and our COMDAT's
+        (0x34f) normalise differently. This cost ZBufferHelper its [OK] despite
+        a byte-for-byte identical body.
+
+    Normalise any pure-numeric branch operand to <t>. (match.py is shared;
+    fixing it there needs coordination, so we compensate locally.)
     """
-    if insn.mnemonic == "call" or insn.mnemonic.startswith("j"):
+    if insn.mnemonic.startswith(BRANCHY) or insn.mnemonic.startswith("j"):
         op = insn.op_str.strip()
         if re.match(r"^(0x[0-9a-f]+|\d+)$", op):
             return insn.mnemonic + " <t>"
@@ -132,6 +142,30 @@ def true_extent(d, secs, rva):
 
     furthest = va
     for i, x in enumerate(insns):
+        if nxt is not None and x.address >= nxt:
+            # Ran past the next EXPORTED symbol without meeting a terminator.
+            # A function cannot contain instructions there, so bound it and
+            # drop any alignment padding.
+            body = insns[:i]
+            while body and body[-1].mnemonic in ("nop", "int3"):
+                body.pop()
+            return (len(body), sum(k.size for k in body)) if body else (None, None)
+        if x.mnemonic in ("nop", "int3") and i and x.address >= furthest:
+            # A padding run that ends on a 16-byte boundary (or at the next
+            # export) is the gap between functions, so the body ended at the
+            # previous instruction. This is the only terminator a function
+            # whose last statement calls a NORETURN routine has:
+            # RenderTiledSprite (0x00488c50) ends in exit(1) with no ret and no
+            # jmp, and its successor is unexported, so neither the control-flow
+            # walk nor the export bound could stop. Guarded by the same
+            # "nothing jumps past it" rule as ret and jmp, so padding that some
+            # earlier branch targets is not mistaken for the end.
+            j = i
+            while j < len(insns) and insns[j].mnemonic in ("nop", "int3"):
+                j += 1
+            end = insns[j].address if j < len(insns) else x.address + x.size
+            if end % 16 == 0 or end == nxt:
+                return i, sum(k.size for k in insns[:i])
         if x.mnemonic.startswith("j"):
             m = re.match(r"^0x([0-9a-f]+)$", x.op_str.strip())
             if m:

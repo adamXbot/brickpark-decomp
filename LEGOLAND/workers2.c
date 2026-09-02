@@ -845,8 +845,10 @@ void Mechanic_Build(Bloke* b)
 
 /* Per-tick handling of the worker carried on the mouse (see header).
  *
- * Codegen notes (this body is 184/184 instructions, 677 vs 672 bytes and
- * index-for-index exact for the first 102 instructions):
+ * Codegen notes.  Every block is in the original's order and the trimmed body
+ * is exactly 672 bytes, as the original; a difflib alignment puts 181 of the
+ * 184 instructions together (98.4%) with exactly two difference hunks (see
+ * RESIDUAL).
  *  - The work order found under/near the hit is a SEPARATE local from the
  *    `o` parameter: the original homes it in the (by then dead) parameter
  *    slot [esp+18h] and reloads it at the `place` join even on the path
@@ -857,16 +859,49 @@ void Mechanic_Build(Bloke* b)
  *  - VC6 only lifts the constant 1 into a callee-saved register (ebp here,
  *    rematerialised wherever ebp is reused as scratch) once the function
  *    contains at least four separate stores of 1 to memory; that is why the
- *    0x103 arm's failure and the out-of-range-row arm spell out
- *    `g_drag_lock = 1; ...` instead of sharing the `fail:` label. Both are
- *    exactly equivalent to `goto fail`.
- *  - RESIDUAL: the original gives the out-of-range-row arm its own copy of
- *    the fail tail with a `mov ebp,1` rematerialisation (0x4707a3..0x4707b9);
- *    ours merges that arm with the 0x103 arm into one immediate-store copy
- *    placed after the `place` block, so everything from index 102 on is
- *    shifted by those 8 instructions (66 mismatches, all of them that shift).
+ *    0x103 arm's failure spells out `g_drag_lock = 1; ...` instead of
+ *    sharing the `fail:` label. It is exactly equivalent to `goto fail`.
+ *  - The path-flag arm below carries NO gotos: VC6 jump-threads it. After
+ *    `g_drag_lock = 1` the join's `if (g_drag_lock)` is known true, so the
+ *    two exits become direct jumps to the tail's call (0x47078b/0x470795 ->
+ *    0x4708b4); after `g_drag_lock = 0` with the type already known to be
+ *    0x307 the join and the type test are both threaded away and the jump
+ *    lands inside the place block, on the gardener arm (0x4707a1 ->
+ *    0x4707db).  Spelling those threads out as `goto tail` / `goto gardener`
+ *    compiles to the same code but is not what the original says.
+ *  - The out-of-range row arm must be the bare `g_drag_lock = 1;` shown
+ *    below.  Writing what it threads into (`SetWorkersPositionAtMouse();
+ *    return;`) makes VC6 SINK the whole arm past the place block to sit in
+ *    front of `fail:`, which costs an extra jmp and puts eight instructions
+ *    in the wrong place (that was the previous 677-byte reconstruction).
+ *  - RESIDUAL, two instructions:
+ *      (1) 0x4707a3: the original rematerialises the constant into ebp for
+ *          the out-of-range arm's store -- `mov ebp,1; mov [g_drag_lock],ebp`
+ *          (11 bytes) where we emit the one-byte-cheaper immediate store
+ *          `mov [g_drag_lock],1`.  ebp holds the row count on entry to the
+ *          arm (`xor ebp,ebp; mov bp,[map+16h]`), so a remat is needed in
+ *          both; VC6 folds ours to the immediate because the constant is
+ *          dead at the arm's end.  Ruled out as levers: a named `one` local
+ *          (constant-propagated away), `found + 1`, `g_icon_clicked`,
+ *          `goto fail` / `goto tail` from the arm, putting the `fail:` label
+ *          inside the arm, and swapping the two arms.  A probe that adds a
+ *          FIFTH store of 1 to the function leaves the arm on the immediate
+ *          too, so the count threshold in the note above is not what decides
+ *          this one: the register form is used in the blocks where the
+ *          constant is still LIVE-OUT (the path-flag arm falls through to
+ *          `place` and on to `fail`, which needs it), and folded in this arm
+ *          because it dead-ends in a return.
+ *      (2) 0x470891: the original tests the placement call's result with
+ *          `test eax,eax`; we get `cmp eax,edi` off the zero register that
+ *          serves the other five compares against 0 in this function.
+ *          Unaffected by r's type (int/unsigned/long/void*), by `!r` /
+ *          `r == 0` / `r != 0`, by declaration order, or by dropping `r` and
+ *          testing each call directly (which then stops VC6 merging the two
+ *          `add esp,0Ch; test; jne` tails).
+ *    Because (1) is a missing instruction, every index from 102 on is off by
+ *    one and audit.py reports 82 index-for-index mismatches.
  */
-// WIP-FUNCTION: LEGOLAND 0x00470620  (184/184 insns, 677 vs 672 bytes, 66 mismatches: block placement of the out-of-range-row fail tail, see the note above)
+// WIP-FUNCTION: LEGOLAND 0x00470620  (181/184 aligned = 98.4%, 672/672 bytes; two difference hunks, at 0x4707a3 and 0x470891, see above; the missing instruction shifts every later index so audit.py counts 82)
 void CheckWorkerOnMouseStatus(WorkOrder* o)
 {
     Pos  cell;
@@ -912,25 +947,19 @@ void CheckWorkerOnMouseStatus(WorkOrder* o)
             Cell* c = &g_map_rows[cell.y][cell.x];
             if (c && (c->rf & 2)) {
                 g_drag_lock = 1;
-                if (g_worker_on_mouse_type == 0x307 && (c->flags & 0x800)) {
+                if (g_worker_on_mouse_type == 0x307 && (c->flags & 0x800))
                     g_drag_lock = 0;
-                    goto gardener;
-                }
-                goto tail;
             }
         } else {
-            /* Out-of-range row: its own copy of the fail tail (the original
-             * cannot share the one below because ebp holds the row count
-             * here, not the 1 the shared block stores). */
+            /* Out-of-range row: just the lock. Everything the original does
+             * after it (the tail's call and epilogue, inlined at 0x4707a3)
+             * is VC6 threading the join below through a known-true test. */
             g_drag_lock = 1;
-            SetWorkersPositionAtMouse();
-            return;
         }
         if (g_drag_lock)
             goto tail;
 place:
         if (g_worker_on_mouse_type == 0x307) {
-gardener:
             g_worker_on_mouse->world.x = (cell.x << 8) + 0x80;
             g_worker_on_mouse->world.y = (cell.y << 8) + 0x80;
             r = SetGardenerWorkOrderAtPostion(g_worker_on_mouse, cell.x, cell.y);

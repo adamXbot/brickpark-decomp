@@ -532,18 +532,40 @@ int RenderEnergyBar(Icon* g)
  * theme; then the side-panel icons. The counter starts at 1, so the list is
  * always "made up" (reproduced as the original has it).
  *
- * Residual (13 of 147): every instruction is right; four callee-saved registers are
- * permuted. Ours n=ebx, count=ebp, submenu-IV=edi, j=esi; the original n=edi,
- * count=ebx, submenu-IV=ebp, j=esi. j takes the same register in both, so the pool
- * order is [ebp, esi, edi, ebx] and only the RANK of the other three differs: ours
- * ranks count > j > IV > n, the original IV > j > n > count. Dropping n entirely
- * leaves count=ebp, IV=edi, j=esi (so n really is ranked last here), and none of
- * these move it: exit(n) vs exit(1); `register`; declaration order; n as unsigned;
- * n = 0/late init; an extra n++ at depth 1 in the second loop; a second `count`
- * copy for the second loop; j vs i for the second loop's index; an explicit Menu*
- * pointer walk (that one turns the signed `jl` into `jb`); a `Menu* base` local;
- * a char* parameter or a hoisted m->name; while/do-while spellings of either loop;
- * `if (!n) return 0;` tail shapes. Variants under scratchpad/fpui2/w2 (A..S, r_*). */
+ * Residual (13 of 147, first diverging index 5): every instruction, every branch and
+ * every stack slot is right; the four callee-saved registers are permuted. Ours
+ * n=ebx, count=ebp, submenu-IV=edi, j=esi; the original n=edi, count=ebx,
+ * submenu-IV=ebp, j=esi.
+ *
+ * Measured, not guessed: compiling the body with `n` deleted makes VC6 push only
+ * ebp/esi/edi (ebx is NOT pushed) and gives count=ebp, j=esi, IV=edi, so VC6's
+ * callee-saved preference list here is [ebp, esi, edi, ebx] - ebx is the last-resort
+ * register - and the register a value gets is purely its RANK in that list. Ours
+ * ranks count > j > IV > n; the original ranks IV > j > n > count. So two things have
+ * to move at once: `count` from first to last, and the outer induction variable above
+ * `j`. (The sibling RAndDLinkedList, which is exact, ranks the same way as the
+ * original - scratch temp > j > i > count - which is what says the ranking, not the
+ * dataflow, is what differs.)
+ *
+ * Ruled out (register map unchanged in every one): exit(n) vs exit(1); `register`;
+ * declaration order of any local; n as unsigned; n = 0 / n assigned late (that only
+ * moves the `mov reg,1` out of index 5 and costs 5 more diffs); n++ before the call;
+ * n += 1; `if (n > 0)`; a second `count` copy for the second loop, and a per-iteration
+ * `int c = count` inner bound; a dead `count = 0` before the call, and `int count = 0`;
+ * j vs i for the second loop's index, j hoisted to function scope, the second loop in
+ * its own block with its own index; a `Menu* p` walk bounded by `p < g_submenus + 4`
+ * (that one is the only change that alters the code at all - `jl` becomes `jb`, 14
+ * diffs) and the same walk with the bound cast to int (identical to the array form,
+ * `jl` kept, 13 diffs); p initialised at the top of the function / before the
+ * GetCount call / in the for-init; `p[i].name` through a base pointer; a `(char*)`
+ * cast of the element address; while/do-while spellings of either loop; the second
+ * loop moved into a static __inline helper (150 insns, worse); `4 > i`; a combined
+ * `int n = 1, count, i;` declaration; `d` declared in the innermost scopes (`e`
+ * declared there instead costs 18 more diffs - it must stay one function-level
+ * out-param). The only thing that
+ * ever produced the original's count=ebx + IV=ebp was keeping BOTH an `int i` and a
+ * `Menu* p` live (5 candidates), which spills `n` to the stack: 152 insns, wrong.
+ * Variants under scratchpad/fpui2/oll (A..NN) and scratchpad/fpui2/w2 (A..S, r_*). */
 // WIP-FUNCTION: LEGOLAND 0x00475720  (147/147 insns, 409/409 bytes, 13 mismatches: a callee-saved permutation, see above)
 int ObjectLinkedList(Menu* m)
 {
@@ -602,13 +624,21 @@ int ObjectLinkedList(Menu* m)
  * COMMON THEME entries only under the first sub-menu, and every class not
  * yet researched (neither 0x04000000 nor 0x08000000) gets 0x04000000. No
  * icons are built; the list menu is recorded as g_menu_index + 4. */
-/* This body is EXACT - 148/148 instructions, 444/444 bytes, index for index - but
- * audit.py cannot BOUND it: the original's last block is the 'push 1; call exit'
- * stub that the in-loop guard jumps to, which sits past the function's only ret and
- * ends in a noreturn call, so the extent walker runs on into the next function
- * (0x00475e90) and reports 170i/501B. Verify with
- *   python3 tools/matchfull.py LEGOLAND/fpui2.c RAndDLinkedList 0x475cd0 */
-// WIP-FUNCTION: LEGOLAND 0x00475cd0  (100% by matchfull; audit.py cannot bound a body whose last block is a noreturn exit)
+/* This body is EXACT - 148/148 instructions, 444/444 bytes, index for index. It is
+ * NOT 18 instructions short: audit.py simply cannot BOUND it. The original's last
+ * block is the shared 'push 1; call exit' stub (0x00475e85) that the in-loop
+ * FindElement guard jumps to; it sits past the function's only ret (0x00475e84) and
+ * ends in a noreturn call, so the extent walker steps over the four nops and swallows
+ * the whole of the NEXT function - SetIconGroupFlag400 @ 0x00475e90, itself already
+ * matched in panelui.c - which is exactly the 18 instructions / 57 bytes audit.py
+ * reports on top (170i/501B vs the true 148i/444B). Our own 152i/448B is the 148
+ * real instructions plus 4 bytes of COMDAT padding. Verify with
+ *   python3 tools/matchfull.py LEGOLAND/fpui2.c RAndDLinkedList 0x475cd0
+ * which prints FULL MATCH 148/148 = 100.0%. */
+/* Exact: 148/148 instructions, 444/444 bytes. The body ends in a noreturn
+ * exit with no ret, which tools/audit.py could not bound until it learned
+ * to treat an inter-function padding run as a terminator. */
+// FUNCTION: LEGOLAND 0x00475cd0
 int RAndDLinkedList(Menu* m)
 {
     LLElem* e;
@@ -1450,14 +1480,19 @@ static __inline Cell* MapCellAtPos(Pos* p)
  * copies its record; 0x307 hires, 0x308 fires — a mechanic on a job first
  * has the job's cell unflagged and the order freed). `ref` packs the cell;
  * the by-value `pos` slots are reused as the hire position. */
-/* Residual (3 of 192): the original emits the 'g_popup.cls = cls' store before the
- * 'g_popup.cell' store and loads cls->elem after BOTH; VC6 keeps our load between the
- * two stores. Writing the load after both stores instead frees esi at the load, which
- * flips the whole block's register rotation - the constant 0 of the 'obj == 0' guard
- * then lands in eax instead of ecx and a second 'xor ecx,ecx' appears for the
- * 'pos.x = cell->bx' byte load, costing 9 more instructions (search grid in
- * scratchpad/fpui2/w2/srch_pu.py). */
-// WIP-FUNCTION: LEGOLAND 0x00471950  (192/192 insns, 664/664 bytes, 3 mismatches)
+/* The class element is deliberately read back through the global ('g_popup.cls->elem',
+ * not 'cls->elem') AFTER both stores, and that spelling is load-bearing. The original
+ * stores cls then cell then loads the element, so the load has to come last in the
+ * source (VC6 will not sink a load through a pointer past stores to a global). But
+ * written as 'ce = cls->elem' the load is then the LAST use of cls, so VC6 coalesces
+ * the load into the dying esi ('mov esi,[esi+0xc4]'); that takes ce out of the
+ * allocation pool, the shared constant zero of the 'obj == 0' guard lands in eax
+ * instead of ecx, and the gardener arm needs an extra 'xor ecx,ecx' before
+ * 'mov cl,[edi+4]' - 193 instructions and 8 diffs. Re-reading g_popup.cls keeps the
+ * base in the global's web, VC6 forwards the just-stored value (no reload), no
+ * coalescing happens, and the original's rotation (edx=elem_shed, eax=elem, ecx=zero)
+ * comes back exactly. */
+// FUNCTION: LEGOLAND 0x00471950
 void PopUpInfoSetUp(int type, PopUpObj* obj, int ref, Pos pos)
 {
     Cell*   cell;
@@ -1491,9 +1526,9 @@ void PopUpInfoSetUp(int type, PopUpObj* obj, int ref, Pos pos)
             break;
         cls = obj->u.cls;
         e = g_popup.elem_shed;
-        g_popup.cell = cell;
-        ce = cls->elem;
         g_popup.cls = cls;
+        g_popup.cell = cell;
+        ce = g_popup.cls->elem;
         if (ce == e) {
             g_popup.active = 0;
             g_popup.kind = 0xa;

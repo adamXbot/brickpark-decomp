@@ -631,7 +631,15 @@ extern void EnterSaveGameDetails(Icon* panel);                                /*
  * ternary hoisted into a local or spelled the other way round, the callee
  * prototype's parameter types, `lit` declared at function scope / as char /
  * unsigned / folded into the flag mask, sy+ty or cur+rc pinned in one
- * aggregate, and reading g_side_icons at four different points. */
+ * aggregate, and reading g_side_icons at four different points.  Ruled out
+ * since: inlining `owner` away (reading p->u18.owner at both use sites),
+ * declaring it char*, reading it before rc.left instead of between the two
+ * rect stores, an extra dead local ahead of the guard, and an initialised
+ * `cur`.  Note the sibling lever found in screen.c this round -- a named
+ * local whose home slot the function does not otherwise need can flip a
+ * whole function's callee-saved assignment -- does NOT apply here: this
+ * frame is `sub esp,14h` = the 16-byte rect plus cur's slot in both, and
+ * every local already has to be there. */
 // WIP-FUNCTION: LEGOLAND 0x0048dd00  (313/313 insns, 952/952 bytes, 3 mismatches: 0x14e in ebp vs ebx, see above)
 void PrintSavedGameDetails(void)
 {

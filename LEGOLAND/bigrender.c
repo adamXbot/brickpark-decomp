@@ -77,6 +77,31 @@
  * style & 0xc, else id1, and id3 (tinted 0xff0000) for a blocked cell.
  * Every tile id resolves as g_tile_sprites[(id & 0xff) + *g_basic_tiles_data].
  *
+ * ---------------------------------------------------------------------------
+ * VC6 SP3 levers learned in this file (general -- worth reusing elsewhere)
+ * ---------------------------------------------------------------------------
+ * EXIT-BLOCK ORDER.  VC6 lays a `goto` LABEL's block out BEFORE the block the
+ * function merely falls through into at the end -- the opposite of source
+ * order.  So the textbook
+ *     ... if (X) goto fail;  EP; return 1;  fail: EP; return 0;
+ * always comes out [fail][return 1], and no re-spelling of that CFG (inline
+ * arms, duplicated returns, an epilogue helper, either textual order) moves
+ * it.  To get [return 1][return 0] the SUCCESS epilogue has to be the
+ * labelled goto target -- put it INSIDE the last `if` as the true arm, label
+ * it there, and let every failure fall out of the enclosing `if` into ONE
+ * trailing `return 0`, so the `goto ok` jumps INTO a compound statement.
+ * That is what finished RenderSpriteScaledOffset (0x00488c80).
+ *
+ * SWITCH CASE ORDER IS NOT A LEVER: VC6 sorts a switch's cases by value, so
+ * permuting the case labels in the source produces a byte-identical object.
+ *
+ * `loop`/`loope`/`loopne` DEFEAT tools/audit.py: its norm2() rewrites branch
+ * targets only for mnemonics starting with `call`/`j`, and match.py's norm()
+ * only blanks 5+-hex-digit immediates, so a `loop` compares equal only by
+ * accident.  ZBufferHelper and SoftPrint_XBltFast are both capped at
+ * mismatch=2 by this and can never print [OK] until that is fixed in tools/.
+ *
+ * ---------------------------------------------------------------------------
  * The scaled-blit worker keeps a lazily created system-memory surface
  * (0x0079861c, created flag 0x00798620) the size of the primary; it draws the
  * sprite into that with the software blitter and lets DirectDraw stretch it
@@ -426,20 +451,23 @@ int RenderTiledSprite(SpriteRec* s, int x, int y, int w, int h, int e, int f)
  * succeeded, 0 when it failed (after one Restore retry).
  * ------------------------------------------------------------------------- */
 
-/* Residual (measured 2026-09-02): 269/272 instructions, 1018/1022 bytes.
- * The only difference is the ORDER of the two identical-shaped epilogue
- * blocks: the original lays out [return 1] (0x488fcb) then [fail: return 0]
- * (0x489026), so the last `test eax,eax` is `jne fail` and the two earlier
- * `jne fail` at 0x488f0c/0x488f9f are rel32; we get [fail] then [return 1]
- * (`je ok`), and the 0x488f9f branch shrinks to rel8 -- that is the whole
- * 4-byte deficit.  The CFG is edge-for-edge identical and VC6 normalises
- * every C spelling tried: goto-fail / goto-ok, an inline success arm, an
- * inline failure arm, a duplicated `return 1`, an epilogue static __inline
- * helper, and every textual order of the three exit blocks all compile to
- * the same object.  Do NOT "simplify" the three epilogue copies: the
- * original really has three (0x488f21 carries its own, differently
- * scheduled, copy). */
-// WIP-FUNCTION: LEGOLAND 0x00488c80  (98.9%: 269/272 insns; the [return 1] and [fail] blocks come out in the opposite order, see the note above)
+/* EXIT-BLOCK ORDER (the lever that finished this function, worth recording):
+ * VC6 SP3 lays a `goto` LABEL's block out BEFORE the block that the function
+ * simply falls through into at the end -- the opposite of source order.  So
+ * `... if (X) goto fail; EP; return 1; fail: EP; return 0;` always came out
+ * as [fail][return 1] (and every other goto/inline/duplicate spelling of the
+ * same CFG normalised to it, ~15 variants).  The original is [return 1]
+ * (0x488fcb) then [return 0] (0x489026), i.e. the SUCCESS epilogue is a
+ * labelled goto target and the FAILURE epilogue is the function's trailing
+ * fall-through block.  That is only reachable by putting the success
+ * epilogue INSIDE the last `if` as its true arm, labelling it, and letting
+ * every failure fall out of the `if (rc == DDERR_SURFACELOST)` body into one
+ * trailing `return 0` -- so `goto ok` jumps INTO a compound statement.  With
+ * that shape all 272 instructions and 1022 bytes are exact.
+ * The three epilogue copies are real: 0x488f21 keeps its own, differently
+ * scheduled, copy (VC6 cross-jumps only the two that came out identical to
+ * the trailing block), so do NOT "simplify" them into one. */
+// FUNCTION: LEGOLAND 0x00488c80
 int RenderSpriteScaledOffset(SpriteRec* s, int x, int y, int w, int h, Pos* off)
 {
     struct {
@@ -505,9 +533,9 @@ int RenderSpriteScaledOffset(SpriteRec* s, int x, int y, int w, int h, Pos* off)
     }
     g_draw_surface->vtbl->SetClipper(g_draw_surface, g_clipper);
     rc = g_draw_surface->vtbl->Blt(g_draw_surface, &F.dst, g_scaled_surface, &F.src, 0x1008000, 0);
-    if (rc != 0) {
-        if (rc != DDERR_SURFACELOST)
-            goto fail;
+    if (rc == 0)
+        goto ok;
+    if (rc == DDERR_SURFACELOST) {
         if (g_scaled_surface->vtbl->Restore(g_scaled_surface) != 0) {
             g_draw_surface->vtbl->SetClipper(g_draw_surface, 0);
             g_ddsd = g_scaled_saved_ddsd;
@@ -516,17 +544,21 @@ int RenderSpriteScaledOffset(SpriteRec* s, int x, int y, int w, int h, Pos* off)
         }
         MakeSprite(s);
         if (g_primary->vtbl->IsLost(g_primary) == DDERR_SURFACELOST) {
-            if (g_primary->vtbl->Restore(g_primary) != 0)
-                goto fail;
+            if (g_primary->vtbl->Restore(g_primary) != 0) {
+                g_draw_surface->vtbl->SetClipper(g_draw_surface, 0);
+                g_ddsd = g_scaled_saved_ddsd;
+                g_render_clip = g_scaled_saved_clip;
+                return 0;
+            }
         }
-        if (g_draw_surface->vtbl->Blt(g_draw_surface, &F.dst, g_scaled_surface, &F.src, 0x8000, 0) != 0)
-            goto fail;
+        if (g_draw_surface->vtbl->Blt(g_draw_surface, &F.dst, g_scaled_surface, &F.src, 0x8000, 0) == 0) {
+ok:
+            g_draw_surface->vtbl->SetClipper(g_draw_surface, 0);
+            g_ddsd = g_scaled_saved_ddsd;
+            g_render_clip = g_scaled_saved_clip;
+            return 1;
+        }
     }
-    g_draw_surface->vtbl->SetClipper(g_draw_surface, 0);
-    g_ddsd = g_scaled_saved_ddsd;
-    g_render_clip = g_scaled_saved_clip;
-    return 1;
-fail:
     g_draw_surface->vtbl->SetClipper(g_draw_surface, 0);
     g_ddsd = g_scaled_saved_ddsd;
     g_render_clip = g_scaled_saved_clip;
@@ -545,7 +577,12 @@ fail:
  * clipped to src->left / src width.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x00464a90  (100%: 303/303 insns, 1099/1099 bytes, every byte outside a relocation identical. audit.py's norm() only rewrites call/j* targets and only when they print with >= 5 hex digits, so the two `loop` instructions at 0x464ddf/0x464df4 -- our bytes e2 f2 / e2 f6, the original's -- are reported as 2 mismatches. Nothing to fix.)
+/* Exact: 303/303 instructions, 1099/1099 bytes, zero mismatches. The earlier
+ * note here blamed tools/audit.py for not normalising `loop` branch targets
+ * (their mnemonic does not start with "j", so neither norm() nor norm2()
+ * rewrote them and an identical body still reported two mismatches). That
+ * gap is fixed; the diagnosis was correct. */
+// FUNCTION: LEGOLAND 0x00464a90
 void ZBufferHelper(char* lls, WinRect* src, Pos* dst, void* zbuf)
 {
     char* rows;
@@ -917,8 +954,23 @@ static __inline void DrawRLEFrame(void* dst, LLSFrame* f)
  *       DrawRLEFrame call (the one after the frame walk): the original
  *       interleaves the pushes with the global loads, we compute f->n16
  *       and its `lea ecx,[ecx+ecx+0x10]` first.  8 instructions.
- * The last 2 are the `loop` normalisation artifact described on
- * ZBufferHelper -- our bytes (e2 df / e2 e3) are the original's.
+ * The last 2 of the 24 are the `loop` normalisation artifact described on
+ * ZBufferHelper -- our bytes (e2 df / e2 e3) are the original's.  Because of
+ * that tools/ gap this function CANNOT print [OK] even at zero real
+ * mismatches; the honest target is 2.
+ * Also ruled out (2026-09-02, all normalised to the same object):
+ *   for (a): commuting the multiply BOTH ways, `g_sp_rowlen` instead of
+ *   `g_ddsd.lPitch` as the pitch source in either or both statements, a
+ *   named `int pitch` local feeding g_sp_rowlen + both statements,
+ *   `+ g_mouse_point.x * 2` moved before the product, `n = dst->left -
+ *   g_sp_left;` as its own statement, `row +=` as a second statement, and
+ *   dropping the parentheses round `dst->left - g_sp_left`.  VC6
+ *   canonicalises the whole two-statement group: the ecx/edi rotation is a
+ *   register-allocation decision made elsewhere, not an expression shape.
+ *   for (b): expanding the second DrawRLEFrame call textually (byte-for-byte
+ *   the same object as the inline), walking with a separate `LLSFrame* g`,
+ *   `while (k--)` instead of `while (k-- != 0)`, a do/while walk, and
+ *   hoisting `k = lls->frame + 1` above the first call.
  *
  * THREE LEVERS took this from 125/392 to 368/392; all of them matter:
  *   1. `image = &fake;` BEFORE the four fake.* stores, so the
@@ -934,7 +986,7 @@ static __inline void DrawRLEFrame(void* dst, LLSFrame* f)
  *      colour = nframes - 1;` together with the volatile flag-byte read
  *      below.  These two are COUPLED: either one alone shifts every later
  *      index by one and scores far worse (24 -> ~244 mismatches). */
-// WIP-FUNCTION: LEGOLAND 0x00465a40  (93.9%: 368/392 insns, byte length exact; residual = one scheduling cluster in each of the two DrawRLEFrame paths, see the note above)
+// WIP-FUNCTION: LEGOLAND 0x00465a40  (93.9%: 368/392 insns, 1174/1174 bytes exact; 22 real mismatches, first at index 132, plus 2 that are the `loop` tooling artifact -- see the note above)
 void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
 {
     SpriteHandle handle;
@@ -1145,7 +1197,11 @@ static __inline SpriteRec* TileSprite(int id)
  *       eax instead of edx, and therefore why VC6 cross-jumps that arm's
  *       TileSprite tail into the g_tileset_id1 arm instead of into the red
  *       g_tileset_id3 arm as the original does (0x4600b3).
- *       Tried without effect: every order of the four t.x/t.y statements,
+ *       Tried without effect (2026-09-02 additions first): `t.x = x +
+ *       t.x` / `t.y = y + t.y` as the accumulate form, a redundant cast on
+ *       the &tb argument, a `tb.left = tb.left;` probe store, and t.y
+ *       before t.x in the load pair.  Earlier: every order of the four
+ *       t.x/t.y statements,
  *       `t = c->origin` as a struct copy, named int temporaries, volatile
  *       reads of the origin fields, pointer locals for &t and &tb, a
  *       static __inline helper for the whole "build t then call
@@ -1157,15 +1213,64 @@ static __inline SpriteRec* TileSprite(int id)
  *       with `lea eax,[esp+0x74]; push eax; call; add esp,0x18; jmp`
  *       shared) -- and does NOT do the same for the DrawCursorSegmentB
  *       switch.  We emit both switches unmerged: that is the 4 extra
- *       instructions and most of the 9 extra bytes.  The merge needs the
- *       `lea eax,[esp+0x74]` to sit AFTER the `push <kind>`; VC6 schedules
- *       it before, leaving only a 4-instruction tail, and declines.
+ *       instructions and 9 extra bytes, and (because audit.py compares
+ *       index for index) it is also what makes everything from index 204
+ *       on count as a mismatch.  Fix (b) and the score jumps to ~429/454.
+ *
+ *       CORRECTION to the previous note here: the `lea eax,[esp+0x74]`
+ *       sitting after the `push <kind>` is a CONSEQUENCE of the merge, not
+ *       its precondition.  The original's own UNMERGED switch B has
+ *       `lea eax,[esp+0x70]; push 2; push eax` -- exactly our form -- at
+ *       0x460212.  VC6 merges the two case blocks on the IR (where the
+ *       `&vs` argument is one node) and only then schedules the shared
+ *       tail as its own block, which is why its lea cannot drift up past
+ *       the push and why its esp offset is 4 larger.  So the lever to look
+ *       for is whatever makes VC6's cross-jumper accept these two blocks,
+ *       not the lea's position.
+ *       Ruled out 2026-09-02, every one byte-identical to what we already
+ *       emit (VC6 normalises them all): every permutation of the case
+ *       labels in either switch (0/1/2, 0/2/1, 1/0/2, 1/2/0, 2/0/1,
+ *       2/1/0 -- VC6 sorts switch cases by value, so case ORDER is not a
+ *       lever at all here); `if (!(flags & 0x20)) {B} else {A}`; the
+ *       braceless `if (...) switch ... else switch ...`; making BOTH arms
+ *       call DrawCursorSegmentA; deleting the else arm entirely (still no
+ *       merge -- so the second switch is not what blocks it); and a
+ *       `case 1: kind = 1; break; case 2: kind = 2; break;` join feeding
+ *       one shared call (that spells the constant into a register and
+ *       costs 22 bytes).  Two shapes that DO change the output but for the
+ *       wrong reason: two sequential `if (flags & 0x20) {A} if (!(flags &
+ *       0x20)) {B}` statements (mismatch 189, but only because the frame
+ *       grows from 0x68 to 0x74 and re-aligns the tail by luck), and
+ *       `else if (flags & 0x40)` (268, ESCAPES).
+ *       Standalone repros (compile with scratchpad/bigrender/repro_probe.py,
+ *       which counts `push <imm>` immediately followed by `jmp` -- the
+ *       cross-jump signature): repro_switch.c reproduces our unmerged
+ *       output exactly; repro_switch_5arg.c (same code, one argument
+ *       fewer) and repro_switch_kklocal.c (switch value hoisted into a
+ *       local before the if) both DO merge.  What the repro sweep shows:
+ *         * VC6 shares the suffix of ONE group only -- the case blocks of
+ *           the LAST switch before the join -- and extends that shared
+ *           block backwards through `add esp,N`, the call and the `&vs`
+ *           lea.  Earlier groups then merely `jmp` to it.
+ *         * The merge switches OFF the moment case 0 clobbers the loop
+ *           counter's register (`mov ebx,[g_map]` for tile_h): that forces
+ *           a `mov ebx,[esp+..]` reload into the case-0 tails, which
+ *           splits the join into two suffixes, and VC6 then merges only
+ *           the case-0 pair and gives up.  Every repro that merges is one
+ *           where that split does not happen (5 arguments, a plain int
+ *           global instead of g_map->tile_h, `(int)(short)g_map->tile_h`
+ *           which lands in edx instead of ebx, or case 0 using `th` too).
+ *       The ORIGINAL has exactly that split -- 0x460257 is the shared
+ *       `mov ebx,[esp+0x94]; add esp,0x18` -- AND still merges A's cases
+ *       1 and 2 into a SECOND, independent shared suffix at 0x4601cd.
+ *       Two independent shared suffixes is the thing no spelling tried so
+ *       far reproduces, and it is where the next attempt should start.
  * LEVER already applied (worth 124 mismatches and the ESCAPES failure):
  * `t.x = c->origin.x; t.y = c->origin.y; t.x += x; t.y += y;` -- the
  * separate load-then-accumulate form.  Written `t.x = c->origin.x + x`,
  * VC6 emits `mov edx,esi / add edx,ebx` (two extra instructions per
  * coordinate) and lays the loop out so a branch escapes the extent. */
-// WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%: 181/454 insns; residual = a 3-register rename inside the tile loop and two un-cross-jumped switch tails, see the note above)
+// WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%: 181/454 insns, 1438 vs 1429 bytes; first diverging index 48, a pure eax->ecx->edx->eax rename of the tile loop's four scratch temps; the score is dominated by residual (b), the un-cross-jumped DrawCursorSegmentA switch tail at index 204, which shifts every later index -- see the note above)
 void RenderCursor(Cursor* c)
 {
     WinRect          view;

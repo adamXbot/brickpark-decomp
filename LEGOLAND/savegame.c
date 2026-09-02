@@ -480,36 +480,53 @@ static __inline void EncodeTile(unsigned short* t, void** tsf, int n)
         *t = 0;
 }
 
-/* RESIDUAL: tools/audit.py says ours = orig = 1196 instructions / 4204 bytes,
- * with 29 of the 1196 differing -- and every one of those 29 is the SAME
- * displacement swap, not a code difference. The original's four scalar frame
- * homes are 0x10 (the BLK1 element pointer, then the BLK2 `y` spill, then the
- * BLK4 bloke count), 0x14 (the BLK1 element flags, then the bloke number and
- * every later counter/length), 0x18 (`len`) and 0x1c (`n_tsf`). We reproduce
- * the frame size, the grouping and all four homes, but VC6 hands OUR BLK4..12
- * pair the two homes the other way round: `num` at 0x10 and `nblokes` at 0x14.
+/* FRAME LAYOUT -- what finally made this exact (1196/1196 instructions,
+ * 4204/4204 bytes, index for index).  SaveGame has exactly four scalar frame
+ * homes, and 29 of the 1196 instructions name one of them, so the whole match
+ * hangs on getting all four right.  The frame (offsets relative to the
+ * `sub esp,0x448` block, i.e. [esp+0x10] == local 0x00 once the four callee
+ * saves are pushed) is:
  *
- * What was established while chasing it (all measured, and the same experiments
- * are what took LoadGame from 94.7% to byte-identical):
- *   - Two address-taken locals are NEVER coloured onto one home unless they sit
- *     in LEXICALLY SIBLING scopes; a spilled register (like `y`) may land on a
- *     dead address-taken home, but only when that home belongs to a nested
- *     scope, not to a function-level local.
- *   - Declaration order inside a scope is irrelevant, and so are the variable
- *     names and the depth at which the two members of a sibling pair are
- *     declared: coextensive nested scopes collapse into one.
- *   - Within one scope VC6 gives the LOWER home to the variable with the longer
- *     live range (`elem` beats `flags`; `num` beats `nblokes`). BLK1 wants that
- *     order, BLK4..12 wants the opposite, which is the whole residual.
- * Tried and rejected: swapping/renaming the pair, splitting the inner scope so
- * it covers only the count, hoisting either variable to function scope (+4 or
- * +8 bytes of frame), a union of LLElem-pointer and int for the shared home and
- * an int-typed element slot with casts (both stop the `y` spill from being
- * coloured onto that home, +4 bytes), and making `y` and the bloke count one
- * address-taken variable (costs the cell loop's ebx/ebp assignment, 91.8%). */
-// WIP-FUNCTION: LEGOLAND 0x0047d8e0  (96.8%, two frame slots swapped -- see above)
+ *     0x10  block-scope pool: `elem` (BLK1), the `y` spill (BLK2),
+ *           `nblokes` (BLK4), `rnum` (the BLK9 rider loop)
+ *     0x14  `num`      <- FUNCTION-level, and declared FIRST
+ *     0x18  `len`
+ *     0x1c  `n_tsf`
+ *     0x20  the Cell copy `c`        0x34  hdr[33]        0x58  tsf[256]
+ *
+ * The rules this pinned down (VC6 SP3 /O2), all measured here:
+ *   - The frame is built as [block-scope pool][function-level locals in
+ *     DECLARATION order, ascending].  So the number of slots the block pool
+ *     needs decides where the function-level run starts: one block slot puts
+ *     the first function-level local at 0x14, two would push it to 0x18.
+ *   - Address-taken locals of DISJOINT blocks are coloured onto one pool slot
+ *     even when the blocks sit at very different lexical depths (`elem` at the
+ *     top of BLK1 and `rnum` four levels down inside the BLK9 object loop share
+ *     0x10) -- provided no other address-taken local of an ENCLOSING block is
+ *     live across them.  That proviso is the whole trap: wrapping them in an
+ *     outer `{ int num; ... }` makes `num` interfere with every inner block and
+ *     forces a second pool slot, and then VC6 hands the OUTER variable the
+ *     LOWER home (num 0x10 / nblokes 0x14) -- the mirror of what the original
+ *     wants, and unfixable from inside that shape: declaration order, names and
+ *     nesting depth are all irrelevant to the tie-break (measured).
+ *   - The way out was to notice the original REUSES one scratch int: the BLK1
+ *     "flags of interest" word and the BLK4..BLK12 bloke number / list counts /
+ *     name lengths are ONE variable at 0x14.  Making it a function-level `num`
+ *     declared before `len` empties the outer block scope, leaves the pool one
+ *     slot wide, and every home falls into place.
+ *   - Corroborating evidence for the split that led there: the original writes
+ *     the rider's bloke number through [esp+0x14] under one pending push
+ *     (= home 0x10) while the surrounding instance/rider COUNTS use home 0x14,
+ *     so the rider number provably is not the same variable as the counts.
+ *
+ * (Watch the pending-push offsets when reading the disassembly: a `lea`/`mov`
+ * emitted between a `push` and the matching `add esp,N` names the home 4 or 8
+ * higher -- e.g. `mov [esp+0x18],eax` right after `push`+`call GetBlokeNum` is
+ * home 0x14, and `mov [esp+0x1c],ecx` after two pushes is also 0x14.) */
+// FUNCTION: LEGOLAND 0x0047d8e0
 int SaveGame(const char* path)
 {
+    int     num;
     int     len;
     int     n_tsf;
     Cell    c;
@@ -561,8 +578,6 @@ int SaveGame(const char* path)
         goto fail;
     }
     {
-    int     flags;
-    {
     LLElem* elem;
     n = LLIDB_GetCount();
     g_elist_count = 0;
@@ -593,8 +608,8 @@ int SaveGame(const char* path)
             }
             g_elist[j] = elem;
             j++;
-            flags = elem->type_flags & 0x3000e;
-            if (!SaveGameWrite(&flags, 4)) {
+            num = elem->type_flags & 0x3000e;
+            if (!SaveGameWrite(&num, 4)) {
                 DBError("Flags of interest write failed %s", elem->name);
                 goto fail;
             }
@@ -617,7 +632,6 @@ int SaveGame(const char* path)
             DBError("TSF Element name writer failed %s", elem->name);
             goto fail;
         }
-    }
     }
     }
     if (!EndMeasuredBlock()) {
@@ -704,20 +718,17 @@ int SaveGame(const char* path)
     }
 
     /* ---- BLK 4: the blokes ---------------------------------------------- */
-    /* BLK4..BLK12 keep their two scalars in a scope nest sibling to BLK1's, so
-     * VC6 lays them over the BLK1 pair's two frame homes. `num` doubles as the
-     * bloke number AND as every list counter and name length from here on --
-     * the original has exactly four scalar frame homes (0x10/0x14/0x18/0x1c)
-     * plus the Cell copy, the header and the TSF pointer table. (This pair is
-     * the residual: see the note above SaveGame.) */
-    {
-    int     num;
-    {
-    int     nblokes;
+    /* `num` (function level, home 0x14) doubles as the bloke number AND as
+     * every list counter and name length from here to BLK12; `nblokes` and the
+     * rider loop's `rnum` are block-scoped and share home 0x10 with BLK1's
+     * `elem`.  See the frame-layout note above SaveGame -- this split is what
+     * makes the function exact. */
     if (!BeginMeasuredBlock()) {
         DBError("Begin Measured Block 4");
         goto fail;
     }
+    {
+    int     nblokes;
     nblokes = 0;
     b = g_people_head;
     while (b) {
@@ -727,6 +738,7 @@ int SaveGame(const char* path)
     if (!SaveGameWrite(&nblokes, 4)) {
         DBError("NumBlokes (%d) save Failed", nblokes);
         goto fail;
+    }
     }
     for (b = g_people_head; b; b = b->next) {
         progress_tick();
@@ -906,8 +918,9 @@ int SaveGame(const char* path)
                 goto fail;
             }
             for (rider = def->riders; rider; rider = rider->next) {
-                num = GetBlokeNum(rider->bloke);
-                if (!SaveGameWrite(&num, 4)) {
+                int rnum;
+                rnum = GetBlokeNum(rider->bloke);
+                if (!SaveGameWrite(&rnum, 4)) {
                     DBError("Bloke Num for bloke on %s", def->elem->name);
                     goto fail;
                 }
@@ -962,8 +975,6 @@ int SaveGame(const char* path)
     for (tob = g_terrain_objs; tob; tob = tob->next)
         SaveGameWrite(tob, 0x14);
     if (!EndMeasuredBlock()) { DBError("End Measured Block 12"); goto fail; }
-    }
-    }
     progress_tick();
     if (!EndMeasuredBlock()) {
         DBError("End Measured Block 13");
@@ -1002,7 +1013,14 @@ static __inline void DecodeTile(unsigned short* t, void** tsf)
  * ...BLK4..BLK12... }}. Coextensive nests collapse into one scope, and inside a
  * scope VC6 gives the LOWER home to the longer live range -- which is why
  * `elem` beats `flags` and `count` beats `num` here without further coaxing.
- * Declaration order, names and nesting depth are all irrelevant. */
+ * Declaration order, names and nesting depth are all irrelevant.
+ * REFINED while matching SaveGame (see the frame-layout note there): sibling
+ * scopes are not required to be at the same DEPTH -- disjoint blocks share a
+ * pool slot however deeply nested they are -- and the pool of shared slots sits
+ * BELOW the function-level locals, which are laid out in declaration order.
+ * LoadGame happens to need three slots either way, so its shape stands; the
+ * same shape was wrong for SaveGame, where one slot plus a function-level
+ * scratch int is what the original has. */
 // FUNCTION: LEGOLAND 0x0047e980
 int LoadGame(const char* path)
 {

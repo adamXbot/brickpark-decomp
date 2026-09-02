@@ -376,12 +376,65 @@ static __inline void EmitObjectSprite(SpriteDesc* desc, Pos at, int key,
  *    0x2f90 -- one spill slot the original's tighter allocation forces).
  * Everything the browser runtime needs (the draw order, the walk, the strip
  * rule, the per-cell colour rule) is recovered and documented above.
- * Tried: 30+ orderings of the setup and tile-geometry statements, post-guard
- * inner scopes, an inline gather helper, an inline emit helper (with and
- * without a Pos-by-value argument), an explicit `put` induction pointer, an
- * address-taken count, count as a global, both arm orders of the 0x20 branch,
- * `f` re-read vs cached, and a separate tail counter. */
-// WIP-FUNCTION: LEGOLAND 0x0045b180  (29%, 903/903 insns; split-prologue register-pair tie-break)
+ *
+ * FIRST DIVERGING INDEX: 0 (`mov eax,0x2f90` vs `0x2f8c`); the first
+ * STRUCTURAL divergence is index 5, `push esi` vs `push ebx`.  Apart from the
+ * register naming the bodies differ by exactly two instructions, which cancel:
+ * the original has a `mov edx,[esp+0x28]` (reload of qx) at index 99 that we
+ * do not, and we have an extra spill `mov [esp+0x30],ecx` at index 191 that it
+ * does not.
+ *
+ * MECHANISM, now understood from RenderFullMap in this same file: VC6 places
+ * each callee-saved register's `push` at the block that dominates that
+ * register's FIRST USE, not at the entry.  RenderFullMap's split falls out of
+ * its `if (g_fullmap_busy) return;` guard, and its ebp is pushed at entry only
+ * because ebp holds the function-wide zero constant and the guard's own
+ * compare uses it.  In RenderView the original's esi/edi hold the constants 1
+ * and 0 (used at index 15/21, inside the entry block) and its ebx/ebp are
+ * first used at index 64/73, inside the block that the g_edit_state if/else
+ * merges into -- hence the two pairs.  Our compile puts esi=1/edi=0 in the
+ * same place and first touches ebx/ebp at the same indices 64/73, yet still
+ * saves all four at entry, so VC6 believes ebx/ebp are live from entry for a
+ * reason not visible in the emitted code.
+ *
+ * Tried and ruled out (do not repeat): 30+ orderings of the setup and
+ * tile-geometry statements, post-guard inner scopes, an inline gather helper,
+ * an inline emit helper (with and without a Pos-by-value argument), an
+ * explicit `put` induction pointer, an address-taken count, count as a global,
+ * both arm orders of the 0x20 branch, `f` re-read vs cached, a separate tail
+ * counter; plus, this round: wrapping the whole SetClipping..RenderPeople span
+ * in a lexical inner scope with every local it uses declared inside (no
+ * change, X 633->639); four spellings of the DoBuildEffects tail aimed at
+ * killing the `xor edi,edi` zero register (all >= 639); and a four-step
+ * truncation bisect (cut the body after the setup / after the gather loop /
+ * after the ODF pre-render walk / after the object queue).  The bisect is the
+ * useful result: with only the setup kept, NO callee-saved register is used at
+ * all; the moment the gather loop is present, all four are pushed at entry.
+ * So the pin is inside the gather loop, not in the tail and not in the emit
+ * block -- that is where the next attempt should start.
+ *
+ * AND THE EXACT TIE-BREAK IS NOW MEASURED.  Indices 195-247 -- the whole
+ * bounds-checked CellAt, the probe call, the 0xa0 test and the owner lookup --
+ * are byte-for-byte identical, SAME REGISTERS.  The first real divergence in
+ * the loop is at 248:
+ *      orig  mov edx,[esp+0x24] / mov [edi],ecx / inc edx / add edi,4 /
+ *            or ah,4 / mov [esp+0x24],edx / mov word [ecx+0xc],ax
+ *      ours  mov [edi],ecx / inc ebx / add edi,4 / or ah,4 /
+ *            mov word [ecx+0xc],ax
+ * i.e. the ORIGINAL keeps `count` in a STACK SLOT and read-modify-writes it,
+ * and spends its ebx on the column position `px` (visible again at index
+ * 182-191, where we emit an extra `mov [esp+0x30],ecx` spill of px and the
+ * original does not).  We do the reverse.  That single ebx tie-break, count vs
+ * px, is what renames every register from index 64 onward and shifts the frame
+ * by the one slot (0x2f90 vs 0x2f8c).  Also ruled out this round, all measured:
+ * `volatile int count` (X 803 -- it spills count as wanted but wrecks the
+ * reads elsewhere), an inlined `Bump(&count)` address-take (no change),
+ * `visible[count] = owner; count++;` split from the post-increment (no
+ * change), and reordering the flag store before the array store (X 638).
+ * The next thing to try is making `px` cheaper to keep than `count`: give px
+ * an extra in-loop use, or move the two collect sites behind something that
+ * lengthens count's live range further. */
+// WIP-FUNCTION: LEGOLAND 0x0045b180  (903/903 insns, mismatch=633; split-prologue register-pair tie-break)
 void RenderView(void)
 {
     Cell*       visible[3000];
@@ -752,13 +805,25 @@ void RenderView(void)
  *   scale_y  = (340 << 16) / g_fm_spany
  *   g_fm_cw (0x667c16) = (short)(640 * tw / spanx + 1.0)   minimap cell size
  *   g_fm_ch (0x667c14) = (short)(340 * th / spany + 1.0)
- *   g_fm_cy (0x667c20) = (340 - ((map->w + map->h - 2) * (th+1)/2 * 640
- *                                / spany)) / 2       vertical centring
+ *   Both are computed with the x87 in INTEGER-OPERAND form (fild view.w,
+ *   fimul tw, fidiv spanx, fadd the pooled 1.0f at 0x4ab38c, __ftol) and
+ *   stored as 16-bit words -- they are scratch, and passes 3 and 4 overwrite
+ *   them with the sprite dimensions of whatever they are about to blit.
+ *
+ *   g_fm_cy (0x667c20) = (340 - ((map->w + map->h - 2) * ((th+1)>>1)
+ *                                - g_fm_oy) * 640 / spany / 2) >> 1
+ *   (the subtraction of g_fm_oy is real -- it is 0 in the shipped code but the
+ *   instruction is there; the outer halving is an arithmetic SHIFT, the inner
+ *   one a signed divide, and the two are not interchangeable in C).
  *
  *   minimap_x(world) = ((world_x + (g_scroll_x >> 8)) - g_fm_ox) * scale_x >> 16
  *   minimap_y(world) = ((world_y + (g_scroll_y >> 8)) - g_fm_oy) * scale_y >> 16
  *                      + g_fm_cy
  *   world_x/world_y come from GetTileBounds (left/top of the tile diamond).
+ *   Every one of the seven projection sites writes the scrolled value BACK
+ *   into the TileBounds it came from, so the helper takes the rect by pointer
+ *   and mutates it (FullMapX / FullMapY below).  Sprite offsets are folded in
+ *   before the projection: tb.left += HalfOffset(desc->dx) etc.
  *
  * ---------------------------------------------------------------------------
  * THE PER-CELL COLOUR RULE (pass 1: the terrain wash)
@@ -770,19 +835,34 @@ void RenderView(void)
  *                                                   is drawn in pass 2.
  *     - flags & 0x0010 AND flags & 0x0080        -> GREY  0x80,0x80,0x80
  *       (a path tile that is also an object footprint: roads/paths)
- *     - otherwise the DISPLAYED TILE decides.  desc = g_tile_info[tile].elem
+ *     - otherwise the DISPLAYED TILE decides.  desc = g_tile_info[tile].set
  *       is the TSF descriptor (base slot at +0x00, code[] at +0x0c), so
- *           code = desc->code[tile - desc->base] & 0x3f
- *       and code (0..0x30) selects the colour through the 0x31-byte table at
- *       0x00457834 -> the 4-way jump table at 0x00457824:
- *           code 0x00, 0x20            -> GREEN  r=0x00 g=0x8f b=0x4f  (grass)
- *           code 0x01, 0x21            -> SAND   r=0xff g=0xe0 b=0x8f  (beach)
- *           code 0x30                  -> LIME   r=0x5b g=0xbe b=0x02
- *           everything else, or > 0x30 -> not drawn (stays black = water)
+ *           code = desc->code[tile - desc->base_slot] & 0x3f
+ *       and code selects the colour through a real C `switch`: `cmp esi,0x30 /
+ *       ja skip` is the range check, then the 0x31-BYTE index table at
+ *       0x00457834 feeds the 4-entry jump table at 0x00457824.  Both were read
+ *       out of the image, so the mapping is exact, not inferred:
+ *           index bytes  [0]=0 [1]=1 [2..0x1f]=3 [0x20]=0 [0x21]=1
+ *                        [0x22..0x2f]=3 [0x30]=2
+ *           target 0 (0x456b91) code 0x00, 0x20 -> GREEN r=0x00 g=0x8f b=0x4f
+ *           target 1 (0x456bb8) code 0x01, 0x21 -> SAND  r=0xff g=0xe0 b=0x8f
+ *           target 2 (0x456be5) code 0x30       -> LIME  r=0x5b g=0xbe b=0x02
+ *           target 3 (0x456c1a) everything else -> not drawn (black = water)
+ *       so only five of the 0x31 terrain codes paint anything; the whole rest
+ *       of the map reads as water.
  *
  *     The block painted is RenderBlock(mx - 7, my - 2, g_fm_cw + 5,
  *     g_fm_ch + 4, colour) -- i.e. each cell is a slightly oversized filled
  *     rectangle so the diamonds tile without gaps.
+ *
+ *     CODEGEN NOTE: RenderBlock is called INSIDE each of the four arms, not
+ *     once after a `colour` join.  VC6's cross-jumper then merges only the
+ *     common suffix (`add ebp,-2 / add edi,-7 / push / push / call`), leaving
+ *     three separate GetNearestColour calls, and merges the GREY arm entirely
+ *     into the SAND arm from its `call` onward (the grey arm is just
+ *     `push 0x80 x3 / jmp 0x456bc7`).  Writing it as one call after a `colour`
+ *     variable collapses all four arms into a single call and loses ~14
+ *     instructions.
  *
  * ---------------------------------------------------------------------------
  * Pass 2: object cells
@@ -809,23 +889,62 @@ void RenderView(void)
  *     - class = cell.obj->+0x0c.  Then:
  *         * class +0xc4 equal to one of SQUARE_TRACK, SQUARE_TRACK_HEIGHT,
  *           SQUARE_TRACK_HEIGHT_0, SQUARE_TRACK_HEIGHT_PATH or CASTLE_DUMMY
- *           -> the ROLLER-COASTER path: the ride query at 0x00424050 returns
- *           the piece's two endpoints and heights; the segment is drawn as a
- *           GDI MoveToEx/LineTo polyline in the 0x00ff4000 pen on the unlocked
- *           surface DC, TRACKSTICK.LLS is drawn for the support height and
- *           TRACKBLOB.LLS for the node.
+ *           -> the ROLLER-COASTER path.  The ride query at 0x00424050 takes
+ *           FIVE arguments -- GetTrackSegment(Pos* tile, float* h0, Pos* p1,
+ *           float* h1, int* link) -- and `tile` is IN-OUT: it goes in holding
+ *           the chain cell's base coordinate and comes back holding this
+ *           piece's own node, while p1 is the far node.  Returns 0 when the
+ *           cell carries no piece.  Then:
+ *             h0 = max(h0, 0), h1 = max(h1, 0)   (compared against the pooled
+ *                 0.0f at 0x4ab390, stored back as an integer 0)
+ *             (x0,y0) = project(tile) with tb.top nudged by
+ *                       HalfOffset(-(int)h0); (x1,y1) likewise from p1/h1.
+ *             unless the class is SQUARE_TRACK_HEIGHT_PATH, the support stick:
+ *                 g_fm_cw = TRACKSTICK->w
+ *                 g_fm_ch = (short)(int)(scale_y * h0 * 2^-17)   (0x4ab514)
+ *                 if (g_fm_ch > 0) PrintScaledSprite(TRACKSTICK,
+ *                     x0 - ((g_fm_cw*scale_x)>>17), y0,
+ *                     (g_fm_cw*scale_x)>>16, g_fm_ch)
+ *                 -- the half-width shift is applied to X (the stick is
+ *                 centred on the node), NOT to Y.
+ *             then the surface is unlocked, GetDC/SelectObject(pen),
+ *             MoveToEx(x0,y0), LineTo(x1,y1), and IF `link` came back non-zero
+ *             a second LineTo to the projection of the tile
+ *             {tile.x - 0xa, tile.y} (again nudged by HalfOffset(-(int)h0)),
+ *             then SelectObject(old)/ReleaseDC/PopRenderingStatus.
+ *           TRACKBLOB.LLS is NEVER drawn: the arm ends by filling the local
+ *           SpriteDesc with {TRACKBLOB, dx = 0, dy = (int)(-h0)} and falling
+ *           straight through to the next chain entry.  Three dead stores --
+ *           an original bug (the descriptor was presumably meant to feed the
+ *           common draw tail), and the same three stores also run when
+ *           GetTrackSegment returned 0, reading an uninitialised h0.
  *         * class flags (+0x1c) & 0x0004 or & 0x0400 -> the normal object:
  *           either the class draw callback (+0xa0, called with +0xc4 and the
- *           packed base coordinate) or the static {sprite +0x64, dx +0x14,
- *           dy +0x18}; an ILF sprite (flags & 0x8000) draws each of its layers
- *           at its own offset, otherwise the single sprite is drawn scaled.
+ *           packed base coordinate forwarded as a dword) or the static
+ *           {sprite +0x64, dx +0x14, dy +0x18}; the descriptor and its sprite
+ *           are both null-checked.  A sprite whose +0x10 word carries 0x8000
+ *           is an ILF: its layer table hangs off sprite+0x08 and each layer is
+ *           drawn at HalfOffset(desc->dx)+HalfOffset(layer dx) -- and the loop
+ *           bound is re-read through desc->sprite->table->count on EVERY
+ *           iteration, not cached.  Otherwise the single sprite is drawn
+ *           scaled.  In both cases g_fm_cw/g_fm_ch are overwritten with the
+ *           sprite's own w/h before the blit.
  *         * neither flag set -> only the DRIVING SCHOOL ROADS class draws, and
  *           only where the road record at 0x004125f0(x, y) has kind
- *           (+0x14 & 0x0f) == 5: MAPLIGHTS.LLS at (-0x33, -0x2c).
+ *           (+0x14 & 0x0f) == 5: MAPLIGHTS.LLS at (-0x33, -0x2c).  The arm
+ *           first fills the SpriteDesc with {MAPLIGHTS, dx = -0x66, dy =
+ *           -0x58} -- the -0x33/-0x2c the blit uses are those two halved, and
+ *           VC6 folds them, but the three stores are still emitted because the
+ *           descriptor is address-taken elsewhere.
  *
  * Epilogue: PopRenderingStatus, restore Map +0x20/+0x22, RestoreClipping,
  * CommitCliprectToHardware, KillSprite x3, DeleteObject(pen) and finally
- * CalculateMapRenderOrder to put the world-view chain back.
+ * CalculateMapRenderOrder to put the world-view chain back.  ebx/esi/edi are
+ * popped BEFORE the three KillSprite tests; only ebp survives to the very end,
+ * because the `if (g_fullmap_busy) return;` guard splits the prologue: ebp is
+ * pushed at entry (it is the function-wide zero register -- CreatePen's style
+ * argument and the guard's own `cmp eax,ebp` are pre-guard uses) and
+ * ebx/esi/edi are pushed only after the guard falls through.
  * ------------------------------------------------------------------------- */
 
 /* ---- RenderFullMap-only types ------------------------------------------- */
@@ -929,11 +1048,17 @@ extern void    CalculateFullMapRenderOrder(void);                   /* 0x0045a66
 extern void    CalculateMapRenderOrder(void);                       /* 0x0045a4a0 */
 extern Cell*   GetFirstRenderObject(void);                          /* 0x0045a850 */
 extern Cell*   GetNextRenderObject(Cell* c);                        /* 0x0045a8b0 */
+extern void*   memset(void* d, int c, unsigned int n);
+#pragma intrinsic(memset)
+
 extern void    HalfPos(Pos* p);                                     /* 0x00456770 */
 extern RoadRec* GetRoadRecord(int x, int y);                        /* 0x004125f0 */
-/* 0x00424050: the track-piece query -- fills the two end tiles and their
- * heights for the coaster segment on `tile`; 0 when there is none. */
-extern int     GetTrackSegment(Pos* tile, float* h0, Pos* p0, float* h1, Pos* p1);
+/* 0x00424050: the track-piece query.  `tile` is IN-OUT (it comes back holding
+ * this piece's own node), `h0`/`h1` are the two node heights and `p1` the far
+ * node's tile; `link` is a flag saying the segment has a second leg.  Returns
+ * 0 when the cell carries no track piece. */
+extern int     GetTrackSegment(Pos* tile, float* h0, Pos* p1, float* h1,
+                               int* link);
 
 /* An ILF layer table hanging off an 0x8000 sprite's +0x08 (printlist.c). */
 typedef struct ILFTable {
@@ -944,30 +1069,62 @@ typedef struct ILFTable {
     int*     dy;                /* +0x10 */
 } ILFTable;
 
-/* Project a world pixel position onto the minimap. */
-static __inline int FullMapX(int wx, int scale_x)
+/* Each GetTileBounds site in the original builds its OWN Pos temporary (six
+ * distinct stack slots), which is what an inlined helper gives us. */
+static __inline void TileBoundsAt(int tx, int ty, TileBounds* out)
 {
-    return ((wx + (g_scroll_x >> 8)) - g_fm_ox) * scale_x >> 16;
+    Pos p;
+    p.x = tx;
+    p.y = ty;
+    GetTileBounds(&p, out);
 }
 
-static __inline int FullMapY(int wy, int scale_y)
+/* Project a tile's world-pixel corner onto the minimap.  The original adds the
+ * scroll offset INTO the TileBounds (the stores back into tb.left/tb.top are
+ * visible at every one of the seven call sites), so these take a pointer. */
+static __inline int FullMapX(TileBounds* t, int scale_x)
 {
-    return (((wy + (g_scroll_y >> 8)) - g_fm_oy) * scale_y >> 16) + g_fm_cy;
+    t->left += (g_scroll_x >> 8);
+    return ((t->left - g_fm_ox) * scale_x) >> 16;
+}
+
+static __inline int FullMapY(TileBounds* t, int scale_y)
+{
+    t->top += (g_scroll_y >> 8);
+    return (((t->top - g_fm_oy) * scale_y) >> 16) + g_fm_cy;
 }
 
 /* -------------------------------------------------------------------------
  * 0x004567a0 -- the overview-map draw callback (see the write-up above).
  *
- * NOT MATCHED: this body is a semantic reconstruction of the 1161-instruction
- * original, written from the disassembly so the browser runtime and a later
- * matching pass have the algorithm, the projection and the colour rule in one
- * place.  It has not been driven to instruction parity: the roller-coaster
- * arm in particular (the GDI polyline through GetTrackSegment) is reconstructed
- * from the call/branch shape only.  Do not promote this marker without running
- * tools/audit.py.
+ * audit.py: 1161/1161 instructions, 4201B vs 4225B, no ESCAPES, mismatch=1064.
+ * (The previous revision of this body was 1079 instructions -- 82 short -- and
+ * mismatched 1124; it was a semantic sketch, not a structural one.)
+ *
+ * WHAT WAS MISSING, and is now here: (a) the per-arm RenderBlock in pass 1 (a
+ * single joined call collapses four arms into one, ~14 instructions); (b) the
+ * `- g_fm_oy` term and the shift-vs-divide split in g_fm_cy; (c) the x87
+ * integer-operand form of g_fm_cw/g_fm_ch; (d) the SpriteDesc fills in the
+ * roads arm and at the end of the coaster arm (six dead stores the original
+ * really emits); (e) GetTrackSegment's fifth out-parameter `link` and the
+ * second LineTo it gates; (f) the stick's half-width shift on X; (g) the
+ * ILF loop re-reading its bound through desc->sprite each iteration; (h) six
+ * distinct Pos temporaries -- one per GetTileBounds site -- which is what the
+ * inlined TileBoundsAt helper buys and what most of the frame difference was.
+ *
+ * FIRST DIVERGING INDEX: 0 -- `sub esp,0xf8` vs `sub esp,0xec`.  The frame is
+ * still 12 bytes (three slots) short, and that is the honest summary of the
+ * residual: the block STRUCTURE, the branch senses, the split prologue
+ * (push ebp at index 1, push ebx/esi/edi at 42-44 behind the guard) and the
+ * call sequence are all reproduced -- all 70 calls, in order -- but the frame
+ * layout and therefore every [esp+N] and every register assignment downstream
+ * still differ, which is what keeps the strict index-for-index count at 1064.
+ * Converting the remaining GetTileBounds sites to TileBoundsAt overshoots the
+ * frame to 0x104 and makes the count worse (measured); the three missing slots
+ * are somewhere else.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004567a0  (semantic reconstruction only, not driven to a match)
+// WIP-FUNCTION: LEGOLAND 0x004567a0  (1161/1161 insns, mismatch=1064; frame 0xec vs 0xf8)
 void RenderFullMap(void)
 {
     Elem*       e_track;
@@ -984,6 +1141,7 @@ void RenderFullMap(void)
     TileBounds  tb;
     Pos         tile;
     Pos         off;
+    Pos         p1;
     Cell        c;
     Cell*       chain;
     SpriteDesc  sd;
@@ -994,13 +1152,19 @@ void RenderFullMap(void)
     ILFTable*   ilf;
     ObjDef*     def;
     RoadRec*    road;
+    void*       cls;
     unsigned short saved_ox;
     unsigned short saved_oy;
+    BPos        bpos;
     int         tw, th;
     int         scale_x, scale_y;
-    int         x, y, i, code, colour;
+    int         x, y, i;
     int         mx, my;
+    int         x0, y0;
+    int         link;
+    float       h0, h1;
     float       fsx, fsy;
+    unsigned int tcode;
 
     e_track    = ElemID("SQUARE_TRACK");
     e_track_h  = ElemID("SQUARE_TRACK_HEIGHT");
@@ -1016,11 +1180,8 @@ void RenderFullMap(void)
         return;                 /* original bug: pen and sprites leak here */
 
     CalculateFullMapRenderOrder();
-    for (i = 0; i < 1024; i++) {
-        g_map_marks[i].x = 0;
-        g_map_marks[i].y = 0;
-    }
     g_fm_view.x = 0;
+    memset(g_map_marks, 0, 1024 * sizeof(MapMark));
     g_fm_view.y = 0x20;
     g_fm_view.w = 640;
     g_fm_view.h = 340;
@@ -1040,8 +1201,8 @@ void RenderFullMap(void)
     g_fm_spany = g_fm_h2 + 1;
     scale_x = (g_fm_view.w << 16) / g_fm_spanx;
     scale_y = (g_fm_view.h << 16) / g_fm_spany;
-    g_fm_cw = (short)(int)((float)(g_fm_view.w * tw) / (float)g_fm_spanx + 1.0f);
-    g_fm_ch = (short)(int)((float)(g_fm_view.h * th) / (float)g_fm_spany + 1.0f);
+    g_fm_cw = (short)(int)((float)g_fm_view.w * tw / g_fm_spanx + 1.0f);
+    g_fm_ch = (short)(int)((float)g_fm_view.h * th / g_fm_spany + 1.0f);
     RenderBlock(0, 0, g_fm_view.w, g_fm_view.h, GetNearestColour(0, 0, 0));
 
     saved_ox = g_map->origin_x;
@@ -1050,8 +1211,8 @@ void RenderFullMap(void)
     g_map->origin_y = 0;
     g_fullmap_busy = 1;
     g_fm_cy = (g_fm_view.h
-               - ((g_map->width + g_map->height - 2) * ((th + 1) >> 1)
-                  * g_fm_view.w / g_fm_spany) / 2) / 2;
+               - ((g_map->width + g_map->height - 2) * ((th + 1) >> 1) - g_fm_oy)
+                 * g_fm_view.w / g_fm_spany / 2) >> 1;
 
     /* ---- pass 1: the terrain wash ---- */
     for (y = 0; y < g_map->height; y++) {
@@ -1062,35 +1223,40 @@ void RenderFullMap(void)
                 c.flags = 0x40;
             if (c.flags & 8)
                 continue;
-            set = g_tile_info[g_map_rows[y][x].tile].set;
-            tile.x = x;
-            tile.y = y;
-            GetTileBounds(&tile, &tb);
-            mx = FullMapX(tb.left, scale_x);
-            my = FullMapY(tb.top, scale_y);
+            tcode = g_map_rows[y][x].tile;
+            set = g_tile_info[tcode].set;
+            TileBoundsAt(x, y, &tb);
+            mx = FullMapX(&tb, scale_x);
+            my = FullMapY(&tb, scale_y);
             if ((c.flags & 0x10) && (c.flags & 0x80)) {
-                colour = GetNearestColour(0x80, 0x80, 0x80);
-            } else {
-                code = set->code[g_map_rows[y][x].tile - set->base_slot] & 0x3f;
-                if (code > 0x30)
-                    continue;
-                if (code == 0x00 || code == 0x20)
-                    colour = GetNearestColour(0x00, 0x8f, 0x4f);
-                else if (code == 0x01 || code == 0x21)
-                    colour = GetNearestColour(0xff, 0xe0, 0x8f);
-                else if (code == 0x30)
-                    colour = GetNearestColour(0x5b, 0xbe, 0x02);
-                else
-                    continue;
+                RenderBlock(mx - 7, my - 2, g_fm_cw + 5, g_fm_ch + 4,
+                            GetNearestColour(0x80, 0x80, 0x80));
+                continue;
             }
-            RenderBlock(mx - 7, my - 2, g_fm_cw + 5, g_fm_ch + 4, colour);
+            tcode = set->code[tcode - set->base_slot] & 0x3f;
+            if (tcode > 0x30)
+                continue;
+            switch (tcode) {
+            case 0x00:
+            case 0x20:
+                RenderBlock(mx - 7, my - 2, g_fm_cw + 5, g_fm_ch + 4,
+                            GetNearestColour(0x00, 0x8f, 0x4f));
+                break;
+            case 0x01:
+            case 0x21:
+                RenderBlock(mx - 7, my - 2, g_fm_cw + 5, g_fm_ch + 4,
+                            GetNearestColour(0xff, 0xe0, 0x8f));
+                break;
+            case 0x30:
+                RenderBlock(mx - 7, my - 2, g_fm_cw + 5, g_fm_ch + 4,
+                            GetNearestColour(0x5b, 0xbe, 0x02));
+                break;
+            }
         }
     }
 
     /* ---- pass 2: object cells draw their own tile sprite ---- */
     PushRenderingStatusAndUnlockVideoSurface();
-    fsx = (float)g_fm_view.w / (float)g_fm_spanx;
-    fsy = (float)g_fm_view.h / (float)g_fm_spany;
     for (y = 0; y < g_map->height; y++) {
         for (x = 0; x < g_map->width; x++) {
             if (x >= 0 && x < g_map->width && y >= 0 && y < g_map->height) {
@@ -1101,6 +1267,8 @@ void RenderFullMap(void)
             }
             if (!(c.flags & 8))
                 continue;
+            fsx = (float)g_fm_view.w / g_fm_spanx;
+            fsy = (float)g_fm_view.h / g_fm_spany;
             def = ((Obj*)c.obj)->def;
             tile.x = x;
             tile.y = y;
@@ -1108,9 +1276,10 @@ void RenderFullMap(void)
             off.x = def->dx;
             off.y = def->dy;
             HalfPos(&off);
-            mx = (int)((float)((tb.left + off.x + (g_scroll_x >> 8)) - g_fm_ox) * fsx);
-            my = (int)((float)((tb.top + off.y + (g_scroll_y >> 8)) - g_fm_oy) * fsy)
-                 + g_fm_cy;
+            tb.top += off.y + (g_scroll_y >> 8);
+            my = (int)((float)(tb.top - g_fm_oy) * fsy) + g_fm_cy;
+            tb.left += off.x + (g_scroll_x >> 8);
+            mx = (int)((float)(tb.left - g_fm_ox) * fsx);
             PrintScaledSprite(g_tile_sprites[c.tile], mx, my,
                               g_fm_cw + 1, g_fm_ch + 1);
         }
@@ -1122,31 +1291,31 @@ void RenderFullMap(void)
     clip.right = g_fm_view.w;
     clip.bottom = g_fm_view.h;
     SetClipping(&clip);
+    tobj = g_terrain_objects;
     tile.x = 0;
     tile.y = 0;
     GetTileBounds(&tile, &tb);
-    mx = FullMapX(tb.left, scale_x);
-    my = FullMapY(tb.top, scale_y);
-    for (tobj = g_terrain_objects; tobj; tobj = tobj->next) {
-        PrintScaledSprite(tobj->sprite,
-                          mx + ((tobj->x + (tw + tw) / 3) * scale_x >> 16),
+    mx = FullMapX(&tb, scale_x);
+    my = FullMapY(&tb, scale_y);
+    while (tobj) {
+        spr = tobj->sprite;
+        PrintScaledSprite(spr,
+                          mx + (((tw + tw) / 3 + tobj->x) * scale_x >> 16),
                           my + (tobj->y * scale_y >> 16),
-                          tobj->sprite->w * scale_x >> 16,
-                          tobj->sprite->h * scale_y >> 16);
+                          spr->w * scale_x >> 16,
+                          spr->h * scale_y >> 16);
+        tobj = tobj->next;
     }
 
     /* ---- pass 4: the render chain ---- */
     for (chain = GetFirstRenderObject(); chain; chain = GetNextRenderObject(chain)) {
-        BPos bpos = chain->base;
-
+        bpos = chain->base;
         c = *chain;
         if ((c.flags & 0x200) && !(c.flags & 4)) {
-            tile.x = (c.base.x & ~7) + 4;
-            tile.y = (c.base.y & ~7) + 4;
-            GetTileBounds(&tile, &tb);
-            i = ((c.base.y >> 3) << 5) + (c.base.x >> 3);
-            g_map_marks[i].x = FullMapX(tb.left, scale_x);
-            g_map_marks[i].y = FullMapY(tb.top, scale_y);
+            TileBoundsAt((c.base.x & ~7) + 4, (c.base.y & ~7) + 4, &tb);
+            i = (((c.base.y >> 3) << 5) + (c.base.x >> 3)) * 8;
+            *(int*)((char*)g_map_marks + i) = FullMapX(&tb, scale_x);
+            *(int*)((char*)g_map_marks + i + 4) = FullMapY(&tb, scale_y);
         }
         def = ((Obj*)c.obj)->def;
         if (!(def->flags & 4) && !(def->flags & 0x400)) {
@@ -1154,118 +1323,134 @@ void RenderFullMap(void)
              * junction record */
             if (def != (ObjDef*)e_roads->data)
                 continue;
-            road = GetRoadRecord(c.base.x, c.base.y);
-            if (road == 0 || (road->kind & 0xf) != 5)
+            sd.sprite = s_lights;
+            sd.dx = -0x66;
+            sd.dy = -0x58;
+            road = GetRoadRecord(bpos.x, bpos.y);
+            if (road == 0)
                 continue;
-            tile.x = c.base.x;
-            tile.y = c.base.y;
-            GetTileBounds(&tile, &tb);
+            if ((road->kind & 0xf) != 5)
+                continue;
+            TileBoundsAt(bpos.x, bpos.y, &tb);
+            tb.left += HalfOffset(sd.dx);
+            tb.top += HalfOffset(sd.dy);
             g_fm_cw = s_lights->w;
             g_fm_ch = s_lights->h;
             PrintScaledSprite(s_lights,
-                              FullMapX(tb.left - 0x33, scale_x),
-                              FullMapY(tb.top - 0x2c, scale_y),
-                              s_lights->w * scale_x >> 16,
-                              s_lights->h * scale_y >> 16);
+                              FullMapX(&tb, scale_x),
+                              FullMapY(&tb, scale_y),
+                              g_fm_cw * scale_x >> 16,
+                              g_fm_ch * scale_y >> 16);
             continue;
         }
-        if (def->ctx == e_track || def->ctx == e_track_h
-            || def->ctx == e_track_h0 || def->ctx == e_track_hp
-            || def->ctx == e_castle) {
-            /* The roller-coaster arm: a GDI polyline between the segment's two
-             * projected endpoints, plus a support stick and a node blob.
-             * Reconstructed from the call/branch shape; NOT verified. */
-            Pos   p0, p1;
-            float h0, h1;
-            void* hdc;
-            void* old;
-            int   x0, y0, x1, y1;
+        cls = def->ctx;
+        if (cls == e_track || cls == e_track_h || cls == e_track_h0
+            || cls == e_track_hp || cls == e_castle) {
+            tile.x = bpos.x;
+            tile.y = bpos.y;
+            if (GetTrackSegment(&tile, &h0, &p1, &h1, &link)) {
+                void* hdc;
+                void* old;
 
-            tile.x = c.base.x;
-            tile.y = c.base.y;
-            if (!GetTrackSegment(&tile, &h0, &p0, &h1, &p1))
-                continue;
-            if (h0 < 0.0f)
-                h0 = 0.0f;
-            if (h1 < 0.0f)
-                h1 = 0.0f;
-            GetTileBounds(&p0, &tb);
-            x0 = FullMapX(tb.left, scale_x);
-            y0 = FullMapY(tb.top - (int)h0 / 2, scale_y);
-            GetTileBounds(&p1, &tb);
-            x1 = FullMapX(tb.left, scale_x);
-            y1 = FullMapY(tb.top - (int)h1 / 2, scale_y);
-            if (def->ctx != e_track_hp) {
-                g_fm_cw = s_stick->w;
-                g_fm_ch = (short)(int)((float)th * (float)h0 * 7.62939453125e-06f);
-                if (g_fm_ch > 0)
-                    PrintScaledSprite(s_stick, x0,
-                                      y0 - ((g_fm_cw * scale_x) >> 17),
-                                      (g_fm_cw * scale_x) >> 16, g_fm_ch);
-            }
-            PushRenderingStatusAndUnlockVideoSurface();
-            g_draw_surface->vtbl->GetDC(g_draw_surface, &hdc);
-            old = SelectObject(hdc, pen);
-            MoveToEx(hdc, x0, y0, 0);
-            LineTo(hdc, x1, y1);
-            if (s_blob) {
+                if (h0 < 0.0f)
+                    h0 = 0.0f;
+                if (h1 < 0.0f)
+                    h1 = 0.0f;
+                GetTileBounds(&tile, &tb);
+                tb.top += HalfOffset(-(int)h0);
+                x0 = FullMapX(&tb, scale_x);
+                y0 = FullMapY(&tb, scale_y);
                 GetTileBounds(&p1, &tb);
-                LineTo(hdc, FullMapX(tb.left, scale_x),
-                       FullMapY(tb.top - 0xa, scale_y));
+                tb.top += HalfOffset(-(int)h1);
+                mx = FullMapX(&tb, scale_x);
+                my = FullMapY(&tb, scale_y);
+                if (cls != e_track_hp) {
+                    g_fm_cw = s_stick->w;
+                    g_fm_ch = (short)(int)((float)scale_y * h0
+                                           * 7.62939453125e-06f);
+                    if (g_fm_ch > 0)
+                        PrintScaledSprite(s_stick,
+                                          x0 - ((g_fm_cw * scale_x) >> 17), y0,
+                                          (g_fm_cw * scale_x) >> 16, g_fm_ch);
+                }
+                PushRenderingStatusAndUnlockVideoSurface();
+                g_draw_surface->vtbl->GetDC(g_draw_surface, &hdc);
+                old = SelectObject(hdc, pen);
+                MoveToEx(hdc, x0, y0, 0);
+                LineTo(hdc, mx, my);
+                if (link) {
+                    tile.x = tile.x - 0xa;
+                    GetTileBounds(&tile, &tb);
+                    tb.top += HalfOffset(-(int)h0);
+                    LineTo(hdc, FullMapX(&tb, scale_x),
+                           FullMapY(&tb, scale_y));
+                }
+                SelectObject(hdc, old);
+                g_draw_surface->vtbl->ReleaseDC(g_draw_surface, hdc);
+                PopRenderingStatus();
             }
-            SelectObject(hdc, old);
-            g_draw_surface->vtbl->ReleaseDC(g_draw_surface, hdc);
-            PopRenderingStatus();
+            /* The original fills the descriptor for TRACKBLOB here and then
+             * moves straight on to the next chain entry -- the blob is never
+             * drawn.  Reproduced: three dead stores. */
+            sd.sprite = s_blob;
+            sd.dx = 0;
+            sd.dy = (int)(-h0);
             continue;
         }
         if (def->flags & 0x400) {
-            if (def->draw == 0)
+            SpriteDesc* (*cb)(void*, BPos) = def->draw;
+
+            if (cb == 0)
                 continue;
-            desc = def->draw(def->ctx, bpos);
-            if (desc == 0)
-                continue;
+            desc = cb(cls, bpos);
         } else {
             sd.sprite = def->sprite;
             sd.dx = def->dx;
             sd.dy = def->dy;
             desc = &sd;
         }
+        if (desc == 0)
+            continue;
         spr = (Sprite*)desc->sprite;
         if (spr == 0)
             continue;
-        if (*(unsigned int*)((char*)spr + 0x10) & 0x8000) {
-            ilf = *(ILFTable**)((char*)spr + 0x08);
-            for (i = 0; i < ilf->count; i++) {
-                Sprite* layer = ilf->sprites[i];
-                Pos     lo;
-
-                lo.x = ilf->dx[i];
-                lo.y = ilf->dy[i];
-                tile.x = c.base.x;
-                tile.y = c.base.y;
-                GetTileBounds(&tile, &tb);
-                g_fm_cw = layer->w;
-                g_fm_ch = layer->h;
-                PrintScaledSprite(layer,
-                                  FullMapX(tb.left + HalfOffset(desc->dx)
-                                           + HalfOffset(lo.x), scale_x),
-                                  FullMapY(tb.top + HalfOffset(desc->dy)
-                                           + HalfOffset(lo.y), scale_y),
-                                  layer->w * scale_x >> 16,
-                                  layer->h * scale_y >> 16);
-            }
+        if (!(*(unsigned int*)((char*)spr + 0x10) & 0x8000)) {
+            TileBoundsAt(bpos.x, bpos.y, &tb);
+            tb.left += HalfOffset(desc->dx);
+            tb.top += HalfOffset(desc->dy);
+            g_fm_cw = spr->w;
+            g_fm_ch = spr->h;
+            PrintScaledSprite(spr,
+                              FullMapX(&tb, scale_x),
+                              FullMapY(&tb, scale_y),
+                              g_fm_cw * scale_x >> 16,
+                              g_fm_ch * scale_y >> 16);
             continue;
         }
-        tile.x = c.base.x;
-        tile.y = c.base.y;
-        GetTileBounds(&tile, &tb);
-        g_fm_cw = spr->w;
-        g_fm_ch = spr->h;
-        PrintScaledSprite(spr,
-                          FullMapX(tb.left + HalfOffset(desc->dx), scale_x),
-                          FullMapY(tb.top + HalfOffset(desc->dy), scale_y),
-                          spr->w * scale_x >> 16,
-                          spr->h * scale_y >> 16);
+        ilf = *(ILFTable**)((char*)spr + 0x08);
+        if (ilf->count <= 0)
+            continue;
+        i = 0;
+        do {
+            Sprite* layer;
+            Pos     lo;
+
+            ilf = *(ILFTable**)((char*)desc->sprite + 0x08);
+            layer = ilf->sprites[i];
+            lo.x = ilf->dx[i];
+            lo.y = ilf->dy[i];
+            TileBoundsAt(bpos.x, bpos.y, &tb);
+            tb.left += HalfOffset(desc->dx) + HalfOffset(lo.x);
+            tb.top += HalfOffset(desc->dy) + HalfOffset(lo.y);
+            g_fm_cw = layer->w;
+            g_fm_ch = layer->h;
+            PrintScaledSprite(layer,
+                              FullMapX(&tb, scale_x),
+                              FullMapY(&tb, scale_y),
+                              g_fm_cw * scale_x >> 16,
+                              g_fm_ch * scale_y >> 16);
+            i++;
+        } while (i < (*(ILFTable**)((char*)desc->sprite + 0x08))->count);
     }
 
     PopRenderingStatus();

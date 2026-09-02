@@ -198,58 +198,63 @@ static const char kLoadingBMP[] = "Loading BMP (%s)";
  * free() on the ImageRec itself, which the caller also owns and frees.
  *
  * ---------------------------------------------------------------------------
- * MATCH STATE: 470 instructions in both, 1402 B ours vs 1386 B; every block is
- * in the original's order and index-for-index 308/470 (65%) line up.  Three
- * residuals remain, all register/encoding level, none structural:
+ * MATCH STATE: 470 instructions in both, 1396 B ours vs 1386 B; every block
+ * is in the original's order and 454/470 (96.6%) line up index for index.
+ * Only THREE residuals remain, all of them register/slot/encoding level:
  *
- *  1. ebx <-> ebp are swapped throughout (41 instructions differ ONLY in that
- *     substitution).  VC6 coalesces the same two register webs the original
- *     does -- {path, .lls size, raw} and {.lls file, BMP size} -- but hands
- *     them the opposite registers.  Neither web can be nudged: variable
- *     splitting/merging (f vs fl, size vs llssize), const/unsigned types,
- *     dead pre-initialisers (eliminated before allocation), an extra path
- *     temporary and an extra dummy local were all measured and are identical
- *     or worse.
+ *  1. Two stack-home PAIRS are swapped.  `offbits` and `palpos` sit at
+ *     +14h/+1Ch in the original and +1Ch/+14h here (4 instructions:
+ *     0x0044e14e, 0x0044e163, 0x0044e260, 0x0044e2a3); in the 24bpp packer
+ *     the outer counter `y` and the row pointer `row` share the earlier
+ *     `type` slot the other way round, +10h/+14h vs +14h/+10h (10
+ *     instructions).  Home slots are NOT assigned by declaration order (all
+ *     six permutations measured), nor by first assignment, nor by spill
+ *     order -- moving `y = 0` ahead of `row`, folding either pair into one
+ *     struct, splitting `palpos` into two statements and dropping `offbits`
+ *     in favour of re-reading `fhdr.bfOffBits` were all measured and are
+ *     worse (the struct forms also disturb the file handle's own slot).
+ *  2. `and edx, 0FFF8h` vs `and edx, -8` (0x0044e359 and 0x0044e496; +3
+ *     bytes each, and those 6 bytes are what pushes one `jne` at 0x0044e4d7
+ *     from rel8 to rel32, so they account for all 10 excess bytes).  The
+ *     MULTIPLY spelling (`* 32` / `* 8`, not `<< 5` / `<< 3`) is what makes
+ *     VC6 widen the red byte FIRST (`movzx dx, byte ptr [..]`) and mask
+ *     second, exactly as the original -- the shift spelling masks the byte
+ *     instead (`and dl, 0F8h`).  But VC6 then also narrows the mask to the
+ *     16-bit operand width.  Roughly 60 spellings have now been measured:
+ *     int/unsigned/long/short/unsigned short temporaries for the red
+ *     channel, a separate masked temporary of each of those types, an
+ *     int/unsigned result temporary before the 16-bit store, casts on the
+ *     operand, ~7 / -8 / 0xfff8 / 0xfffffff8 / ~7u, /8*8, >>3<<3, x-(x&7),
+ *     mixed shift/multiply groupings and + instead of |.  None recovers the
+ *     imm8 form.
  *
- *  2. The in-place vertical flip (8bpp) spills the row stride as well as the
- *     top pointer, so its block is one instruction longer than the original's
- *     and the 22 instructions of the loop are shifted.  The original coalesces
- *     `top` with the inner counter `i` in one register (ebp), spilling `top`
- *     to the slot the counter then reuses; six statement orderings and three
- *     loop shapes were measured -- `a = top; b = bot; stride = ...;` (this
- *     one) is the best of them.
- *
- *  3. `and edx, -8` vs `and edx, 0FFF8h` (two sites: the 8bpp palette 565 arm
- *     at 0x0044e359 and the 24bpp pixel 565 arm at 0x0044e496; +3 bytes each).
- *     The original widens the red byte FIRST (`movzx dx, byte ptr [..]`) and
- *     masks SECOND with the sign-extended imm8 -8; every `<<`-spelled variant
- *     makes VC6 mask the byte first (`and dl, 0F8h`).  Writing the two outer
- *     shifts as MULTIPLIES (`* 32` / `* 8` instead of `<< 5` / `<< 3`)
- *     reproduces the original's ORDER exactly -- this is the lever that was
- *     missing when LoadPalette (0x00441f20, rin.c) was left at 80.6% -- but
- *     VC6 still truncates the mask constant to the 16-bit operand width.  No
- *     spelling out of ~45 tried (int/unsigned/short temporaries, casts, ~7 /
- *     -8 / 0xfff8 / 0xfffffff8 / ~7L / ~7u, /8*8, >>3<<3, x^(x&7), x-(x&7),
- *     inline helpers with u16 params, volatile, extra 32-bit uses) recovers
- *     the imm8 form.
- *
- * Resolved on the way here (kept because each was worth 50-200 instructions):
+ * Resolved on the way here (each was worth 50-150 instructions):
+ *  - The 8bpp flip's row stride must NOT be a named local.  As `int stride`
+ *    it gets a home slot, VC6 emits a DEAD spill of it inside the loop, and
+ *    the extra frame pressure flips the whole function's two callee-saved
+ *    webs ({path, .lls size, raw} and {.lls file, BMP size}) from ebp/ebx to
+ *    ebx/ebp -- 41 instructions differing by nothing but that substitution.
+ *    Written twice as an expression it is CSE'd into ebx with no home and
+ *    the register assignment falls into place. THIS was the ebx<->ebp
+ *    "unfixable allocator tie-break" the previous note described.
+ *  - Which of two same-width locals lands in edx and which in edi follows
+ *    the order they are ASSIGNED, so the flip loop assigns the bottom
+ *    walker first, and the 24bpp packer steps p in the for-increment (after
+ *    x) rather than with `*p++` in the body.
  *  - The `.lls`/`.llz` test must be written as two `goto native` statements
  *    followed by `goto bitmap` -- the equivalent `if (a && b) goto bitmap;`
  *    makes VC6 emit je/je and inline the BMP block, where the original has
  *    je <native> / jne <bitmap> with the .lls block as the fall-through.
  *  - The BMP open-failure block must appear BEFORE the .lls block in the
  *    SOURCE (as a `bmpfail:` label the BMP path gotos back to).  VC6's
- *    cross-jumping always keeps the SOURCE-LATER copy of two identical tails,
- *    and the original keeps the .lls one; hoisting the BMP copy above it is
- *    what puts the surviving copy at 0x0044e0ad with the BMP arm jumping
- *    backward into it, exactly as the original does.
+ *    cross-jumping always keeps the SOURCE-LATER copy of two identical
+ *    tails, and the original keeps the .lls one.
  *  - In the 8bpp switch arm, `type` must be assigned AFTER the size
  *    computation: with both arms ending in the same `and`/`imul` pair VC6
  *    cross-jumps them into the join, where the original keeps both copies.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x0044e010  (308/470 index-for-index; full body recovered, see MATCH STATE above)
+// WIP-FUNCTION: LEGOLAND 0x0044e010  (454/470 index-for-index, 96.6%; 1396 vs 1386 bytes; two stack-home pairs swapped and two `and` immediates widened, see MATCH STATE above)
 int __BMPLoader(ImageRec* image)
 {
     RGBQuad        palbuf[256];
@@ -369,9 +374,8 @@ bitmap:
     if (bmi.bmiHeader.biBitCount == 8) {
         unsigned char* top;
         unsigned char* bot;
-        unsigned char* a;
-        unsigned char* b;
-        int            stride;
+        unsigned char* pb;      /* walks the bottom row */
+        unsigned char* pt;      /* walks the top row */
 
         RES_SetFilePointer(f, palpos);
         memset(palbuf, 0, sizeof(palbuf));
@@ -383,18 +387,27 @@ bitmap:
         bot = raw + (image->h - 1) * ((image->w + 3) & ~3);
         image->lls = (LLS*)raw;
         while (bot > top) {
-            a = top;
-            b = bot;
-            stride = (image->w + 3) & ~3;
-            top += stride;
-            bot -= stride;
-            for (i = 0; i < image->w; i++) {
-                unsigned char c1 = *b;
-                unsigned char c2 = *a;
-                *a = c1;
-                *b = c2;
-                a++;
-                b++;
+            /* The stride must NOT be a named local: giving it a home slot
+             * costs a dead spill inside the loop and (because that slot
+             * contends with the rest of the frame) flips the whole
+             * function's ebx/ebp assignment.  Spelled twice, VC6 CSEs it
+             * into ebx with no home, exactly as the original.  The bottom
+             * walker is assigned FIRST so it lands in edx and the top
+             * walker in edi, and the counter is incremented before the two
+             * pointers, which is what the original's inc order shows. */
+            pb = bot;
+            pt = top;
+            top += (image->w + 3) & ~3;
+            bot -= (image->w + 3) & ~3;
+            i = 0;
+            while (i < image->w) {
+                unsigned char c1 = *pb;
+                unsigned char c2 = *pt;
+                *pt = c1;
+                *pb = c2;
+                i++;
+                pb++;
+                pt++;
             }
         }
 
@@ -429,8 +442,10 @@ bitmap:
     unsigned short* p;
     unsigned char*  src;
     int             x, y;
-    image->lls = (LLS*)HeapAlloc_w(bmi.bmiHeader.biWidth
-                                   * bmi.bmiHeader.biHeight * 2);
+    /* Through `size` (dead since the read above): passing the product
+     * straight to the call computes it in ecx, the original uses eax. */
+    size = bmi.bmiHeader.biWidth * bmi.bmiHeader.biHeight * 2;
+    image->lls = (LLS*)HeapAlloc_w(size);
     out = (unsigned short*)image->lls;
     if (!out) {
         HeapFree_w(raw);
@@ -445,13 +460,16 @@ bitmap:
         for (y = 0; y < image->h; y++) {
             src = (unsigned char*)(((unsigned int)src + 3) & ~3);
             p = row;
-            row -= image->w;
-            for (x = 0; x < image->w; x++) {
+            row = p - image->w;
+            /* p and src step in the for-increment, after x: with `*p++`
+             * and `src += 3` in the body VC6 gives the row pointer edx and
+             * the counter edi, the reverse of the original, and schedules
+             * the three increments the other way round. */
+            for (x = 0; x < image->w; x++, p++, src += 3) {
                 unsigned short r = src[2];
                 unsigned char  g = (unsigned char)(src[1] & 0xfc);
                 unsigned char  b = (unsigned char)(src[0] >> 3);
-                *p++ = (unsigned short)((((r & ~7) * 32) | g) * 8 | b);
-                src += 3;
+                *p = (unsigned short)((((r & ~7) * 32) | g) * 8 | b);
             }
         }
     } else {
@@ -460,15 +478,14 @@ bitmap:
         for (y = 0; y < image->h; y++) {
             src = (unsigned char*)(((unsigned int)src + 3) & ~3);
             p = row;
-            row -= image->w;
-            for (x = 0; x < image->w; x++) {
+            row = p - image->w;
+            for (x = 0; x < image->w; x++, p++, src += 3) {
                 unsigned char r = (unsigned char)(src[2] & 0xf8);
                 unsigned char g = (unsigned char)(src[1] & 0xf8);
                 unsigned char b = (unsigned char)(src[0] >> 3);
-                *p++ = (unsigned short)((((unsigned short)r << 5
-                                         | (unsigned short)g) << 2)
-                                        | (unsigned short)b);
-                src += 3;
+                *p = (unsigned short)((((unsigned short)r << 5
+                                        | (unsigned short)g) << 2)
+                                       | (unsigned short)b);
             }
         }
     }

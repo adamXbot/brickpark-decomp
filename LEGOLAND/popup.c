@@ -1,0 +1,971 @@
+/* LEGOLAND — object construction, the 16-bit "transparent" blitter and the
+ * object information pop-up.
+ *
+ * Reconstructed from original/legoland.exe (VC6 SP3, /O2 /Gy /Gd).
+ * Struct field OFFSETS are load-bearing; names are ours.
+ *
+ *   0x0045eb30  BuildObject         188/188 instructions, 504/504 bytes,
+ *                                   180 index-for-index (see its note)
+ *   0x00489190  RenderTransSprite   100% full-body (188/188)
+ *   0x004724a0  DrawPopUpInfo       961 vs 962 instructions (see its note)
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT THE OBJECT RECORDS ARE
+ *
+ * The thing the map stores in a cell and that BuildObject is handed is the
+ * LLIDB ELEMENT of the object class (legoland.h's Elem: name/image/flags/
+ * data/refcount), and its `data` at +0x0c is the 0xd0-byte ObjDef parsed by
+ * LLIDB_LoadODFData.  objmap2.c / mapobj.c call the same pointer `MapObj` /
+ * `obj` with a `cls` at +0x0c — that is the same thing seen from the other
+ * end.  Two consequences worth recording:
+ *
+ *  - 0x0080ff64 is ElemID("CASTLE OBJ") (InitGameMap 0x00459850), so
+ *    `obj == *(void**)0x0080ff64` in BuildObject and in PutObjOnMap is "the
+ *    thing just placed IS the castle", and 0x0079a8d0 is "the castle has been
+ *    built".  mapobj.c / objmap2.c name those two g_placing_obj /
+ *    g_placed_flag, which reads them as a generic "object being placed"; the
+ *    castle reading is the right one.
+ *  - AddObjectToBuildList's second parameter (sweep1.c calls it `type`) is
+ *    the PACKED MAP TILE {u8 x, u8 y} of the build, passed BY VALUE as a
+ *    2-byte struct.  BuildObject builds it from the Pos it is given, and
+ *    buildtick.c's BuildSlot.key (the same 16 bits) is what DrawPopUpInfo
+ *    searches the 256 build slots with.
+ * ------------------------------------------------------------------------- */
+#include "legoland.h"
+
+/* ------------------------------------------------------------------ types -- */
+
+/* A packed 2-byte map coordinate passed BY VALUE (objmap2.c's BPos). */
+typedef struct BPos {
+    unsigned char x;            /* +0x00 */
+    unsigned char y;            /* +0x01 */
+} BPos;
+
+/* An object class / definition (the 0xd0-byte ODF record; objmap2.c ObjDef). */
+typedef struct ObjDef {
+    char           pad0[0x0c];  /* +0x00 */
+    int            dx;          /* +0x0c door / entry offset */
+    int            dy;          /* +0x10 */
+    char           pad14[0x1c - 0x14];
+    unsigned int   flags;       /* +0x1c */
+    short          type;        /* +0x20 */
+    char           pad22[0x2c - 0x22];
+    unsigned char  life;        /* +0x2c initial life (the pop-up's 100%) */
+    char           pad2d[0x3c - 0x2d];
+    Rect           rect;        /* +0x3c footprint rect list */
+    char           pad50[0x78 - 0x50];
+    char*          name;        /* +0x78 display name */
+    char           pad7c[0xd0 - 0x7c];
+} ObjDef;
+
+/* The LLIDB element a placed object is known by: its ObjDef is at +0x0c
+ * (legoland.h's Elem with a different data type). */
+typedef struct ObjElem {
+    char    pad0[0x0c];         /* +0x00 */
+    ObjDef* def;                /* +0x0c */
+} ObjElem;
+
+
+/* An inclusive-exclusive clip rectangle (SPRITE_ClipRect is {0,0,640,480}). */
+typedef struct ClipRect { int left, top, right, bottom; } ClipRect;
+
+/* A loaded sprite record (printlist.c SpriteRec): w/h at +0x14/+0x16. */
+typedef struct SpriteRec {
+    struct SpriteRec* next;     /* +0x00 */
+    void*          surface;     /* +0x04 */
+    void*          image;       /* +0x08 */
+    int            detail;      /* +0x0c */
+    unsigned int   flags;       /* +0x10 */
+    short          w;           /* +0x14 */
+    short          h;           /* +0x16 */
+    short          src_x;       /* +0x18 */
+    short          src_y;       /* +0x1a */
+    unsigned short refs;        /* +0x1c */
+    short          pad1e;       /* +0x1e */
+} SpriteRec;
+
+/* What GetSprite fills: a locked surface (printlist.c SpriteHandle). */
+typedef struct SpriteHandle {
+    int   pitch;                /* +0x00 */
+    int   w;                    /* +0x04 */
+    int   h;                    /* +0x08 */
+    void* pixels;               /* +0x0c */
+    void* surface;              /* +0x10 */
+    int   bpp;                  /* +0x14  1 = 8-bit, 2 = 16-bit */
+} SpriteHandle;
+
+/* ---------------------------------------------------------------- globals -- */
+
+/* ElemID("CASTLE OBJ") — InitGameMap (0x00459850) puts it here.  mapobj.c /
+ * objmap2.c call this one g_placing_obj; it is really the castle element, and
+ * 0x0079a8d0 is "the castle has been built". */
+extern ObjElem* g_castle_obj_elem;      /* 0x0080ff64 */
+extern int      g_castle_built;         /* 0x0079a8d0 */
+extern int      g_map_loading;          /* 0x00667cd8 */
+extern int      g_render_order_dirty;   /* 0x00667cdc */
+
+/* ---------------------------------------------------------------- callees -- */
+extern ClipRect g_clip_rect;            /* 0x004bdea0 SPRITE_ClipRect */
+extern int      g_screen_depth;         /* 0x00668088  0 = 8-bit, 1 = 555, 2 = 565 */
+extern int   GetSprite(SpriteHandle* out, SpriteRec* s);        /* 0x00497c30 */
+extern void  ReleaseSprite(SpriteHandle* h);                    /* 0x00497dc0 */
+
+
+extern int   GetObjCost(ObjDef* d);                             /* 0x00480da0 */
+extern int   GetBrickCount(void);                               /* 0x004578e0 */
+extern void  UseBricks(int n);                                  /* 0x004578c0 */
+extern void  PlayAppropriateBuildEffect(ObjDef* d, Pos* pos);   /* 0x00462d10 */
+extern int   AddObjectToBuildList(ObjDef* d, BPos bp);          /* 0x00450b90 */
+extern int   ClassAllowsObjects(ObjDef* d);                     /* 0x0045eab0 */
+extern int   ClassNeedsPath(ObjDef* d);                         /* 0x0045eaf0 */
+extern void  AddObjectToMap(ObjElem* obj, Pos* pos, unsigned int flags); /* 0x0045e080 */
+extern void  SetObjRectFlags(ObjElem* obj, Pos* pos, unsigned int flags);/* 0x0045dee0 */
+extern void  GetObjectDoorOffset(ObjDef* d, Pos* out);          /* 0x0045ea40 */
+extern void  UpdateEntranceTile(void);                          /* 0x00482a90 */
+extern void  RefreshEntranceTile(int force);                    /* 0x00482b20 */
+extern Pos*  GetEntranceTile(void);                             /* 0x00482b00 */
+extern void  RequestRoute(int fx, int fy, int tx, int ty);      /* 0x00477bd0 */
+extern void  CalculateMapRenderOrder(void);                     /* 0x0045a4a0 */
+extern void  SetObjectDoorFlags(ObjElem* obj, Pos* pos);        /* 0x0045e770 */
+extern void  PutObjOnMap(ObjDef* d, ObjElem* obj, Pos* pos);    /* 0x00459ad0 */
+
+/* -------------------------------------------------------------------------
+ * 0x0045eb30 -- build one object of class `obj` at map tile `pos`.
+ * ------------------------------------------------------------------------- */
+
+/* 186/188 instructions, 188 vs 188, byte lengths equal.  The ONLY residual is
+ * the scheduling of the four-instruction RequestRoute argument set-up, which
+ * occurs twice (indices 100-103 and 168-171).  The original emits
+ *     mov ecx,[eax+4] / push ecx / mov ecx,door.x / mov edx,[eax] / mov eax,door.y
+ * (arg4 pushed the moment it is evaluated); VC6 here batches
+ *     mov ecx,[eax+4] / mov edx,[eax] / mov eax,door.y / push ecx / mov ecx,door.x
+ * (arg4 pushed only when ecx is needed for arg1).  Same eight instructions,
+ * same register assignment, same push order — only the position of the first
+ * push differs.  Ruled out: Pos-by-value parameters (both 2- and 3-arg forms),
+ * hoisting ent->x / ent->y / door.x / door.y into temporaries, a pointer to the
+ * door struct, an int[2] door, an unprototyped callee, a static __inline
+ * wrapper taking Pos* (identical) or ints (much worse), and swapping the two
+ * `door.? += pos->?` statements (regresses to index 83).  A register-pressure
+ * replica in scratchpad/popup/micro4.c reproduces VC6's batched form exactly,
+ * so the lever is not local register pressure. */
+// WIP-FUNCTION: LEGOLAND 0x0045eb30  (180/188 by audit.py, mismatch=8: the RequestRoute arg-push schedule, first diff at index 100)
+int BuildObject(ObjElem* obj, Pos* pos)
+{
+    ObjDef* def = obj->def;
+    BPos    bp;
+    Pos     door;
+    Pos*    ent;
+    int     cost;
+
+    bp.x = (unsigned char)pos->x;
+    bp.y = (unsigned char)pos->y;
+    cost = GetObjCost(def);
+    if (GetBrickCount() < cost)
+        return 0;
+
+    if (obj == g_castle_obj_elem)
+        g_castle_built = 1;
+    if (g_map_loading == 0)
+        PlayAppropriateBuildEffect(def, pos);
+    else
+        g_render_order_dirty = 1;
+
+    if (def->flags & 0x80000) {
+        if (!AddObjectToBuildList(def, bp))
+            return 0;
+        UseBricks(GetObjCost(def));
+        if (ClassAllowsObjects(def) || ClassNeedsPath(def))
+            AddObjectToMap(obj, pos, 0x20);
+        else
+            SetObjRectFlags(obj, pos, 0x20);
+        GetObjectDoorOffset(def, &door);
+        door.x += pos->x;
+        door.y += pos->y;
+        if (def->flags & 0x400000) {
+            UpdateEntranceTile();
+            RefreshEntranceTile(1);
+            ent = GetEntranceTile();
+            RequestRoute(door.x, door.y, ent->x, ent->y);
+        }
+        if (g_map_loading == 0)
+            CalculateMapRenderOrder();
+        SetObjectDoorFlags(obj, pos);
+        return 1;
+    }
+
+    UseBricks(GetObjCost(def));
+    if (ClassAllowsObjects(def) || ClassNeedsPath(def))
+        AddObjectToMap(obj, pos, 0);
+    GetObjectDoorOffset(def, &door);
+    door.x += pos->x;
+    door.y += pos->y;
+    PutObjOnMap(def, obj, pos);
+    if (def->flags & 0x400000) {
+        UpdateEntranceTile();
+        RefreshEntranceTile(1);
+        ent = GetEntranceTile();
+        RequestRoute(door.x, door.y, ent->x, ent->y);
+    }
+    SetObjectDoorFlags(obj, pos);
+    return 1;
+}
+
+/* -------------------------------------------------------------------------
+ * 0x00489190 -- blend a sprite onto the SCREEN at 50% opacity, 16-bit RGB565
+ * only, at HALF vertical resolution.
+ *
+ * The screen is locked with GetSprite(&dst, 0) and the sprite with
+ * GetSprite(&src, s); the sprite rectangle (x, y, x+w-1, y+h-1) is clipped
+ * against SPRITE_ClipRect into `drect`, and the amount trimmed off each edge
+ * becomes `srect` -- so srect is the source sub-rectangle in sprite-local
+ * coordinates and drect the destination rectangle in screen coordinates.
+ *
+ * The blit itself is hand-written assembler working two pixels (one dword) at
+ * a time: each source dword and the destination dword are masked with
+ * 0xf7def7de (clearing the low bit of every 5/6/5 channel) and halved, and the
+ * sum is the 50% blend.  A source dword that is zero after the mask is treated
+ * as transparent and skipped.  Each result is stored to the destination row
+ * AND to the row one pitch below, and both pointers step two rows per pass --
+ * so the effect is drawn at half vertical resolution, every other scanline
+ * duplicated.  The source pointer is aligned DOWN to a dword boundary.
+ *
+ * Two faults are reproduced deliberately:
+ *   - the destination pixel pair that is read for the blend is the one AFTER
+ *     the pair being written (`mov edx,[eax]` runs after `add eax,4`, while the
+ *     stores use [eax-4]); the blend therefore mixes source pixel n with
+ *     destination pixel n+1.
+ *   - the inner loop's exit falls THROUGH the transparent-skip block, so one
+ *     extra `add edi,4 / sub ecx,2` runs at the end of every row (harmless:
+ *     both are reloaded per row).
+ * Depth 0 (8-bit) and depth 1 (RGB555) are unimplemented stubs that only load
+ * eax with 0 -- they never store the result slot, so the value returned for
+ * those depths is whatever was last left at [ebp-0x20].  Reproduced as is.
+ * ------------------------------------------------------------------------- */
+
+// FUNCTION: LEGOLAND 0x00489190
+int RenderTransSprite(SpriteRec* s, int x, int y)
+{
+    SpriteHandle   dst;
+    SpriteHandle   src;
+    ClipRect       srect;
+    ClipRect       drect;
+    int            rc;
+    int            dpitch2;
+    int            dpitch;
+    int            dptr;
+    int            spitch;
+    int            sptr;
+    int            cols;
+    unsigned short w;
+    unsigned short h;
+
+    w = s->w;
+    h = s->h;
+    if (!GetSprite(&dst, 0))
+        return 0;
+    if (!GetSprite(&src, s))
+        return 0;
+    switch (g_screen_depth) {
+    case 0:
+        __asm { mov eax, 0 }
+        break;
+    case 1:
+        __asm { mov eax, 0 }
+        break;
+    case 2:
+        __asm {
+            lea     edx, g_clip_rect
+            lea     esi, srect
+            mov     eax, x
+            mov     ecx, [edx]
+            lea     edi, drect
+            cmp     eax, ecx
+            jl      clipl
+            mov     [edi], eax
+            mov     dword ptr [esi], 0
+            jmp     donel
+clipl:      mov     [edi], ecx
+            sub     ecx, eax
+            mov     [esi], ecx
+donel:      movzx   ebx, word ptr w
+            mov     ecx, [edx+8]
+            dec     ebx
+            add     eax, ebx
+            cmp     eax, ecx
+            jg      clipr
+            mov     [edi+8], eax
+            mov     [esi+8], ebx
+            jmp     doner
+clipr:      sub     eax, ecx
+            sub     ebx, eax
+            mov     [edi+8], ecx
+            mov     [esi+8], ebx
+doner:      mov     eax, y
+            mov     ecx, [edx+4]
+            cmp     eax, ecx
+            jl      clipt
+            mov     [edi+4], eax
+            mov     dword ptr [esi+4], 0
+            jmp     donet
+clipt:      mov     [edi+4], ecx
+            sub     ecx, eax
+            mov     [esi+4], ecx
+donet:      movzx   ebx, word ptr h
+            dec     ebx
+            mov     ecx, [edx+0Ch]
+            add     eax, ebx
+            cmp     eax, ecx
+            jg      clipb
+            mov     [edi+0Ch], eax
+            mov     [esi+0Ch], ebx
+            jmp     doneb
+clipb:      sub     eax, ecx
+            sub     ebx, eax
+            mov     [edi+0Ch], ecx
+            mov     [esi+0Ch], ebx
+doneb:      xor     eax, eax
+            mov     edx, [edi]
+            mov     ebx, [edi+8]
+            mov     ecx, [edi+4]
+            cmp     edx, ebx
+            jge     done
+            mov     edx, [edi+0Ch]
+            cmp     ecx, edx
+            jge     done
+            lea     esi, dst
+            mov     eax, [esi]
+            mov     dpitch2, eax
+            mov     dpitch, eax
+            mov     ebx, [edi+4]
+            mul     ebx
+            mov     ecx, [edi]
+            shl     ecx, 1
+            add     eax, [esi+0Ch]
+            add     eax, ecx
+            mov     dptr, eax
+            lea     esi, src
+            mov     eax, [esi]
+            lea     edi, srect
+            mov     spitch, eax
+            mov     ebx, [edi+4]
+            mul     ebx
+            mov     ecx, [edi]
+            shl     ecx, 1
+            add     eax, [esi+0Ch]
+            add     eax, ecx
+            and     eax, 0FFFFFFFCh
+            mov     sptr, eax
+            mov     eax, dptr
+            mov     edx, [edi+0Ch]
+            sub     edx, [edi+4]
+            mov     ecx, [edi+8]
+            sub     edx, 1
+            sub     ecx, [edi]
+            sub     ecx, 2
+            and     edx, 0FFFFFFFFh
+            and     ecx, 0FFFFFFFFh
+            mov     cols, ecx
+            shl     spitch, 1
+            shl     dpitch2, 1
+            mov     ebx, eax
+row:        mov     edi, sptr
+            push    ebp
+            mov     ebp, dpitch
+            push    edx
+pixel:      mov     esi, [edi]
+            add     eax, 4
+            and     esi, 0F7DEF7DEh
+            je      skip
+            shr     esi, 1
+            mov     edx, [eax]
+            add     edi, 4
+            and     edx, 0F7DEF7DEh
+            shr     edx, 1
+            nop
+            add     esi, edx
+            sub     ecx, 2
+            mov     [eax-4], esi
+            mov     [eax+ebp-4], esi
+            jns     pixel
+skip:       add     edi, 4
+            sub     ecx, 2
+            jns     pixel
+            pop     edx
+            pop     ebp
+            mov     eax, spitch
+            add     ebx, dpitch2
+            add     sptr, eax
+            mov     eax, ebx
+            mov     ecx, cols
+            sub     edx, 2
+            jns     row
+done:       mov     rc, eax
+        }
+        break;
+    }
+    ReleaseSprite(&src);
+    ReleaseSprite(&dst);
+    return rc;
+}
+
+/* ------------------------------------------------- the info pop-up types -- */
+typedef struct Icon {
+    struct Icon*  next;
+    void*         sprite;
+    void**        data;
+    short         x;            /* +0x0c */
+    short         y;            /* +0x0e */
+    short         w;
+    short         h;
+    unsigned short group;
+    short         pad16;
+    char          pad18[0x34 - 0x18];
+    unsigned int  flags;        /* +0x34 */
+} Icon;
+
+typedef struct PopUpUI {
+    Icon*   icon_mech;          /* +0x000  0x007fdea4 */
+    int     pad_004;
+    void*   spr_full;           /* +0x008  0x007fdeac */
+    void*   spr_norepair;       /* +0x00c */
+    int     pad_010[3];
+    int     type;               /* +0x01c  0x007fdec0 */
+    void*   obj;                /* +0x020 */
+    int     ref;                /* +0x024 */
+    Pos     pos;                /* +0x028 */
+    char    pad_030[0xd8 - 0x30];
+    ObjDef* cls;                /* +0x0d8  0x007fdf7c */
+    void*   ride;               /* +0x0dc  0x007fdf80 */
+    Cell*   cell;               /* +0x0e0  0x007fdf84 */
+    unsigned short cellpos;     /* +0x0e4 */
+    short   pad_0e6;
+    void*   worker;             /* +0x0e8  0x007fdf8c */
+    int     w_f1c;              /* +0x0ec */
+    int     w_f20;              /* +0x0f0 */
+    int     named;              /* +0x0f4  0x007fdf98 */
+    int     kind;               /* +0x0f8  0x007fdf9c */
+    int     active;             /* +0x0fc  0x007fdfa0 */
+    int     expanded;           /* +0x100  0x007fdfa4 */
+    int     resize;             /* +0x104  0x007fdfa8 */
+    unsigned char size;         /* +0x108  0x007fdfac */
+    char    pad_109[3];
+    void*   elem_shed;          /* +0x10c */
+    void*   elem_hut;
+    void*   elem_path;
+    void*   elem_entrance;
+    Icon*   icon_close;         /* +0x11c  0x007fdfc0 */
+    Icon*   icon_next;
+    void*   spr_sad;            /* +0x124  0x007fdfc8 */
+    Icon*   icon_delete2;       /* +0x128  0x007fdfcc */
+    void*   spr_hungry;         /* +0x12c */
+    int     pad_130;
+    Icon*   icon_corner;        /* +0x134  0x007fdfd8 */
+    Icon*   icon_delete;        /* +0x138 */
+    Icon*   icon_gardener;      /* +0x13c */
+    void*   spr_norm;           /* +0x140  0x007fdfe4 */
+    Icon*   icon_prev;          /* +0x144 */
+    int     pad_148[6];
+    void*   spr_repairok;       /* +0x160  0x007fe004 */
+    void*   spr_peckish;        /* +0x164  0x007fe008 */
+    int     pad_168[3];
+    void*   spr_happy;          /* +0x174  0x007fe018 */
+} PopUpUI;
+extern PopUpUI g_popup;                 /* 0x007fdea4 */
+
+typedef struct GameButton { int mask; int state; } GameButton;
+typedef struct GameInput {
+    int        flags;           /* +0x00 */
+    Pos        point;           /* +0x04 */
+    GameButton mouse_a;         /* +0x0c */
+    GameButton mouse_b;         /* +0x14 */
+    GameButton mouse_c;         /* +0x1c  state @0x00813a60 */
+} GameInput;
+extern GameInput g_input;               /* 0x00813a40 */
+
+typedef struct BuildKey { unsigned char x, y; } BuildKey;
+typedef struct BuildSlot {
+    void*     obj;              /* +0x00 */
+    short     key;              /* +0x04 */
+    short     pad6;
+    int       timer;            /* +0x08 */
+} BuildSlot;
+extern BuildSlot g_build_slots[256];    /* 0x006664f8 */
+
+typedef struct RideRec {
+    int    f00;
+    char** name;                /* +0x04 */
+    char   pad08[0x18 - 8];
+    int    f18;                 /* +0x18 */
+    struct RideBloke* rider;    /* +0x1c */
+} RideRec;
+typedef struct RideBloke {
+    char          pad00[0x0c];
+    short         kind;         /* +0x0c */
+    char          pad0e[0x60 - 0x0e];
+    unsigned char cond;         /* +0x60 */
+} RideBloke;
+
+extern int  g_edit_mode;                /* 0x008119b0 EditMode */
+extern int  g_pu_building;              /* 0x0066895c */
+extern int  g_power_available;          /* 0x0083298c */
+
+extern char* GetString(int id);                                     /* 0x00498f50 */
+extern int   Format(char* dst, const char* fmt, ...);               /* 0x0049e573 */
+extern int   GetNearestColour(int r, int g, int b);                 /* 0x0044e6c0 */
+extern void  ResetInfoStruct(void);                                 /* 0x00471510 */
+extern int   GetObjSalvageValue(ObjDef* d, int life);               /* 0x00480db0 */
+extern int   GetObjRepairCost(ObjDef* d, int life);                 /* 0x00480de0 */
+extern int   FindObjectsPower(ObjDef* d);                           /* 0x00459fa0 */
+extern int   GetGardenerCount(void);                                /* 0x00499550 */
+extern int   GetMechanicCount(void);                                /* 0x00499560 */
+extern char* GetVisitorName(void* bloke);                           /* 0x00482ba0 */
+extern void  PopUpInfoSetUp(int type, void* obj, int ref, Pos pos);  /* 0x00471950 */
+extern void  DrawPopUpMock(void);                                   /* 0x004720a0 */
+extern int   MeasurePopUpTitle(const char* s, int a, int b, int c, int d, int e); /* 0x00471840 */
+extern int   MeasurePopUpBody(const char* s, int a, int b, int c, int d, int e);  /* 0x004717a0 */
+extern void  ClampPopUpToScreen(int size);                          /* 0x004718c0 */
+extern void  DrawPopUpFrame(void);                                  /* 0x00471f10 */
+extern void  PushRenderingStatusAndUnlockVideoSurface(void);        /* 0x00464080 */
+extern void  PopRenderingStatus(void);                              /* 0x004641f0 */
+extern void  PrintCachedText(const char* text, int x, int y, int w, int h,
+                             int f1, int f2, int ink, int paper);   /* 0x00455e50 */
+extern int   GetBlokeMood(void* bloke);                             /* 0x00482d30 */
+extern signed char GetBlokeAgeGroup(void* bloke);                   /* 0x0044eb10 */
+extern int   PrintSprite(void* s, int x, int y, int mode, void* ctx);/* 0x004853a0 */
+extern void  RenderBlock(int x, int y, int w, int h, int colour);   /* 0x004890c0 */
+extern int   GetBuildTime(ObjDef* d);                               /* 0x00450c40 */
+extern int   PopUpCanDelete(void);                                  /* 0x004723f0 */
+extern void  ClosePopUpIcons(void);                                 /* 0x00471610 */
+extern void  DrawPopUpExtra(void);                                  /* 0x00471d90 */
+extern void  DrawPopUpEnd(void);                                    /* 0x00472090 */
+
+extern const char kFmtStr[];      /* 0x004b8bbc "%s" */
+extern const char kFmtNl[];       /* 0x004bad38 "\n" */
+extern const char kFmtNlS[];      /* 0x004bad34 "\n%s" */
+extern const char kFmtNlSD[];     /* 0x004bad3c "\n%s %d" */
+extern const char kFmtColon[];    /* 0x004bad2c "%s : %d" */
+extern const char kFmtSDSD[];     /* 0x004bad44 "%s %d\n%s %d" */
+extern const char kFmtNlSDSD[];   /* 0x004bad1c "\n%s %d\n%s %d" */
+extern const char kEmpty[];       /* 0x004d8bb0 "" */
+
+extern char* strcat(char*, const char*);
+#pragma intrinsic(strcat)
+
+
+/* -------------------------------------------------------------------------
+ * 0x004724a0 -- draw the object information pop-up.
+ *
+ * Everything the panel shows lives in the PopUpUI block at 0x007fdea4
+ * (bighelp.c's PopUpUI; fpui2.c views the same block from +0x1c as
+ * PopUpInfo).  PopUpInfoSetUp (0x00471950) fills it, InitPopUpInfo
+ * (0x00470bb0) created the icons and loaded the sprites, and this function
+ * re-renders it every frame.
+ *
+ * GATES
+ *   g_popup.active  0 = nothing (return), 1 = the panel, 2 = the mock panel
+ *                   (DrawPopUpMock 0x004720a0) and return.
+ *   EditMode (0x008119b0) non-zero        -> ResetInfoStruct, return.
+ *   g_input.mouse_c.state & 2 (right button released this tick)
+ *                                         -> ResetInfoStruct, return.
+ * The leading GetNearestColour(0xda, 0xc6, 0x96) is dead -- its result is
+ * never used; reproduced because the call is in the original.
+ *
+ * TEXT (title `name`, body `info`, both char[256]; `line` is a char[512]
+ * scratch that is strcat'd onto `info`).  Selected by g_popup.kind:
+ *
+ *  0x103  a placed object
+ *      title = ObjDef.name (ODF record +0x78)
+ *      body  = "<STR 0x76> <GetObjRepairCost(cls, cell->life)>\n"
+ *              "<STR 0x77> <GetObjSalvageValue(cls, cell->life)>"
+ *              -- money.c's straight-line depreciation over the cell's
+ *              REMAINING life (Cell +0x11) against the class's initial life
+ *              (ObjDef +0x2c).
+ *      then, only when g_power_available (0x0083298c) is set,
+ *      power = FindObjectsPower(cls) and one more line is appended:
+ *          power < 0 : "\n<STR 0x78> <-power>"   (consumption) and, if the
+ *                      cell is blacked out (Cell.flags & 0x100), a second
+ *                      line "\n" + STR 0x7a ("no power").
+ *          power > 0 : cell->life >= cls->life/4 -> "\n<STR 0x79> <power>"
+ *                      (generation), otherwise "\n<STR 0x7b>" (too broken
+ *                      to generate).
+ *          power = 0 : nothing.
+ *      has_life is set when the class has an initial life, which is what
+ *      turns the bar at the bottom into a CONDITION bar.
+ *  0x14   mechanic's hut: title = class name, body = "<STR 0x93> : <n>"
+ *      with n = GetMechanicCount(), then the same repair/salvage pair on
+ *      two further lines; shows the "hire mechanic" icon.
+ *  0xa    gardener's shed: identical with STR 0x91 / GetGardenerCount();
+ *      shows the "hire gardener" icon.
+ *  0x104  under construction: title = class name, body = STR 0xa0, and
+ *      g_pu_building (0x0066895c) is set so the bar becomes a BUILD
+ *      PROGRESS bar.
+ *  0x306  a visitor / worker: a kind-3 bloke whose condition byte (+0x60)
+ *      has reached 0xc closes the pop-up; otherwise title =
+ *      GetVisitorName(worker), body = "" and g_popup.named is set.
+ *  0x10b / 0x10c  a ride (queue / ride itself): if the ride's current rider
+ *      (record +0x1c) has condition >= 0x6b the pop-up re-opens itself as
+ *      kind 0x104; otherwise title = the ride name (*(char**)(ride +0x04))
+ *      and body = STR 0xd2 (0x10b) or STR 0xd3 (0x10c); shows the second
+ *      delete icon.
+ *  0x103 / 0x14 / 0xa additionally allow DELETION when the cell is not
+ *      flagged 0x40 (blocked for building).
+ *
+ * LAYOUT.  g_popup.size (0x007fdfac) is the panel height in "lines"; while
+ * g_popup.resize is set it is recomputed as the larger of
+ * MeasurePopUpTitle(name, 0x40, 0x14, 0xb0, 0x20, 1) and
+ * MeasurePopUpBody(info, 0x40, 0x14, 0xb0, 0x20, 2) -- fixed at 2 for a
+ * worker panel.  ClampPopUpToScreen keeps the panel on screen and
+ * DrawPopUpFrame paints the nine-slice background.  With
+ * px = g_popup.pos.x, py = g_popup.pos.y and n = size, the text is drawn
+ * between PushRenderingStatusAndUnlockVideoSurface / PopRenderingStatus:
+ *      title: (px+0x0c, py+0x06)  (n*0x20+0xb0) x 0x13         flags 1, 1
+ *      body : (px+0x0c, py+0x23)  (n*0x20+0xb0) x (n*20+0x40)  flags 2, 0x10
+ * both with ink 0xff0000 and paper 0xffffff.  The `if (name)` / `if (info)`
+ * guards are always true (they test the address of a local array) but VC6
+ * emits the lea/test/je, so they are written out.
+ *
+ * WORKER EXTRAS (kind 0x306): two half-width columns of text, STR 0x8e on
+ * the left and STR 0x8f centred, at the vertical middle of the body + 0x22;
+ * then two sprites at that height minus 0x20 -- the MOOD sprite at the left
+ * quarter (GetBlokeMood: 3 = spr_sad, 2 = spr_happy, else spr_norm) and the
+ * HUNGER sprite at the right quarter (GetBlokeAgeGroup: 0 = spr_full,
+ * 1 = spr_peckish, else spr_hungry).
+ *
+ * THE BAR.  RenderBlock(px+6, py+n*20+0x6f, n*0x20+0xbc, 6, 0) paints the
+ * trough, then the same rectangle scaled by `frac` is painted red
+ * (GetNearestColour(0xff,0,0)) when frac < 0.25 AND this is a condition bar,
+ * green (0,0xff,0) otherwise.
+ *      condition : frac = cell->life / cls->life
+ *      build     : frac = g_build_slots[i].timer / GetBuildTime(cls), where
+ *                  the slot is found by matching the packed cell
+ *                  (short)g_popup.ref against BuildSlot.key over the 256
+ *                  slots at 0x006664f8 (buildtick.c).  When that ratio is
+ *                  exactly 1.0 the pop-up re-opens itself as kind 0x103.
+ *      With neither (no life and not building) the bar is skipped entirely.
+ *
+ * ICONS.  right = px + n*0x20 + 0xc8, top = py + n*20 + 0x78.  Each icon
+ * shown is un-hidden (flags &= ~0x400) and positioned at (x, top):
+ *      icon_close     right-0x27   always
+ *      icon_delete2   right-0x4e   ride kinds (0x10b / 0x10c)
+ *      icon_delete    right-0x4e   deletable cell and PopUpCanDelete()
+ *      icon_gardener  right-0x75 when the delete icon is also shown, else
+ *                     right-0x4e  (kind 0xa)
+ *      icon_mech      same rule    (kind 0x14)
+ *      icon_corner    the x of the LAST icon placed
+ * Finally the mouse point (g_input.point) is checked against
+ * [corner-or-close x .. icon_close->x + 0x24] x [top .. top+0x1b]; leaving
+ * that strip removes the icons again (ClosePopUpIcons), and an "expanded"
+ * pop-up additionally runs DrawPopUpExtra.
+ *
+ * MATCH STATE: 961 compiled instructions against the original's 962; 3118
+ * bytes against 3141.  Every block, call, string id, constant and branch
+ * direction is present and in the original's order (checked block by block
+ * against the disassembly); tools/audit.py reports mismatch=886 because the
+ * whole body is shifted and register-permuted, not because blocks are
+ * missing.  The residual is ONE codegen decision plus its knock-on effects:
+ *
+ *   VC6 gives the constant 1 a virtual register (ebp, re-materialised three
+ *   times) to serve the three `= 1` stores in cases 0x104, 0x306 and
+ *   0x10b/0x10c, where the original stores the immediate.  It is a global
+ *   value-numbering merge of the three identical constant defs into their
+ *   common dominator (the switch head): set any ONE of those three to a
+ *   different value and VC6 hoists THAT value instead, even when it then
+ *   serves a single store.  With ebp taken, `lines` lands in edi and
+ *   g_popup.pos.x in esi where the original has them the other way round, so
+ *   most of the second half differs only by an esi/edi swap and by which
+ *   scalar slot each flag was coloured into.
+ *
+ * Ruled out for the hoist (each measured): the order of the five flag
+ * initialisations (all 24 permutations tried), putting the five flags in one
+ * struct, declaring them at their declaration instead of assigning, moving
+ * each `= 1` store within its case, making the two globals volatile, adding a
+ * `default:` label, moving case 0x104 to the head of the switch, giving
+ * `worker` extra uses, and holding g_popup.kind in a local for the switch.
+ * `unsigned char` flags do remove the hoist but then the stores are byte-wide
+ * and the frame shrinks to 0x428, so that is not it either.  A bisection of
+ * the tail shows the hoist appears only once the icon-placement section is
+ * large enough (cutting either the icon_mech block or the corner/mouse-bounds
+ * block removes it), i.e. it is a threshold in VC6's allocator, not a
+ * construct that can be spelled away locally.
+ *
+ * Two rewrites that DID move the code closer are kept: the two ride cases
+ * share one `goto reopen_build` block (the original has a single copy of the
+ * PopUpInfoSetUp(0x104) tail, reached from case 0x10b by a backward branch),
+ * which stopped VC6 also hoisting the constant 0x104 into ecx; and `top` is
+ * computed before `right` in the icon section, which removes a reload of
+ * g_popup.pos.y.
+ * ------------------------------------------------------------------------- */
+
+// WIP-FUNCTION: LEGOLAND 0x004724a0  (961 vs 962 instructions, structure complete; VC6 hoists the constant 1 into ebp at the switch head and the second half is esi/edi-permuted, first diff at index 26)
+void DrawPopUpInfo(void)
+{
+    char    name[256] = {0};
+    char    info[256] = {0};
+    char    line[512];
+    ObjDef* cls;
+    RideBloke* worker;
+    int     can_delete;
+    int     has_life;
+    int     show_gardener;
+    int     show_mech;
+    int     show_delete2;
+    int     px, py;
+    int     left, top, right, bottom;
+    int     lines;
+    int     power;
+    int     mood, cond;
+    int     halfw, ty, barw;
+    int     i;
+    float   frac;
+
+    has_life = 0;
+    can_delete = 0;
+    show_gardener = 0;
+    show_mech = 0;
+    show_delete2 = 0;
+    cls = g_popup.cls;
+    worker = (RideBloke*)g_popup.worker;
+    GetNearestColour(0xda, 0xc6, 0x96);
+    g_pu_building = 0;
+    if (g_popup.active == 2) {
+        DrawPopUpMock();
+        return;
+    }
+    if (g_edit_mode != 0) {
+        ResetInfoStruct();
+        return;
+    }
+    if (g_popup.active == 0)
+        return;
+    if (g_input.mouse_c.state & 2) {
+        ResetInfoStruct();
+        return;
+    }
+
+    switch (g_popup.kind) {
+    case 0x103:
+        Format(name, kFmtStr, cls->name);
+        Format(info, kFmtSDSD,
+               GetString(0x76), GetObjRepairCost(cls, g_popup.cell->life),
+               GetString(0x77), GetObjSalvageValue(cls, g_popup.cell->life));
+        if (g_power_available != 0) {
+            power = FindObjectsPower(cls);
+            if (power < 0) {
+                Format(line, kFmtNlSD, GetString(0x78), -power);
+                if (g_popup.cell->flags & 0x100) {
+                    strcat(line, kFmtNl);
+                    strcat(line, GetString(0x7a));
+                }
+            } else if (power > 0) {
+                if (g_popup.cell->life >= (unsigned char)(cls->life >> 2))
+                    Format(line, kFmtNlSD, GetString(0x79), power);
+                else
+                    Format(line, kFmtNlS, GetString(0x7b));
+            }
+            if (power != 0)
+                strcat(info, line);
+        }
+        if (cls->life != 0)
+            has_life = 1;
+        goto object_common;
+    case 0x14:
+        Format(name, kFmtStr, cls->name);
+        Format(info, kFmtColon, GetString(0x93), GetMechanicCount());
+        Format(line, kFmtNlSDSD,
+               GetString(0x76), GetObjRepairCost(cls, g_popup.cell->life),
+               GetString(0x77), GetObjSalvageValue(cls, g_popup.cell->life));
+        strcat(info, line);
+        show_mech = 1;
+        goto object_common;
+    case 0xa:
+        Format(name, kFmtStr, cls->name);
+        Format(info, kFmtColon, GetString(0x91), GetGardenerCount());
+        Format(line, kFmtNlSDSD,
+               GetString(0x76), GetObjRepairCost(cls, g_popup.cell->life),
+               GetString(0x77), GetObjSalvageValue(cls, g_popup.cell->life));
+        strcat(info, line);
+        show_gardener = 1;
+object_common:
+        if (!(g_popup.cell->flags & 0x40))
+            can_delete = 1;
+        break;
+    case 0x104:
+        Format(name, kFmtStr, cls->name);
+        Format(info, kFmtStr, GetString(0xa0));
+        g_pu_building = 1;
+        break;
+    case 0x306:
+        if (worker->kind == 3 && worker->cond >= 0xc) {
+            ResetInfoStruct();
+            return;
+        }
+        Format(name, GetVisitorName(g_popup.worker));
+        Format(info, kEmpty);
+        g_popup.named = 1;
+        break;
+    case 0x10c:
+        if (((RideRec*)g_popup.ride)->f18 != 0
+            && ((RideRec*)g_popup.ride)->rider->cond >= 0x6b) {
+reopen_build:
+            g_popup.type = 0x104;
+            PopUpInfoSetUp(g_popup.type, g_popup.obj, g_popup.ref, g_popup.pos);
+            return;
+        }
+        Format(name, kFmtStr, *((RideRec*)g_popup.ride)->name);
+        Format(info, kFmtStr, GetString(0xd3));
+        show_delete2 = 1;
+        break;
+    case 0x10b:
+        if (((RideRec*)g_popup.ride)->f18 != 0
+            && ((RideRec*)g_popup.ride)->rider->cond >= 0x6b)
+            goto reopen_build;
+        Format(name, kFmtStr, *((RideRec*)g_popup.ride)->name);
+        Format(info, kFmtStr, GetString(0xd2));
+        show_delete2 = 1;
+        break;
+    }
+
+    if (g_popup.resize != 0) {
+        if (g_popup.kind == 0x306) {
+            g_popup.size = 2;
+        } else {
+            int a = MeasurePopUpTitle(name, 0x40, 0x14, 0xb0, 0x20, 1);
+            int b = MeasurePopUpBody(info, 0x40, 0x14, 0xb0, 0x20, 2);
+            g_popup.size = (unsigned char)b;
+            if (b <= a)
+                g_popup.size = (unsigned char)a;
+        }
+        g_popup.resize = 0;
+    }
+    ClampPopUpToScreen(g_popup.size);
+    lines = g_popup.size;
+    DrawPopUpFrame();
+    PushRenderingStatusAndUnlockVideoSurface();
+    px = g_popup.pos.x;
+    py = g_popup.pos.y;
+    if (name) {
+        left = px + 0xc;
+        top = py + 6;
+        right = lines * 0x20 + px + 0xbc;
+        bottom = py + 0x19;
+        PrintCachedText(name, left, top, right - left, bottom - top,
+                        1, 1, 0xff0000, 0xffffff);
+    }
+    if (info) {
+        left = px + 0xc;
+        top = py + 0x23;
+        right = lines * 0x20 + px + 0xbc;
+        bottom = py + lines * 20 + 0x63;
+        PrintCachedText(info, left, top, right - left, bottom - top,
+                        2, 0x10, 0xff0000, 0xffffff);
+    }
+    PopRenderingStatus();
+
+    if (g_popup.kind == 0x306) {
+        mood = GetBlokeMood(worker);
+        cond = GetBlokeAgeGroup(worker);
+        left = px + 0xc;
+        right = lines * 0x20 + px + 0xb0;
+        halfw = (right - left) / 2;
+        ty = ((py + lines * 20 + 0x63) + (py + 0x23)) / 2;
+        PrintCachedText(GetString(0x8e), left, ty + 0x22, halfw, 0x14,
+                        2, 0x11, 0xff0000, 0xffffff);
+        PrintCachedText(GetString(0x8f), (left + right) / 2, ty + 0x22, halfw, 0x14,
+                        2, 0x11, 0xff0000, 0xffffff);
+        if (mood == 3) {
+            ty -= 0x20;
+            PrintSprite(g_popup.spr_sad, left + (right - left) / 4 - 0x20, ty, 0, 0);
+        } else if (mood == 2) {
+            ty -= 0x20;
+            PrintSprite(g_popup.spr_happy, left + (right - left) / 4 - 0x20, ty, 0, 0);
+        } else {
+            ty -= 0x20;
+            PrintSprite(g_popup.spr_norm, left + (right - left) / 4 - 0x20, ty, 0, 0);
+        }
+        if (cond == 0)
+            PrintSprite(g_popup.spr_full, right - (right - left) / 4 - 0x20, ty, 0, 0);
+        else if (cond == 1)
+            PrintSprite(g_popup.spr_peckish, right - (right - left) / 4 - 0x20, ty, 0, 0);
+        else
+            PrintSprite(g_popup.spr_hungry, right - (right - left) / 4 - 0x20, ty, 0, 0);
+    }
+
+    if (has_life == 0) {
+        if (g_pu_building == 0)
+            goto icons;
+        for (i = 0; i < 256; i++)
+            if (g_build_slots[i].key == (short)g_popup.ref)
+                break;
+        if (i >= 256)
+            return;
+        frac = (float)g_build_slots[i].timer / (float)GetBuildTime(g_popup.cls);
+        if (frac == 1.0f) {
+            g_popup.type = 0x103;
+            PopUpInfoSetUp(g_popup.type, g_popup.obj, g_popup.ref, g_popup.pos);
+            return;
+        }
+    } else {
+        frac = (float)g_popup.cell->life / (float)cls->life;
+    }
+    barw = lines * 0x20 + 0xbc;
+    RenderBlock(px + 6, py + lines * 20 + 0x6f, barw, 6, 0);
+    if (frac < 0.25 && has_life)
+        RenderBlock(px + 6, py + lines * 20 + 0x6f, (int)(barw * frac), 6,
+                    GetNearestColour(0xff, 0, 0));
+    else
+        RenderBlock(px + 6, py + lines * 20 + 0x6f, (int)(barw * frac), 6,
+                    GetNearestColour(0, 0xff, 0));
+
+icons:
+    top = py + (lines * 5 + 0x1e) * 4;
+    right = lines * 0x20 + px + 0xc8;
+    g_popup.icon_close->flags &= 0xfffffbff;
+    g_popup.icon_close->x = (short)(right - 0x27);
+    g_popup.icon_close->y = (short)top;
+    left = g_popup.icon_close->x;
+    if (show_delete2) {
+        g_popup.icon_delete2->flags &= 0xfffffbff;
+        g_popup.icon_delete2->x = (short)(right - 0x4e);
+        g_popup.icon_delete2->y = (short)top;
+        left = g_popup.icon_delete2->x;
+    }
+    if (can_delete && PopUpCanDelete()) {
+        g_popup.icon_delete->flags &= 0xfffffbff;
+        g_popup.icon_delete->x = (short)(right - 0x4e);
+        g_popup.icon_delete->y = (short)top;
+        left = g_popup.icon_delete->x;
+    }
+    if (show_gardener) {
+        g_popup.icon_gardener->flags &= 0xfffffbff;
+        g_popup.icon_gardener->y = (short)top;
+        if (can_delete)
+            g_popup.icon_gardener->x = (short)(right - 0x75);
+        else
+            g_popup.icon_gardener->x = (short)(right - 0x4e);
+        left = g_popup.icon_gardener->x;
+    }
+    if (show_mech) {
+        g_popup.icon_mech->flags &= 0xfffffbff;
+        g_popup.icon_mech->y = (short)top;
+        if (can_delete)
+            g_popup.icon_mech->x = (short)(right - 0x75);
+        else
+            g_popup.icon_mech->x = (short)(right - 0x4e);
+        left = g_popup.icon_mech->x;
+    }
+    g_popup.icon_corner->x = (short)left;
+    g_popup.icon_corner->y = (short)top;
+    g_popup.icon_corner->flags &= 0xfffffbff;
+    bottom = top + 0x1b;
+    if (g_popup.expanded)
+        halfw = g_popup.icon_close->x;
+    else
+        halfw = g_popup.icon_corner->x;
+    if (g_popup.icon_close->x + 0x24 < g_input.point.x || g_input.point.x < halfw)
+        ClosePopUpIcons();
+    if (bottom < g_input.point.y || g_input.point.y < top)
+        ClosePopUpIcons();
+    if (g_popup.expanded)
+        DrawPopUpExtra();
+    DrawPopUpEnd();
+}
