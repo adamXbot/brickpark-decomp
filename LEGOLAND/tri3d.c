@@ -391,6 +391,26 @@ void Render_SetPixelFormat(int greenBits)
  *      shift depend only on the low 16 bits of the operand, and the result is
  *      stored as a word -- which is why it can afford the 16-bit `mov di,ax`
  *      in the first place. */
+/* FOURTH PASS.  The two halves are now known to be ONE problem, and the causal
+ * chain is understood even though the trigger is not.  `mov di,ax` is a
+ * TRUNCATING move: it kills eax, so the original can use eax as the scratch for
+ * `a << shift` (`mov eax,edi / shl eax,cl / mov [esi-2],ax`).  Our `mov edi,eax`
+ * is a COPY: VC6 keeps eax in the same web as edi until the second __ftol
+ * clobbers it, so the shift has to take the next free register (edx), and edx
+ * being wanted inside the loop is also why the pre-loop zero cannot land in
+ * ecx.  Fix the move width and all nine mismatches go together.
+ * VC6 SP3 will not emit the 16-bit move for this shape: measured with `a` as
+ * `unsigned short`/`short`, the cast written as (unsigned short), (unsigned
+ * short)(int), (unsigned short)(long), (unsigned short)(unsigned int), and in
+ * a standalone repro (a `short` local loaded from a call return, used only by a
+ * 16-bit store and a truncating shift, with and without an intervening call)
+ * -- every one of them elides the truncation and emits the 32-bit copy, because
+ * every use of `a` is truncating and VC6 proves the high half dead.  The
+ * original evidently could NOT prove that.  Also re-measured inert this round:
+ * six permutations of the prologue statements (only the committed one keeps the
+ * 0xc frame; `m = max` before `i = 0` still drops it to 8) and all six orders
+ * of the three g_chan stores inside the loop (the committed c2/c1/c0 order is
+ * the only one at 43 instructions -- c0 first costs 39/40 instructions). */
 // WIP-FUNCTION: LEGOLAND 0x004860f0  (43/43 insns, 9 mismatches: `mov di,ax` narrowing)
 void BuildChannelTables(void)
 {

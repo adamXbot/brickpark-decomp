@@ -13,7 +13,7 @@
  *   0x0041bab0  BsWater_Relink           230/230 insns   [OK]
  *   0x00413650  Road_Restitch            284/284 insns   [OK]
  *   0x004334c0  JcBoat_Step              294/294 insns   [OK]
- *   0x00442040  AnimApplyPart            331/331 insns   [WIP, 188 mismatches]
+ *   0x00442040  AnimApplyPart            331/331 insns   [WIP, 182 mismatches]
  *
  * ONE RENAME.  0x00418fe0 was called BoatingSchool_UpdateWater by the extern
  * in ridecb5.c; it touches no water tile and no map cell, it PAINTS the boats
@@ -878,24 +878,43 @@ extern TexSize g_texsize[];         /* 0x0081c0c0 */
  * -- there is no clipping.
  * ========================================================================= */
 
-/* 331/331 instructions and 1152/1174 bytes, no branch escaping the extent,
- * and every phase -- the rectangle set-up, the twelve clamps, the six
- * texel scalings, the twelve containment compares and the six remapped
- * stores -- is present in the original's order.  Two things are left:
- *   1. the frame is 0x2c where the original's is 0x30.  The original keeps
- *      TWO int scratch homes for the fild conversions (one for the x side at
- *      -0x1c, one for the y side at -0x04) because the x-side one is
- *      overwritten by (float)b->x; this reconstruction gets away with one.
- *   2. the five spilled UV locals land in different PARAMETER homes: the
- *      original puts u0 in `parts`'s slot and v0/u1/v1 in ctx/from/to's,
- *      this puts u0 in `from`'s.  That renumbers every [esp+N] from index 22
- *      on, which is the whole measured residual.
- * The int->float conversions had to be forced through named float locals:
- * written inline (with or without an explicit (float) cast) VC6 lowers
- * `float_expr - int_field` to `fisub`/`fidiv` on the widened byte instead of
- * the original's convert-once `fild`/`fstp dword`/`fsub st(n)`.  That one
- * change was worth 152 of the mismatches. */
-// WIP-FUNCTION: LEGOLAND 0x00442040  (331/331 insns, 188 mismatches; one frame slot + the UV/parameter home mapping)
+/* 331/331 instructions, no branch escaping the extent, and every phase --
+ * the rectangle set-up, the twelve clamps, the six texel scalings, the
+ * twelve containment compares and the six remapped stores -- is present in
+ * the original's order.  Everything up to the containment test matches
+ * except the [esp+N] numbering; the residual is ONE decision inside the
+ * remap block, and it is the x87 register allocator's, not the source's.
+ *
+ * The remap needs TEN float values at once (the eight rectangle edges plus
+ * the two destination texture sizes) and the x87 stack holds eight, so VC6
+ * keeps six and spills four.  The ORIGINAL keeps `a->x` and the whole Y
+ * group (a->y, a->h, b->h, b->y, (float)th) in registers and spills the X
+ * group (a->w, b->w, b->x, (float)tw) to the frame; this reconstruction
+ * makes the MIRRORED choice -- X group and (float)tw in registers, Y group
+ * and (float)th spilled.  Two things follow from that one flip:
+ *   1. the original's spilled X group needs three float homes AND a second
+ *      int scratch for the `fild`s (the first, at -0x1c, is overwritten by
+ *      (float)b->x), which is why its frame has one more pool slot and every
+ *      local sits 4 bytes lower than ours;
+ *   2. with the stack exactly full the original cannot keep a result in a
+ *      register, so each new UV is `fstp`'d into its own local's home and
+ *      copied to p->uv with an integer mov pair -- ten instructions this
+ *      build saves by storing straight through with `fstp [edx+N]`.
+ * The flip survives every source permutation tried: the declaration order of
+ * the eight rectangle floats, the assignment order, interleaving the u0
+ * computation between the two groups (which is what the original's schedule
+ * looks like), computing all six u's before the v's, naming (float)tw and
+ * (float)th as float locals, and moving the p->tex store -- VC6 reorders all
+ * of them back to the same DAG and makes the same allocation.
+ *
+ * Two levers that ARE settled and must not be undone: the int->float
+ * conversions have to go through named float locals (written inline VC6
+ * lowers `float_expr - int_field` to `fisub`/`fidiv` on the widened byte
+ * instead of the original's convert-once `fild`/`fstp dword`/`fsub st(n)`),
+ * and `tw`/`th` must be read from g_texsize BEFORE the eight rectangle
+ * edges, which is what puts the two table loads at the head of the block as
+ * the original has them. */
+// WIP-FUNCTION: LEGOLAND 0x00442040  (331/331 insns, 182 mismatches; the x87 spill group is mirrored)
 void AnimApplyPart(ModelCtx* ctx, int from, int to, AnimPart* parts, int n)
 {
     OutfitRect* a = &ctx->rects[from];
@@ -960,24 +979,38 @@ void AnimApplyPart(ModelCtx* ctx, int from, int to, AnimPart* parts, int n)
                 && u2 >= x0 && u2 <= x1
                 && v0 >= y0 && v0 <= y1 && v1 >= y0 && v1 <= y1
                 && v2 >= y0 && v2 <= y1) {
-                float srcx = a->x;
-                float srcw = a->w;
-                float dstw = b->w;
-                float dstx = b->x;
-                float srcy = a->y;
-                float srch = a->h;
-                float dsth = b->h;
-                float dsty = b->y;
+                float srcx;
+                float srcw;
+                float dstw;
+                float dstx;
+                float srcy;
+                float srch;
+                float dsth;
+                float dsty;
 
                 tw = g_texsize[idB].w;
                 th = g_texsize[idB].h;
+                srcx = a->x;
+                srcw = a->w;
+                dstw = b->w;
+                dstx = b->x;
                 p->tex = b->id + ctx->base;
-                p->uv[0][0] = ((u0 - srcx) / srcw * dstw + dstx) / (float)tw;
-                p->uv[0][1] = ((v0 - srcy) / srch * dsth + dsty) / (float)th;
-                p->uv[1][0] = ((u1 - srcx) / srcw * dstw + dstx) / (float)tw;
-                p->uv[1][1] = ((v1 - srcy) / srch * dsth + dsty) / (float)th;
-                p->uv[2][0] = ((u2 - srcx) / srcw * dstw + dstx) / (float)tw;
-                p->uv[2][1] = ((v2 - srcy) / srch * dsth + dsty) / (float)th;
+                u0 = ((u0 - srcx) / srcw * dstw + dstx) / (float)tw;
+                srcy = a->y;
+                srch = a->h;
+                dsth = b->h;
+                dsty = b->y;
+                v0 = ((v0 - srcy) / srch * dsth + dsty) / (float)th;
+                u1 = ((u1 - srcx) / srcw * dstw + dstx) / (float)tw;
+                v1 = ((v1 - srcy) / srch * dsth + dsty) / (float)th;
+                u2 = ((u2 - srcx) / srcw * dstw + dstx) / (float)tw;
+                v2 = ((v2 - srcy) / srch * dsth + dsty) / (float)th;
+                p->uv[0][0] = u0;
+                p->uv[0][1] = v0;
+                p->uv[1][0] = u1;
+                p->uv[1][1] = v1;
+                p->uv[2][0] = u2;
+                p->uv[2][1] = v2;
             }
         }
         p++;

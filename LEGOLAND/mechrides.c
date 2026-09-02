@@ -1329,7 +1329,22 @@ extern RenderList g_safari_list;                             /* 0x004cbecc */
  * function-level vs block-scope declaration (block scope is what took this
  * from 161 to 162 -- it fixes the person-pointer load position -- so the rest
  * of the frame and every other instruction is right). Treat this and
- * TempleSlide_Draw / simcore.c's IsAdjacentPos as one open question. */
+ * TempleSlide_Draw / simcore.c's IsAdjacentPos as one open question.
+ *
+ * ROUND 2 measured a further twenty spellings, all inert at 162/166: reading
+ * either Offset through a pointer local (VC6 folds the pointer back to the
+ * frame reference), explicit parenthesisation into two pairs, every operand
+ * permutation of both sums, `- -x` in place of `+ x`, declaring the pair as
+ * an int[2], as one Offset[2], with the declaration order reversed, and with
+ * zofs moved into its own inner block. What round 2 DID establish is the rule
+ * itself, and it is not "source order": mark the LOWER-slot operand
+ * `*(volatile int*)&ofs.ox` and the emission order flips to the original's
+ * (zofs first) -- so VC6 sorts the REORDERABLE stack reads of a commutative
+ * sum by ASCENDING frame displacement and leaves a non-reorderable read last.
+ * The volatile costs 12 instructions elsewhere (it also flips which operand
+ * becomes the accumulator, `add edx,ecx` for `add ecx,edx`), so it is not the
+ * answer, but it names the target: a spelling that makes exactly one of the
+ * two reads non-reorderable without making it volatile. */
 // WIP-FUNCTION: LEGOLAND 0x00414b80  (162/166; the two four-term sums add the higher frame slot first in the original -- VC6 canonicalises to lower-first)
 void SafariRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                          void* clip, int mode)
@@ -1493,7 +1508,28 @@ extern CarRow  g_tower_car[4];                               /* 0x004b77a8 */
  *   - the rider cursor lands in ebp where the original has ebx (and the
  *     rematerialised map-square lea the other way round).
  * Both shift every displacement and register name, so the strict gate rejects
- * it. The instruction stream itself is right. */
+ * it. The instruction stream itself is right.
+ *
+ * ROUND 2 result on the hole, and it is a general rule worth keeping: VC6
+ * reserves frame slots for an array local starting at the LOWEST INDEX THE
+ * CODE ACTUALLY REFERENCES and drops the unused leading elements, so `int
+ * base[2]` used only as base[1] can never leave a hole BELOW the used field --
+ * base[2] gives `sub esp,0xc`, base[3] gives 0x10, base[4] gives 0x14, and the
+ * eighteen combinations of {base[2..4]} x {all six declaration orders of
+ * tilex/next/base} confirm declaration order is irrelevant. (`int base[3]`
+ * does reproduce the original's `sub esp,0x10` and moves the first divergence
+ * from index 0 to index 9, but it puts the spare slot ABOVE the row where the
+ * original has it BELOW, and there is no semantic reading of a three-int local
+ * here, so it is not committed.) The hole at entry-0x08 is therefore NOT a
+ * dead array element: it is the home of some other local of the original that
+ * this reconstruction does not have -- most likely one whose only stores were
+ * eliminated, since nothing in the body ever references that displacement.
+ * The ebx/ebp swap is the other half: the original gives ebx to the rider
+ * cursor and ebp to the rematerialised map-square pointer, ours the reverse,
+ * and the original reads the square's y through a REMATERIALISED address
+ * (`lea eax,[ebx+0xc]` / `mov dl,[eax+1]`) where ours folds it to
+ * `mov cl,[ebp+0xd]` -- the signature VC6 produces when the same pointer is
+ * also handed to a call, which it is (SpaceTower_FindRecord). */
 // WIP-FUNCTION: LEGOLAND 0x0043bac0  (222/222 instructions and block layout; the frame is one 4-byte hole short and the cursor register is ebp not ebx)
 void SpaceTower_Activate(RideElem* elem)
 {
@@ -1634,7 +1670,26 @@ extern int     g_anim_tower_b;                               /* 0x004b76b8 */
  * here and as two-def `add`s in the original (temporaries, compound
  * assignment and both operand orders all canonicalise to the same form); and
  * (3) the registers that carry the screen pair are swapped. Together they
- * shift the displacements, so the strict gate rejects it. */
+ * shift the displacements, so the strict gate rejects it.
+ *
+ * ROUND 2 pinned down what that dead lea IS and what it is not. VC6 emits
+ * exactly this pair -- `mov r16,[p+K]` immediately followed by `lea r32,[p+K]`
+ * with the compare taken from the r16 -- when a NAMED pointer to that field is
+ * live OUT of the loop; a two-function micro test reproduces it byte for byte,
+ * and the lea then lands in a callee-saved register because the value must
+ * survive. Here it lands in a SCRATCH register that the very next instruction
+ * overwrites (eax at 0x0043afbd, killed by `mov eax,[edi+8]`; ecx at
+ * 0x0043b013, killed by `mov ecx,[esp+0x30]`), so the pointer has NO use at
+ * all: an earlier pass created it and a later one removed every consumer.
+ * Ten spellings were measured, all inert (no lea at all): the key compared
+ * through a pointer local, through the macro inline, in both compare
+ * directions, hoisted into an unsigned short temp, the pointer declared at
+ * function level, a static __inline predicate taking the pointer, another
+ * taking two RideTiles BY VALUE, a whole-RideTile struct copy, byte-wise
+ * b.x/b.y compares, and `(RideTile*)((char*)r + 0x0c)` pointer arithmetic.
+ * A null test on the pointer (`&& k`) DOES produce the lea -- VC6 never folds
+ * `&x != 0` -- but leaves a `test/je` pair behind that the original lacks, so
+ * the construct being looked for is one whose consumer VC6 deletes late. */
 // WIP-FUNCTION: LEGOLAND 0x0043af50  (288/288 instructions and block layout; a dead lea, the sum form and two register roles differ)
 void SpaceTower_Interact(RideElem* elem, int x, int y, RideTile* sq,
                          void* clip, int mode)
@@ -1917,7 +1972,35 @@ extern ZSprite* g_plane_zspr_obj;                            /* 0x0081cae0 */
  * immediate and a register form), and our two array walks spill their counter
  * where the original keeps it in ebx. Hoisting the map-square key into a local
  * before the collect loop is REQUIRED (without it VC6 spills the key to a u16
- * stack temp and the frame grows by 8). */
+ * stack temp and the frame grows by 8).
+ *
+ * ROUND 2 narrowed both halves to ONE register-allocation decision, and they
+ * are the same decision. The original gives ebx to the ARRAY-WALK COUNTER and
+ * leaves the rider count `n` memory-resident in its byte home, reloading it
+ * into cl right after each IP_RenderBlokeIn3DNow call (`mov cl,[esp+0x3c]`),
+ * so the two walk guards share one `test cl,cl` and each walk re-widens with
+ * its own `movsx ebx,cl`. Ours does the mirror image: it widens n ONCE into
+ * ebx, keeps it there across both walks, and spills the counter into n's own
+ * home (`mov [esp+0x38],ebx` then a load/dec/store every iteration). That
+ * costs the extra `test ebx,ebx`, and -- because the zero register is picked
+ * before scheduling -- it is very probably also why our function-wide zero
+ * lands in eax (materialised after `elem` dies) where the original's lands in
+ * ecx (materialised while eax still holds `elem`, which is what lets VC6
+ * schedule the `xor` up into the push run and emit one of the five zero
+ * stores before the argument push, with found[0] taking an immediate 0).
+ * Measured inert this round: all 120 permutations of the five zero stores
+ * (VC6 fully normalises them), every chained-assignment grouping,
+ * memset(found,0,sizeof found), moving `r = item->riders` before/among the
+ * zero stores, spelling it `elem->data->riders`, `(void)&n`, routing the
+ * count through `char* np = &n` (VC6 folds np straight back to n), and four
+ * walk spellings (pointer+count for, `!= 0` guard, per-block counters,
+ * down-counting index). One spelling DOES flip the counter into ebx -- two
+ * `if (n > 0) { q = found; c = n; do {...} while (--c != 0); }` blocks with a
+ * shared c -- but it also enregisters n in bl across the COLLECT loop, which
+ * breaks the (currently exact) collect loop and the prologue. And moving
+ * `item = elem->data` below the zero stores proves the other constraint:
+ * `elem` must be DEAD before the first zero store, or n loses its home in the
+ * dead elem argument slot and the frame grows from 0x24 to 0x28. */
 // WIP-FUNCTION: LEGOLAND 0x0043da60  (275/275 instructions, frame and block layout; zero-register and loop-counter allocation differ)
 void PlaneRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                         void* clip, int mode)

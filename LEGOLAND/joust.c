@@ -256,7 +256,13 @@ typedef struct JoustRec {
     unsigned char    seated;     /* +0x11 how many spectators are seated */
     unsigned char    seat[6];    /* +0x12 the six stand seats (0 = free) */
     unsigned char    horse[2];   /* +0x18 the two horses (0 = free) */
-    unsigned char    next_horse; /* +0x1a which horse the next rider gets */
+    unsigned char    next_horse; /* +0x1a the arena CYCLE COUNTER, 0..0x3f --
+                                  *       the +0xa8 handler's second phase
+                                  *       ticks it and evaluates horse 0 at 0
+                                  *       and horse 1 at 0x20.  The name is
+                                  *       kept because phase 1 also feeds it
+                                  *       through Joust_ByteIsSet to pick a
+                                  *       horse index; see the +0xa8 notes. */
     unsigned char    frame;      /* +0x1b the arena animation frame */
     int              f1c;        /* +0x1c */
     int              f20;        /* +0x20 */
@@ -320,67 +326,53 @@ JoustRec* Joust_AddRecord(RideTile* tile)
     return rec;
 }
 
-/* NOTE (both FindRecord bodies): 15 of the original's 16 instructions are
- * reproduced but not index-for-index. The original keeps the RECORD key in a
- * register and the tile key as the compare's memory operand
- * ('mov dx,[eax] / cmp dx,[ecx]', repeated in the peeled first test and in the
- * loop); VC6 here hoists the loop-invariant tile key into a register instead
- * ('mov cx,[ecx]' once, then 'cmp [eax],cx' twice), which is one instruction
- * shorter. Measured: making BOTH reads volatile
- * (`((JoustRec volatile*)rec)->tile.key != ((volatile RideTile*)tile)->key`)
- * reproduces the original's operand roles and all 16 instructions, leaving
- * only the two independent loads at indices 3/4 emitted in the opposite order
- * -- 14 of 16, twice as good as the 8/16 this body scores -- but it is NOT
- * shipped, because it still is not a match and because the volatile is not in
- * the original: C's rule that volatile accesses keep their source order is
- * exactly what pins the record read AHEAD of the plain `mov ecx,[esp+4]`
- * parameter load, and nothing moves that load earlier (a local copy of the
- * parameter before or inside the guard, a `RideTile* volatile` parameter, a
- * `volatile unsigned short*` taken from &tile->key, a hand-peeled first test,
- * the rotated while form -- all 2/16 off in the same place).  Single-volatile
- * variants get the ORDER right and the ROLES wrong (4/16 off).  The real
- * question for a later agent is why the original's VC6 did not CSE the
- * loop-invariant `tile->key` across the peeled test and the loop at all. */
-
-/* Re-derived independently this round and confirmed, with one new datum: VC6
- * WILL put the record key in dx (`mov dx,[eax]`) when the two keys meet in a
- * NON-compare operator -- `(unsigned short)(rec->tile.key ^ tile->key)` emits
- * exactly the original's `mov dx,[eax]` at index 4 before diverging.  So the
- * operand roles are decided by the compare's CSE of the loop-invariant tile
- * key, not by the loads.  Also measured and rejected: `tile` as `void*` with a
- * `*(unsigned short*)` read, a 16-bit BITFIELD struct for either side (VC6
- * still CSEs the bitfield load), `(short)`/`(unsigned short)` casts on either
- * operand, a hand-peeled first test, a goto-form loop, and the rotated
- * `while ((rec = rec->next) != 0)` walk -- every one of them hoists the tile
- * key.  The both-volatile form still measures 14/16 and is still not shipped. */
-/* THIRD PASS.  The volatile family was re-measured properly this round and it
- * splits the residual into two INDEPENDENT halves, which is new information:
- *   * ROLES (which side of `cmp` is the register).  Casting the RECORD read
- *     volatile -- `((volatile JoustRec*)rec)->tile.key != *pk` with
- *     `volatile unsigned short* pk = &tile->key;` -- reproduces the original's
- *     `mov dx,[eax] / cmp dx,[ecx]` exactly, 16 instructions, 14/16.  The rule
- *     the measurements imply: the volatile operand takes the register, and
- *     when both are volatile the LEFT one does.
- *   * ORDER (which of the two independent loads comes first).  In that shape
- *     VC6 emits the record's volatile read before the plain `mov ecx,[esp+4]`
- *     that materialises the tile pointer.  Making the PARAMETER read volatile
- *     as well (`RideTile* volatile tile`, or `*(RideTile* volatile*)&tile`)
- *     does put `mov ecx,[esp+4]` first -- but it also flips the roles back.
- *     Every combination of the two was tried (10 shapes); no spelling gets
- *     both, and hoisting the pk assignment above the head test, using a
- *     Pos-style alias, or a plain local copy of the parameter do not move it.
- * Also re-confirmed dead: an inlined `SameTile(&rec->tile, tile)` helper, a
- * `for (;;)` with the key read into a local, and a double-test loop -- VC6
- * hoists `tile->key` out of the loop in all of them.  The shipped body stays
- * volatile-free; the open question is still why the original's VC6 never
- * hoisted that loop-invariant load. */
-// WIP-FUNCTION: LEGOLAND 0x00407a20  (15 of 16 instructions, audit mismatch 8/16: invariant tile-key hoist, the original re-reads the tile key as the compare's memory operand)
-JoustRec* Joust_FindRecord(RideTile* tile)
+/* SOLVED (both FindRecord bodies, 16/16 index-for-index).  The original's
+ * shape is `mov ecx,[esp+4] / mov dx,[eax] / cmp dx,[ecx]` repeated in the
+ * peeled first test and in the loop: the RECORD key goes to a register and the
+ * TILE key is the compare's MEMORY operand, re-read every iteration.  Plain C
+ * cannot produce it -- with no store anywhere in the function VC6 always
+ * hoists the loop-invariant `tile->key` into a register and compares against
+ * the record in memory (15 instructions, 8/16).  Three separate facts, each
+ * measured, are needed and they compose:
+ *   1. THE VOLATILE OPERAND TAKES THE REGISTER, the other stays in memory.  So
+ *      volatile on the tile alone gives the right ORDER and the WRONG ROLES;
+ *      volatile on the record alone widens the compare to 32 bits (VC6 forces
+ *      a volatile `unsigned short` through an integer temporary) and is worse.
+ *   2. WITH BOTH SIDES VOLATILE the LEFT operand takes the register.  Writing
+ *      the record on the left therefore restores the original's roles AND the
+ *      16-bit compare -- 14/16, everything right except that VC6 emits the
+ *      record read before the `mov ecx,[esp+4]` that materialises the tile
+ *      pointer, because a volatile read is pinned in source order and the
+ *      plain parameter load sinks to its first use.
+ *   3. THE FIX FOR THAT ORDER is a self-assignment of the parameter through a
+ *      volatile pointer-to-pointer, `tile = *(RideTile volatile* volatile*)&tile;`
+ *      placed inside the null guard.  It is a volatile READ of the parameter's
+ *      own stack home, so it is pinned there in source order and forces
+ *      `mov ecx,[esp+4]` to be emitted at exactly that point; the write back
+ *      to the same home is dead and elided, costing nothing.  16/16.
+ * A LOCAL copy of the parameter does not work in its place: with `t` a local
+ * fed by the volatile read the roles flip back (the tile takes the register
+ * again), so the compare must name the PARAMETER itself.  Measured dead in
+ * passing: `RideTile*` as `void*` with a `*(unsigned short*)` read, 16-bit
+ * bitfields on either side, casts, a hand-peeled first test, a goto loop and
+ * the rotated `while ((rec = rec->next) != 0)` walk -- all hoist the key.
+ * The volatiles are semantic no-ops here (single-threaded, no aliasing); they
+ * exist only to defeat two VC6 optimisations the original's build did not
+ * apply. */
+// FUNCTION: LEGOLAND 0x00407a20
+JoustRec* Joust_FindRecord(RideTile volatile* tile)
 {
     JoustRec* rec = g_joust_head;
 
     if (rec != 0) {
-        while (rec->tile.key != tile->key) {
+        /* Two no-op volatile levers, both needed to stop VC6 collapsing the
+         * original's per-iteration reads (see the note above): the self-
+         * assignment forces the tile pointer to be materialised HERE (the
+         * original loads [esp+4] before the first record read), and the two
+         * volatile-qualified key reads keep the record key in dx with the
+         * tile key as the compare's memory operand instead of hoisting it. */
+        tile = *(RideTile volatile* volatile*)&tile;
+        while (((JoustRec volatile*)rec)->tile.key != tile->key) {
             rec = rec->next;
             if (rec == 0)
                 return 0;
@@ -404,13 +396,15 @@ void TempleSlide_AddRecord(RideTile* tile)
     }
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00416f60  (15 of 16 instructions, audit mismatch 8/16: same invariant tile-key hoist as Joust_FindRecord)
-TempleSlideRec* TempleSlide_FindRecord(RideTile* tile)
+// FUNCTION: LEGOLAND 0x00416f60
+TempleSlideRec* TempleSlide_FindRecord(RideTile volatile* tile)
 {
     TempleSlideRec* rec = g_ts_head;
 
     if (rec != 0) {
-        while (rec->tile.key != tile->key) {
+        /* Same pair of no-op volatile levers as Joust_FindRecord. */
+        tile = *(RideTile volatile* volatile*)&tile;
+        while (((TempleSlideRec volatile*)rec)->tile.key != tile->key) {
             rec = rec->next;
             if (rec == 0)
                 return 0;
@@ -428,83 +422,77 @@ TempleSlideRec* TempleSlide_FindRecord(RideTile* tile)
  * record when the list is empty would fault, but the callers only ever pass a
  * record they just found on the list.
  *
- * NOTE (both RemoveRecord bodies): all 32 instructions and the whole block
- * layout are reproduced; audit mismatch is 11/32 (was 18/32).  Moving the
- * volatile from the ADDRESS (`*(T* volatile*)&p->next`) to the RECORD
- * (`((T volatile*)p)->next`) AND writing the loop tail as `link = &p->next;`
- * BEFORE `q = ...` -- while the pre-loop pair stays q-then-link -- recovers
- * three of the four register roles: the target now lives in the scratch edx
- * (so the parameter load lands at index 1, before `push esi`, as the original
- * has it) and the lookahead in esi.  The 11 that remain are one pair of
- * decisions:
- *   - node/link are swapped (ours node eax, link ecx; the original node ecx,
- *     link eax), and
- *   - the original loads the lookahead with the DISPLACEMENT form
- *     `mov esi,[ecx+4]` and then materialises the link separately with
- *     `lea eax,[ecx+4]`, whereas VC6 here always computes the lea FIRST and
- *     loads through it (`lea ecx,[eax+4]` / `mov esi,[ecx]`), i.e. it CSEs the
- *     two identical address expressions.  Everything tried to break that CSE
- *     (char or unsigned-char pointer arithmetic for the link, a volatile-
- *     qualified address for either side, both statement orders in the
- *     pre-loop and in the body, the link recomputed at the top of the body,
- *     a rotated for(;;) form) reproduces the lea-first shape or costs more;
- *     the floor over ~40 measured variants is 11.  Fixing the address CSE is
- *     what is left. */
-
-/* CONFIRMED THIS ROUND why the volatile is here at all: the original's walk
- * contains a genuinely REDUNDANT load.  Pre-loop it does `mov esi,[ecx+4]`
- * (p->next, the compare value) and `lea eax,[ecx+4]`; the loop then re-reads
- * the same location through the link, `mov ecx,[eax]`, instead of using esi.
- * Every non-volatile spelling measured -- q-then-link and link-then-q in both
- * the pre-loop and the body, the link as `char**`/`void**`/`unsigned int*`,
- * the compare cast to `unsigned int`, and a rotated for(;;) -- lets VC6 CSE
- * the two loads and collapses the body to 25 instructions against the
- * original's 32.  So the 32-instruction shape is only reachable by defeating
- * that CSE; the volatile cast is the only lever found, and the residual 11 is
- * the node/link register pair (ours node eax / link ecx, the original node ecx
- * / link eax) plus the lea-first address CSE. */
-// WIP-FUNCTION: LEGOLAND 0x00407a50  (32/32 instructions and block layout exact, audit mismatch 11/32: node/link registers swapped by an address CSE -- see above)
+ * SOLVED (both RemoveRecord bodies, 32/32 index-for-index).  The original's
+ * walk contains a genuinely REDUNDANT load: the loop-condition block does
+ * `mov esi,[ecx+4]` (node->next, the compare value) AND `lea eax,[ecx+4]`
+ * (the link), and the body then re-reads the SAME location through the link,
+ * `mov ecx,[eax]`, instead of reusing esi.  Every plain spelling lets VC6
+ * forward the first load into the second and collapses the body to 25-27
+ * instructions, so the 32-instruction shape is only reachable by defeating
+ * that forwarding.  Two independent levers, both needed:
+ *   1. ONE volatile read, on the LINK deref in the body
+ *      (`node = *(JoustRec* volatile*)link;`), not on the record and not on
+ *      the link's declared type.  A `JoustRec* volatile*` link variable also
+ *      gives 32 instructions but then VC6 uses the lea's result as the base
+ *      of the condition's load (`lea ecx,[eax+4] / mov esi,[ecx]`) instead of
+ *      the original's displacement-then-lea pair.  With the link declared
+ *      plain and only the body's deref cast volatile, the condition keeps
+ *      `mov esi,[ecx+4]` and the lea stands on its own, exactly as the
+ *      original has it.
+ *   2. DECLARATION ORDER decides the register roles.  `link` must be declared
+ *      FIRST and seeded from the GLOBAL (`&g_joust_head->next`), with `node`
+ *      declared after it (also from the global).  That makes the link the
+ *      first value defined in the else block, so it takes eax and the node
+ *      takes ecx -- the original's assignment.  Seeding the link from `node`
+ *      (`&node->next`), or declaring the node first, defines the node first
+ *      and swaps the pair (10-11 mismatches, the floor of ~40 earlier
+ *      variants).  The two spellings are semantically identical because the
+ *      head is read once and not stored between them.
+ * Note the walk still dereferences the head without a null check: removing a
+ * record from an empty list would fault.  Reproduced -- the callers only ever
+ * pass a record they just found on the list. */
+// FUNCTION: LEGOLAND 0x00407a50
 void Joust_RemoveRecord(JoustRec* rec)
 {
-    JoustRec* p = g_joust_head;
-
-    if (p == rec) {
+    if (g_joust_head == rec) {
         g_joust_head = rec->next;
     } else {
-        JoustRec*  q = ((JoustRec volatile*)p)->next;
-        JoustRec** link = &p->next;
-        while (q != rec) {
-            p = *link;
-            if (p == 0)
+        /* The walk is a link-pointer walk; the ONE volatile read is what stops
+         * VC6 collapsing the original's redundant second load (see above).
+         * `link` must be declared BEFORE `node` and seeded from the global, not
+         * from `node`: that is what puts the node in ecx and the link in eax,
+         * as the original has them. */
+        JoustRec** link = &g_joust_head->next;
+        JoustRec*  node = g_joust_head;
+        while (*link != rec) {
+            node = *(JoustRec* volatile*)link;
+            if (node == 0)
                 break;
-            link = &p->next;
-            q = ((JoustRec volatile*)p)->next;
+            link = &node->next;
         }
-        if (p)
-            p->next = rec->next;
+        if (node)
+            node->next = rec->next;
     }
     HeapFree_w(rec);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00416f00  (32/32 instructions and block layout exact, audit mismatch 11/32: same address CSE as Joust_RemoveRecord)
+// FUNCTION: LEGOLAND 0x00416f00
 void TempleSlide_RemoveRecord(TempleSlideRec* rec)
 {
-    TempleSlideRec* p = g_ts_head;
-
-    if (p == rec) {
+    if (g_ts_head == rec) {
         g_ts_head = rec->next;
     } else {
-        TempleSlideRec*  q = ((TempleSlideRec volatile*)p)->next;
-        TempleSlideRec** link = &p->next;
-        while (q != rec) {
-            p = *link;
-            if (p == 0)
+        /* Same shape as Joust_RemoveRecord. */
+        TempleSlideRec** link = &g_ts_head->next;
+        TempleSlideRec*  node = g_ts_head;
+        while (*link != rec) {
+            node = *(TempleSlideRec* volatile*)link;
+            if (node == 0)
                 break;
-            link = &p->next;
-            q = ((TempleSlideRec volatile*)p)->next;
+            link = &node->next;
         }
-        if (p)
-            p->next = rec->next;
+        if (node)
+            node->next = rec->next;
     }
     HeapFree_w(rec);
 }
@@ -1072,21 +1060,57 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  * index-for-index gate rejects it even though the instruction sequence is
  * right. Left as WIP with the semantics recovered. */
 
-/* FRAME ANALYSIS (this round).  The instruction COUNT and the block layout
- * are right; the body is shifted because the frame is two 4-byte slots short
- * -- the original is `sub esp,0x30`, ours `sub esp,0x28`.  Unwinding the
- * interleaved pushes, the original's homes are: the rider cursor at
- * frame+0x10 (the `mov [esp],eax` before the prologue pushes), `tw`/`th` at
- * frame+0x20/+0x24 (the pair whose addresses go to GetTileDimensions), the
- * case-5 offset pair at frame+0x24/+0x28 -- so it POOLS ofs.ox onto th, the
- * two blocks being disjoint -- and `screen` at frame+0x34/+0x38.  Ours pools
- * nothing: screen(8) + pos(8) + tw/th(8) + sx/sy(8) + ofs(8) is exactly the
- * 40 bytes we emit, while the original needs 48, so it has one more 8-byte
- * object than this reconstruction models AND it pools ofs with th.  Moving
- * `ofs` into case 5's block and the case-3 locals into case 3's block was
- * measured and does not change the frame size (both still 0x28).  Finding the
- * twelfth slot is the way in; the register swap should follow the frame, as
- * it did for Joust_Draw. */
+/* FRAME MAP, RE-DERIVED EXACTLY (this round; the earlier analysis above it
+ * had three of the homes wrong -- `ofs` is NOT pooled with `th`).  Let F be
+ * esp after `sub esp,0x30`, so the locals are F+0x00..F+0x2f, the return
+ * address is F+0x30 and the argument F+0x34; the four callee-saved pushes then
+ * put esp at F-0x10, and every `[esp+N]` in the body must be read with the
+ * outstanding ARGUMENT pushes of the call it sits inside also subtracted
+ * (case 3 accumulates seventeen of them before its single `add esp,0x44`).
+ * Doing that gives, with every reference accounted for:
+ *     F+0x00  the rider cursor `r`   (written at entry before the pushes,
+ *             read at the loop top, rewritten from `next` at the bottom, and
+ *             read by case 6 for RemoveBlokeFromRide)
+ *     F+0x04  NEVER REFERENCED  <-- the missing slot
+ *     F+0x08  tw          (&tw is the FIRST GetTileDimensions argument)
+ *     F+0x0c  th
+ *     F+0x10  next
+ *     F+0x14  ofs.ox      (case 5's four-way switch writes F+0x14/F+0x18)
+ *     F+0x18  ofs.oy
+ *     F+0x1c  screen.ox   (BOTH halves are homed and re-read; ours keeps .ox
+ *     F+0x20  screen.oy    in ebx and elides the store)
+ *     F+0x24  pos.x       (&pos is NewBNVPath's last argument)
+ *     F+0x28  pos.y
+ *     F+0x2c  NEVER REFERENCED -- accounted for by declaring `pos` as a THREE
+ *             int vector, which is good evidence NewBNVPath takes a 12-byte
+ *             position and not an 8-byte pair
+ *     F+0x34  the ARGUMENT slot, overwritten with elem->data at entry and used
+ *             as the `def` home for the rest of the body
+ * So the frame splits cleanly into a SCALAR run F+0x00..F+0x13 (five 4-byte
+ * homes) and an AGGREGATE run F+0x14..F+0x2f (ofs 8 + screen 8 + pos 12 = 0x1c
+ * bytes, in declaration order ascending).  This source produces the same
+ * aggregate run but only FOUR scalars, hence `sub esp,0x28` (0x2c once `pos`
+ * is three ints) against the original's 0x30, and every displacement from `tw`
+ * upward is 4 low -- which is the whole of the 317-instruction mismatch, plus
+ * the ebx/ebp swap (the original has the map square in ebp and the base tile y
+ * in ebx) that follows from it.
+ * THE ONE THING STILL MISSING is therefore a FIFTH scalar home, ordered
+ * between `r` and `tw`, that the original allocates and never reads.  Evidence
+ * about what it is: in case 3 the original emits `mov [esp+0x20],ebp` at
+ * 0x004175d2 -- a store of `sx` into F+0x00, i.e. into the rider cursor's own
+ * home, which is dead there.  So VC6 DID give `sx` a stack home and lifetime-
+ * coloured it onto `r`; the natural reading is that `sy` got a home too and
+ * that its (equally dead) store was the one that got eliminated, leaving the
+ * bare slot at F+0x04.  Nothing tried this round makes VC6 home either of
+ * them: `sx`/`sy` at function scope, in case 3's block, `tw`/`th` and `pos`
+ * moved into case 3's block, `ofs` into case 5's block, all six declaration
+ * permutations, and `ofs` as two plain ints instead of an Offset -- every one
+ * still emits four scalar homes.  (A 12-byte `ofs` with a dead leading member
+ * DOES produce `sub esp,0x30` with ofs/screen/pos landing on the original's
+ * homes exactly, and drops the first divergence from index 0 to index 16 --
+ * but it is a lie about the data structure and leaves tw/th/next 4 low, so it
+ * is not shipped.  It does prove the aggregate run is modelled correctly and
+ * isolates the residual to that one scalar.) */
 // WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions and block layout, audit mismatch 317/347: the frame is two slots short -- see above)
 void TempleSlide_Update(RideElem* elem)
 {
@@ -1526,6 +1550,52 @@ void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode
  * The two float constants handed to SetBlokePositionFromBNV are -1617735.0f
  * and -1617993.5f -- the near/far z of the joust model, the same pair of
  * magnitudes Temple Slide uses for its chute (-1617664.875 / -1617913.0).
+ *
+ * TWO PHASES, not one (read out of the disassembly this round; the note above
+ * only described the first).  The body is `sub esp,0x54` + push ebx/ebp/esi/edi
+ * and runs 0x00407c30..0x004084ff, the `ret` at 0x00408486 being the epilogue
+ * of the FIRST phase's fallthrough with the last block laid out after it:
+ *
+ *   PHASE 1 (0x00407c74..0x004083bf) -- the rider state machine described
+ *   above.  Each iteration begins by calling Joust_FindRecord on the rider's
+ *   square and, IF THERE IS NO RECORD, returns from the whole handler
+ *   (`test ebx,ebx / je <epilogue>`) -- it does not `continue` to the next
+ *   rider and it does not run phase 2 either.  Reproduce that: a rider whose
+ *   ride has been removed under it silently freezes the arena for that frame.
+ *   The record's mutable fields are copied into frame locals at the top of
+ *   every iteration and written back at 0x00408372 (the shared tail every case
+ *   jumps to), so the switch works on the copy, not on the record.
+ *
+ *   PHASE 2 (0x004083c5..0x004084fd) -- a SECOND loop, over the whole record
+ *   list `g_joust_head`, that drives the arena animation and its looping
+ *   sound.  Per record it reads +0x1a (call it `phase`), the two bytes at
+ *   +0x18/+0x19 (the horse states, as a word), +0x0c, +0x10 (jousters) and
+ *   +0x20, then:
+ *     - phase == 0    : evaluate HORSE 0 (the low byte of +0x18)
+ *     - phase == 0x20 : evaluate HORSE 1 (the high byte of +0x18)
+ *     - otherwise     : mid-cycle, just run
+ *   so +0x1a is a 0..0x3f CYCLE COUNTER and the two horses are half a cycle
+ *   apart -- NOT "which horse the next rider gets", which is what the field
+ *   comment above still says; the 0x00407c20 predicate is used on it in phase
+ *   1 only.  The evaluation is the same three-way test for both horses:
+ *   `if ((+0x0c && jousters >= 2) || jousters == 0) { if (h == 1) go; if (h == 3) go; }
+ *    else if (h == 0) hold;` -- "go" falls into the RUN arm, "hold" into STOP:
+ *     RUN  : if the record has no sample yet, start one --
+ *            PlayInstanceOfSample(g_0x004b4690, 1, 0, &src) with `src` the
+ *            usual RideSoundSource {kind = 2, x, y} built on the stack (its
+ *            +0x04 left uninitialised exactly as Joust_Remove leaves it),
+ *            store the handle in rec->sample (+0x08) and set the sample's
+ *            0x20 flag (0x00496d10, `sample->flags |= 0x20` = loop);
+ *            then phase++ and wrap `if (phase > 0x3f) phase = 0`, and clear
+ *            BOTH +0x1c and +0x20.
+ *     STOP : if the record has a sample, fade it out --
+ *            UnSourceAndFadeAllSamplesFromSource(&src, -1000) -- and clear
+ *            rec->sample; leave the counter where it is and set +0x1c (horse
+ *            0's gate) or +0x20 (horse 1's gate) to 1.
+ *   The writeback is horse word, phase, +0x1c, +0x20; +0x0c and +0x10 are read
+ *   only.  So +0x1c/+0x20 are per-horse "waiting at the gate" flags recomputed
+ *   every tick and consumed by phase 1, and the arena sound is a property of
+ *   the record, started and faded by this loop alone.
  * ========================================================================== */
 
 /* The one-line predicate the +0xa8 handler uses to turn the record's

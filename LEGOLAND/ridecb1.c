@@ -734,6 +734,15 @@ extern void*       g_slide_anim;   /* 0x006160e4  its 3D rider animation */
  * moves 0x18 -> 0x20 and `spot` 0x34 -> 0x2c -- and no permutation of the
  * thirteen declarations moves them back (address-taken locals pool by FIRST
  * USE, not declaration order; all six orders were measured identical). */
+/* THIS ROUND, four more spellings of the case-0 target store measured, none
+ * moving the pair: `&b->path[0]` for the CalcMoveLine path argument (identical
+ * object), `b->target = spot;` (17 mismatches -- it re-pools the Pos locals as
+ * described above), storing y before x (221), and two int temporaries in all
+ * four declaration/assignment orders (215 each -- worse than the 65 recorded
+ * above because the temporaries now take frame homes).  The residual is still
+ * exactly indices 62 and 64: the original issues `mov eax,[esp+0x38]` (spot.y)
+ * before the x store and sinks `lea ecx,[esi+0x98]` between the two stores; we
+ * emit the lea first and the y load between them. */
 // WIP-FUNCTION: LEGOLAND 0x0042d610  (99.3%, one two-instruction schedule swap in case 0)
 void EarthSlide_Tick(RideElem* elem)
 {
@@ -1168,6 +1177,18 @@ extern SpriteObj* g_carousel_zspr;    /* 0x006160b8  z_Carousel.lls */
  *  Six orderings of the five leading statements (`r =`, `n = 0`, and the three
  *  ctx fields) were measured; none moves either load.  What is needed is
  *  something that makes the rider cursor live BEFORE the array fill. */
+/* THIS ROUND: the six leading-statement orderings quoted above were extended to
+ * ALL 120 permutations of the five (`r =`, `n = 0`, and the three ctx fields).
+ * Every one of them emits 414 instructions with the rider load still sunk past
+ * the `here[10] = {0}` fill; the best score is 279 and eleven permutations tie
+ * on it, so statement order is provably NOT the dial.  Replacing the aggregate
+ * initialiser with an explicit `memset(here, 0, sizeof here)` (before or after
+ * the rider load) is worse -- 413 instructions, 391 mismatches -- so `= { 0 }`
+ * is the right spelling and the split fill (`mov [esp+0x50],0` + `rep stosd`
+ * of nine) is its signature.  What is still needed is whatever makes VC6 issue
+ * `mov esi,item->riders` in the prologue region, BEFORE `xor eax,eax`; every
+ * source-level knob tried so far leaves it after the `rep stosd`, where edi is
+ * the warm register and the esi/edi roles invert for the whole body. */
 // WIP-FUNCTION: LEGOLAND 0x0042bcf0  (32.8%, esi/edi allocation tie-break renames two thirds of the body)
 void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)

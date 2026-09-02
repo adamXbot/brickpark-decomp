@@ -794,6 +794,32 @@ static __inline Cell* RouteCellAt(Pos* p)
  * exactly and only loses the store/push interleave.  (iii) All four operand
  * orders of the goal test are inert -- the compare direction follows the
  * source but the register assignment does not. */
+/* THIS ROUND the residual was localised to ONE allocator tie-break, and the two
+ * escape routes were both measured to a dead end.  All twelve combinations of
+ * {`to = cur->pos; to.y--;` | `to.x = cur->pos.x; to.y = cur->pos.y - 1;` |
+ * the same two in the other order} x {RouteInBounds(to.x,to.y) |
+ * (cur->pos.x,to.y) | (to.x,cur->pos.y-1) | (cur->pos.x,cur->pos.y-1)} were
+ * compiled; only two shapes are interesting and they are complementary:
+ *   * STRUCT-COPY else + (to.x,to.y)  -- the committed body.  VC6 does NOT CSE
+ *     the struct copy's x half with the goal test's load, so `cur->pos.x` dies
+ *     at index 28, index 31 reuses eax for `g_route_to.y`, and index 38 is a
+ *     reload.  482 instructions, 3 mismatches.
+ *   * FIELD else + (cur->pos.x, to.y) -- indices 0..37 match EXACTLY: the CSE
+ *     lands in eax, `g_route_to.y` goes to edx, 482 instructions.  What breaks
+ *     is only 38..44: VC6 REMATERIALISES `[esi+8]` into edx for the `push`
+ *     (after storing to.x straight out of eax) where the original COPIES the
+ *     web into ecx once (`mov ecx,eax`) and uses ecx for both the store and
+ *     the push.  So the question is now precisely "copy vs rematerialise", not
+ *     "which register".
+ *   * FIELD else + (to.x, to.y) makes the web three uses long, which flips the
+ *     whole allocation to ecx and DELETES the copy -- 481 instructions, i.e.
+ *     the original minus `mov ecx,eax`, byte-identical apart from an eax<->ecx
+ *     rename in indices 25..43.
+ * Measured inert on top of those: all four operand orders of the x/y goal
+ * tests, a `Pos* tp = &to;` alias for the stores (VC6 still rematerialises),
+ * `int cx = cur->pos.x;` temporaries in four positions (they always produce
+ * the 481-instruction ecx form), `--to.y` and `to.y = to.y - 1`, and a
+ * de Morgan'd `!(x != .. || y != ..)` goal test. */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)
 {
@@ -1008,6 +1034,39 @@ void RequestRoute(Pos from, Pos to)
  * second into eax (so `add eax,ecx` leaves the result in eax and the two pops
  * interleave into the dead operand registers), where VC6 gives us Y first in
  * edi and a closing `mov eax,edi`. */
+/* THIS ROUND -- the canonicalisation RULE was measured, and it says this shape
+ * is unreachable.  VC6 SP3 sorts the operands of a commutative `+` whose two
+ * halves are structurally identical by the FINAL ADDRESS OF EACH TERM'S
+ * SUBTRAHEND, DESCENDING, and emits the higher one FIRST.  Probes (all
+ * /O2 /Gy /Gd, all with the abs intrinsic):
+ *     abs(a->x-b->x) + abs(a->z-b->z)   -> the z term (sub off 8) first
+ *     abs(a->x-b->x) + abs(a->y-b->y)   -> the y term (sub off 4) first
+ *     abs(a->x-b->y) + abs(a->y-b->x)   -> the FIRST term first (its sub is
+ *                                          b->y, off 4, beating b->x's 0)
+ *     abs(a->a-b->d) + abs(a->d-b->a)   -> the term whose sub is b->d (off 12)
+ * Both of this function's terms are `a-b`, so their subtrahends are b->x (0)
+ * and b->y (4) and the y term is ALWAYS emitted first -- which is the whole
+ * residual, since the original emits the x term first.  Confirmed inert
+ * because the offset fold happens BEFORE the sort: `int* by = &b->y;`,
+ * `Pos* c = b;`, `Pos* b2 = (Pos*)((char*)b + 4)` used as `b2->x`, and
+ * `P3* b8 = (P3*)((char*)b - 8)` used as `b8->p2` all collapse to the same
+ * [reg+disp] and produce byte-identical code, so the RefreshObjList
+ * "different base symbol" lever cannot reach this class.  Also re-measured
+ * inert: `d = abs(dx); d += abs(dy);` in both orders, a static __inline
+ * AbsDiff(int,int) helper, an __inline Manhattan(Pos*,Pos*) whose result is
+ * compared to 1, four-local pre-loads of a->x/a->y/b->x/b->y, `int*` params
+ * with a[0]/a[1], `!=1`, `1==`, `(unsigned)`, and char/short/int return types.
+ * TWO POSITIVE FACTS worth keeping.  (i) The SAME expression over four INT
+ * PARAMETERS -- `abs(p-q)+abs(r-s)` -- sorts the other way (first term first)
+ * and reproduces the original's instruction sequence and interleave EXACTLY
+ * (mov/mov/sub/cdq/mov ecx,eax/mov eax,r/xor/sub/mov edx,s/sub/cdq/xor/sub/
+ * add eax,ecx), so parameter reads and pointer dereferences use DIFFERENT sort
+ * keys.  (ii) `return !(abs(dx)+abs(dy)-1);` is the only spelling that leaves
+ * the result in EAX and interleaves the two pops the way the original does --
+ * but VC6 then fuses the add and the dec into `lea eax,[edi+eax-1]` (23
+ * instructions).  The original needs eax-as-accumulator WITHOUT that fusion.
+ * So the open question is no longer "which operand order": it is what makes a
+ * two-pointer-dereference sum sort like the four-parameter one. */
 // WIP-FUNCTION: LEGOLAND 0x00450500  (95.8%, VC6 canonicalises the commutative sum to Y-first; one extra result move)
 int IsAdjacentPos(Pos* a, Pos* b)
 {

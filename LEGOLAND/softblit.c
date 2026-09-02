@@ -547,6 +547,35 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
  * post-decrement (`while (n--)`) spelling of both frame walks -- the walk
  * itself already matches here because `frame` is dead after arm 1's loop, so
  * VC6 uses its register in place and needs no copy at all. */
+/* THIS ROUND: the aggregate-pinning lever was tried properly and it CAN order
+ * the six homes correctly, but it cannot keep the frame at 0x18, so it is not
+ * shippable.  Facts, all measured:
+ *  * A local struct that the __asm block references (`q.ctrl` / `q.data`) stays
+ *    a real aggregate, is laid out in DECLARATION order and is placed at the
+ *    BOTTOM of the frame; a struct the asm does not reference is scalar-
+ *    replaced and its members go back into the pool individually.
+ *  * `struct { void* ctrl; int npasses; void* data; } q;` therefore lands
+ *    exactly as the original wants those three relative to each other, with the
+ *    remaining scalars pooled ABOVE it in the order f, pass, frame -- also the
+ *    original's relative order.  The problem is that aggregates go to the
+ *    bottom, so f and pass end up above ctrl instead of below it.
+ *  * Putting all six in ONE 24-byte struct in the order f, pass, ctrl, npasses,
+ *    data, frame produces the original's home map EXACTLY -- but shifted 4
+ *    bytes, because VC6 then emits `sub esp,0x1c` instead of `sub esp,0x18`.
+ *    An aggregate of 16 bytes or more that is not asm-referenced costs a spare
+ *    4-byte slot at the top of the frame (measured at 16, 20, 24 and 28 bytes;
+ *    only the 12-byte asm-referenced `q` packs exactly).  Two aggregates
+ *    ({f,pass} + {ctrl,npasses,data}) do not help: the non-asm one is scalar-
+ *    replaced and the frame is 0x1c again.
+ * Also inert this round: five more npasses spellings (ternary, if/else,
+ * `npasses += (lls->flags & 1)`, and moving `npasses = 1` after g_sp_rowlen or
+ * before the override test -- the last two cost 400+), `1 == npasses`,
+ * `npasses < 2`, `npasses != 2`, `npasses > pass` in the loop condition,
+ * `&f->body[n16]`, deriving arm 2's data from g_sp_pal16, declaring f/n16/n/k
+ * inside the pass loop's block (they are all pool entries either way, so block
+ * scope changes nothing), swapping the npasses/data declarations again, and
+ * renaming the locals.  The pool order here is decided by neither declaration
+ * order, block scope, nor spelling. */
 // WIP-FUNCTION: LEGOLAND 0x00465240  (98.1%: 407/415 insns, 1544/1544 bytes; mismatch=8, all of them the npasses/data frame homes swapped -- see the note above)
 void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
 {

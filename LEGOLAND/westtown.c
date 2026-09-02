@@ -847,14 +847,17 @@ JailCellRec* JailCell_FindRecord(ShopTile* tile)
 
 /* Unlink one record and free it. The head case is tail-duplicated (it gets
  * its own free + ret); the `if (p)` after the walk is the original's
- * redundant re-test, reachable only on the break path. */
-/* The original's exact block layout and register assignment, except that each
- * 'cmp dword ptr [eax],ecx' comes out as 'mov edx,[eax] / cmp edx,ecx' -- 27
- * instructions against 25. Measured and rejected: volatile on the link read,
- * reversed operand order, for(;;)+break, a pointer-to-pointer link cursor, an
- * (unsigned int) compare, and a goto form with the free tail-duplicated three
- * ways; VC6 materialises the loaded link every time. */
-// WIP-FUNCTION: LEGOLAND 0x00437fc0  (27 emitted vs 25: the two link compares load into a register)
+ * redundant re-test, reachable only on the break path.
+ *
+ * THE LEVER (this function sat at 27 instructions against 25 for a long
+ * time): the loop compares the link and then FOLLOWS it, and VC6 CSEs the
+ * two reads into one -- 'mov edx,[eax] / cmp edx,ecx' where the original has
+ * 'cmp dword ptr [eax],ecx' and a separate 'mov eax,[eax]'. Marking the read
+ * that FOLLOWS the link volatile (not the one that compares it) splits them:
+ * the compare keeps its memory operand and the walk becomes its own load.
+ * Volatile on the COMPARE instead goes the wrong way -- it forces the load
+ * into a register and leaves the CSE'd walk. */
+// FUNCTION: LEGOLAND 0x00437fc0
 void JailCell_RemoveRecord(JailCellRec* rec)
 {
     JailCellRec* p = g_jailcells_head;
@@ -863,7 +866,7 @@ void JailCell_RemoveRecord(JailCellRec* rec)
         g_jailcells_head = rec->next;
     } else {
         while (p->next != rec) {
-            p = p->next;
+            p = ((volatile JailCellRec*)p)->next;
             if (p == 0)
                 break;
         }
@@ -963,13 +966,29 @@ void JailCell_SelectForPlacement(void)
 
 /* Draw every collected customer whose action byte is `band`. Inlined at every
  * call site; the count is re-sign-extended per call, which is why the
- * original re-tests and re-`movsx`es the char for every band. */
+ * original re-tests and re-`movsx`es the char for every band.
+ *
+ * THE SPELLING IS THE LEVER (found while writing westtown2.c's
+ * LegoShop2_DrawOverlay). Written as `for (i = 0; i < n; i++) list[i]`, VC6
+ * hoists ONE `movsx reg,bl` for the whole function and copies it into the
+ * counter per band, which frees bl and re-registers everything downstream --
+ * that spelling cost GENERAL STORE 196 mismatches. Written as an EXPLICIT
+ * `if (n > 0)` guard around a `do { ... } while (--k)` over the parameter
+ * used as its own cursor, VC6 rematerialises `movsx edi,bl` inside every
+ * band, exactly as the original does, and the residual drops to the one
+ * scheduling transposition noted above each of the three banded draws. */
 static __inline void ShopDrawBand(Bloke** list, char n, int band)
 {
-    int i;
-    for (i = 0; i < n; i++)
-        if (list[i]->action == band)
-            IP_RenderBlokeIn3DNow(list[i]);
+    int k;
+
+    if (n > 0) {
+        k = n;
+        do {
+            if ((*list)->action == band)
+                IP_RenderBlokeIn3DNow(*list);
+            list++;
+        } while (--k);
+    }
 }
 
 /* GENERAL STORE: actions 4,5,6 stand behind the shelves (Matte2), everything
@@ -978,31 +997,40 @@ static __inline void ShopDrawBand(Bloke** list, char n, int band)
  *
  * Everything matches -- frame layout, the 10-entry queue's {0} init (one
  * explicit store plus 'rep stosd' for the other nine), the signed-char count,
- * the collect loop, the band order, the sprites, the two PrintSprite calls --
- * EXCEPT that VC6 hoists the count's sign extension. The original emits
- * 'test bl,bl / jle / lea esi,queue / movsx edi,bl' once per band, keeping the
- * count in bl and rematerialising '(int)n'; ours emits 'movsx <reg>,bl' ONCE
- * after GetScreenCoordsForObject and then 'mov <counter>,<reg>' per band, which
- * frees bl and (in GENERAL STORE, which has 12 bands) lets VC6 spend bl on
- * 'mov bl,K' byte-register copies of the band constants.
- *   LEGO MEDIA SHOP  155 vs 155 instructions -- same count, shifted by one.
- *   SALOON           194 vs 193 (+1, the hoisted movsx).
- *   GENERAL STORE    230 vs 224 (+1 movsx, +5 'mov bl,K').
+ * the collect loop, the band order, the sprites and the two PrintSprite calls
+ * -- and, since ShopDrawBand was respelled (see the note on it), so does the
+ * per-band 'test bl,bl / jle / lea esi,queue / movsx edi,bl' preamble. What
+ * is left is a two-instruction TRANSPOSITION repeated once per band: the
+ * original emits
+ *     test bl,bl / jle <next band> / lea esi,queue / movsx edi,bl
+ * and ours emits
+ *     test bl,bl / lea esi,queue / jle <next band> / movsx edi,bl
+ * -- VC6 speculates the queue-address 'lea' up into the slot between the
+ * compare and its branch. Instruction counts are exact in all three
+ * (224/224, 193/193, 155/155); the mismatch is 27, 22 and 16 respectively,
+ * which is two per band.
  *
- * Measured and rejected as levers for the hoist (all still hoist): the band
- * loop as an __inline helper taking int / char / short / const char* / a
- * pointer-pair, as a #define macro, and written out inline with a shared or
- * per-band index; 'for (i=0;i<n;i++)', 'while (i<n)', 'k=n; while(k){..k--;}',
- * 'i<(int)n', 'n>i'; an explicit 'if (n>0)' guard (that one goes the other way
- * -- VC6 then PROVES the later guards and deletes them, 209 instructions);
- * a second coalesced count local; '&n' passed to the inline helper; 'char* pn'
+ * Measured and rejected for the transposition: a named cursor local assigned
+ * inside the guard (that costs a register and spills the count to the frame),
+ * the same shape as a macro, the 'if (n > 0)' guard moved out to the call
+ * site, 'while (n--)', 'while (k > 0)', a pointer-pair 'p != end' loop, an
+ * early-'return' guard, and 'int k = n' before the guard.
+ *
+ * Measured and rejected EARLIER, for the hoisted sign-extension that the new
+ * spelling fixed (kept so it is not re-derived): the band loop as an __inline
+ * taking int / char / short / const char* / a pointer-pair, as a #define, and
+ * written out inline with a shared or per-band index; 'for (i=0;i<n;i++)',
+ * 'while (i<n)', 'k=n; while(k){..k--;}', 'i<(int)n', 'n>i'; an explicit
+ * 'if (n>0)' guard AROUND THE WHOLE RUN (that one goes the other way -- VC6
+ * then PROVES the later guards and deletes them, 209 instructions); a second
+ * coalesced count local; '&n' passed to the inline helper; 'char* pn'
  * indirection; the count decremented in the helper's own parameter copy;
- * routing 'mode' through a named local to bid for the register the hoisted
- * value takes; a live queue base pointer; and every declaration order of
- * def/n/r/queue/o. The prologue and collect loop are index-for-index exact in
- * all three once the declarations are ordered def, n, r, queue, o.
+ * routing 'mode' through a named local; a live queue base pointer; and every
+ * declaration order of def/n/r/queue/o. The prologue and collect loop are
+ * index-for-index exact in all three once the declarations are ordered
+ * def, n, r, queue, o.
  */
-// WIP-FUNCTION: LEGOLAND 0x00437670  (224 of 224 instructions and the whole block layout, +6 emitted: the hoisted count sign-extension and five 'mov bl,K' -- see the block above)
+// WIP-FUNCTION: LEGOLAND 0x00437670  (224 of 224 instructions; 27 mismatches = one lea/jle transposition per band -- see above)
 void GeneralStore_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
                               void* clip, int mode)
 {
@@ -1038,7 +1066,7 @@ void GeneralStore_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
 
 /* SALOON: actions 4,5,6 are at the bar (behind SaloonMatte2), 2,3,7,8 in the
  * middle of the room (behind SaloonMatte1), 0,1,9 in front of everything. */
-// WIP-FUNCTION: LEGOLAND 0x00438d00  (193 of 193 instructions, +1 emitted: the hoisted count sign-extension -- see the block above GeneralStore_DrawOverlay)
+// WIP-FUNCTION: LEGOLAND 0x00438d00  (193 of 193 instructions; 22 mismatches = one lea/jle transposition per band -- see the block above GeneralStore_DrawOverlay)
 void Saloon_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
                         void* clip, int mode)
 {
@@ -1072,7 +1100,7 @@ void Saloon_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
 
 /* LEGO MEDIA SHOP: actions 2..5 are inside (behind Mask2), 0,1,6 in front
  * of the shelving (behind Mask1). */
-// WIP-FUNCTION: LEGOLAND 0x00439d40  (155 of 155 instructions, byte length 412 vs 418; the body is shifted by the one hoisted count sign-extension -- see the block above GeneralStore_DrawOverlay)
+// WIP-FUNCTION: LEGOLAND 0x00439d40  (155 of 155 instructions; 16 mismatches = one lea/jle transposition per band -- see the block above GeneralStore_DrawOverlay)
 void LegoMedia_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
                            void* clip, int mode)
 {
@@ -1102,50 +1130,34 @@ void LegoMedia_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
 }
 
 /* ==========================================================================
- * ANALYSED, NOT YET WRITTEN -- the rest of Western Town, with what each one
- * does, so the next round starts from behaviour rather than from bytes.
+ * THE REST OF WESTERN TOWN IS IN LEGOLAND/westtown2.c
  *
- * (a) THE NINE PER-TICK CUSTOMER STATE MACHINES (+0xa8). All have the shape
- *     documented in the file header: walk ObjDef+0xcc, skip anyone whose
- *     Bloke+0x0e countdown is non-zero, `switch (bloke->action)` through a
- *     /Gy jump table, write the next waypoint to Bloke +0x24/+0x28, share one
- *     CalcMoveLine + NewDirForAction + action++ tail, and leave the ride in
- *     the last case. The script LENGTH is the interesting per-class datum:
+ * The eight other per-tick customer state machines (+0xa8), the two overlay
+ * draws that go through the layer path (+0xb0) and the shared "browse, then
+ * maybe buy" step they all call now live in westtown2.c. Read that file's
+ * header for the script of each class; the short version is that every shop
+ * is a fixed list of waypoints plus, in five of the nine, one or two random
+ * rolls:
  *
- *       0x004378e0  GENERAL STORE        12 states (0..0xb); 0xb = leave
- *       0x00437c90  SHERIFF               8 states (0..7)
- *       0x00438430  JAIL CELL            (also drives the cell's own record)
- *       0x00438960  BANK                  8 states (0..7)
- *       0x00438f10  SALOON                switch + a rand()/3 branch, so the
- *                                         saloon picks a random spot at the
- *                                         bar (the only shop that does)
- *       0x00439460  LEGO SHOP 1
- *       0x00439950  LEGO SHOP 2
- *       0x00439ef0  LEGO MEDIA SHOP
- *       0x0043a1e0  EXPLORERS INSTITUTE   6 states (0..5) -- the shortest
- *                                         script in the lane; its waypoints
- *                                         come from the RiderNode key bytes
- *                                         (+0x0c/+0x0d) directly rather than
- *                                         from the class base offsets
+ *   0x004378e0  GENERAL STORE       12 states; a coin toss at state 3 lets
+ *                                   half the customers skip the queue
+ *   0x00437c90  SHERIFF              8 states; rand()%3 picks a spot along
+ *                                   the counter, dir forced to 8
+ *   0x00438430  JAIL CELL           11 states, and it drives the cell door
+ *                                   animation for EVERY jail cell in a
+ *                                   second loop -- this is what the six
+ *                                   ints in the saved record are for
+ *   0x00438960  BANK                 9 states; states 3/4 ping-pong
+ *   0x00438f10  SALOON              10 states; a coin toss picks the end of
+ *                                   the bar, dir forced to 8
+ *   0x00439460  LEGO SHOP 1          7 states; the browsing spot is jittered
+ *                                   on both axes and the shopper spins
+ *   0x00439950  LEGO SHOP 2         13 states, two of them dead
+ *   0x00439ef0  LEGO MEDIA SHOP      7 states; state 3 TELEPORTS
+ *   0x0043a1e0  EXPLORERS INSTITUTE  6 states -- the shortest, below
  *
- * (b) 0x00438150  JailCell_DrawOverlay (JAIL CELL +0xb0). The only overlay
- *     draw that needs the class's own record: it calls JailCell_FindRecord
- *     for this square FIRST and draws NOTHING if there is no record. It then
- *     renders action bands 2,3, sets the jail sprite's layer-1 LLS frame from
- *     the record's +0x06 byte (LLSSetFrame(GetLLSForLayer(g_jail_sprite,1),
- *     rec->frame)), blits that layer with GetRenderOffsetForLayer +
- *     AdjustOffsetForViewMode + GetSpriteForLayer, then renders bands 1,4,...
- *     So the saved jail-cell byte is an animation frame for the cell doors,
- *     which is why JAIL CELL is the only shop with a save chunk.
- *
- * (c) 0x00439760  LegoShop2_DrawOverlay (LEGO SHOP 2 +0xb0). Same collect and
- *     band shape (bands 4,5,3,2,9,0xa,0xb then 1,0xc) but its single sprite is
- *     drawn through the layer path -- GetRenderOffsetForLayer(def->sprite, 0)
- *     + GetScreenCoordsForObject + AdjustOffsetForViewMode, the two offsets
- *     ADDED -- rather than at the raw object position.
- *
- * All of (a)-(c) are blocked on nothing but time; (b) and (c) additionally hit
- * the sign-extension hoist documented above GeneralStore_DrawOverlay.
+ *   0x00437570  Shop_BrowseAndBuy   the shared counter step (westtown2.c)
+ *   0x00438150  JailCell_DrawOverlay / 0x00439760 LegoShop2_DrawOverlay
  * ========================================================================== */
 
 /* ==========================================================================
@@ -1186,20 +1198,27 @@ static __inline void ShopStepToTarget(Bloke* b)
 
 /* Exact for the first 26 instructions (prologue, list walk, busy guard, the
  * movzx-by-'mov ecx,edx / and ecx,0xff' switch, the /Gy jump table and all of
- * case 0's coordinate maths) and semantically exact throughout; 157 emitted
- * against 144. The whole residual is ONE tail-merge: the original ends up with
- * case 3 and case 4 sharing a single argument-push + CalcMoveLine block (at
- * 0x0043a314, entered with tx already stored and ty in ecx), case 0 carrying
- * its own copy of the pushes and jumping straight to the shared 'call', and
- * case 1 carrying the whole tail because of the rand() that follows it. Ours
- * merges case 0 with case 3 instead (their bodies differ only by the flags62
- * store, so they are genuinely identical tails) and leaves case 4 with a third
- * full copy -- the original avoided that merge only because it happened to
- * allocate tx/ty to ecx/edx in case 0 and to edx/ecx in case 3. Measured and
- * rejected: both operand orders of 'def->base + key' on each axis in case 4,
- * and moving case 0's flags62 store before/after the two coordinate stores
- * (167 and 170 instructions -- both worse). */
-// WIP-FUNCTION: LEGOLAND 0x0043a1e0  (157 emitted vs 144: a third copy of the move tail, see above)
+ * case 0's coordinate maths) and semantically exact throughout; audit.py puts
+ * it at 144 of 144 instructions with 118 mismatches.
+ *
+ * The whole residual is ONE tail-merge. The original ends up with cases 3 and
+ * 4 sharing a single "store target.y + push the five arguments" block (at
+ * 0x0043a314, entered with target.x already stored and y in ecx), case 0
+ * carrying its own copy of that block and jumping straight to the shared
+ * 'call', and case 1 carrying the whole thing because of the rand() that
+ * follows it -- TWO copies of the post-call tail. Ours merges case 0 with
+ * case 3 instead (their bodies are literally identical apart from the flags
+ * store, since both walk to key.y + 1) and leaves case 4 with a third full
+ * copy, which is the +17. The original avoids that merge only because it
+ * happens to allocate x/y to ecx/edx in case 0 and to edx/ecx in case 3 --
+ * a register swap no source spelling reproduced.
+ *
+ * Measured and rejected: both store orders in case 0 and in case 3, both
+ * operand orders of 'def->base + key' on each axis in case 4 (all sixteen
+ * combinations), computing case 0's coordinates into locals before storing
+ * them (the Bank/JAIL CELL lever -- 167 and 186 here), and moving case 0's
+ * flags store before/after the two coordinate stores. */
+// WIP-FUNCTION: LEGOLAND 0x0043a1e0  (144 of 144 instructions, 118 mismatches: a third copy of the move tail -- see above)
 void Explorers_TickCustomers(ShopElem* elem)
 {
     ShopDef*   def = elem->data;

@@ -534,6 +534,61 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  * [ebp-N] operands and a handful of register tie-breaks are off by a slot.  Nothing
  * structural is known to be wrong; continue by pinning the scalar homes (mt[] wants
  * -0x54 and light[] -0xc, which alone would land the four SHADE blocks). */
+/* THIS ROUND the TARGET FRAME MAP was reconstructed exactly from the original,
+ * which turns "colour 28 scalars correctly" into a checkable goal.  Reading the
+ * original's [ebp-N] operands and fitting the five arrays (v 0x54, sc 0x60,
+ * box 0x60, mt 0x24, light 0xc) into the 0x1b4 frame gives exactly one
+ * solution, and it accounts for all 436 bytes:
+ *     -0x1b4 .. -0x1a5   4 scalars   (esi/-0x1b4, -0x1b0, -0x1ac, -0x1a8 are
+ *                                     the four seen in the first 40 insns)
+ *     -0x1a4             v[3]
+ *     -0x150             sc[24]      (immediately above v, no gap)
+ *     -0x0f0 .. -0x0d9   6 scalars   (-0xe4 is one of them)
+ *     -0x0d8             box[24]
+ *     -0x078 .. -0x055   9 scalars   (-0x60 and -0x58 are two of them)
+ *     -0x054             mt[9]
+ *     -0x030 .. -0x00d   9 scalars   (-0x2c, -0x20, -0x1c=k65536, -0x14, -0x10)
+ *     -0x00c             light[3]    -- light is the TOP of the frame; nothing
+ *                                       is allocated above it
+ * What this reconstruction currently emits (read off /FAsc, same 0x1b4 frame):
+ *     sc -0x1b4, box -0x150, mt -0xd8, v -0xac, light -0x14, with 1/6/2/17/2
+ *     scalars in the gaps.  So the ARRAY ORDER is wrong first (ours is
+ *     sc, box, mt, v, light ascending; the original is v, sc, box, mt, light)
+ *     and the scalar colouring follows from it.
+ * Two measurements that narrow the search:
+ *  (1) DECLARATION ORDER IS COMPLETELY INERT here -- all 120 permutations of the
+ *      five array declarations were compiled and every one gives byte-identical
+ *      offsets.  So the order is derived from the code, not the source order.
+ *  (2) BLOCK SCOPE DOES MOVE AN ARRAY, but upward, not down: declaring
+ *      `Vertex2D v[3];` inside each of the two face loops (disjoint blocks, so
+ *      they share one slot) moves v from -0xac to -0xd8 and mt from -0xd8 to
+ *      -0x84, leaving sc/box where they were -- i.e. the resulting order
+ *      sc, box, v, mt, light is the size-descending one.  Nothing tried so far
+ *      moves v BELOW sc, which is what the original needs.
+ * First use order in this body is mt, light, box, sc, v; last use is
+ * mt/light, box, sc, v.  Neither matches either layout, so the rule that
+ * orders these five is still unknown -- it is the one thing worth finding,
+ * because every [ebp-N] in the body follows from it. */
+/* AND ONE STRUCTURAL LEAD THAT IS NOT FRAME COLOURING.  In both face loops the
+ * original reads the three transformed vertices through a POINTER it forms
+ * once per corner:
+ *     lea ecx,[eax*4 + g_xverts] / mov esi,[eax*4 + g_xverts] / mov eax,[ecx+4]
+ *     / mov edi,[ecx+8]                      (corner a)
+ *     lea ecx,[ecx*4 + g_xverts] / mov ebx,ecx / mov ecx,[ebx] / mov ecx,[ebx+4]
+ *     / mov ebx,[ebx+8]                      (corner b, and the same for c)
+ * i.e. `int* g = &g_xverts[tp[k]*3]; a.x = g[0]; a.y = g[1]; a.z = g[2];`.
+ * This reconstruction's three absolute-indexed reads
+ * (`g_xverts[tp[0]*3]`, `[..+1]`, `[..+2]`) compile to `shl eax,2` plus three
+ * `[eax + g_xverts]` loads and never form the base -- measured, and rewriting
+ * the nine reads through one `int* gp` DOES produce the original's
+ * `lea ...[eax*4 + g_xverts]` shape (mnemonic-level LCS 926 -> 927 of 1023,
+ * ebp-offset-normalised LCS 563 -> 567).  It is left out of the committed body
+ * only because the raw index-for-index count is unchanged while the frame
+ * colouring is still wrong; put it back in as soon as the array order is
+ * solved.  Useful calibration for whoever picks this up: with every [ebp-N]
+ * normalised away, this body still only reaches 55% of the original, and on
+ * mnemonics alone 90.5% -- so the homes are the biggest single cause but not
+ * the only one. */
 // WIP-FUNCTION: LEGOLAND 0x00440a30  (33.3%, 337/1013 insns of 1023)
 void Draw3DPersonModel(Person3D* p)
 {

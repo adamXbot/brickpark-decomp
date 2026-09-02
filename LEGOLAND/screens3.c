@@ -1735,6 +1735,27 @@ char SaveSlotInput(Icon* p, int buttons, int a3, int a4)
  * stores (which fix the store ORDER -- popup before checkbox -- but not the
  * eax materialisation).  Whatever stops VC6 promoting that 1 into a register
  * finishes this function; nothing in the statement shape does. */
+/* THIS ROUND the residual was reduced to ONE cause with a clean explanation.
+ * VC6 lowers the tail as: materialise the return constant (`mov eax,1`), reuse
+ * eax as the SOURCE of the dword store, and then duplicate `mov al,1 / ret`
+ * because the fall-through already has al set.  That is a /O2 SPEED choice --
+ * `mov dword ptr [abs],imm32` is a 10-byte instruction, `mov [abs],eax` is 5 --
+ * and it is what makes our body 29 instructions where the original is 27; the
+ * original stores the immediate and falls into the shared `pop esi / mov al,1 /
+ * ret`.  It is also what REORDERS the two stores: with eax=1 hoisted first, the
+ * `g_frontend_checkbox_closed = 0` store is scheduled between the hoist and the
+ * popup store.  Making `g_newsave_popup_up` volatile fixes the ORDER (popup
+ * first, as the original) but keeps the eax hoist, so it costs one more
+ * mismatch, not fewer, and is not in the original.
+ * Newly measured inert (all byte-identical to the committed body): both store
+ * orders, `g_newsave_popup_up = 0 + 1` and `= (int)1`, deriving the second
+ * store's zero from the first (`= g_newsave_popup_up - 1`), the guards as three
+ * nested ifs, as three `goto out` jumps to a labelled `return 1`, as a
+ * `do { ... break ... } while (0)`, as a de Morgan'd single early return, an
+ * explicit `return 1;` inside the if as well, `(char)1`, and return types
+ * `signed char` / `unsigned char` / `short` / `int` (int and short still hoist
+ * eax; short merely changes the duplicated block to `mov ax,1`).  Whatever
+ * stops the hoist is not in the statement shape or the types. */
 // WIP-FUNCTION: LEGOLAND 0x0048e4f0  (81%, tail return block duplicated)
 char SaveEmptySlotInput(Icon* p, int buttons, int a3, int a4)
 {
