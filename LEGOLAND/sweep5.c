@@ -73,9 +73,13 @@ void SetSubSpriteSource(SubSprite* p, unsigned short dx, unsigned short dy,
     p->src_y = sy;
 }
 
+/* Three parameters, not two: every caller (TellAllLayersToAnimate /
+ * TellAllLayersToStopAnimating in sprite2.c) pushes (sprite, layer, state).
+ * The body is a bare ret, so the arity is invisible in the codegen here. */
 // FUNCTION: LEGOLAND 0x00497ed0
-void SetLayerAnimatingState(int layer, int state)
+void SetLayerAnimatingState(void* sprite, int layer, int state)
 {
+    (void)sprite;
     (void)layer;
     (void)state;
 }
