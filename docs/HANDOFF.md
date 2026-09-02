@@ -16,11 +16,11 @@ State (committed, `main` of `/Users/systemadmin/Downloads/legoland/legoland`):
 
 | | |
 | --- | --- |
-| Functions exact (committed `// FUNCTION:` markers) | 722 |
+| Functions exact (committed `// FUNCTION:` markers) | 800 |
 | Code exports exact | 645 of 675 (95.6%) |
-| Recovered internal (unexported) functions | 32 |
+| Recovered internal (unexported) functions | 155 |
 | Exports still to finish | 30, but 15 are already exact and tooling-blocked, so **15 real** — `python3 tools/remaining.py` |
-| **Unmatched callees (unexported)** | **591, ~35,800 instructions — `python3 tools/callees.py`** |
+| **Unmatched callees (unexported)** | **631, ~31,000 instructions — `python3 tools/callees.py`** |
 
 716 symbols are exported; 41 are data, so the denominator is 675. Beware:
 `tools/audit.py`'s `true_extent` will happily disassemble a data symbol and

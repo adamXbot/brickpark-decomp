@@ -63,12 +63,11 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-02: 676 functions at 100% — 643 of the 675 code exports
-(95.3%) plus 33 recovered internal functions.** (716 symbols are exported; 41
-are data — `python3 tools/remaining.py --data`.) `SaveGame` (0x0047d8e0), the
-largest function in the game at 1196 instructions, and `LoadGame` are both
-exact, so the whole `.sav` format is documented AND reproduced (see
-`savegame.c`'s header).
+**As of 2026-09-03: 800 functions at 100%** — 645 of the 675 code exports
+(95.6%) plus 155 recovered unexported functions. (716 symbols are exported; 41
+are data — `python3 tools/remaining.py --data`.) `SaveGame` and `LoadGame` are
+both exact, so the whole `.sav` format is documented AND reproduced, and
+`tri3d.c` reproduces the software 3D renderer.
 
 32 exports remain. **14 of them are already exact** and are held only because
 the shared `tools/match.py` stops at the first `ret` and cannot bound a void
@@ -88,9 +87,9 @@ no marker:
 
 | | |
 | --- | --- |
-| addresses with a marker | 772 |
-| distinct addresses called through an `extern` | 991 |
-| **unmatched callees** | **591, about 35,800 instructions** |
+| addresses with a marker | 871 |
+| distinct addresses called through an `extern` | 1113 |
+| **unmatched callees** | **631, about 31,000 instructions** |
 
 (The callee COUNT can rise while the instruction total falls: every new file
 declares externs for its own callees, so the frontier widens as the work goes
@@ -104,7 +103,7 @@ them, the whole renderer core), `Draw3DPersonModel` (1023), the per-ride
 callback sets that `SetCustomCallbacks` installs (210 callees, ~15,400
 instructions), and the routing and perception internals.
 
-Counting whole functions rather than exports: 772 of ~1,363 known (56.6%), and
+Counting whole functions rather than exports: 871 of ~1,502 known (58.0%), and
 there may be more that nothing references. Both numbers are true; quote the one
 that answers the question being asked.
 
@@ -432,6 +431,18 @@ the same rule (the change is the `true_extent`/`end_of_body` pair in
 - **Array indexing form decides scaling.** `arr[i].x` with an unscaled `i`
   gives `shl`/`add` plus based stores; `*(int*)((char*)arr + i)` with `i`
   pre-scaled lets VC6 fold the scale into an `lea`.
+- **Some of the original is hand-written assembly, and must be reproduced as
+  assembly.** The four software triangle rasterisers (`tri3d.c`:
+  `DrawFlatTri`, `DrawGouraudTri`, `DrawFlatTexTri`, `DrawGouraudTexTri`, 2743
+  instructions) are `__declspec(naked)` in the reconstruction because no C
+  produces them. Two independent proofs, both read off the original:
+  `xchg dword ptr [ebp+0xc], eax` — no compiler emits `xchg` against memory —
+  and callee-saved pushes sitting INSIDE the instruction stream (`push ebx/esi`
+  after two movs, `push edi` after a `cmp`: Pentium pairing slots). VC6's
+  inline assembler always emits those pushes at the top of an `__asm` region
+  and splitting the region does not move them, so they cannot be compiler
+  output. Before grinding a function whose codegen looks impossible, check for
+  these two signatures — the answer may be that there was never any C.
 - **Frame layout (the lever that finished `SaveGame`, 1196 instructions).** VC6
   lays the frame out as **[block-scope pool][function-level locals in
   DECLARATION order, ascending]**, so the width of the block-scope pool decides
