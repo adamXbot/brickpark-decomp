@@ -63,15 +63,20 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-02: 669 functions at 100% — 637 of the 675 code exports
-(94.4%) plus 32 recovered internal functions.** (716 symbols are exported; 41
-are data — `python3 tools/remaining.py --data`.) 38 exports remain, and 13 of
-those are functions `tools/audit.py` certifies exact but the shared `match.py`
-cannot bound (void tail-jump wrappers, `RenderFrontEndScreen`,
-`KillAllSamplesFromSource`) — see "Tail-jump functions" below. Every genuine
-partial carries its measured residual, and its first diverging instruction
-index, in a note above the marker; several are within a handful of
-instructions. Run `python3 tools/remaining.py` for the live list.
+**As of 2026-09-02: 676 functions at 100% — 643 of the 675 code exports
+(95.3%) plus 33 recovered internal functions.** (716 symbols are exported; 41
+are data — `python3 tools/remaining.py --data`.) `SaveGame` (0x0047d8e0), the
+largest function in the game at 1196 instructions, and `LoadGame` are both
+exact, so the whole `.sav` format is documented AND reproduced (see
+`savegame.c`'s header).
+
+32 exports remain. **14 of them are already exact** and are held only because
+the shared `tools/match.py` stops at the first `ret` and cannot bound a void
+tail-jump wrapper (measured: it scores `KillHelp` 37.5%) — see "Tail-jump
+functions" below; `tools/audit.py` certifies all 14 with zero mismatches. That
+leaves **18 genuinely unfinished functions**, each carrying its measured
+residual and first diverging instruction index in a note above its marker.
+Run `python3 tools/remaining.py` for the live list.
 
 Counts come from committed markers
 (`git ls-files 'LEGOLAND/*.c' | xargs grep -h '^// FUNCTION: LEGOLAND' | wc -l`);
