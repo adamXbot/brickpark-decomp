@@ -45,14 +45,41 @@ in [`LEGOLAND/legoland.h`](../LEGOLAND/legoland.h).
 `tools/match.py` (and therefore `tools/verify.py`) disassembles only up to the
 **first `ret`**. For a single-`ret` function that is the whole body, but for a
 function with an early-return guard it compares only the prologue — a stand-in
-tail would pass falsely. Every committed function is therefore also checked with
-`tools/matchfull.py` (full body, difflib-aligned) **and** against its true
-extent (entry → the `ret` followed by padding/next export, via
-`scratchpad/*` audit scripts): a match counts only when `matchfull` is 100% over
-a compiled length that covers the whole function. Prologue-only or fabricated-
-tail reconstructions are never committed as `// FUNCTION:`.
+tail would pass falsely. Every committed function is therefore also gated by
+**`tools/audit.py`**, which establishes each original function's true extent
+by control flow (the first `ret` that no earlier branch jumps past, or an
+unconditional `jmp` that leaves the function) and requires the compiled body to
+match it on instruction count, byte length and a strict index-for-index
+comparison. `tools/matchfull.py` (full body, difflib-aligned) is the
+iteration tool; `audit.py` is the authority. Prologue-only or fabricated-tail
+reconstructions are never committed as `// FUNCTION:`.
+
+    python3 tools/audit.py LEGOLAND/foo.c      # [OK]/[WIP]/[REJECT], ends PASS/FAIL
+
+Beware the two ways `matchfull` misleads: it truncates the original to the
+compiled length (a short reconstruction can score a false 100%), and it keeps
+decoding the `.rdata` jump table that `/Gy` places after a `switch` function's
+final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
+
+**As of 2026-09-02: 332 functions at 100% — 307 of the 675 code exports
+(45.5%) plus 25 recovered internal functions.** (716 symbols are exported; 41
+are data.) 5 WIP: three genuine partials (`ClampScrollToMap` 0x00461290,
+`UpdateControllerFromMouseData` 0x00473b00, `RestoreBaseMap` 0x0045da60) and
+two tail-jump wrappers held only for tooling (see below). Counts come from
+`tools/progress.py` over committed markers; `docs/LEGOLANDPROGRESS.HTML` is the
+generated report.
+
+Files by subsystem: map pipeline (`loadmap.c`, `mapinit.c`, `mapbuild.c`,
+`maprestore.c`, `pathgfx.c`, `pathsq.c`, `pathbuild.c`, `tilehelp.c`),
+simulation (`bnvpath.c`, `blokeai.c`, `blokemisc.c`, `blokeanim.c`,
+`blokelist.c`, `rides.c`, `power.c`, `money.c`, `buildtick.c`, `workorder.c`,
+`lifecycle.c`), rendering (`renderinit.c`, `renderlist.c`, `render2.c`,
+`layervis.c`, `surface.c`, `sprite_override.c`, `spritemisc.c`, `scroll.c`,
+`scrolltick.c`), UI (`panelui.c`, `input.c`, `wndenv.c`), audio (`audiomisc.c`,
+`audio2.c`), data (`llidb_odf.c`, `res.c`, `saveprof.c`, `listdel.c`), plus
+`sweep1–5.c` (small accessors) and `util.c`.
 
 The map/render accessors, the `SetMapTile` family, and `GetRectArea` —
 **14/14 at 100%**:
@@ -271,12 +298,26 @@ Full disassembly-grounded drafts for all of the above are in
 ## Tooling note (for Codex)
 
 `tools/match.py`'s disassembler **stops at the first `ret`**, so multi-return
-functions are only verified up to that point. I added `tools/matchfull.py` (new
-file; does not touch the shared `match.py`/`verify.py`, uses its own
-`/tmp/_matchfull.obj`) which compares the **whole** function — it caught
-`LoadData` being only 82.8% past the first `ret`. A full-body re-check confirms
-all committed functions are 100% end-to-end. Suggest folding the full-body walk
-into `match.py` alongside the parallel-safety fix.
+functions are only verified up to that point. `tools/matchfull.py` (new file;
+does not touch the shared `match.py`/`verify.py`, takes `--obj` for parallel
+safety) compares the **whole** function, and `tools/audit.py` is the strict
+extent gate described above. Suggest folding the full-body walk into
+`match.py` alongside the parallel-safety fix.
+
+### Tail-jump functions (proposed `match.py` change — shared file, not applied)
+
+A void wrapper whose last statement is a call compiles to a tail `jmp` with
+**no `ret`** of its own, e.g. `UnLoad_PopUpInfo` (0x00471450: `push 0x2c3 /
+call RemoveIconGroup / add esp,4 / jmp 0x471170`) and `UnLoad_Interface_Icons`
+(0x00474800). `match.py`'s first-`ret` walk runs through the nop padding into
+the next routine and scores them 64% / 67% although they are exact. `audit.py`
+already handles this: an unconditional `jmp` whose target is before the entry
+or at/after the next exported symbol (original side) or carries a zero rel32
+relocation (compiled side) terminates the extent, provided nothing jumps past
+it. Both functions are committed as `// WIP-FUNCTION:` with a note, so
+`verify.py` stays green; flip them to `// FUNCTION:` once `match.py` applies
+the same rule (the change is the `true_extent`/`end_of_body` pair in
+`tools/audit.py`).
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
