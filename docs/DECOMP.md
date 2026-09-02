@@ -78,6 +78,32 @@ leaves **18 genuinely unfinished functions**, each carrying its measured
 residual and first diverging instruction index in a note above its marker.
 Run `python3 tools/remaining.py` for the live list.
 
+### What the export percentage does NOT measure
+
+The headline figure counts EXPORTED functions, and exports are only the symbols
+the linker happened to expose — roughly half the game. The matched files reach
+the rest through `extern` declarations carrying the callee's address in a
+trailing comment, and `python3 tools/callees.py` lists every such address with
+no marker:
+
+| | |
+| --- | --- |
+| addresses with a marker | 708 |
+| distinct addresses called through an `extern` | 898 |
+| **unmatched callees** | **584, about 39,300 instructions** |
+
+So the reconstruction NAMES about 39k instructions of behaviour it does not yet
+reproduce, and for the browser runtime those are the gaps that matter most:
+`Draw3DPersonModel` (1023 instructions), the per-ride callback sets that
+`SetCustomCallbacks` installs (221 callees, ~18,800 instructions, mostly the
+`CB_4[23]xxxx` handlers), `RequestRoute`, `ScanBlokeSurroundings`,
+`GetPathNeighbours`, the software blitters, and the `Save/LoadBlock*` and
+`Save/LoadScripts` chunk writers that complete the `.sav` format.
+
+Counting whole functions rather than exports: 708 of ~1,292 known (54.8%), and
+there may be more that nothing references. Both numbers are true; quote the one
+that answers the question being asked.
+
 Counts come from committed markers
 (`git ls-files 'LEGOLAND/*.c' | xargs grep -h '^// FUNCTION: LEGOLAND' | wc -l`);
 `tools/progress.py` reads the working tree, so run it on a clean checkout.
