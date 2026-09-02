@@ -764,6 +764,24 @@ static __inline Cell* RouteCellAt(Pos* p)
  * were tried against both else-block spellings; the struct-copy else is the
  * only one that keeps 482 instructions.  Whoever gets the CSE into eax while
  * keeping `to = cur->pos;` finishes this function. */
+/* NEW THIS ROUND -- the goal test's half of the residual is solvable, and the
+ * lever is a THIRD use of `cur->pos.x` in the else block.  With two uses (the
+ * goal test plus `to.x = cur->pos.x`) VC6 coalesces them into one long live
+ * range and gives it ecx, which flips the x-compare to `cmp ecx,eax` and puts
+ * `g_route_to.y` in eax (indices 25-32 wrong, 481 instructions).  With three
+ * uses -- e.g. `to.x = cur->pos.x; to.y = cur->pos.y - 1;` and then
+ * `RouteInBounds(cur->pos.x, to.y)`, or the same two stores plus a redundant
+ * `to.x = cur->pos.x;` after them -- indices 25 THROUGH 37 match the original
+ * exactly, the CSE lands in eax as the original has it, and the body is 482
+ * instructions.  What is left in that shape is only the tail: the original
+ * copies the CSE into ecx (`mov ecx,eax`) and uses ecx for BOTH the `to.x`
+ * store and the `push`, while the three-use form stores from eax and then
+ * reloads a third register for the push.  So the target is now precise: keep
+ * the goal test's allocation of the three-use form and make the else block's
+ * `to.x` a COPY of eax rather than a fresh load.  (Measured: 4 orderings of
+ * the goal test x 2 else-block spellings, `to = cur->pos`, field assignments
+ * in both orders, a named `cx` temporary defined before or inside the else,
+ * and hoisting `to = cur->pos` above the test.) */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)
 {
@@ -945,6 +963,23 @@ void RequestRoute(Pos from, Pos to)
  * TempleSlide_Draw is stuck on: VC6 SP3 orders the operands of `A + B` where
  * both are independent loads by its own key, and no source spelling reaches
  * the other order.  Treat both as one open question, not two. */
+/* NEW THIS ROUND, and it narrows the question a lot: the Y-first order is
+ * carried by the abs() INTRINSIC, not by the sum.  Written with the branchy
+ * absolute value --
+ *     dx = a->x - b->x; dy = a->y - b->y;
+ *     if (dx < 0) dx = -dx; if (dy < 0) dy = -dy; return dx + dy == 1;
+ * -- VC6 evaluates the X term FIRST and accumulates the same way the original
+ * does (`add eax,ecx`, result already in eax, no closing move); it just spells
+ * the absolute value with test/jge/neg instead of cdq/xor/sub, so it is 22
+ * instructions, not the original's 24.  Every spelling that keeps the
+ * intrinsic -- both source orders of the sum, separate `dx`/`dy` locals with
+ * the abs applied in either order or as separate statements, `t = abs(..); t
+ * += abs(..)`, `1 == ...`, `!= 1` inverted, an `unsigned` accumulator, and
+ * b-a instead of a-b -- produces byte-identical code with the +4 field first.
+ * So: find a source form that keeps VC6's cdq/xor/sub abs expansion while
+ * leaving the two terms in source order; that single fact also fixes the
+ * register roles (a in esi, b in edi, |dx| in ecx) and the extra
+ * `mov eax,edi`. */
 // WIP-FUNCTION: LEGOLAND 0x00450500  (95.8%, VC6 canonicalises the commutative sum to Y-first; one extra result move)
 int IsAdjacentPos(Pos* a, Pos* b)
 {

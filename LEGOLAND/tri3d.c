@@ -354,6 +354,24 @@ void Render_SetPixelFormat(int greenBits)
  * must not share a slot, which is why `i = 0` is written before `m = max`),
  * the two-step float local that stops the 1/256 * 31 constants folding
  * together, and the base+2 induction pointer, is exact. */
+/* RE-MEASURED THIS ROUND: the 9 mismatches are TWO independent facts, not one.
+ *  (a) The zero register.  The original materialises the shared zero (the high
+ *      dword of the u64 that stages `m = max`, and `i = 0`) AFTER the shift has
+ *      freed ecx -- `shr eax,cl / xor ecx,ecx` -- and stores ecx twice.  VC6
+ *      here schedules `xor edx,edx` BEFORE the `shr`, so it has to pick a
+ *      register other than ecx.  Moving `i = 0;` after `m = max;`, or into the
+ *      for-init, does move the zero but also SHRINKS the frame from 0xc to 8,
+ *      because VC6 then overlaps `i` with the u64 staging temp -- so the
+ *      current statement order (`i = 0;` then `m = max;`) is load-bearing for
+ *      the frame and must stay.
+ *  (b) The 16-bit stash.  The original keeps the first __ftol result in a
+ *      SIXTEEN-bit register (`mov di,ax`) and then shifts the full edi in eax
+ *      (`mov eax,edi / shl eax,cl`), relying on the high half being discarded
+ *      by the 16-bit store; VC6 here emits the 32-bit `mov edi,eax` and shifts
+ *      in edx.  Additional spellings tried and rejected this round: `a` as
+ *      `short`, an `int` intermediate assigned then cast, `(unsigned int)a <<
+ *      shift`, `a * (1 << shift)` (which rewrites the whole prologue), and a
+ *      second `unsigned short` copy of `a`. */
 // WIP-FUNCTION: LEGOLAND 0x004860f0  (43/43 insns, 9 mismatches: `mov di,ax` narrowing)
 void BuildChannelTables(void)
 {

@@ -342,6 +342,17 @@ JoustRec* Joust_AddRecord(RideTile* tile)
  * question for a later agent is why the original's VC6 did not CSE the
  * loop-invariant `tile->key` across the peeled test and the loop at all. */
 
+/* Re-derived independently this round and confirmed, with one new datum: VC6
+ * WILL put the record key in dx (`mov dx,[eax]`) when the two keys meet in a
+ * NON-compare operator -- `(unsigned short)(rec->tile.key ^ tile->key)` emits
+ * exactly the original's `mov dx,[eax]` at index 4 before diverging.  So the
+ * operand roles are decided by the compare's CSE of the loop-invariant tile
+ * key, not by the loads.  Also measured and rejected: `tile` as `void*` with a
+ * `*(unsigned short*)` read, a 16-bit BITFIELD struct for either side (VC6
+ * still CSEs the bitfield load), `(short)`/`(unsigned short)` casts on either
+ * operand, a hand-peeled first test, a goto-form loop, and the rotated
+ * `while ((rec = rec->next) != 0)` walk -- every one of them hoists the tile
+ * key.  The both-volatile form still measures 14/16 and is still not shipped. */
 // WIP-FUNCTION: LEGOLAND 0x00407a20  (15 of 16 instructions, audit mismatch 8/16: invariant tile-key hoist, the original re-reads the tile key as the compare's memory operand)
 JoustRec* Joust_FindRecord(RideTile* tile)
 {
@@ -419,6 +430,18 @@ TempleSlideRec* TempleSlide_FindRecord(RideTile* tile)
  *     the floor over ~40 measured variants is 11.  Fixing the address CSE is
  *     what is left. */
 
+/* CONFIRMED THIS ROUND why the volatile is here at all: the original's walk
+ * contains a genuinely REDUNDANT load.  Pre-loop it does `mov esi,[ecx+4]`
+ * (p->next, the compare value) and `lea eax,[ecx+4]`; the loop then re-reads
+ * the same location through the link, `mov ecx,[eax]`, instead of using esi.
+ * Every non-volatile spelling measured -- q-then-link and link-then-q in both
+ * the pre-loop and the body, the link as `char**`/`void**`/`unsigned int*`,
+ * the compare cast to `unsigned int`, and a rotated for(;;) -- lets VC6 CSE
+ * the two loads and collapses the body to 25 instructions against the
+ * original's 32.  So the 32-instruction shape is only reachable by defeating
+ * that CSE; the volatile cast is the only lever found, and the residual 11 is
+ * the node/link register pair (ours node eax / link ecx, the original node ecx
+ * / link eax) plus the lea-first address CSE. */
 // WIP-FUNCTION: LEGOLAND 0x00407a50  (32/32 instructions and block layout exact, audit mismatch 11/32: node/link registers swapped by an address CSE -- see above)
 void Joust_RemoveRecord(JoustRec* rec)
 {
@@ -848,6 +871,25 @@ extern RenderList g_ts_blokelist;    /* 0x004cbf84 */
  * VC6 SP3 sorts the operands of a commutative sum of independent memory
  * loads by its own key and no source spelling reaches the other order. */
 
+/* MEASURED THIS ROUND.  The 4 mismatches (indices 84/87/92/94) are the two
+ * MIDDLE operands of `b->ride_dx + rider.ox + exit.ox + screen.ox`: the
+ * original adds `rider` (the higher frame slot) first, we add `exit` (the
+ * lower) first.  Frame map, derived by tracking esp through the un-popped
+ * argument pushes -- with E = esp on entry:
+ *     exit   = E-0x18 / E-0x14      (globals 0x4cbf88 / 0x4cbf8c)
+ *     rider  = E-0x10 / E-0x0c      (globals 0x4cbfc8 / 0x4cbfcc)
+ *     screen = E-0x08 / E-0x04      (ox never stored -- it lives in ebx)
+ * Those slots are ALREADY right: every other reference to them matches.  Only
+ * the sum's operand order differs, and VC6 canonicalises it: ALL 24
+ * permutations of the four terms, explicit parenthesisation of the left
+ * subtree, and two- or three-statement temporaries all produce the identical
+ * instruction stream (lower slot first).  All 6 permutations of the three
+ * Offset DECLARATIONS also produce identical code -- declaration order is not
+ * a lever for address-taken locals in this build; their slots follow first
+ * use.  Making either operand's read volatile does flip the order (exit
+ * volatile puts rider first at index 84) but wrecks the add direction and
+ * costs 12-13.  This is the same commutative canonicalisation as simcore.c's
+ * IsAdjacentPos; treat the two as one open question. */
 // WIP-FUNCTION: LEGOLAND 0x00416fa0  (116/120; two pairs of independent stack loads scheduled in the opposite order)
 void TempleSlide_Draw(RideElem* elem, int x, int y, RideTile* sq,
                       void* clip, int mode)
@@ -1254,6 +1296,36 @@ static __inline void Joust_DrawBand(Bloke** here, char n, int code)
  * every PrintSprite instead of parking it in ebp).  Find what makes VC6 hold
  * `mode` in ebp across the three band-group PrintSprite calls and the rest
  * should fall out. */
+/* ROOT CAUSE of the 10 missing instructions (measured this round with a
+ * difflib alignment of the two full bodies -- scratchpad/finish/f2/align.py).
+ * They are not missing behaviour: they are five copies of the per-band guard
+ *     test bl, bl / jle <end of the band group>
+ * that the original emits in front of EVERY band and we emit only once.  The
+ * whole divergence is ONE register decision and it cascades:
+ *   * the original never lets `n` (the collected-people count, a char) out of
+ *     bl.  Each band therefore re-derives its loop counter with
+ *     `movsx edi, bl`, re-tests `test bl,bl / jle`, and -- because no byte
+ *     register is free -- compares the band code as an IMMEDIATE,
+ *     `cmp byte ptr [eax+0x60], 0x18`.
+ *   * VC6 here hoists `movsx ebp, bl` (the `i = n` of the first inlined band)
+ *     out of all 20 bands into ebp.  That frees bl, so VC6 then also hoists
+ *     the band's compare CONSTANT into it -- `mov bl, 0x18` +
+ *     `cmp byte ptr [eax+0x60], bl` -- which destroys `n` and forces the
+ *     reload `mov bl,[esp+0x50]` we emit at index 107; and with `n > 0`
+ *     already established by the first guard it drops the other guards.
+ * So the thing to attack is the `movsx` HOIST (make ebp unavailable, or make
+ * the conversion non-invariant), not the band spelling.  Measured dead ends
+ * this round: declaring Joust_DrawBand's `code` as `unsigned char` or `char`,
+ * and replacing the whole static __inline helper with a function-like MACRO so
+ * the band code is a literal from the front end onwards -- both still emit
+ * `mov bl,0x18`, because the constant is hoisted by loop-invariant motion out
+ * of the do/while, not materialised by the inliner.
+ * The first divergence (index 28) is the head of the same chain: the original
+ * routes the 8-byte struct return of GetScreenCoordsForObject through ebp
+ * (`mov ebp,eax` / `test esi,esi` / `mov [esp+0x24],ebp`) where we store eax
+ * straight out; ebp's value is dead two instructions later, so it is a pure
+ * allocator artefact -- but it is the only other place ebp is claimed before
+ * the bands. */
 // WIP-FUNCTION: LEGOLAND 0x00408580  (542 of 552 instructions under audit.py, mismatch 476; frame exact, per-band count re-test still folded -- see above)
 void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode)
 {

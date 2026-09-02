@@ -508,6 +508,24 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
  *     ctrl, npasses, data   (THE ORIGINAL -- not reached by any of the 20)
  * so the assignment order in the arms is the right dial; the combination
  * that lands the third rotation has not been found. */
+/* MEASURED THIS ROUND.  All 8 mismatches are ONE swap of two frame homes.
+ * The original's home map, from the ebp frame:
+ *     [ebp-0x04] frame   [ebp-0x08] data    [ebp-0x0c] npasses
+ *     [ebp-0x10] ctrl    [ebp-0x14] pass    [ebp-0x18] f
+ * ours puts npasses at -8 and data at -0xc; every other slot, and every other
+ * instruction, matches.  It is NOT a declaration-order effect: all orderings
+ * of the six locals (including moving data and/or ctrl into the loop's block
+ * scope, and moving either to the end) emit byte-identical code, and so do
+ * `char*` instead of `void*` for data/ctrl, `unsigned int` for npasses, a dead
+ * `data = 0;` before or after `npasses = 1;` (VC6 deletes the store but the
+ * home does not move), an extra unused local, and swapping the `n16 = ...` /
+ * `ctrl = ...` / `data = ...` statement order inside each of the three
+ * branches.  Reference counts do not explain it either: the original gives the
+ * NEARER slot (-8) to `data`, which it touches 3 times, over `npasses`, which
+ * it touches 5.  Whatever orders VC6's home pool here is derived from the
+ * flow graph, not from anything spellable in the declarations -- that is the
+ * open question, and it is worth answering once because the same swap is the
+ * whole residual. */
 // WIP-FUNCTION: LEGOLAND 0x00465240  (98.1%: 407/415 insns, 1544/1544 bytes; mismatch=8, all of them the npasses/data frame homes swapped -- see the note above)
 void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
 {

@@ -1126,6 +1126,24 @@ extern SpriteObj* g_carousel_zspr;    /* 0x006160b8  z_Carousel.lls */
  * of the two guards, and both declaration orders of r/rec.  The interleaving
  * trick that fixed EarthSlide_Tick (splitting a grouped pair of reads so the
  * two sums alternate) has no counterpart here -- worth looking for one. */
+/* RESIDUAL, measured this round: 412/412 instructions, 1300 bytes against
+ * 1308.  Two facts, and the first causes most of the 277:
+ *  (1) SCHEDULING of `r = item->riders`.  The original issues
+ *      `mov esi,[ebx+0xcc]` at index 9 -- BEFORE the `here[10] = {0}` fill --
+ *      so the rider cursor lives in esi across the rep stosd; VC6 here sinks
+ *      that load past the fill and puts it in edi (index 15), because edi is
+ *      the register the rep stosd just finished with.  esi and edi then swap
+ *      roles for the whole rest of the body, which is what most of the
+ *      mismatch is.
+ *  (2) `n = 0`.  The original stores it as an immediate,
+ *      `mov byte ptr [esp+0x80],0`, AFTER the fill and after `push ebp`; VC6
+ *      here folds it into the fill's zero (`mov byte ptr [esp+0x7c],al`)
+ *      before the stosd, and homes the char 4 bytes lower.  This is the
+ *      documented "where a flag local is assigned relative to a rep-movsd
+ *      decides the zero register" lever, seen from the other side.
+ *  Six orderings of the five leading statements (`r =`, `n = 0`, and the three
+ *  ctx fields) were measured; none moves either load.  What is needed is
+ *  something that makes the rider cursor live BEFORE the array fill. */
 // WIP-FUNCTION: LEGOLAND 0x0042bcf0  (32.8%, esi/edi allocation tie-break renames two thirds of the body)
 void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
@@ -1327,6 +1345,28 @@ extern void*      g_bz_car_blue; /* 0x0061605c  BZBlueCarM1.lls */
  * the count to the dead parameter slot while keeping it in bl".  Moving
  * `n = 0;` around the AdjustOffsetForViewMode/FindRec calls does not do it
  * (three positions measured, all 0x58 and slightly worse). */
+/* FRAME MAP AND RESIDUAL, measured this round (E = esp on entry, so the
+ * return address is at E and the parameters at E+4..E+0x18).  Ours is
+ * 576/576 instructions but `sub esp,0x58` against the original's `sub esp,0x5c`
+ * -- FOUR bytes of locals short -- and that shift is what the 507 mismatches
+ * really are.  Everything above the char pool is already identical:
+ *     here[6]  E-0x30 .. E-0x19   (six dword zero stores, same order)
+ *     &off     E-0x40             (the uninitialised pair handed to
+ *                                  AdjustOffsetForViewMode)
+ *     screen   E-0x38 / E-0x34
+ *     &lay     E-0x18, lay.f10 at E+8
+ * The difference is the CHAR pool and which char is homed in a dead parameter
+ * slot:
+ *     original   n -> E+4 (the dead `elem` slot, stored 0 with
+ *                `mov byte ptr [esp+0x74],bl` before the first call)
+ *                flag -> E-0x59, wheel -> E-0x58 (two chars PACKED into one
+ *                dword), car -> E-0x4c
+ *     ours       flag -> E+4, wheel -> E-0x58, car -> E-0x54 (each char in its
+ *                own dword, so the pool is 4 bytes shorter)
+ * So the question is not a missing variable: it is why VC6 packs `flag` next
+ * to `wheel` and spills `n` to the parameter slot.  All 24 permutations of the
+ * four char declarations emit byte-identical code, so declaration order is not
+ * the lever here either. */
 // WIP-FUNCTION: LEGOLAND 0x0042b2e0  (12%, one frame slot short -- see the frame analysis above)
 void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
