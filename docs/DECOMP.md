@@ -85,15 +85,15 @@ Files by subsystem: map pipeline (`loadmap.c`, `mapinit.c`, `mapbuild.c`,
 `blokeai.c`, `blokemisc.c`, `blokeanim.c`, `blokelist.c`, `workers.c`,
 `workers2.c`, `rides.c`, `ridesave.c`, `power.c`, `money.c`, `buildtick.c`,
 `workorder.c`, `lifecycle.c`, `math3d.c`, `bigsim.c`), rendering
-(`renderinit.c`, `renderlist.c`, `render2.c`, `printlist.c`, `bigrender.c`,
-`gpu.c`, `rin.c`, `layervis.c`, `surface.c`, `sprite_override.c`,
-`spritemisc.c`, `sprite2.c`, `scroll.c`, `scrolltick.c`, `text.c`), UI
-(`panelui.c`, `iconui.c`, `fpui.c`, `fpui2.c`, `mapscreen.c`, `screens2.c`,
-`bigscreens.c`, `bighelp.c`, `input.c`, `input2.c`, `wndenv.c`), audio
-(`audiomisc.c`, `audio2.c`, `audio3.c`, `music.c`), data (`llidb_odf.c`,
-`memdb.c`, `res.c`, `saveprof.c`, `profiles.c`, `loaders.c`, `data2.c`,
-`listdel.c`, `savegame.c`, `screen.c`), and the renderers `renderview.c`
-and `bigrender.c`), plus `sweep1–5.c` (small accessors) and `util.c`.
+(`renderinit.c`, `renderlist.c`, `render2.c`, `printlist.c`, `renderview.c`,
+`bigrender.c`, `gpu.c`, `rin.c`, `layervis.c`, `surface.c`,
+`sprite_override.c`, `spritemisc.c`, `sprite2.c`, `scroll.c`, `scrolltick.c`,
+`text.c`), UI (`panelui.c`, `iconui.c`, `fpui.c`, `fpui2.c`, `mapscreen.c`,
+`screens2.c`, `bigscreens.c`, `bighelp.c`, `popup.c`, `input.c`, `input2.c`,
+`wndenv.c`), audio (`audiomisc.c`, `audio2.c`, `audio3.c`, `music.c`), data
+(`llidb_odf.c`, `memdb.c`, `res.c`, `saveprof.c`, `profiles.c`, `savegame.c`,
+`loaders.c`, `data2.c`, `listdel.c`), host/display (`screen.c`), plus
+`sweep1–5.c` (small accessors) and `util.c`.
 
 The map/render accessors, the `SetMapTile` family, and `GetRectArea` —
 **14/14 at 100%**:
