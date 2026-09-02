@@ -304,6 +304,47 @@ translation unit).
 Full disassembly-grounded drafts for all of the above are in
 `scratchpad/slope_re/*.md` and the loader-draft workflow output.
 
+## Global names from the export table
+
+41 of the 716 exports are DATA, not functions (`python3 tools/remaining.py
+--data`). They give the game's OWN names for globals the reconstruction had
+been naming by address, so prefer these when naming things in new files. Where
+a file already uses a different name, the recovered meaning was right; only the
+label differs.
+
+| VA | exported name | what the reconstruction calls it |
+| --- | --- | --- |
+| 0x004b9220 | `BGFullUpdate` | background full-update flag |
+| 0x004bcbf4 | `lpConfig` | `g_map` in legoland.h — really ONE config record: screen pixel size at +0x00/+0x02, map extent at +0x14/+0x16 (panelui.c and fpui2.c read it as the screen dims, which is why both readings are correct) |
+| 0x004bdea0 | `SPRITE_ClipRect` | `g_clip_rect` — the clip RECT `{0,0,640,480}` (data, not code) |
+| 0x00667c54 / 0x00667c58 | `QueryObj` / `QueryClass` | the object under the query cursor |
+| 0x00667ca8 / 0x00667cac | `OverlayList` / `OverlayILF` | the overlay chain (maprestore.c `ClearOverlays`) |
+| 0x00667cb4 / 0x00667cb8 | `ScrollX` / `ScrollY` | the scroll position (24.8) |
+| 0x00667cbc / 0x00667cc0 | `ScrollSpeedX` / `ScrollSpeedY` | the autoscroll velocities (pathtile2.c `MouseScrollMap`) |
+| 0x00667d70 | `DDRAWENV` | the whole host GPU block documented in gpu.c |
+| 0x006681fc | `LastFrameMS` | the frame-time tick scale |
+| 0x006687d0 | `FocussedIconPtr` | the focussed icon (fpui.c `CheckFocussedIcon`) |
+| 0x00669240 | `ObjectClassList` | `g_odf_head`, the 0xd0-byte ObjDef chain |
+| 0x0066b574 | `FirstBloke` | the people chain head |
+| 0x0079a694 | `DMusicInitialised` | the music-ready flag (audio2.c) |
+| 0x0079a8a8 / 0x0079a8ac | `GardenerList` / `MechanicList` | the hired-worker lists (workers.c guessed both correctly) |
+| 0x007cacd4 | `FrameNumber` | frame counter |
+| 0x007fd620 | `NewObjectPtr` | the object being placed |
+| 0x007fea48 | `FramesPerSecond` | fps |
+| 0x007febc0 | `EditCursor` | the edit cursor (objmap.c / objmap2.c) |
+| 0x00800400 / 0x00801b24 | `ObjectPartArray` / `ObjectPartCount` | the object-part table |
+| 0x00801400 | `GameMap` | `g_map_rows` — the 256x256 Cell grid (allocated by `LoadMapTiles`) |
+| 0x00801f40 | `TileSpriteInfo` | `g_tile_info` |
+| 0x00805f60 | `TileSpriteArray` | `g_tile_sprites` |
+| 0x0080ff74, 0x0080ff78, 0x0081014c, 0x008119a0, 0x008119a8, 0x008119ac | `NEWFLC_AutoPlay`, `NEWFLC_PauseType`, `NEWFLC_ID`, `NEWFLC_CheckDuplicate`, `NEWFLC_BuffSize`, `NEWFLC_Repeat` | the FLC/FLI video player settings |
+| 0x00810160 | `QueryCursor` | the query-mode cursor |
+| 0x008119b0 | `EditMode` | edit mode |
+| 0x00813a40 | `GamePad` | the game-button block (bighelp.c calls it `GameInput`) |
+| 0x00813b00 | `CONTROLLERBUFFER` | the Controller record (input.c / input2.c) |
+| 0x00830fc0 | `PathCursor` | the path-laying cursor |
+| 0x00832800 | `MapStats` | the block objmap.c calls the "MapAI state block" — it is the park STATISTICS accumulator that `DoMapAI` fills (categories, counts, income), which is the better reading of that function |
+| 0x00832bf0 | `PathSprite` | the u16 path tile code (pathbuild.c) |
+
 ## Tooling note (for Codex)
 
 `tools/match.py`'s disassembler **stops at the first `ret`**, so multi-return
