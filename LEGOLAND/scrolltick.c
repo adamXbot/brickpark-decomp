@@ -249,24 +249,23 @@ void ProcessDamage(void)
  * isometric slope).  tx/ty are reused as south_h and the (east-west) span after
  * the corner values are derived — the original reuses the same two slots.
  *
- * WIP.  The reconstruction emits 187 of the original's 190 instructions in the
- * same order, operation for operation; what does not match is one register
- * allocation tie-break.  The original enregisters south_w (in eax) and spills
- * hh to [esp+10h]; VC6 here does the opposite - it enregisters hh and hw across
- * the GetTileDimensions call and spills south_w - which renames registers all
- * the way down and costs the three instructions the original spends keeping vh
- * live in ecx across the third edge clamp (the `jmp` + `mov ecx,[esp+40h]`
- * restore at 0x461440).  Source order of the eight halved view values, of the
- * four multiplies, of x/y, `register` hints, forcing hh to memory and 190-odd
- * generated permutations were all tried; none flips the tie-break. */
-// WIP-FUNCTION: LEGOLAND 0x00461290  (34.2%, 187/190 insns; VC6 spills south_w where the original spills hh)
+ * Codegen notes (VC6's register allocation hinges on these; playbook material):
+ *  - the four multiplies must be ordered east, south_w, west, south_h and
+ *    x must be assigned before y: this is what keeps hw in ebx across the
+ *    GetTileDimensions call, spills hh, and puts south_w in eax / y in ebp;
+ *  - every axis clamp is written with the limit expression inline (no `lim`
+ *    temporary).  Clamp 3 in particular must not go through a temporary: a
+ *    named local there links its `vh` read with the edge-clamp reads and the
+ *    allocator then refuses to keep vh in ecx across edge clamps 3->4 (the
+ *    `lea ebx,[ecx+ebp]` / `jmp` / `mov ecx,[vh]` fix-up block at 0x461440). */
+// FUNCTION: LEGOLAND 0x00461290
 void ClampScrollToMap(int vw, int vh, int pad_x, int pad_y)
 {
     int tx, ty;
     int hl, ht, hr, hb, hw, hh, hox, hoy;
     int mapw, maph;
     int east, west, south_w, south;
-    int x, y, d, lim;
+    int x, y, d;
 
     hl  = g_view_left   >> 1;
     ht  = g_view_top    >> 1;
@@ -282,27 +281,23 @@ void ClampScrollToMap(int vw, int vh, int pad_x, int pad_y)
     ty = tx >> 1;
     mapw = g_scroll_map->width;
     maph = g_scroll_map->height;
-    west    = -(maph * tx);
     east    = mapw * tx;
-    tx      = maph * ty;
     south_w = mapw * ty;
+    west    = -(maph * tx);
+    tx      = maph * ty;
     ty      = west + east;
     south   = tx + south_w;
-    y = pad_y + g_scroll_y;
     x = pad_x + g_scroll_x;
+    y = pad_y + g_scroll_y;
 
-    hw += east - vw;
-    if (x > hw)
-        x = hw;
-    lim = west - hh;
-    if (x < lim)
-        x = lim;
-    lim = south - vh + hoy;
-    if (y > lim)
-        y = lim;
-    lim = -hox;
-    if (y < lim)
-        y = lim;
+    if (x > hw + (east - vw))
+        x = hw + (east - vw);
+    if (x < west - hh)
+        x = west - hh;
+    if (y > south - vh + hoy)
+        y = south - vh + hoy;
+    if (y < -hox)
+        y = -hox;
 
     if (y < south_w && vw + x > 0) {
         d = x - (y + y) - hl + vw;

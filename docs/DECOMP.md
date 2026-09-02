@@ -65,8 +65,8 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 **As of 2026-09-02: 472 functions at 100% — 444 of the 675 code exports
 (65.8%) plus 28 recovered internal functions.** (716 symbols are exported; 41
-are data.) 10 WIP: two genuine partials (`ClampScrollToMap` 0x00461290 at 187/190,
-`UpdateControllerFromMouseData` 0x00473b00 at 102/109) and eight void
+are data.) 9 WIP: one genuine partial (`UpdateControllerFromMouseData` 0x00473b00 at
+102/109 — the residual is an allocator mode, see input.c) and eight void
 tail-jump wrappers that `tools/audit.py` certifies exact but that are
 held only for tooling (see "Tail-jump functions" below). Counts come from
 committed markers (`git ls-files 'LEGOLAND/*.c' | xargs grep -h '^// FUNCTION: LEGOLAND' | wc -l`);
@@ -324,6 +324,18 @@ the same rule (the change is the `true_extent`/`end_of_body` pair in
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **Register tie-breaks (`ClampScrollToMap`, 190/190 after sitting at 34%):**
+  the source order of *independent multiplies* decides which product stays in
+  eax in place — try all permutations early, it is cheap. A clamp written
+  `v += e; if (x > v) x = v;` gives `v` two defs and makes VC6 keep it across a
+  call; `if (x > v + e) x = v + e;` keeps a single def. Reads of a stack
+  *argument* are CSE'd function-wide into one value whose allocation priority
+  falls with its live-range length: routing an early read through a named
+  temporary extends the range and can cost the later caching (including the
+  edge-fix-up `jmp` + `mov reg,[esp+arg]` block); inline the early use.
+  Declaration order, `register`, `&&` vs nested ifs, `y+y` vs `2*y`, local
+  copies of arguments and identity `static __inline` helpers all normalise to
+  identical code — none are levers for this class.
 - **A dead `and dx, 0x20` is a merged-arm ghost, not a peephole.** `RestoreBaseMap`
   (0x0045da60) computes `code & 0x20` into dx and never uses it. The C that
   produces it: a u16 temp `reserved = code & 0x20` consumed by a compare against
