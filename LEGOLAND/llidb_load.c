@@ -139,7 +139,7 @@ void* LLIDB_LoadTSFData(LLElem* elem)
     return desc;
 }
 
-void LLIDB_FreeILFTable(void* desc);
+int  LLIDB_FreeILFTable(void* desc);   /* int (never sets eax): memdb.c */
 
 /* .ILF/.CSP parsed descriptor (36 bytes): dx/dy offset arrays (doubled at load)
  * + per-image loaded sprites. */

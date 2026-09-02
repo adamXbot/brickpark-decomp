@@ -75,7 +75,7 @@ extern void  LLSStop(void* lls);
 /* 0x0043fe50 -- draw one 3D person model. */
 extern void  Render3DPerson(void* person);
 /* 0x0047bef0 -- free an ILF (indexed frame) table. */
-extern void  LLIDB_FreeILFTable(void* table);
+extern int   LLIDB_FreeILFTable(void* table);  /* int (never sets eax): memdb.c */
 /* 0x00497510 -- drop a reference on an image record. */
 extern void  KillImage(void* image);
 /* 0x004975b0 -- unlink a sprite record from the global sprite list and free it. */

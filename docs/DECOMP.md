@@ -166,7 +166,7 @@ failure (map element not found).
   `InitGameMap` @ 0x459850 — that is **wrong**. Matching that function showed its
   8-instruction body resolves the `CASTLE OBJ` element into `0x0080ff64` and
   loads the 23-entry FX table at `0x004b9228`; it never touches `g_map` or
-  `g_map_rows`. The grid allocator is still unidentified.)
+  `g_map_rows`. The grid allocator is `LoadMapTiles` 0x0045aad0 (`pathtile2.c`): one `calloc(0x14041f, 1)` kept at 0x667c9c, `g_map_rows` = align32(block+0x1f), rows at align32(block+0x41f) stepping 0x1400 — 256 rows × 256 cells × 20 B.)
 - The tile-sprite tables `TileSpriteArray` (0x805f60) / `TileSpriteInfo`
   (0x801f40) are populated on demand by the TSF loads (`AllocTileSpace`); the
   `.lls` tile sprites resolve from `Graphics1/2.res`.
