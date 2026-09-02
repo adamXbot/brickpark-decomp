@@ -16,10 +16,11 @@ State (committed, `main` of `/Users/systemadmin/Downloads/legoland/legoland`):
 
 | | |
 | --- | --- |
-| Functions exact (committed `// FUNCTION:` markers) | 676 |
-| Code exports exact | 643 of 675 (95.3%) |
+| Functions exact (committed `// FUNCTION:` markers) | 678 |
+| Code exports exact | 645 of 675 (95.6%) |
 | Recovered internal (unexported) functions | 32 |
-| Exports still to finish | 32, but 14 are already exact and tooling-blocked, so **18 real** — run `python3 tools/remaining.py` |
+| Exports still to finish | 30, but 15 are already exact and tooling-blocked, so **15 real** — `python3 tools/remaining.py` |
+| **Unmatched callees (unexported)** | **584, ~39,300 instructions — `python3 tools/callees.py`** |
 
 716 symbols are exported; 41 are data, so the denominator is 675. Beware:
 `tools/audit.py`'s `true_extent` will happily disassemble a data symbol and
@@ -109,26 +110,40 @@ Then `git add` only the lane files (never `scratchpad/`, never `vc60.pdb`),
 commit, and recount committed markers. Update the status block at the top of
 "## Status" in `docs/DECOMP.md` when the tally moves.
 
-## 5. Work in flight
+## 5. Work in flight, and where the value now is
 
-Workflow `ll-batch20` (7 lanes) was running when this was last updated — it
-covers 17 of the 18 remaining genuine partials. If that session is gone, the
-lane files are still on disk with `// WIP-FUNCTION:` on anything unfinished.
-Run `python3 tools/audit.py LEGOLAND/<file>.c`, commit what is `[OK]`, and
-relaunch a continuation lane using `docs/LANE_BRIEF.md`.
+**Read this before launching another round of export-chasing.** The export
+figure (95.6%) counts only the symbols the linker exposed, about half the game.
+`python3 tools/callees.py` lists 584 addresses the matched files call through an
+`extern` declaration that nobody has matched — roughly 39,300 instructions of
+behaviour the reconstruction names but does not reproduce. By whole functions
+the project is 708 of ~1,292 known (54.8%).
 
-Batch 20's lanes: `renderview.c` (RenderView + RenderFullMap), `popup.c`
-(BuildObject + DrawPopUpInfo), `bigrender.c` (SoftPrint_XBltFast +
-RenderCursor), `objmap2.c` (BuildCursorPtr, ValidateCursor, GetObjectUID), a
-"nearmiss" lane owning `bigscreens.c` + `bnvmove.c` + `workers2.c` +
-`screen.c`, a "lists" lane owning `fpui2.c` + `fpui.c`, and an "oldwips" lane
-owning `rin.c` + `screens2.c`.
+The 15 remaining genuine export partials are deep register-allocation puzzles
+with steeply diminishing returns: two consecutive rounds cost about 4.4M
+subagent tokens between them and yielded one function, though they did leave
+precise measurements in every WIP note. The unexported internals are worth far
+more per token and are what a browser runtime actually needs.
 
-The eighteenth is `UpdateControllerFromMouseData` 0x00473b00 (input.c). Two
-agents have exhausted it: the residual is an allocator state (the original
-holds a constant zero in a register across two clamps, which only happens when
-ebp is in the pool without being spent) that no C construct or /O2-compatible
-option reaches. Its note records every eliminated hypothesis. Leave it.
+Workflow `ll-batch22` (7 lanes) was running when this was last updated, and it
+is the first round aimed at that work: `savechunks.c` (the Save/LoadBlock and
+Save/LoadScripts writers, which COMPLETE the .sav format), `person3d.c`
+(Draw3DPersonModel, 1023 instructions, the largest unmatched function in the
+game), `joust.c` (the Joust and Temple Slide callback sets, the two rides whose
+GetInterfaces are already matched so every slot's purpose is known),
+`ridecb1.c` and `ridecb2.c` (the 0x42xxxx and 0x43xxxx ride-callback clusters),
+`simcore.c` (RequestRoute, ScanBlokeSurroundings, GetPathNeighbours,
+UpdateMapDrag, TriggerSwitch) and `softblit.c` (the CPU rasterisers).
+
+If that session is gone, the lane files are on disk with `// WIP-FUNCTION:` on
+anything unfinished. Audit, commit what is `[OK]`, and relaunch from
+`docs/LANE_BRIEF.md`. Then run `tools/callees.py --by-file` and take the next
+cluster: 221 of the unmatched callees, ~18,800 instructions, are the ride
+callback sets that `SetCustomCallbacks` installs.
+
+Note when writing new files: ALWAYS give an `extern` declaration a trailing
+comment with the callee's address (`/* 0x0043ffd0 */`). That comment is what
+`tools/callees.py` reads to track what is still missing.
 
 ## 6. What comes after batch 18
 
