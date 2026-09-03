@@ -10,6 +10,39 @@ Read this, then `docs/DECOMP.md` (the living codegen playbook),
 
 ---
 
+## 0. Environment note — session of 2026-09-03, ~12:00 AEST
+
+Picked up cold on a machine that has the repo but **none of the local
+prerequisites**. Verified absent: `original/legoland.exe`, `gamedata/`, the
+`toolchain` symlink target, the old checkout under `~/Downloads/legoland`, and
+the `wibo-msvc/cl` wrapper hard-coded in `tools/match.py`, `tools/audit.py` and
+`tools/matchfull.py`. Consequences:
+
+- The repo now lives at `/Users/systemadmin/Documents/Development/Github/legoland`.
+  Section 4 below, `docs/LANE_BRIEF.md`, `docs/RE_CONTEXT.md` and the three
+  `CL` constants still name the Downloads paths; update them when the
+  toolchain is put back (the `CL` constants are in the shared files — see §2).
+- Every matching tool is blocked until the binary and toolchain are restored:
+  `match.py`, `audit.py`, `verify.py`, `matchfull.py`, and also `coverage.py`,
+  `remaining.py` and `callees.py`, which import `audit.true_extent`/`load_exe`.
+  Only `tools/progress.py` runs (it reads the committed markers).
+- Homebrew's Python refuses `pip install` (PEP 668). A venv with `capstone` and
+  `pefile` is at `~/.venvs/legoland`; run the tools as
+  `~/.venvs/legoland/bin/python tools/<tool>.py` or activate it first.
+- Done this session: the committed progress report was stale (not regenerated
+  after `a8d4533`), so `tools/progress.py --check` — the CI gate — failed; it
+  is regenerated. The README status paragraph was two months stale
+  (254 matches) and now quotes the checkpoint numbers.
+- CI: the only two recorded runs (2026-09-01) pass the report check and fail at
+  `actions/configure-pages` because **GitHub Pages is not enabled on the repo**
+  (the Pages API returns 404). Enabling Pages with "GitHub Actions" as the
+  source fixes the deploy; the progress badge in the README is dead until then.
+- The 62 audit-exact WIPs of §2 can be listed without the binary — 58 of them
+  say so on the marker line:
+  `grep -h '^// WIP-FUNCTION' LEGOLAND/*.c | grep -iE 'exact|100%' | grep -i audit`.
+
+---
+
 ## 1. Where the project stands
 
 Goal: human-written C that, compiled with the VC6 SP3 toolchain the game shipped
