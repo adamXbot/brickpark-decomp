@@ -189,15 +189,13 @@ typedef struct Bloke {
     unsigned char  pad04[0x0e - 4];
     unsigned short busy;            /* +0x0e  move countdown */
     unsigned char  pad10[0x24 - 0x10];
-    int            tx;              /* +0x24  target, 24.8 world units */
-    int            ty;              /* +0x28 */
+    Pos            target;         /* +0x24  target, 24.8 world units */
     unsigned char  pad2c[0x60 - 0x2c];
     unsigned char  action;          /* +0x60  the class script's step index */
     unsigned char  pad61;
     unsigned short flags62;         /* +0x62  bit 8 = inside a building */
     unsigned char  pad64[0x68 - 0x64];
-    int            wx;              /* +0x68  world position, 24.8 */
-    int            wy;              /* +0x6c */
+    Pos            world;          /* +0x68  world position, 24.8 */
     unsigned char  pad70[0x73 - 0x70];
     unsigned char  heading;         /* +0x73 */
     unsigned char  pad74[0x98 - 0x74];
@@ -294,7 +292,7 @@ extern void   SetEditCursorFootPrint(Footprint* fp);                 /* 0x0045f4
 extern LLS*   GetLLSForSprite(void* sprite);                         /* 0x00441e80 */
 extern void   DBPrintf(const char* fmt, ...);                        /* 0x00453a20 */
 extern void   RemoveBlokeFromRide(WWDef* def, RiderNode* r);         /* 0x0048a100 */
-extern int    CalcMoveLine(int fx, int fy, int tx, int ty, void* path); /* 0x00480740 */
+extern int    CalcMoveLine(Pos from, Pos to, void* path);          /* 0x00480740 */
 extern int    NewDirForAction(Bloke* b, unsigned char dir);          /* 0x004833d0 */
 extern void   SetOverrideFrame(int frame);                           /* 0x00464420 */
 extern void   ClearOverrideFrame(void);                              /* 0x00464440 */
@@ -517,9 +515,9 @@ int WW_HasEntrance(void)
 int WW_AnyBlokeInRect(Bloke* b, WinRect* r)
 {
     while (b) {
-        int x = b->wx >> 8;
+        int x = b->world.x >> 8;
         if (x >= r->left && x <= r->right) {
-            int y = b->wy >> 8;
+            int y = b->world.y >> 8;
             if (y >= r->top && y <= r->bottom)
                 return 1;
         }
@@ -717,7 +715,7 @@ static __inline void WaterStepToTarget(Bloke* b)
 {
     unsigned char d;
 
-    d = (unsigned char)(CalcMoveLine(b->wx, b->wy, b->tx, b->ty, &b->path) + 0x10);
+    d = (unsigned char)(CalcMoveLine(b->world, b->target, &b->path) + 0x10);
     b->busy = 7;
     b->heading = d;
     NewDirForAction(b, (unsigned char)((d >> 5) + 3));
@@ -744,16 +742,17 @@ static __inline void WaterStepToTarget(Bloke* b)
  *     every pool square a visitor steps into pulls them to its centre.
  * ========================================================================== */
 
-/* 119 of 131 instructions exact.  The residual is ONE scheduling block: in
- * case 0 the original completes BOTH target stores before evaluating the move
- * call's arguments, so `b->ty` forwards out of the register that just stored
- * it and `b->tx` has to be RELOADED (VC6 forwards only the most recent
- * store); we sink the `b->ty` store past the argument pushes and forward both.
- * Measured and rejected: all four orders of the two stores against the flags
- * OR, computing the two coordinates into locals first, doing the shifts and
- * the +-0x80 as separate statements, and routing the two stores through an
- * inlined two-int helper. */
-// WIP-FUNCTION: LEGOLAND 0x00417f90  (131/131 instructions and 92% of the body index-for-index; audit mismatch 35: case 0's target-store/argument-push schedule -- see above)
+/* CalcMoveLine takes its two points as `Pos` BY VALUE (as goldrush.c,
+ * castleobj.c, bigsim.c and catapult.c already declare it), and that is what
+ * closed the last 35: with four `int` arguments VC6 forwards BOTH freshly
+ * stored target fields out of their registers and sinks the `ty` store past
+ * the pushes; with the 8-byte struct copied as a unit it completes both
+ * target stores first, forwards only the most recent one (`mov eax,ecx`) and
+ * RELOADS `tx` from the record (`mov ecx,[esi+0x24]`), which also turns the
+ * `add eax,-0x80` into the original's `sub eax,0x80`.  Store order inside
+ * case 0 still matters: the flags OR must come BEFORE the two target stores
+ * (after them VC6 swaps the OR with the `add ecx,0x80`). */
+// FUNCTION: LEGOLAND 0x00417f90
 void WaterBlock_Activate(RideElem* elem)
 {
     WaterRec*  p;
@@ -811,13 +810,9 @@ void WaterBlock_Activate(RideElem* elem)
         if (b->busy == 0) {
             switch (b->action) {
             case 0:
-                y <<= 8;
-                x <<= 8;
-                x -= 0x80;
                 b->flags62 |= 8;
-                y += 0x80;
-                b->tx = x;
-                b->ty = y;
+                b->target.x = (x << 8) - 0x80;
+                b->target.y = (y << 8) + 0x80;
                 WaterStepToTarget(b);
                 break;
             case 1:
@@ -1086,25 +1081,27 @@ void ElephantFountain_Destroy(void)
     WW_KillFX();
 }
 
-/* 52/52 instructions, 12 mismatches: a one-step register ROTATION across the
- * three probes.  The original materialises `&r` into the (now dead) base
- * pointer's register as soon as it frees up and loads the list head after it,
- * giving (head=eax,&r=edx) -> (edx,ecx) -> (ecx,eax); we fill that same slot
- * with the head load instead and get the same rotation started one step
- * along, (ecx,eax) -> (eax,edx) -> (edx,ecx).  The identical body without the
- * `esi` push (WW_AnyBlokeOnSquare) matches exactly, so this is purely the
- * extra live value.  Measured and rejected: both operand orders of each
- * addition, two temporaries for the two coordinates, computing top before
- * right, and hoisting `&r` into a pointer local. */
-// WIP-FUNCTION: LEGOLAND 0x00418710  (52/52 instructions, 12 mismatches: probe register rotation -- see above)
+/* The two `+ 3` sums are spelled out in FULL (`sq->x + base->left + 3`)
+ * rather than as `r.left + 3`: VC6 CSEs the repeated sum either way, but a
+ * textually repeated expression is a compiler TEMPORARY, and that changes
+ * the scratch-register round-robin at the three probes.  Through `r.left`
+ * the probes come out (head=ecx,&r=eax)->(eax,edx)->(edx,ecx); the original
+ * -- and the textual form -- start the rotation one register later,
+ * (&r=edx,head=eax)->(ecx,edx)->(eax,ecx).  This is the only one of ~25
+ * measured spellings (pointer locals, int temps, a Pos temp, an array, an
+ * inlined box builder, inlined probe wrappers, either operand order, an
+ * aggregate initialiser) that moves the rotation without breaking the
+ * prologue.  The twin WW_AnyBlokeOnSquare needs no such trick because it has
+ * no `esi` push and its rotation starts at eax. */
+// FUNCTION: LEGOLAND 0x00418710
 int WW_AnyBlokeInFountainBox(BPos* sq, Rect* base)
 {
     WinRect r;
 
     r.left = sq->x + base->left;
-    r.right = r.left + 3;
+    r.right = sq->x + base->left + 3;
     r.top = sq->y + base->bottom;
-    r.bottom = r.top + 3;
+    r.bottom = sq->y + base->bottom + 3;
     if (WW_AnyBlokeInRect(g_people_head, &r))
         return 1;
     if (WW_AnyBlokeInRect(g_gardener_list, &r))

@@ -789,7 +789,18 @@ void CalculateMapRenderOrder(void)
  * byte is the cursor style (4 when valid) | 1 for left/right, | 2 for
  * top/bottom.  `refresh` (only honoured for the head cursor) re-checks the
  * footprint first. */
-/* 96.3% (161/161 instructions, 544B vs 543B; index-for-index everywhere except
+/* EXACT (2026-09 PASS 3): the sums are `short sx, sy`, not int.  VC6 keeps
+ * both in full registers (every consumer is a 16-bit store or an add that is
+ * truncated at the store, so no movsx ever appears), but the narrower type
+ * changes the allocation of the temporaries feeding them: the `y` load then
+ * goes straight into edx (sy's home) and is consumed in place by `add edx,edi`,
+ * which is the whole residual described below.  Every other spelling in the
+ * history below is unchanged; `int sx, sy` is the 6-mismatch attractor.
+ * LEVER: when an int-valued temp feeds only 16-bit stores and VC6's in-place
+ * accumulate/lea tie-break comes out wrong, try declaring the local `short`.
+ *
+ * --- history (all measured with int sx/sy; kept so nothing is re-derived) ---
+ * 96.3% (161/161 instructions, 544B vs 543B; index-for-index everywhere except
  * six instructions at the head of the x-loop body).
  *   original: mov edx,[y] / mov eax,[r.left] / mov ecx,edi / sub ecx,edx /
  *             add edx,edi / imul ecx,[w2] / imul edx,esi
@@ -898,13 +909,13 @@ void CalculateMapRenderOrder(void)
  * NOTE: the marker must stay on the line directly above the signature; the
  * verifier only looks 1-3 lines ahead, and this note used to sit between them,
  * which made the function silently uncounted. */
-// WIP-FUNCTION: LEGOLAND 0x0045f5f0  (96.3%, y lands in eax not edx at the x-loop head)
+// FUNCTION: LEGOLAND 0x0045f5f0
 void BuildCursorPtr(Cursor* c, void* unused, int refresh)
 {
     Rect  r;
     short h;
     int   w2, h2;
-    int   sx, sy;
+    short sx, sy;               /* 16-bit: what puts y in edx (sy's home) at the x-loop head */
     int   x, y;
     unsigned short style;       /* 16-bit: the original's lea uses +0xfffc, not -4 */
 
@@ -1019,6 +1030,35 @@ void StandardRemoveObject(MapObj* obj, BPos bp, Cursor* ctx)
     }
 }
 
+/* The cell lookup GetObjectUID probes with.  The parameter order (y, x) is a
+ * codegen lever: VC6 evaluates the arguments right to left, so the CSE'd
+ * `wpos->x >> 8` is created before `wpos->y >> 8` and the prologue comes out
+ * `mov eax,[ecx] / ... / mov edi,[ecx+4] / sar eax,8 / sar edi,8 / test
+ * eax,eax` (x-first, separate test) instead of the (x, y) order's y-first
+ * head with the x test fused into its `sar` (`js`).  The body is the same
+ * bounds-checked fetch as MapCellAt. */
+static __inline Cell* CellYX(int y, int x)
+{
+    if (x >= 0 && x < g_map->width && y >= 0 && y < g_map->height)
+        return &g_map_rows[y][x];
+    return 0;
+}
+
+/* Does the object based at `c` put its footprint offset on (x, y)?  The two
+ * sums go through a Pos LOCAL on purpose: an aggregate defeats forward
+ * substitution, so VC6 computes BOTH sums before the first compare (the
+ * original's `add esi,edx / ... / add edx,ebx / cmp esi,eax / jne / cmp
+ * edx,edi / jne`); as scalar temps or inline in the `&&` chain the second
+ * sum is short-circuited below the first `jne`. */
+static __inline int UidHit(Cell* c, ObjDef* def, int x, int y)
+{
+    Pos p;
+
+    p.x = def->dx + c->bx;
+    p.y = c->by + def->dy;
+    return p.x == x && p.y == y;
+}
+
 /* Find the base-cell id (packed {x,y}) of the placed object `def` whose
  * footprint offset (dx, dy) lands on the cell at the 24.8 world position, by
  * probing the four neighbours.  0 when none.
@@ -1064,6 +1104,40 @@ void StandardRemoveObject(MapObj* obj, BPos bp, Cursor* ctx)
  * all four combinations: locals everywhere 179 mismatches, expression in the
  * probes only 174, expression in the probes AND in the x comparison 163.
  *
+ * 2026-09 PASS 3: 89.5% (20 mismatches, 477B = the original's length,
+ * index-for-index over 0-94 and 109-190).  Two levers closed 143 of the 163:
+ *   1. the lookup helper's parameter order (y, x) — see CellYX — which puts
+ *      `def` in ebp, x in eax, y in edi, width in the dead arg slot and
+ *      height in ebx exactly as the original (the whole "def spilled / g_map
+ *      hoisted" residual below was this one evaluation-order tie-break);
+ *   2. the coordinate sums through a Pos local — see UidHit — which computes
+ *      both sums before the first compare.
+ * Neither lever works alone (174 / 188); together they give 20.  What is
+ * left is ONLY the left and right probes' g_map access: the original
+ * reloads g_map into esi at the probe ENTRY (a landing pad `mov esi,[g_map]`
+ * at 0x48a4d9 / 0x48a547 that the edges on which esi still holds g_map jump
+ * past, to 0x48a4df / 0x48a54d) and uses edx as the width/height zero-extend
+ * scratch; ours loads g_map at its first use (after the x-1 / x+1 sign test)
+ * into edx and zero-extends through esi.  Same instructions, two registers
+ * swapped and one load moved up by three instructions, twice.
+ * Measured for that residual (scratchpad/objmap2/p3/uid_v*.py):
+ *   - a `Map* m` variable reassigned before every probe (`m = g_map;
+ *     c = CellM(m, ..)`) DOES produce the original's landing pads with the
+ *     retargeted edges, and so does a helper-local `Map* m = g_map` in every
+ *     probe — but both also make the BELOW probe reload g_map and re-read
+ *     width/height instead of using the above probe's CSE'd copies, which
+ *     frees ebx and lets VC6 hoist g_map_rows into it at the entry (146);
+ *   - every mix that keeps the vertical pair's CSE (below probe reusing the
+ *     above's m, direct g_map reads, a block-scoped m, `m2 = m` copies,
+ *     separate m2/m3 for left/right, `register`) sinks the left/right load
+ *     to its use (this 20).  The pad appears only when the above probe's m
+ *     is not reused by the below probe — the two wanted properties have not
+ *     been reached together;
+ *   - passing g_map as a helper argument, a comma-expression macro (ESCAPES),
+ *     x and/or y as int locals (the note below still applies: an int x makes
+ *     VC6 delete the below probe's x tests and CSE x*20).
+ *
+ * --- history (measured before the two levers above) ---
  * 14.7% (191/191 instructions, 480B vs 477B; 28 exact and most of the rest
  * identical up to register naming — the block structure, the branch targets,
  * the `xor esi,esi` landing pad and the four epilogues now line up
@@ -1157,43 +1231,65 @@ void StandardRemoveObject(MapObj* obj, BPos bp, Cursor* ctx)
  *   index-for-index count mostly measures how far one inserted instruction
  *   shifted the rest of the body, and it hid this lever from two earlier
  *   passes. */
-// WIP-FUNCTION: LEGOLAND 0x0048a3e0  (14.7%, def spilled / g_map hoisted where the original does the reverse)
+// WIP-FUNCTION: LEGOLAND 0x0048a3e0  (89.5%, left/right probes reload g_map at its use into edx, the original at the probe entry into esi)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {
     Cell* c;
 
-    c = MapCellAt(wpos->x >> 8, (wpos->y >> 8) - 1);
+    c = CellYX((wpos->y >> 8) - 1, wpos->x >> 8);
     if (c) {
         if ((c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def &&
-            def->dx + c->bx == (wpos->x >> 8) && def->dy + c->by == (wpos->y >> 8))
+            UidHit(c, def, wpos->x >> 8, wpos->y >> 8))
             return *(unsigned short*)&c->bx;
         /* [sic] no null check on this fetch — the original reuses the one
          * above, so an off-map cell here dereferences 0. */
-        c = MapCellAt(wpos->x >> 8, (wpos->y >> 8) + 1);
+        c = CellYX((wpos->y >> 8) + 1, wpos->x >> 8);
         if ((c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def &&
-            def->dx + c->bx == (wpos->x >> 8) && def->dy + c->by == (wpos->y >> 8))
+            UidHit(c, def, wpos->x >> 8, wpos->y >> 8))
             return *(unsigned short*)&c->bx;
     }
-    c = MapCellAt((wpos->x >> 8) - 1, wpos->y >> 8);
+    c = CellYX(wpos->y >> 8, (wpos->x >> 8) - 1);
     if (c && (c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def &&
-        def->dx + c->bx == (wpos->x >> 8) && def->dy + c->by == (wpos->y >> 8))
+        UidHit(c, def, wpos->x >> 8, wpos->y >> 8))
         return *(unsigned short*)&c->bx;
-    c = MapCellAt((wpos->x >> 8) + 1, wpos->y >> 8);
+    c = CellYX(wpos->y >> 8, (wpos->x >> 8) + 1);
     if (c && (c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def &&
-        def->dx + c->bx == (wpos->x >> 8) && def->dy + c->by == (wpos->y >> 8))
+        UidHit(c, def, wpos->x >> 8, wpos->y >> 8))
         return *(unsigned short*)&c->bx;
     return 0;
 }
 
-/* The cursor footprint in map coordinates.  The origin is taken BY VALUE so
- * that VC6 keeps one load of each half alive across the stores into the
- * address-taken rect (see ValidateCursor's note). */
-static __inline void MakeFoot(WinRect* o, Rect* r, Pos p)
+/* The people check for one footprint rect: build the footprint in map
+ * coordinates, clip it to the map bound and ask CheckForPeople.  `foot`,
+ * `hit` and `people` are HELPER locals on purpose: an address-taken local
+ * born inside an inlined helper is not in the caller's escaped class, so the
+ * four stores into `foot` no longer order against the reads of the origin
+ * through `o` and both origin halves stay in one register each (the earlier
+ * MakeFoot(WinRect*, Rect*, Pos by value) shape needed the by-value copy for
+ * the same reason and then mis-scheduled the block).  The origin is read
+ * through a `Pos*` (not `cur->origin`, which is also read in the x loop: the
+ * textual repetition would CSE it and flip the mx/my sums to copy-then-add).
+ * The sum order top, bottom, left, right is the original's: origin.y is
+ * consumed in place by the bottom sum and origin.x is loaded late. */
+static __inline void PeopleCheck(Cursor* cur, Rect* r, WinRect* bound, Pos* o)
 {
-    o->top = r->top + p.y;
-    o->left = r->left + p.x;
-    o->bottom = r->bottom + p.y;
-    o->right = r->right + p.x;
+    WinRect foot;
+    WinRect hit;
+    int     people;
+
+    foot.top = r->top + o->y;
+    foot.bottom = r->bottom + o->y;
+    foot.left = r->left + o->x;
+    foot.right = r->right + o->x;
+    if (IntersectRect(&hit, &foot, bound)) {
+        people = CheckForPeople(&hit);
+        if (people != -1) {
+            if (people == 1)
+                SetCursorError(cur, 3);
+        } else {
+            SetCursorError(cur, 4);
+        }
+    }
 }
 
 /* Validate an edit-cursor chain for class `def` (see the file header for the
@@ -1209,6 +1305,42 @@ static __inline void MakeFoot(WinRect* o, Rect* r, Pos p)
  *    (`test dword [under+0x1c],0x200000 / jne skip`), not with it.  An earlier
  *    reconstruction had the test inverted; the file header is corrected.
  *
+ * 2026-09 PASS 3: 97.6% (5 mismatches, 617B exact, index-for-index over
+ * 0-41 and 47-204).  The whole foot block from index 47 on now matches: the
+ * lever was moving `foot`/`hit`/`people` INTO the inlined helper (see
+ * PeopleCheck) with the origin read through a `Pos*` and the sums ordered
+ * top, bottom, left, right.  The remaining five instructions are 42-46:
+ *   original: mov eax,[origin.y] / mov ecx,[r->top] / add ecx,eax /
+ *             mov [bound.right],edx / mov edx,[r->left]
+ *   ours:     mov [bound.right],edx / mov eax,[origin.y] / mov ecx,[r->top] /
+ *             mov edx,[r->left] / add ecx,eax
+ * i.e. the original stores bound.right (the second g_map->height read, loaded
+ * into edx at index 41 in both) only AFTER the top sum, and its r->left load
+ * then cannot pass that store; ours stores it first.  The origin.y load is
+ * never hoisted above a store to the address-taken `bound` (VC6 orders every
+ * pointer load after an escaped-local store), so in the original's IR the
+ * bound.right STORE sits after the top sum while its LOAD sits before the
+ * origin.y load.  Measured and ruled out for that shape (~600 variants,
+ * scratchpad/objmap2/p3/vc_v*.py): every position of `bound.right = ...`
+ * inside the helper (a single-use load, int or unsigned short, local or
+ * argument, is always sunk to its store, which drags g_map's eax across the
+ * top sum); all 24 bound store orders x {caller, helper-by-pointer,
+ * helper-local} x {assignments, initialiser}; `bound` as a helper local (the
+ * stores then stop ordering against the loads, but VC6 also copies origin.y
+ * for the top sum and spends ebx); aggregate initialisers for bound and/or
+ * foot (VC6 evaluates them in field order left, top, right, bottom and sinks
+ * the last store, but the original's order is top, left, bottom, right);
+ * volatile pins of the second height read (frame changes); origin by value,
+ * as two ints, as int* and as `cur->origin` reads (the last flips the x-loop
+ * mx/my sums, 121); the field types of the rect and origin (no type-based
+ * disambiguation in VC6); all four bound stores AFTER the sums inside the
+ * helper (23 by pointer, 170 as a helper local); chained `bound.left =
+ * bound.top = 0` (identical) and `bound.right = bound.bottom = h` (one load,
+ * 168); the two height reads through block-scoped unsigned short locals
+ * (identical).  Hypothesis left: the second height read is not a single-use
+ * temporary in the original.
+ *
+ * --- history (measured with the old MakeFoot shape) ---
  * 93.2% (205/205 instructions, 617B exact, index-for-index over 0-41 and
  * 56-204 — the ONLY residual is the 14-instruction foot/bound block at 42-55).
  *
@@ -1321,18 +1453,15 @@ static __inline void MakeFoot(WinRect* o, Rect* r, Pos p)
  *    origin halves.  It is NOT register pressure: ebx is genuinely dead across
  *    this block in the original too - its first definition is the x-loop
  *    variable at 0x45f91f, well after the block. */
-// WIP-FUNCTION: LEGOLAND 0x0045f810  (93.2%, foot-block scheduling: 14 insns at idx 42-55)
+// WIP-FUNCTION: LEGOLAND 0x0045f810  (97.6%, bound.right store scheduled before the top sum: 5 insns at idx 42-46)
 void ValidateCursor(Cursor* cur, ObjDef* def)
 {
     Cursor* root = cur;
     Rect*   r;
     WinRect bound;
-    WinRect foot;
-    WinRect hit;
     Cell*   cell;
     ObjDef* under;
     int     x, y;
-    int     people;
 
     if (IsBuildableClass(def) && !(cur->flags & 0x4000))
         CheckCursorFootprint(cur);
@@ -1346,16 +1475,7 @@ void ValidateCursor(Cursor* cur, ObjDef* def)
             bound.left = 0;
             bound.bottom = g_map->height;
             bound.right = g_map->height;
-            MakeFoot(&foot, r, cur->origin);
-            if (IntersectRect(&hit, &foot, &bound)) {
-                people = CheckForPeople(&hit);
-                if (people != -1) {
-                    if (people == 1)
-                        SetCursorError(cur, 3);
-                } else {
-                    SetCursorError(cur, 4);
-                }
-            }
+            PeopleCheck(cur, r, &bound, &cur->origin);
             for (y = r->top; y <= r->bottom; y++) {
                 for (x = r->left; x <= r->right; x++) {
                     int mx = cur->origin.x + x;

@@ -122,8 +122,9 @@
  * `#pragma optimize("", off)` / `("", on)` pair. Note that the pragma inside
  * an /O2 compile is NOT the same as compiling the file /Od: it reproduces the
  * ebp frame, the per-value stack homes and the shared epilogue exactly, but
- * the frame SLOT ORDER still comes from the optimiser's colourer, not from
- * declaration order (see the residual note on Castle_Activate).
+ * the frame SLOT ORDER is decided by the locals' NAMES (symbol-table hash
+ * order; declaration order only breaks ties), not by declaration order --
+ * see the note on Castle_Activate and scratchpad/castleobj/probe.py.
  *
  * The original CastleObj_GetInterfaces body pushes a frame pointer
  * (`push ebp / mov ebp,esp`), RELOADS both parameters from their stack homes
@@ -467,12 +468,18 @@ extern int       g_829b04;                /* 0x00829b04 */
 extern void*     g_829c08;                /* 0x00829c08 */
 
 /* The same block at 0x00829ae0 seen as ONE record. Castle_Activate walks it
- * through a local pointer, so it needs the struct view; the rest of the file
- * touches the individual fields and keeps them as separate globals (which is
- * what their codegen asks for -- see the note on g_castle_x/g_castle_y). Both
- * declarations name the same bytes. */
+ * through a local pointer, so it needs the struct view, and
+ * CastleDummy_Interact needs the castle's x/y as fields of this record (its
+ * hoist order and load width depend on it -- see its note); the rest of the
+ * file touches the individual fields and keeps them as separate globals
+ * (which is what their codegen asks for). Both declarations name the same
+ * bytes. */
 typedef struct CastleRec {
-    unsigned char pad00[0xa8];
+    int           kind;       /* +0x00  = g_castle_rec */
+    int           flags;      /* +0x04  = g_829ae4 */
+    short         x;          /* +0x08  = g_castle_x  (CastleDummy_Interact reads them through the record: see its note) */
+    short         y;          /* +0x0a  = g_castle_y */
+    unsigned char pad0c[0xa8 - 0x0c];
     void*         sound_a;    /* +0xa8  = 0x00829b88 */
     void*         slot_a;     /* +0xac  = 0x00829b8c */
     unsigned char padb0[0x10];
@@ -1218,7 +1225,9 @@ int Castle_Extra(int a, int b)
  * the two loop-head loads. The allocation is fixed at 76 mismatches across
  * all of them, which points at a whole-function virtual-register ordering
  * decision rather than at any one statement. */
-// WIP-FUNCTION: LEGOLAND 0x00405bd0  (63.8%, exact instruction count/length/flow; eax<->ecx scratch renaming in cases 0/3 -- see note)
+/* 2026-09-03: the lane that closed this was killed by a session limit before flipping the marker;
+ * audit.py: 210i/641B, mismatch=0. Promoted by the integrator after match.py confirmed. */
+// FUNCTION: LEGOLAND 0x00405bd0
 void DrivingSchool_TickRiders(RideElem* elem)
 {
     BlokeSoundSource src;
@@ -1408,38 +1417,51 @@ void Castle_Remove(RideElem* elem, MapPos p, int c)
     }
 }
 
-/* RESIDUAL (56 of 69 instructions; 69/69 instructions and 256/256 bytes, so
- * the frame, the dead-parameter-slot home for the packed square, the two
- * hoisted 16-bit castle coordinates, the 0x24-byte part stride, the
- * ecx*11*8 record indexing and the 0x58-byte rep-movsd copy are all right).
- * What is left is the same tie-break that blocks CB_405bd0: the original
- * keeps the part count in edx and the wanted square in esi and hoists the
- * castle's y before its x, where VC6 gives us the two registers the other way
- * round and hoists x first. Tried: both operand orders on each sum, x/y
- * statement order (worse), `sq.id == want` vs `want == sq.id`, folding the
- * `want` read into the for-init, and a local for the count. All 13. */
+/* CLOSED (69/69, byte-exact) in two steps from the previous lane's 13:
+ *  1. The clicked square and the per-part candidate are TWO union locals
+ *     (`sq` and `t`), compared as `sq.id == t.id` inside the loop; the
+ *     loop-invariant `sq.id` read is then hoisted into the loop preheader
+ *     (`mov esi,[esp+0x84]` AFTER the `test edx,edx / jle` guard) and `t`
+ *     is coloured into `sq`'s dead slot. Copying the key into a `want`
+ *     scalar before the loop reads it before the guard and hands the part
+ *     count to esi instead of edx (13 -> 2).
+ *  2. The castle's x/y are read as FIELDS OF THE 0x829ae0 RECORD
+ *     (`g_castle.x` / `g_castle.y`, +0x08/+0x0a), not as two separate
+ *     `short` globals. Two invariant loads from ONE struct are hoisted in
+ *     descending displacement order (y into di first, x into bx), the same
+ *     rule as `IsAdjacentPos`; two separate globals are hoisted x first
+ *     whatever the statement order, operand order, extern order or names
+ *     (2 -> 1). The record view must also EXTEND PAST y: with a struct that
+ *     ends at +0x0c VC6 widens the x load to `mov ebx, dword ptr` (1 left);
+ *     with fields after y (here the real record through +0xc4) it stays the
+ *     original's `mov bx, word ptr` (1 -> 0). A `short[2]` array, a 4-byte
+ *     MapPos16 struct, an all-short struct, `#pragma pack`, `unsigned
+ *     short` globals, a pointer to the record, and a struct ending at x
+ *     with y separate all fail one way or the other.
+ * Frame: `sq`/`t` share the dead parameter slot at [esp+0x84]; the 0x24-byte
+ * part stride, the ecx*11*8 record indexing and the 0x58-byte rep-movsd copy
+ * were already right. */
 /* The dummy's "interact": work out which of the castle's parts the clicked
  * square is (the part table holds offsets from the castle's own square), and
  * if it is one of them, hand its 0x58-byte record -- patched with the part's
  * two extra fields -- to the presenter. Not finding a part is not an error;
  * the tail runs either way. */
-// WIP-FUNCTION: LEGOLAND 0x00424700  (81.2%, exact length/flow; edx<->esi and the hoist order of the two castle coordinates -- see note)
+// FUNCTION: LEGOLAND 0x00424700
 void CastleDummy_Interact(int a, int b, int c, MapPos* p)
 {
     Vec3 out;
     CastleRecord rec;
     union { MapPos16 p; unsigned int id; } sq;
-    unsigned int want;
+    union { MapPos16 p; unsigned int id; } t;
     int i;
 
-    Sub_425cb0(&g_castle_x, (float)g_castle_desc.h1, &out);
+    Sub_425cb0(&g_castle.x, (float)g_castle_desc.h1, &out);
     sq.p.x = p->x;
     sq.p.y = p->y;
-    want = sq.id;
     for (i = 0; i < g_castle_part_count; i++) {
-        sq.p.x = (unsigned short)(g_castle_parts[i].dx + g_castle_x);
-        sq.p.y = (unsigned short)(g_castle_parts[i].dy + g_castle_y);
-        if (want == sq.id) {
+        t.p.x = (unsigned short)(g_castle_parts[i].dx + g_castle.x);
+        t.p.y = (unsigned short)(g_castle_parts[i].dy + g_castle.y);
+        if (sq.id == t.id) {
             rec = g_castle_records[g_castle_parts[i].index];
             rec.f44 = g_castle_parts[i].f0c;
             rec.f48 = g_castle_parts[i].f10;
@@ -1516,91 +1538,97 @@ void Castle_Interact(RideElem* elem, int b, int c, MapPos* sq, int e, int mode)
  * Castle_Interact -- ebp frame, every value in its own stack home, the switch
  * value materialised into a local before the range check.
  *
- * RESIDUAL (156 of 218 instructions): 218/218 instructions and 684/684 bytes,
- * and with the `[ebp-N]` displacements masked out the two listings are
- * IDENTICAL line for line -- every instruction, both jump tables, the
- * two-level switch, the operand forms. The only difference is which frame
- * home each of the nine locals gets:
- *     orig  -0x04 r  -0x08 sq  -0x0c rec  -0x10 item  -0x14 y
- *           -0x18 x  -0x1c b   -0x20 next -0x24 rc    -0x28 switch temp
- *     ours  -0x04 rc -0x08 b   -0x0c r    -0x10 item  -0x14 sq
- *           -0x18 rec -0x1c x  -0x20 y    -0x24 next  -0x28 switch temp
- * Declaration order does not move them (two orders, one the exact inverse of
- * the other, produce byte-identical objects), and neither does hoisting the
- * loop locals into the while body or the dead `rc` into its own case block.
- * That is the tell that `#pragma optimize("", off)` inside an /O2 compile
- * still hands the frame to the OPTIMISER's slot colourer rather than to the
- * /Od "declaration order from ebp-4 down" allocator -- the same reason
- * Castle_Interact needed its two Offsets moved into a block scope to land on
- * the original's homes. `item` and the switch temp already agree; the other
- * eight would need whatever steers that colourer. */
+ * CLOSED (218/218, byte-exact) by RENAMING THE LOCALS. Under
+ * `#pragma optimize("", off)` VC6 gives every function-level local its own
+ * frame home, and the ORDER of those homes is a function of the locals'
+ * NAMES: the symbol table is a hash table, the frame is laid out by walking
+ * it bucket by bucket (ebp-4 first), and two names in one bucket come out
+ * most-recently-declared first. Declaration order, first use, type, scope
+ * hoisting and `register` do nothing unless two names collide. The previous
+ * lane's `r sq rec item y x b next rc` produced
+ *     -0x04 rc  -0x08 b  -0x0c r  -0x10 item  -0x14 sq  -0x18 rec  -0x1c x
+ *     -0x20 y   -0x24 next
+ * where the original has
+ *     -0x04 r   -0x08 sq -0x0c rec -0x10 item -0x14 y  -0x18 x   -0x1c b
+ *     -0x20 next -0x24 rc
+ * so `x` and `y` in particular can never sit the original's way round under
+ * those names (the original's y/x locals were not called x and y). The
+ * hash order of any candidate name set is measured in a few seconds with
+ * scratchpad/castleobj/probe.py (a pragma-off function whose int locals are
+ * the candidates; /FAs prints the `_name$ = -N` homes), and the names below
+ * were chosen from that ordering with a gap of at least one unrelated name
+ * between neighbours so no two land in one bucket. The hash itself was not
+ * recovered (single letters bucket by `c mod 16`, two-letter names by
+ * `(4*c0 + c1 + 6) mod 16` interleaved between the single-letter buckets;
+ * longer names follow no linear rule that was found). The names carry no
+ * semantics claim; only their hash order is load-bearing. */
 #pragma optimize("", off)
-// WIP-FUNCTION: LEGOLAND 0x004251c0  (71.6%, exact length/flow/operands; only the nine locals' frame homes differ -- see note)
+// FUNCTION: LEGOLAND 0x004251c0
 void Castle_Activate(RideElem* elem)
 {
     RiderNode* r;
-    MapPos* sq;
-    CastleRec* rec;
-    RideDef* item;
-    int y;
+    MapPos* sp;
+    CastleRec* castle;
+    RideDef* ridedef;
+    int ycoord;
     int x;
-    Bloke* b;
-    RiderNode* next;
-    int rc;
+    Bloke* bloke;
+    RiderNode* nextrider;
+    int ok;
 
-    item = elem->data;
-    r = item->riders;
-    rec = &g_castle;
-    if (rec->sound_a != 0)
-        Sub_41d170(rec->sound_a, &rec->slot_a);
-    if (rec->sound_b != 0)
-        Sub_41d190(rec->sound_b, &rec->slot_b);
+    ridedef = elem->data;
+    r = ridedef->riders;
+    castle = &g_castle;
+    if (castle->sound_a != 0)
+        Sub_41d170(castle->sound_a, &castle->slot_a);
+    if (castle->sound_b != 0)
+        Sub_41d190(castle->sound_b, &castle->slot_b);
     while (r != 0) {
-        next = r->next;
-        sq = &r->key.sq;
-        x = sq->x + item->base_x;
-        y = sq->y + item->base_y;
-        b = r->bloke;
-        switch (b->action) {
+        nextrider = r->next;
+        sp = &r->key.sq;
+        x = sp->x + ridedef->base_x;
+        ycoord = sp->y + ridedef->base_y;
+        bloke = r->bloke;
+        switch (bloke->action) {
         case 0:
-            b->flags62 |= 8;
-            if (b->state == 0) {
-                b->target.x = (x - 8) << 8;
-                b->target.y = (y - 1) << 8;
-                b->new_dir = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
-                b->state = 7;
-                NewDirForAction(b, (unsigned char)(((int)b->new_dir >> 5) + 3));
-                b->action++;
+            bloke->flags62 |= 8;
+            if (bloke->state == 0) {
+                bloke->target.x = (x - 8) << 8;
+                bloke->target.y = (ycoord - 1) << 8;
+                bloke->new_dir = (unsigned char)(CalcMoveLine(bloke->world, bloke->target, bloke->path) + 0x10);
+                bloke->state = 7;
+                NewDirForAction(bloke, (unsigned char)(((int)bloke->new_dir >> 5) + 3));
+                bloke->action++;
             }
             break;
         case 1:
-            if (b->state == 0)
-                b->action = 0x10;
+            if (bloke->state == 0)
+                bloke->action = 0x10;
             break;
         case 0x10:
-            rc = Sub_421930(b, &g_castle);
-            b->action = 0x20;
+            ok = Sub_421930(bloke, &g_castle);
+            bloke->action = 0x20;
             break;
         case 0x21:
-            if (b->state == 0) {
-                b->target.x = (x << 8) + 0x80;
-                b->target.y = (y << 8) + 0x80;
-                b->new_dir = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
-                b->state = 7;
-                NewDirForAction(b, (unsigned char)(((int)b->new_dir >> 5) + 3));
-                b->action++;
+            if (bloke->state == 0) {
+                bloke->target.x = (x << 8) + 0x80;
+                bloke->target.y = (ycoord << 8) + 0x80;
+                bloke->new_dir = (unsigned char)(CalcMoveLine(bloke->world, bloke->target, bloke->path) + 0x10);
+                bloke->state = 7;
+                NewDirForAction(bloke, (unsigned char)(((int)bloke->new_dir >> 5) + 3));
+                bloke->action++;
             }
             break;
         case 0x22:
-            if (b->state == 0)
-                b->action = 0x40;
+            if (bloke->state == 0)
+                bloke->action = 0x40;
             break;
         case 0x40:
-            b->flags62 &= ~8;
-            RemoveBlokeFromRide(item, r);
+            bloke->flags62 &= ~8;
+            RemoveBlokeFromRide(ridedef, r);
             break;
         }
-        r = next;
+        r = nextrider;
     }
     Sub_425170(elem);
 }

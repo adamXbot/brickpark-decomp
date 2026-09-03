@@ -343,94 +343,46 @@ void Render_SetPixelFormat(int greenBits)
  * (the TOP 5).  max = 0xff >> (8 - g_green_bits), so bits=6 is 5-6-5 and
  * bits=5 is 5-5-5.
  *
- * WIP: 43/43 instructions, 6 mismatches, all in one place.  The original
- * keeps the first __ftol result in a SIXTEEN-bit register (`mov di, ax`)
- * and shifts it in eax (`mov eax, edi / shl eax, cl`); every spelling tried
- * -- `unsigned short` / `short` / an explicit (int) widening / a multiply by
- * (1 << shift) / storing c0 first -- keeps the value 32-bit in edi and
- * shifts through edx instead (or, when c0 is stored first, drops the
- * register altogether and comes out SHORTER than the original).  Everything
- * else, including the frame (0xc: the u64 __ftol temp and the loop counter
- * must not share a slot, which is why `i = 0` is written before `m = max`),
- * the two-step float local that stops the 1/256 * 31 constants folding
- * together, and the base+2 induction pointer, is exact. */
-/* RE-MEASURED THIS ROUND: the 9 mismatches are TWO independent facts, not one.
- *  (a) The zero register.  The original materialises the shared zero (the high
- *      dword of the u64 that stages `m = max`, and `i = 0`) AFTER the shift has
- *      freed ecx -- `shr eax,cl / xor ecx,ecx` -- and stores ecx twice.  VC6
- *      here schedules `xor edx,edx` BEFORE the `shr`, so it has to pick a
- *      register other than ecx.  Moving `i = 0;` after `m = max;`, or into the
- *      for-init, does move the zero but also SHRINKS the frame from 0xc to 8,
- *      because VC6 then overlaps `i` with the u64 staging temp -- so the
- *      current statement order (`i = 0;` then `m = max;`) is load-bearing for
- *      the frame and must stay.
- *  (b) The 16-bit stash.  The original keeps the first __ftol result in a
- *      SIXTEEN-bit register (`mov di,ax`) and then shifts the full edi in eax
- *      (`mov eax,edi / shl eax,cl`), relying on the high half being discarded
- *      by the 16-bit store; VC6 here emits the 32-bit `mov edi,eax` and shifts
- *      in edx.  Additional spellings tried and rejected this round: `a` as
- *      `short`, an `int` intermediate assigned then cast, `(unsigned int)a <<
- *      shift`, `a * (1 << shift)` (which rewrites the whole prologue), and a
- *      second `unsigned short` copy of `a`. */
-/* THIRD PASS, both halves re-measured, no movement:
- *  (a) THE ZERO REGISTER is a register-choice, not a schedule, problem.  The
- *      original zeroes ECX -- the register that held the shift count -- which
- *      it can only do AFTER `shr eax,cl`, so the xor lands between the shift
- *      and the first push.  VC6 here finds EDX free and zeroes it before the
- *      shift.  Confirmed again that `m = max;` before `i = 0;` moves the xor
- *      but drops the frame to `sub esp,8` (VC6 then overlaps `i` with the
- *      dead u64 staging slot), so the current order is still the only one
- *      with the original's 0xc frame.
- *  (b) THE 16-BIT STASH.  Four more spellings of the c2 term measured and
- *      rejected: `(unsigned short)((unsigned short)a << shift)`, the bare
- *      `a << shift` with the implicit narrowing at the store, an explicit
- *      `0xffff & (a << shift)` mask, and a second `unsigned short` copy of `a`
- *      feeding the shift.  All four still emit the 32-bit `mov edi,eax` and
- *      shift through edx.  Note the original's `mov eax,edi / shl eax,cl` is
- *      reading edi's DIRTY high half on purpose -- the low 16 bits of a left
- *      shift depend only on the low 16 bits of the operand, and the result is
- *      stored as a word -- which is why it can afford the 16-bit `mov di,ax`
- *      in the first place. */
-/* FOURTH PASS.  The two halves are now known to be ONE problem, and the causal
- * chain is understood even though the trigger is not.  `mov di,ax` is a
- * TRUNCATING move: it kills eax, so the original can use eax as the scratch for
- * `a << shift` (`mov eax,edi / shl eax,cl / mov [esi-2],ax`).  Our `mov edi,eax`
- * is a COPY: VC6 keeps eax in the same web as edi until the second __ftol
- * clobbers it, so the shift has to take the next free register (edx), and edx
- * being wanted inside the loop is also why the pre-loop zero cannot land in
- * ecx.  Fix the move width and all nine mismatches go together.
- * VC6 SP3 will not emit the 16-bit move for this shape: measured with `a` as
- * `unsigned short`/`short`, the cast written as (unsigned short), (unsigned
- * short)(int), (unsigned short)(long), (unsigned short)(unsigned int), and in
- * a standalone repro (a `short` local loaded from a call return, used only by a
- * 16-bit store and a truncating shift, with and without an intervening call)
- * -- every one of them elides the truncation and emits the 32-bit copy, because
- * every use of `a` is truncating and VC6 proves the high half dead.  The
- * original evidently could NOT prove that.  Also re-measured inert this round:
- * six permutations of the prologue statements (only the committed one keeps the
- * 0xc frame; `m = max` before `i = 0` still drops it to 8) and all six orders
- * of the three g_chan stores inside the loop (the committed c2/c1/c0 order is
- * the only one at 43 instructions -- c0 first costs 39/40 instructions). */
-// WIP-FUNCTION: LEGOLAND 0x004860f0  (43/43 insns, 9 mismatches: `mov di,ax` narrowing)
+ * Exact (43/43) after four rounds at 9 mismatches.  Two shape facts closed it:
+ *  1. `mov di, ax` is NOT a 16-bit variable.  VC6 widens every u16/short
+ *     LOCAL whose uses are all narrow and copies it with `mov edi, eax`,
+ *     whatever the cast is spelled as.  The 16-bit copy is what VC6 emits
+ *     for a compiler TEMPORARY -- here the __ftol result CSE'd from the
+ *     textually repeated `(int)(t * 31.0f)` -- when every consumer of the
+ *     temp narrows to a word store.  So the level is written out twice, not
+ *     held in a named local (a named `unsigned short a` was measured in ~40
+ *     spellings, all 32-bit).
+ *  2. The zero register and the shift scratch are ONE allocation-order fact:
+ *     `m = max` (the unsigned->double conversion whose u64 staging shares the
+ *     zero with `i = 0`) is written INSIDE the loop and hoisted by VC6.  That
+ *     allocates the zero AFTER `shr eax, cl` has freed ecx (`xor ecx, ecx`
+ *     between the shr and `push esi`) and leaves eax free for the shift
+ *     scratch (`mov eax, edi / shl eax, cl`).  Written before the loop --
+ *     `i = 0; m = max;` -- the zero is allocated while ecx still holds the
+ *     shift count and lands in edx, dragging the shift scratch to edx too;
+ *     `m = max; i = 0;` or `for (i = 0 ...)` with m outside also collapses
+ *     the frame to 8 (i overlaps the dead u64 slot).  Inside the loop, i is
+ *     live before the hoisted conversion and the frame stays 0xc.
+ * The two-step float local `t` (stops 1/256 * 31 folding) and the store
+ * order c2 / c1 / c0 (c0 first drops the register, 39 instructions) remain
+ * load-bearing. */
+// FUNCTION: LEGOLAND 0x004860f0
 void BuildChannelTables(void)
 {
-    unsigned int   max;
-    double         m;
-    int            shift;
-    int            i;
-    unsigned short a;
-    float          t;
+    unsigned int max;
+    double       m;
+    int          shift;
+    int          i;
+    float        t;
 
     shift = g_green_bits + 5;
     max = (unsigned int)0xff >> (8 - g_green_bits);
-    i = 0;
-    m = max;
-    for (; i < 256; i++) {
+    for (i = 0; i < 256; i++) {
+        m = max;    /* loop-invariant on purpose: VC6 hoists it, see above */
         t = i * (1.0f / 256.0f);
-        a = (unsigned short)(int)(t * 31.0f);
-        g_chan[i].c2 = (unsigned short)(a << shift);
+        g_chan[i].c2 = (unsigned short)((int)(t * 31.0f) << shift);
         g_chan[i].c1 = (unsigned short)((int)(t * m) << 5);
-        g_chan[i].c0 = a;
+        g_chan[i].c0 = (unsigned short)(int)(t * 31.0f);
     }
 }
 

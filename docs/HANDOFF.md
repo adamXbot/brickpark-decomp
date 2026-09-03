@@ -84,15 +84,18 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **40.1% exact, 51.3% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1504 |
-| exported functions | `python3 tools/remaining.py` | 659 of 675 (97.6%) |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **41.4% exact, 51.3% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1519 |
+| exported functions | `python3 tools/remaining.py` | 662 of 675 (98.1%) |
 | unmatched callees | `python3 tools/callees.py` | 589, ~25,500 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 77 |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 62 |
 
-(Row values refreshed ~16:50 AEST after the 62 promotions of §2 and the
-first section-B wave: 30 partials closed plus one new twin, `verify.py`
-1504/1504. Every single-mismatch function in §6B's table is now exact;
+(Row values refreshed ~22:30 AEST after the 62 promotions of §2 and two
+section-B waves: wave one closed 30 partials plus one new twin (1504/1504),
+wave two closed 15 more (1519/1519); nine files are now fully exact
+(schoolcar, screens3, castleobj, bnvmove, tri3d, bigscreens, softblit, plus
+the two FindRec twins' file ridecb3 is not). The second session-limit hit
+came at FOUR concurrent Fable lanes, so the working cap is 3. Every single-mismatch function in §6B's table is now exact;
 RequestRoute and JcBoat_Animate stay at 3 with notes arguing the residual is
 a compiler temporary no C spelling reaches. Seven Fable lanes plus this
 session tripped the account session limit mid-wave — every lane was killed at

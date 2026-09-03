@@ -615,112 +615,44 @@ extern void EnterSaveGameDetails(Icon* panel);                                /*
  * popup prompt (0x8c / 0xc44 new save, 0x85 delete) is printed under a
  * corner mask. The Accept icon follows whether a slot is selected.
  *
- * 313/313 instructions, 952/952 bytes, exact except THREE: the header rect's
- * right edge (0x14e) lands in ebp here and in ebx in the original
- * (0x0048dd15 `mov ebx,14Eh` plus its two `mov [edx+8],ebx` stores).  Both
- * registers are pushed, both are free over the value's whole range (it dies
- * at the second NewPrintCent, and `lit`/`sy` only start inside the loop), so
- * this is a pure allocator tie-break.
+ * CLOSED 2026-09-03 (lane bigscreens, ~200 measured variants in
+ * scratchpad/bigscreens/q*.py) after sitting at 3 mismatches for several
+ * rounds: the header's 0x14e landed in ebp instead of ebx.  The cause was
+ * never the header or the loop but a CONSTANT-CSE web: the popup tails'
+ * `push 2` (the NewPrintCent font) pairs with any one of the loop's 2s
+ * (`push 2`, `flags20 & 2`, `f45 == 2`); VC6 materialises that shared
+ * constant at the loop preheader, which is the same basic block as the
+ * header, and the phantom web claims ebx ahead of the header's crossing
+ * values (it is later spilled in the loop and rematerialised as immediates,
+ * so it leaves no code).  Proofs: tail font 3, or all three loop 2s
+ * changed, give `mov ebx,14Eh`; a tail G(rc, K) demotes ebx exactly for
+ * the K already used as a non-lea immediate in the join block or the loop
+ * (2, 4, 7, 0x28, 0x1400, 0x24, 0x38, 0x56, 0x5c, 0x6a, 0x14e, 0x4ba) and
+ * never for 0/1, lea-folded addends or constants first used after the
+ * loop; a partner placed before the guard's `je`, inside the guard body,
+ * in a second guarded block ahead of the header, or after the loop does
+ * not demote; any branch between the header and the loop (a guarded
+ * store, `if (g_side_icons)`, `if (p != (Icon*)1)`) un-demotes but costs
+ * its own instructions.  Use counts, the constant's spelling (2u, 2L,
+ * '\002', (short)2, 2.0, 1+1, sizeof, ternary), propagated `int font =
+ * 2` locals, dead `= 2` initialisers, lit's type or scope, callee return
+ * and parameter types, WinRect field types, an inlined loop or header
+ * helper, goto/for/do loop forms and tautological conditions all leave
+ * ebp.
  *
- * The rule behind it, measured this round by making extra header rect fields
- * survive the second call (probes P_l_re / P_b_surv / P_t_surv in
- * scratchpad/nearmiss/bs_v6.py) -- the values that CROSS the two calls are
- * handed registers in FIELD order out of a list that depends on how many
- * there are:
- *      1 crossing value  -> edi
- *      2 crossing values -> edi, ebp          <- what this function has
- *      3 crossing values -> edi, ebx, ebp
- * With three, `right` DOES land in ebx (l->edi, r->ebx, b->ebp), which is the
- * original's assignment; with two, ebx is skipped.  So the fix would be a
- * THIRD value live across both calls that costs no instruction -- and there
- * is none: `top` and `bottom` are re-materialised for the second call
- * (`mov eax,38h` / `mov ecx,6Ah`), and any second-call value spelled off the
- * first (`bottom + 14h`, `top + 32h`) is constant-folded, which kills the
- * crossing range again.  Assignment order is NOT a lever: all 24 permutations
- * of the four header assignments were re-run with the REGISTER printed (not
- * just the mismatch count), and the rule is sharper than the line above:
- * whichever crossing value is assigned FIRST gets edi and the other gets ebp
- * -- `p_rltb`/`p_trlb` put 0x14e in EDI and 0x5c in ebp, at a cost of 6
- * mismatches.  ebx is never reachable from this side.
- *
- * WHAT DECIDES IT IS THE TAIL, NOT THE HEADER (measured this round).  With
- * the two popup tails deleted the header compiles to `mov ebx,14Eh`.  Better:
- * leave the whole function intact and change ONLY the shape of the tail's
- * NewPrintCent call -- replace the three `NewPrintCent(GetString(id), 2, rc,
- * 1)` with a `G1(WinRect)` and the body matches the original index for index
- * up to 237 INCLUDING `mov ebx,14Eh`; only the tail (which now calls a
- * different function) differs.  A table over the tail call's signature, with
- * everything else untouched:
- *      G1(rc)                 -> ebx      G3(int, rc)          -> ebp
- *      G2(rc, int)            -> ebx      G4(int, rc, int)     -> ebp
- *      G6(rc, int, int)       -> ebp      G5(char*, int, rc)   -> ebp
- *      NewPrintCent(t,f,rc,w) -> ebp
- * i.e. a 16-byte by-value argument in the TAIL that is not the call's first
- * (and only, or first-of-two) parameter is what pushes the header's `right`
- * out of ebx into ebp.  That knob is not available: the disassembly pins the
- * prototype (`push 1` / `sub esp,10h` / `mov edx,esp` / `push 2` / `push
- * text` / four `mov [edx+N]` / `call` / `add esp,1Ch` = text, font, rect,
- * white).  Loop content is irrelevant -- ablating either popup branch, either
- * save-type stamp, the g_save_7cb328 light-up or the whole `owner` print all
- * leave 0x14e in ebp.
- *
- * The guard IS a lever but not a usable one: moving `if (g_delete_icon)` to
- * sit between `rc.right = 0x14e` and `rc.bottom` gives `mov ebx,14Eh`, but
- * VC6 then hoists left/top/right above the guard's `je` (19 mismatches, first
- * at 8).  All 5 guard positions x all 24 assignment permutations were swept;
- * every guard position other than the top costs >= 6 mismatches.
- *
- * Ruled out this round as well: all 120 permutations of the local
- * declarations; splitting `rc` into header/loop/tail rects in every two-way
- * grouping (header+tail sharing one rect with the loop separate; header
- * separate; loop separate) -- all still 313i/952B, 3 mismatches, ebp; using
- * ONE int local for both the header's `right` and the loop's `lit` (the
- * "carrying a value in a scratch local lets VC6 coalesce two names into one
- * register" lever -- VC6 splits the live range anyway); prototype tweaks
- * (`white` as int / unsigned char, PrintSprite's ctx as int, text as const
- * void*); merging the tail's three calls by hand into one with a `goto` and
- * an `id` local; PrintSprite moved ahead of the tail rect assignments; `cur`
- * assigned per-branch or after the inner if; `owner` read after the `name:`
- * label; `p = g_side_icons` read before/after the guard; and hoisting
- * g_save_7cb328 into a local (it lands in a stack slot, not a register, so it
- * does not become a third crossing value).
- *
- * NEXT STEP: still the third crossing value.  It must be created AFTER
- * `rc.right`, be live across both NewPrintCent calls, land in a REGISTER (not
- * a spill slot), and cost zero instructions.  Everything tried so far either
- * constant-folds, spills, or adds an instruction.
- *
- * Two cut-down probes (scratchpad/nearmiss/bs_v8.py) show the list is really
- * about which registers the FUNCTION ends up using: header + a loop that only
- * needs esi gives 0x14e -> ebx (3 pushes, no ebp); header + a loop that needs
- * a third register gives 0x14e -> ebp (3 pushes, no ebx).  Note ebx is the
- * only callee-saved BYTE register and this loop needs one twice
- * (`test byte ptr [esi+20h], bl`, `mov bl, byte ptr [esi+1Ch]`), which is the
- * likely reason the two-value case leaves ebx alone.
- *
- * Ruled out, all leaving the same three: every permutation of the four rc
- * field assignments, right/bottom written relative to left/top, re-assigning
- * left and/or right before the second call (that re-materialises 0x14e into a
- * volatile register instead -- 283+ mismatches), a separate WinRect for the
- * header / loop / tail (any split), an inlined print helper, the string-id
- * ternary hoisted into a local or spelled the other way round, the callee
- * prototype's parameter types, `lit` declared at function scope / as char /
- * unsigned / folded into the flag mask, `sy`+`ty` or `cur`+`rc` pinned in one
- * aggregate, and reading g_side_icons at four different points.  Ruled out
- * since: inlining `owner` away, declaring it char*, reading it before
- * rc.left, an extra dead local ahead of the guard, and an initialised `cur`.
- * Ruled out this round: `(p->u20.flags20 & lit)` spelling the mask CSE out,
- * the walk as a `for`, declaring rc first, `unsigned lit`, `lit` moved inside
- * the guarded block or the guard split into nested ifs, swapping the `owner
- * && lit` test order, swapping `sy`/`ty`, all six dependency-legal
- * permutations of BOTH popup tails' four rect assignments (they change the
- * tail but never index 17), a block-scoped `Icon* d = g_delete_icon` for the
- * leading guard, `flags = flags | 400h`, and `p` read after the guard.
- * The screen.c lever found this round -- an enclosing block-scope local live
- * across two disjoint inner blocks takes the LOWER frame home -- does not
- * apply: this frame is `sub esp,14h` (the 16-byte rect plus cur's slot) in
- * both, and nothing here is a home-slot problem. */
-// WIP-FUNCTION: LEGOLAND 0x0048dd00  (313/313 insns, 952/952 bytes, 3 mismatches, first at index 17: 0x14e in ebp vs ebx -- needs a third call-crossing header value, see above)
+ * What closes it is the DEGENERATE BRANCH below: the delete icon cached in
+ * `d`, the guard on `d`, and the header printed in both arms of
+ * `if (!d) ... else ...`.  VC6 merges the identical arms late (after the
+ * constant web has been placed in the then-arm's block, away from the loop
+ * preheader) and the negated form leaves no ghost load or test; `if (d)`
+ * with the same arms, the guard's store folded into either arm, the global
+ * instead of `d`, or only one of the two calls duplicated all fail (37, 1,
+ * 6 mismatches).  Semantics are unchanged: both arms print the same header.
+ * Lever, for the playbook: a repeated non-trivial constant whose partner
+ * use is in a loop and whose other use is after the loop is a phantom
+ * callee-saved web born in the loop preheader; when the preheader is the
+ * block holding call-crossing header values it takes ebx from them. */
+// FUNCTION: LEGOLAND 0x0048dd00
 void PrintSavedGameDetails(void)
 {
     Icon* p = g_side_icons;
@@ -729,17 +661,32 @@ void PrintSavedGameDetails(void)
     WinRect rc;
     int sy;
     int ty;
+    Icon* d = g_delete_icon;
 
-    if (g_delete_icon)
-        g_delete_icon->flags |= 0x400;
-    rc.left = 0x5c;
-    rc.top = 0x24;
-    rc.right = 0x14e;
-    rc.bottom = 0x56;
-    NewPrintCent(GetString(g_save_7cb328 ? 0x4b0 : 0x4ba), 0, rc, 1);
-    rc.top = 0x38;
-    rc.bottom = 0x6a;
-    NewPrintCent(g_cur_profile.name, 1, rc, 1);
+    if (d)
+        d->flags |= 0x400;
+    /* Degenerate branch, both arms identical -- see the note above: VC6
+     * merges them late and that is what keeps the shared constant 2 out of
+     * ebx during the header. Do not "simplify". */
+    if (!d) {
+        rc.left = 0x5c;
+        rc.top = 0x24;
+        rc.right = 0x14e;
+        rc.bottom = 0x56;
+        NewPrintCent(GetString(g_save_7cb328 ? 0x4b0 : 0x4ba), 0, rc, 1);
+        rc.top = 0x38;
+        rc.bottom = 0x6a;
+        NewPrintCent(g_cur_profile.name, 1, rc, 1);
+    } else {
+        rc.left = 0x5c;
+        rc.top = 0x24;
+        rc.right = 0x14e;
+        rc.bottom = 0x56;
+        NewPrintCent(GetString(g_save_7cb328 ? 0x4b0 : 0x4ba), 0, rc, 1);
+        rc.top = 0x38;
+        rc.bottom = 0x6a;
+        NewPrintCent(g_cur_profile.name, 1, rc, 1);
+    }
     while (p) {
         int lit = 1;
         if (!(p->flags & 0x1400) && (p->u20.flags20 & 1)) {

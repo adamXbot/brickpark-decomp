@@ -438,84 +438,26 @@ int SuggestNextMove(Pos* from, Pos* to, Pos* out)
 }
 
 /* Place a bloke straight onto BNV frame `frame` of object `name`. */
-/* 164/164 instructions, 432/432 bytes, index-for-index exact except FOUR:
- * the vertex loop's `xor edi,edi` (i = 0) is scheduled at index 82, right
- * after the third row's fsqrt, where the original has it at index 78, right
- * before that row's last faddp; instructions 78..82 are therefore rotated.
- *
- * There are exactly TWO attractors and 78 is neither of them.  Sweeping
- * `i = 0;` across EVERY statement boundary from the GetObjectFromName call
- * down to the loop (scratchpad/nearmiss/bn_v22.py) gives a clean split:
- *   - anywhere BEFORE the third row's `sqrt`  -> index 19, i.e. the first
- *     slot after the last real call's `add esp,10h`;
- *   - anywhere AFTER it                       -> index 82, i.e. the first
- *     slot after that fsqrt.
- * The third `sqrt` is the only barrier the xor will not float past, and the
- * first two are not barriers at all (an `i = 0` written between the two
- * earlier rows still floats to 19).  So the original's slot is one FP
- * instruction EARLIER than the barrier, which no placement of a plain
- * constant assignment can reach: VC6 moves it, sequence points and all.
- *
- * Measured and identical (all 19 or all 82, never 78): `i = 0` at each of the
- * ~30 statement boundaries before the loop; every loop spelling (for / while
- * / do-while, pre- vs post-increment, unsigned i, `i = 0` at the declaration);
- * comma forms that put the assignment inside the last accumulation
- * (`len2 += (i = 0, cy*cy)`, `len2 = (i = 0, len2) + cy*cy`,
- * `len2 + (i = 0, cy)*cy`); a float temporary for `cy*cy` (block-scope AND
- * function-scope) with `i = 0` between the multiply and the add; six
- * restructurings of the third row that keep its FP stream byte-identical
- * (last two adds folded, `sqrt(len2 + cy*cy)`, `len2 = len2 + cx*cx + cy*cy`,
- * a two-step reciprocal, a (double) cast on the argument, `(float)(1.0/...)`);
- * and a `static __inline SumSq3()` helper for the row, with `i = 0` before,
- * inside and after it.
- *
- * The two-attractor split was re-derived independently this round and holds.
- * New measurements that narrow it:
- *
- *  - The slots FILL FORWARD from each attractor, so the previous note's
- *    "next thing to try -- a second integer instruction competing for the
- *    post-fsqrt slot" is now measured and RULED OUT: it pushes the wrong way.
- *    Moving `sum_z = 0.0f;` to sit just after the third sqrt (ahead of
- *    `i = 0;`) makes the `mov dword ptr [esp+18h],0` take slot 82 and the xor
- *    lands at 83, never 78.  Same with the `i = 0;` first: 82 then 83.
- *  - Constant-zero assignments are hoisted MUCH further than the scheduler
- *    could move them, and calls are not barriers: `sum_x = 0;` written after
- *    the third sqrt still comes out at index 7, above BOTH calls (the object
- *    is byte-identical to the baseline).  It hoists because its zero has an
- *    earlier consumer -- `sum_y = 0` is emitted as `mov [esp+1Ch],ebp`, i.e.
- *    it reuses sum_x's zero register.  `i` has no such partner, which is
- *    probably why its def is the one left floating.  If a zero-cost EARLIER
- *    consumer of `i`'s zero could be found around index 78, that is the shape
- *    that would pin the xor there.
- *  - Rows 1 and 2 are confirmed non-barriers from the other side too: `i = 0`
- *    placed immediately after row 1's and after row 2's `inv = 1.0f/sqrt(..)`
- *    statement both give 19.  Only row 3's sqrt statement -- the one whose
- *    operand is a named local and whose tail carries the `fxch st(2)` pair --
- *    splits the block.
- *
- * Also measured and identical (19 or 82, never 78) this round: non-constant
- * zeroing forms `i ^= i` / `i -= i` / `i &= 0` / `i *= 0` at three anchors;
- * `register int i`; `i` declared in a block containing only the loop; reusing
- * the dead parameter `frame` as the loop counter; renaming the accumulator
- * (`inv` reused, or a block-scope `l2`); commas in the sqrt argument
- * (`sqrt((len2 += cy*cy, i = 0, len2))`, `sqrt((i = 0, len2 += cy*cy))`);
- * a commutated last add (`len2 = cy*cy + (i = 0, len2)`, and with `i ^= i`);
- * `inv = 1.0f / (i = 0, (float)sqrt(len2))`; a `skew = (float)sqrt(len2);
- * i = 0; inv = 1.0f/skew;` split; `(i = 0, inv)` inside each of the three
- * multiply-backs; an explicit `float* orient = &object->orientation[0];` at
- * four positions (the `lea ebx,[esi+10h]` hoists to index 22 regardless, so
- * it cannot be made to compete); and all 6 permutations of the three
- * accumulator initialisers (note: with the initialisers ON the declarations,
- * declaration order is NOT irrelevant here -- putting sum_x or sum_y first
- * costs 4 bytes of frame and 5-6 mismatches).  Swapping the cx/cy
- * accumulation order moves the xor to 85 and costs 8.
- *
- * Next thing to try: the placement rule now looks like "fill forward from the
- * start of the enclosing scheduling region", with exactly two regions here,
- * [19..] and [82..].  Reaching 78 therefore needs a region that STARTS at 78,
- * i.e. something that terminates the first region at `fmul st(2)` (index 77).
- * Nothing found; the other open lead is the zero-sharing one above. */
-// WIP-FUNCTION: LEGOLAND 0x00484a70  (164/164 insns, 432/432 bytes, 4 mismatches, first at index 78: the loop counter's xor sits after the third fsqrt instead of before that row's last faddp, see above)
+/* Exact.  The last four mismatches (the loop counter's `xor edi,edi` sitting
+ * after the third row's fsqrt instead of before that row's last faddp) were
+ * closed by the `(float)` casts on the nine multiply-backs below: VC6's
+ * Pentium scheduler works on FIXED-SIZE WINDOWS OF IR TUPLES counted from the
+ * FUNCTION START (about 81 here, straight across the two calls), and a root
+ * instruction whose tuple falls in the second window is emitted at that
+ * window's first stall slot.  The explicit double->float conversion tuple of
+ * `x = (float)(x * inv)` produces no code but occupies a slot, so every such
+ * cast ahead of the boundary moves the boundary one instruction up the FP
+ * stream (three are needed; more than three change nothing, the xor stays in
+ * the fmul->faddp stall at 0x484b36).  `x *= inv` and `x = x * inv` have no
+ * such tuple.  Measured: k global stores or k casts anywhere before the
+ * boundary (even before the first call) move the xor identically; padding
+ * after the boundary never does; and a root written BEFORE the boundary is
+ * hoisted to the first window's top (index 19, right after the flag-writing
+ * `add esp,10h`), which is why no placement of `i = 0` could reach index 78.
+ * The third row is still summed through a running float with its components
+ * read into locals FIRST (z, y, x): that is what fixes the fld order at
+ * 0x484ac6 and makes the accumulator live in orientation[8]'s x87 slot. */
+// FUNCTION: LEGOLAND 0x00484a70
 void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
                              int frame, float near_z, float far_z, int extra)
 {
@@ -540,22 +482,18 @@ void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
     inv = 1.0f / (float)sqrt(object->orientation[0] * object->orientation[0] +
                              object->orientation[1] * object->orientation[1] +
                              object->orientation[2] * object->orientation[2]);
-    object->orientation[0] *= inv;
-    object->orientation[1] *= inv;
-    object->orientation[2] *= inv;
+    object->orientation[0] = (float)(object->orientation[0] * inv);
+    object->orientation[1] = (float)(object->orientation[1] * inv);
+    object->orientation[2] = (float)(object->orientation[2] * inv);
     inv = 1.0f / (float)sqrt(object->orientation[3] * object->orientation[3] +
                              object->orientation[4] * object->orientation[4] +
                              object->orientation[5] * object->orientation[5]);
-    object->orientation[3] *= inv;
-    object->orientation[4] *= inv;
-    object->orientation[5] *= inv;
-    /* The third row is summed through a running float, and its three
-     * components are read into locals FIRST (z, y, x — that order is what
-     * fixes the fld order at 0x484ac6) so the accumulator ends up living in
-     * orientation[8]'s x87 slot: fld st(2)/fmulp st(3) squares z in place and
-     * the x and y squares are then faddp'd into it, instead of the pushed
-     * accumulator slot the first two rows use. Written as one expression the
-     * row compiles to the first two rows' shape instead. */
+    object->orientation[3] = (float)(object->orientation[3] * inv);
+    object->orientation[4] = (float)(object->orientation[4] * inv);
+    object->orientation[5] = (float)(object->orientation[5] * inv);
+    /* Running float sum, components read into locals first (z, y, x): see
+     * the note above the marker.  Written as one expression the row compiles
+     * to the first two rows' shape instead. */
     cz = object->orientation[8];
     cy = object->orientation[7];
     cx = object->orientation[6];
@@ -563,9 +501,9 @@ void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
     len2 += cx * cx;
     len2 += cy * cy;
     inv = 1.0f / (float)sqrt(len2);
-    object->orientation[6] *= inv;
-    object->orientation[7] *= inv;
-    object->orientation[8] *= inv;
+    object->orientation[6] = (float)(object->orientation[6] * inv);
+    object->orientation[7] = (float)(object->orientation[7] * inv);
+    object->orientation[8] = (float)(object->orientation[8] * inv);
     for (i = 0; i < 8; i++) {
         vertex = GetVertex(object, i);
         sum_x += vertex->x;

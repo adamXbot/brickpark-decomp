@@ -576,7 +576,17 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
  * scope changes nothing), swapping the npasses/data declarations again, and
  * renaming the locals.  The pool order here is decided by neither declaration
  * order, block scope, nor spelling. */
-// WIP-FUNCTION: LEGOLAND 0x00465240  (98.1%: 407/415 insns, 1544/1544 bytes; mismatch=8, all of them the npasses/data frame homes swapped -- see the note above)
+/* CLOSED (2026-09-03, softblit lane): the swapped npasses/data homes were a
+ * CONTROL-FLOW effect after all.  Arm 1 was written with `goto basepal` into
+ * the pass-0 arm's tail (`g_sp_pal16 = ..; data = .. + 0x200;`); spelling the
+ * frame-0 case out in full as a plain if/else inside arm 1 -- exactly the
+ * shape SoftBlitAnimPlain (softblit2.c) already had -- and letting VC6 merge
+ * the two identical tails ITSELF emits byte-identical code for the tails but
+ * assigns the spill homes in the original's order (data -8, npasses -0xc).
+ * A source-level `goto` into a sibling arm creates the shared block before
+ * the allocator runs; compiler cross-jumping merges it after the homes are
+ * assigned.  Both polarities of the if (`== 0` / `!= 0`) are exact. */
+// FUNCTION: LEGOLAND 0x00465240
 void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
 {
     int          pass;
@@ -608,15 +618,19 @@ void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
                 f = (AnimFrame*)((char*)f + f->size);
             n16 = f->npixels;
             ctrl = f->body;
-            if (lls->frame != 0) {
-                data = f->body + n16;
+            if (lls->frame == 0) {
+                /* frame 0 is being drawn: its own palette sits between the
+                 * index block and the control stream.  Written out in full
+                 * (not a goto into the pass-0 arm below): VC6 cross-jumps the
+                 * identical tails itself, and the spelling decides the pool. */
+                g_sp_pal16 = f->body + n16;
+                data = f->body + n16 + 0x200;
             } else {
-                goto basepal;
+                data = f->body + n16;
             }
         } else if (pass == 0) {
             n16 = f->npixels;
             ctrl = f->body;
-        basepal:
             g_sp_pal16 = f->body + n16;
             data = f->body + n16 + 0x200;
         } else {
@@ -1211,27 +1225,46 @@ extern const char m_zone_western[];      /* 0x004b9f98 */
  * the closer of the two by instruction count and reproduces every case's
  * argument sequence; the shared-tail form scores 285 but is, per the above,
  * the true source. */
-// WIP-FUNCTION: LEGOLAND 0x00469400  (98.9% by count: 359i/1184B vs the original's 363i/1155B; source shape now PROVEN, the residual is VC6 loop rotation blocking the tail duplication -- see above)
+/* CLOSED (2026-09-03, softblit lane): the loop scaffold was the lever.
+ *     while (1) { g = g_goal_list; if (!g) break; switch (..) {..} RemoveGoals(g->code); }
+ * A `while (1)` keeps a (folded) constant-true test block as the loop HEADER,
+ * so the `if (!g) break` exit sits in the block after it and VC6's CFG loop
+ * inversion -- which only fires when the header itself ends in the exit
+ * conditional -- never runs.  The shared `RemoveGoals` tail therefore stays a
+ * five-instruction block ending in `jmp header`, and VC6's late jump
+ * optimisation duplicates it (after register allocation, hence `edx` in
+ * every copy; before scheduling, hence `mov edx,[esi+0xc]` above each
+ * `add esp,8`) into the 20 predecessors that ended in `jmp tail`, leaving
+ * the fall-through copy for the three-argument cases and the `ja` default.
+ * `for (;;)` and `do {..} while (1)` with the same break, `while ((g = ..))`,
+ * `goto top` and every other form measured earlier are inverted (the test
+ * copied into the latch, tail not duplicated: 314 instructions).  Also exact:
+ * a `while ((g = ..) != 0)` loop whose tail ends `goto again;` to a label
+ * ABOVE the while, and a `goto` into a label at the end of the body -- all
+ * three put an extra block in front of the test.  Cases end with `break`;
+ * the single RemoveGoals after the switch is the true source shape (the
+ * per-case form folds the two cleanups into `add esp,0xc`). */
+// FUNCTION: LEGOLAND 0x00469400
 void UpdateGoalHelpText(void)
 {
     Goal* g;
 
     GetGameTimer();
-    while ((g = g_goal_list) != 0) {
+    while (1) {
+        g = g_goal_list;
+        if (!g)
+            break;
         switch (g->code) {
         case 0:
             AddHelpMessage(kFmtStr, g_hint_strings[g->strid]);
             g_last_hint = g->strid;
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 1:
             AddHelpMessage(m_build_more_of, g->count, g->target->cls->name);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 12:
             AddHelpMessage(m_research, g->target->cls->name);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 2:
             if (g->count == 0) {
                 if (g->target)
@@ -1244,48 +1277,40 @@ void UpdateGoalHelpText(void)
                 else
                     AddHelpMessage(m_link_all);
             }
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 3:
             if (g->amount != 0)
                 AddHelpMessage(m_build_new_range, g->amount, g->target->range_name);
             else
                 AddHelpMessage(m_build_more_range, g->count, g->target->range_name);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 4:
             if (g->amount != 0)
                 AddHelpMessage(m_delete_all_range, g->amount, g->target->range_name);
             else
                 AddHelpMessage(m_delete_range, g->count, g->target->range_name);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 5:
             AddHelpMessage(m_remove_items, g->count);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 6:
             AddHelpMessage(m_delete_obj, g->count, g->target->cls->name);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 7:
             AddHelpMessage(m_attract_people, g->count);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 8:
             if (g->count > 0)
                 AddHelpMessage(m_more_gardeners, g->count);
             else
                 AddHelpMessage(m_fewer_gardeners, -g->count);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 9:
             if (g->count > 0)
                 AddHelpMessage(m_more_mechanics, g->count);
             else
                 AddHelpMessage(m_fewer_mechanics, -g->count);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 10:
             switch (g->count) {
             case 0:
@@ -1307,42 +1332,34 @@ void UpdateGoalHelpText(void)
                 AddHelpMessage(m_cover_wonder, g->amount);
                 break;
             }
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 11:
             AddHelpMessage(m_path_scenery, g->amount);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 13:
             AddHelpMessage(m_save_coins, g->count);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 14:
             AddHelpMessage(m_happiness, g->count, g->amount);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 15:
             if (g->variant != 0)
                 AddHelpMessage(m_hunger_fewer, g->count, g->amount);
             else
                 AddHelpMessage(m_hunger_more, g->count, g->amount);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 16:
             AddHelpMessage(m_repairs, g->count, g->amount);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 17:
             AddHelpMessage(m_ride_people, g->count, g->target->cls->name);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 18:
             if (g->amount != 0)
                 AddHelpMessage(m_parts_diff, g->amount, g->target->cls->name);
             else
                 AddHelpMessage(m_parts_more, g->count, g->target->cls->name);
-            RemoveGoals(g->code);
-            continue;
+            break;
         case 19:
             switch (g->variant) {
             case 0:
@@ -1358,8 +1375,7 @@ void UpdateGoalHelpText(void)
                 AddHelpMessage(m_zone_western, g->count, g->amount);
                 break;
             }
-            RemoveGoals(g->code);
-            continue;
+            break;
         }
         RemoveGoals(g->code);
     }

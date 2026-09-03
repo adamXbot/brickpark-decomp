@@ -185,7 +185,35 @@ extern void  PutObjOnMap(ObjDef* d, ObjElem* obj, Pos* pos);    /* 0x00459ad0 */
  * gives the same schedule at both.  The remaining freedom is the emission
  * order of three loads around one push, which looks like the instruction
  * scheduler.  If anything cracks it, it will be a change that alters what is
- * LIVE across the push, not a rephrasing of the call. */
+ * LIVE across the push, not a rephrasing of the call.
+ * PASS 3 (2026-09-03, ~80 more measured variants, scratchpad/popup/bo_v1..7.py):
+ * still 8.  What the two original sites reduce to: ONE priority order for the
+ * four loads -- ent->y, door.y, door.x, ent->x -- with the push of ent->y
+ * emitted only where it must free the register the next load wants (site 1:
+ * door.y is blocked behind ent->x by the eax WAR, so ent->y, PUSH, door.x,
+ * ent->x, door.y; site 2: door.y is free in ecx, so ent->y, door.y, PUSH,
+ * door.x, ent->x).  Ours is strict right-to-left with every load hoisted as
+ * far as the registers allow.  Ruled out this pass, all byte-identical unless
+ * noted: the scheduler-WINDOW lever (k = 1..10 extra global stores at entry
+ * and k = 1..8 between the sites shift the count by up to ten tuples and
+ * neither site's schedule moves at all, so this is not a window boundary);
+ * all 16 int/unsigned prototype combinations plus long / unsigned long;
+ * same-width (long)/(unsigned) casts on cost, the flags tests, the door sums,
+ * the loading tests, the return; `const Pos*` / `void*` GetEntranceTile;
+ * `Pos d = door` / memcpy copies just before the call (forward-substituted);
+ * `e = *ent` plus `d = door` (10: site 1 becomes x-first unit loads with the
+ * pushes interleaved); `dy = door.y; dx = door.x;` temps; a static __inline
+ * helper holding all four calls by pointer (identical) or by value (154: the
+ * copy is hoisted above the calls); a two-Pos helper `(door, *ent)` (10).
+ * Diagnostics: with constants or `pos->x/y` (esi-based) or globals in place of
+ * the door loads, and with `pos` in place of the call-result pointer, VC6
+ * still hoists every load above the first push, so neither the call-result
+ * pointer nor the escaped-local loads on their own make it hold a load back.
+ * No twin exists: GetEntranceTile and RequestRoute are called nowhere else in
+ * the binary.  The matched LFTrack_Update2 site (`f(pos->x, pos->y)`) shows a
+ * `[eax]` load hoisted above a push, so VC6 does not generally order pointer
+ * loads against pushes; whatever held ent->x back here is not reachable by
+ * any spelling tried. */
 // WIP-FUNCTION: LEGOLAND 0x0045eb30  (180/188 by audit.py, mismatch=8: the emission order of the four RequestRoute argument loads at both call sites -- same registers, same push order, scheduling only; first diff at index 100)
 int BuildObject(ObjElem* obj, Pos* pos)
 {
@@ -938,7 +966,7 @@ extern char* strcat(char*, const char*);
  * enough that VC6 hoists constants into it.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004724a0  (960 vs 962 instructions, 3120 vs 3141 bytes, mismatch=886->705->398 by audit.py; the post-switch join and the `xor esi,esi` are now placed as the original has them -- what is left is the ty-vs-w spill choice in the kind-0x306 worker block, the spill-slot colouring it drags with it, and two block placements; first diff at index 25)
+// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3138 vs 3141 bytes, mismatch=886->705->398->60 by audit.py; every block is now placed as the original has it -- what is left is the spill-slot colouring, the halfw/ty spill order in the kind-0x306 worker head and one scratch-register rotation in the mouse-strip test; first diff at index 25)
 void DrawPopUpInfo(void)
 {
     char    name[256] = {0};
@@ -961,7 +989,7 @@ void DrawPopUpInfo(void)
     int     lines;
     int     power;
     int     mood, cond;
-    int     halfw, ty, barw;
+    int     halfw, ty, barw, w;
     int     i;
     float   frac;
 
@@ -1060,24 +1088,26 @@ void DrawPopUpInfo(void)
         Format(info, kEmpty);
         g_popup.named = 1;
         break;
+    case 0x10b:
+        if (((RideRec*)g_popup.ride)->f18 != 0
+            && ((RideRec*)g_popup.ride)->rider->cond >= 0x6b) {
+            g_popup.key.type = 0x104;
+            PopUpInfoSetUp(g_popup.key, g_popup.pos.x, g_popup.pos.y);
+            return;
+        }
+        Format(name, kFmtStr, *((RideRec*)g_popup.ride)->name);
+        Format(info, kFmtStr, GetString(0xd2));
+        show_delete2 = 1;
+        break;
     case 0x10c:
         if (((RideRec*)g_popup.ride)->f18 != 0
             && ((RideRec*)g_popup.ride)->rider->cond >= 0x6b) {
-reopen_build:
             g_popup.key.type = 0x104;
             PopUpInfoSetUp(g_popup.key, g_popup.pos.x, g_popup.pos.y);
             return;
         }
         Format(name, kFmtStr, *((RideRec*)g_popup.ride)->name);
         Format(info, kFmtStr, GetString(0xd3));
-        show_delete2 = 1;
-        break;
-    case 0x10b:
-        if (((RideRec*)g_popup.ride)->f18 != 0
-            && ((RideRec*)g_popup.ride)->rider->cond >= 0x6b)
-            goto reopen_build;
-        Format(name, kFmtStr, *((RideRec*)g_popup.ride)->name);
-        Format(info, kFmtStr, GetString(0xd2));
         show_delete2 = 1;
         break;
     }
@@ -1131,28 +1161,25 @@ reopen_build:
          * py for the `+ 0x23` term. */
         box.top = py + 0x23;
         box.bottom = py + lines * 20 + 0x63;
-        halfw = (box.right - box.left) / 2;
+        w = box.right - box.left;
         ty = (box.bottom + box.top) / 2;
+        halfw = w / 2;
         PrintCachedText(GetString(0x8e), box.left, ty + 0x22, halfw, 0x14,
                         2, 0x11, 0xff0000, 0xffffff);
         PrintCachedText(GetString(0x8f), (box.left + box.right) / 2, ty + 0x22, halfw, 0x14,
                         2, 0x11, 0xff0000, 0xffffff);
-        if (mood == 3) {
-            ty -= 0x20;
-            PrintSprite(g_popup.spr_sad, box.left + (box.right - box.left) / 4 - 0x20, ty, 0, 0);
-        } else if (mood == 2) {
-            ty -= 0x20;
-            PrintSprite(g_popup.spr_happy, box.left + (box.right - box.left) / 4 - 0x20, ty, 0, 0);
-        } else {
-            ty -= 0x20;
-            PrintSprite(g_popup.spr_norm, box.left + (box.right - box.left) / 4 - 0x20, ty, 0, 0);
-        }
-        if (cond == 0)
-            PrintSprite(g_popup.spr_full, box.right - (box.right - box.left) / 4 - 0x20, ty, 0, 0);
-        else if (cond == 1)
-            PrintSprite(g_popup.spr_peckish, box.right - (box.right - box.left) / 4 - 0x20, ty, 0, 0);
+        if (mood == 3)
+            PrintSprite(g_popup.spr_sad, box.left + w / 4 - 0x20, ty - 0x20, 0, 0);
+        else if (mood == 2)
+            PrintSprite(g_popup.spr_happy, box.left + w / 4 - 0x20, ty - 0x20, 0, 0);
         else
-            PrintSprite(g_popup.spr_hungry, box.right - (box.right - box.left) / 4 - 0x20, ty, 0, 0);
+            PrintSprite(g_popup.spr_norm, box.left + w / 4 - 0x20, ty - 0x20, 0, 0);
+        if (cond == 0)
+            PrintSprite(g_popup.spr_full, box.right - w / 4 - 0x20, ty - 0x20, 0, 0);
+        else if (cond == 1)
+            PrintSprite(g_popup.spr_peckish, box.right - w / 4 - 0x20, ty - 0x20, 0, 0);
+        else
+            PrintSprite(g_popup.spr_hungry, box.right - w / 4 - 0x20, ty - 0x20, 0, 0);
     }
 
     if (has_life == 0) {
@@ -1161,6 +1188,10 @@ reopen_build:
         for (i = 0; i < 256; i++)
             if (g_build_slots[i].key == (short)g_popup.key.ref)
                 break;
+    }
+    if (has_life != 0) {
+        frac = (float)g_popup.cell->life / (float)cls->life;
+    } else {
         if (i >= 256)
             return;
         frac = (float)g_build_slots[i].timer / (float)GetBuildTime(g_popup.cls);
@@ -1169,16 +1200,16 @@ reopen_build:
             PopUpInfoSetUp(g_popup.key, g_popup.pos.x, g_popup.pos.y);
             return;
         }
-    } else {
-        frac = (float)g_popup.cell->life / (float)cls->life;
     }
+    box.left = px + 6;
+    box.top = py + lines * 20 + 0x6f;
     barw = lines * 0x20 + 0xbc;
-    RenderBlock(px + 6, py + lines * 20 + 0x6f, barw, 6, 0);
+    RenderBlock(box.left, box.top, barw, 6, 0);
     if (frac < 0.25 && has_life)
-        RenderBlock(px + 6, py + lines * 20 + 0x6f, (int)(barw * frac), 6,
+        RenderBlock(box.left, box.top, (int)(barw * frac), 6,
                     GetNearestColour(0xff, 0, 0));
     else
-        RenderBlock(px + 6, py + lines * 20 + 0x6f, (int)(barw * frac), 6,
+        RenderBlock(box.left, box.top, (int)(barw * frac), 6,
                     GetNearestColour(0, 0xff, 0));
 
 icons:

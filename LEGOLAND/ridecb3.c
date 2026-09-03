@@ -112,6 +112,9 @@
  * -- the original folds that into a `+0x1f` displacement.
  * ========================================================================= */
 
+/* CRT.  memcmp is expanded inline by /O2 (see Carousel_FindRec). */
+extern int memcmp(const void* a, const void* b, unsigned int n);   /* CRT intrinsic */
+
 /* ---- shared geometry ---------------------------------------------------- */
 
 /* An 8-byte {x,y} pair returned in eax:edx (legoland.h's Offset). */
@@ -305,23 +308,22 @@ extern void Carousel_TickInstance(CarouselRec* rec);                 /* 0x0042c6
  * in the loop share one `ret`.  Both key compares read the CALLER's square as
  * the memory operand. */
 
-/* NOTE: 18 instructions in both, but the operand roles differ.  The original
- * keeps the RECORD key in a register and re-reads the CALLER's square as the
- * compare's memory operand ('mov dx,[rec+4] / cmp dx,[ecx]', peeled test and
- * loop), and computes a dead 'lea edx,[rec+4]' before each load; VC6 here
- * hoists the loop-invariant caller key into a register instead ('mov cx,[ecx]'
- * once, then 'cmp [rec+4],cx' twice).  Measured: making BOTH reads volatile
- * reproduces the operand roles and 16 of the 18 instructions (81%), leaving
- * only the two dead leas, but shipping a volatile that still does not match is
- * worse than the clean spelling -- joust.c reached the same conclusion on its
- * two identical FindRecord bodies.  Left as WIP. */
-// WIP-FUNCTION: LEGOLAND 0x0042bc60  (18/18 instructions, audit mismatch 14/18: invariant caller-key hoist plus two dead `lea`s)
+/* CLOSED by `memcmp(&rec->square, sq, 2)`: VC6 expands the 2-byte intrinsic
+ * memcmp late (after loop-invariant hoisting), which is why the CALLER's key
+ * is re-read as the compare's memory operand on every iteration, and the
+ * intrinsic materialises the first operand's ADDRESS (`lea edx,[rec+4]`)
+ * before the folded word load -- the "dead lea" that no volatile spelling
+ * reached (the joust-style volatile levers reproduced 16/18; ~20 measured
+ * variants of pointer/struct-copy/helper forms all lacked the lea).  A key at
+ * offset 0 (Joust/Catapult) shows no lea because the address is the record
+ * pointer itself.  No volatile needed. */
+// FUNCTION: LEGOLAND 0x0042bc60
 CarouselRec* Carousel_FindRec(MapSquare* sq)
 {
     CarouselRec* rec = g_carousel_recs;
 
     if (rec != 0) {
-        while (rec->square != *(unsigned short*)sq) {
+        while (memcmp(&rec->square, sq, 2) != 0) {
             rec = rec->next;
             if (rec == 0)
                 return 0;
@@ -690,14 +692,14 @@ extern SpriteObj*   g_bz_zspr;     /* 0x0081cde8 the wheel's own depth sprite */
 /* ---- 0x0042a980 -- find the record for one map square ------------------- */
 
 /* Byte-for-byte the same body as Carousel_FindRec against a different list
- * head, and it has the same residual (see the note there). */
-// WIP-FUNCTION: LEGOLAND 0x0042a980  (18/18 instructions, audit mismatch 14/18: same invariant-key hoist as Carousel_FindRec)
+ * head; closed by the same intrinsic memcmp (see the note there). */
+// FUNCTION: LEGOLAND 0x0042a980
 BalloonzRec* Balloonz_FindRec(MapSquare* sq)
 {
     BalloonzRec* rec = g_bz_recs;
 
     if (rec != 0) {
-        while (rec->square != *(unsigned short*)sq) {
+        while (memcmp(&rec->square, sq, 2) != 0) {
             rec = rec->next;
             if (rec == 0)
                 return 0;

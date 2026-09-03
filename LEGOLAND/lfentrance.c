@@ -360,27 +360,55 @@ void LFQueue_AddRider(LFQueue* q, RiderNode* r)
  * back out of p1 even when p1 is null.
  * ========================================================================= */
 
-/* RESIDUAL (register naming only).  All 256 instructions, all 812 bytes,
- * every block, every constant, every store and the whole call sequence are
- * reproduced -- the compiled body is byte-for-byte the same LENGTH as the
- * original and differs only in which two callee-saved registers carry the
- * run and the piece cursor: the original keeps `st` in ebx (pushed in the
- * prologue) and `p1` in ebp (the deferred push), this reconstruction the
- * other way round, and the local area is 0x24 where the original reserves
- * 0x28 -- one unreferenced 4-byte slot at entry-0x14, between `sq` and `b`,
- * that nothing in the original's body ever reads (the same kind of phantom
- * slot documented on mechrides.c's SpaceTower_Activate).  Measured and
- * rejected as levers, all giving the identical allocation: `if (!st)` vs
- * `if (st == 0)` vs wrapping the whole body in `if (st) {...}`; five
- * declaration orders; while / do-while / unsigned counter loop forms;
- * swapping the two end-of-column tests; an explicit `nm1 = n - 1` local
- * (VC6 rematerialises it either way); and all 12 legal orders of the four
- * opening statements.  Two spellings ARE load-bearing and are committed:
- * `a.x++` as a separate statement (the join form `+ 1` folds into a `lea`
- * and costs three bytes), and reusing `p1` as the route cursor instead of a
- * separate `last` (that is what puts the cursor in the dead `elem` argument
- * slot and makes the byte length exact). */
-// WIP-FUNCTION: LEGOLAND 0x0040a600  (256/256 insns, 812/812 bytes; st/p1 in the opposite callee-saved pair)
+/* RESIDUAL: ONE register choice.  Every block, constant, call, store and
+ * frame slot of the original is reproduced; the original keeps `st` in ebx
+ * (pushed at entry) and `p1` -- reused for `i` -- in ebp (the deferred push),
+ * this body has them the other way round, and because the scratch rotation
+ * follows that choice ~200 of the 256 instructions differ index-for-index.
+ * Two secondary residuals: (a) the original hoists `n - 1` into its own
+ * spill slot after the loop guard (`dec eax / mov [esp+0x18],eax`, then
+ * `cmp ebp,[esp+0x18]` in the loop) where VC6 here re-derives it inside the
+ * loop (`mov ecx,[n] / lea eax,[ecx-1]`) -- hence the frame is 0x24 not
+ * 0x28 and n/def/midy sit one slot lower; (b) the scheduler then folds the
+ * loop-end differently.  The unreferenced slot at entry-0x14 is not a
+ * variable: it is the 8-byte alignment hole between the 4-byte `sq` slot and
+ * the Pos `b`, and this body has it too.
+ *
+ * What IS load-bearing and committed (each verified against the listing):
+ *  - `def->footprint.v[0]`/`v[1]` read into int temps BEFORE the a.x/a.y
+ *    stores, then `a.x++; a.y -= dy;` as separate statements: `a` is
+ *    address-taken, so a load through `def` after an a.x store cannot be
+ *    hoisted and would force a second a.x store (the sibling
+ *    LFEntrance_Update has that double store; the original here does not).
+ *    With the temps, indices 26..53 are exact modulo the ebx/ebp swap.
+ *  - the tail square: x fully (add, inc) then y (`+ v[3] - 1` then `+= dy`
+ *    keeps the `lea [edx+ecx-1] / add ecx,esi` association).
+ *  - a separate `last` cursor (p1 as the cursor keeps it in a register and
+ *    spills `i` instead; the original spills the cursor into the dead `elem`
+ *    slot and keeps `i` in the p1 register).
+ *
+ * The st/p1 swap is a priority tie: measured with probes (not committed), it
+ * flips to the original's allocation with +2 unconditional stores through
+ * `st` outside the loop, +3 stores through `st` inside the loop, -2 of the
+ * `p1->sq` byte reads, an `unsigned char` loop counter, or an inlined
+ * allocating helper whose int arguments are live across LFPiece_Alloc; +1
+ * ref, +2 loop refs, +2 conditional refs, -1 ref and -2 if-block stores do
+ * not.  No legal spelling found that supplies the missing weight: redundant
+ * `if (st)` guards, `p2->run`/`p3->run` forwarded as the call argument,
+ * `st->f18` as the LinkAfter argument, byte-wise `sq` copy, p1 stamped via
+ * an inlined helper (parameter or local copy), post-guard inner scopes for
+ * any subset of locals, `i = 0` at nine earlier points (memory-homes i),
+ * five `if (p1)`/`if (!p1)` spellings, `RideTile sq`, every order of the
+ * four opening statements (dy, midy, queue.path, a) on this body, do/while
+ * and while forms, unsigned/long/char counters.  For (a), ~40 spellings of
+ * `n - 1` (named local, two-def `nm1 = n; nm1--`, const, block-scope,
+ * unsigned/long/short/char, pointer, struct/array member, address-taken,
+ * inline-helper parameter, `i + 1 == n`, `i <= n - 1`, `i < nm1 + 1`,
+ * `n - i == 1`, static, register, a second dead use) all forward-substitute
+ * into the loop; only `volatile`, `short` or a use after the loop keep the
+ * slot, none with the original's memory-operand `cmp`.  M1-style helpers
+ * and `volatile` were rejected as not the original's code. */
+// WIP-FUNCTION: LEGOLAND 0x0040a600  (14% by audit.py, 220/256 index mismatches, body 250 insns; st/p1 in the opposite callee-saved pair, n-1 not hoisted)
 void LFEntrance_Add(RideElem* elem, const Pos* pos)
 {
     RideDef* def;
@@ -397,6 +425,8 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
     LFPiece* last;
     int      dy;
     int      i;
+    int      fx;
+    int      fy;
 
     sq.b.x = (unsigned char)pos->x;
     sq.b.y = (unsigned char)pos->y;
@@ -411,9 +441,12 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
     midy = sq.b.y + (def->footprint.v[1]
                      + ((def->footprint.v[3] - def->footprint.v[1]) >> 1));
     st->queue.path = g_lf_anim_a;
-    a.x = sq.b.x + def->footprint.v[0];
-    a.y = sq.b.y + def->footprint.v[1] - dy;
+    fx = def->footprint.v[0];      /* both loads BEFORE the a.x store: */
+    fy = def->footprint.v[1];      /* `a` is address-taken, def may alias */
+    a.x = sq.b.x + fx;
+    a.y = sq.b.y + fy;
     a.x++;
+    a.y -= dy;
 
     p1 = LFPiece_Alloc();
     if (p1 != 0) {
@@ -472,8 +505,12 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
         b.y += dy;
     }
 
-    b.x = sq.b.x + def->footprint.v[0] + 1;
-    b.y = sq.b.y + def->footprint.v[3] - 1 + dy;
+    fx = def->footprint.v[0];
+    fy = def->footprint.v[3];
+    b.x = sq.b.x + fx;
+    b.x++;
+    b.y = sq.b.y + fy - 1;
+    b.y += dy;
     p3 = LFPiece_Alloc();
     if (p3 != 0) {
         p3->flags |= 3;
@@ -543,15 +580,25 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
  * tile x in eax, the sum in a THIRD register) where VC6 here coalesces the
  * sum into qx's own register and emits `add ecx,eax` -- one byte shorter,
  * hence 672 vs 673.  That single choice decides which of edx/ecx carries
- * `next` and therefore renames every register in the preamble.  Measured and
- * rejected: all 40 legal statement orders of {b, tile, tx, next, ty} x both
- * operand orders of both sums (best is the one committed; the next best is
- * 80 mismatches), explicit `qx`/`qy` int locals, explicit `tilex`/`tiley`
- * locals, reading the square as one `unsigned short` and masking, a cast of
- * qx through unsigned char, 41 declaration orders of the seven locals, and
- * while / for / do-while / guarded-while loop forms -- every one of them
- * gives the identical `add`.  ty is right in all of them (`add edx,ebx`,
- * i.e. `tile->b.y + def->qy`, the tile byte first). */
+ * `next` and therefore renames every register in the preamble.
+ *
+ * Measured and rejected (two lanes, ~230 variants): all 160 legal statement
+ * orders of {b, tile, tx, next, ty} x both operand orders of both sums on
+ * this body (best 10, next best 58, most 94-96); explicit `qx`/`qy` int
+ * locals, including `qx` with a second use in case 10 (CSE'd back into tx);
+ * explicit `x`/`y` locals (int and unsigned char) with case 2 reading `x`;
+ * tx via a Pos/struct/array local, a Pos-returning inline helper, unsigned,
+ * long; two-def forms (`tx = def->qx; tx += tile->b.x` and every mix);
+ * `next` as int, unsigned, void pointer, struct member, array, through a pointer, inner
+ * scope, `b` in an inner scope, `for (; r; r = next)`, `b->state == 0`; a
+ * `signed char*` view of qx/qy; `volatile` loads of qx (9: only reorders the
+ * loads, still `add`), of tile x (breaks the CSE with case 2) and of `next`
+ * (8: same).  Case 10 written with `(def->qx + tile->b.x)` CSEs to tx and is
+ * byte-identical; case 9 with the expressions is not.  Diagnosis: VC6 gives
+ * an `add` the register of whichever operand dies at it (`x` lives on into
+ * case 2), even when that operand is a separate volatile load; the original
+ * had qx and tx as non-coalesced webs.  No C spelling found that keeps qx
+ * alive past the sum or pre-assigns tx a third register. */
 // WIP-FUNCTION: LEGOLAND 0x0040bf70  (95.5%, 222/222 insns; the tx sum is `add` not `lea`, which renames the 10-instruction preamble)
 void LFEntrance_Activate(RideElem* elem)
 {

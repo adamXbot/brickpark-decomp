@@ -996,7 +996,7 @@ typedef struct MapConfig {
     unsigned short oy;           /* +0x22 */
 } MapConfig;
 
-extern MapConfig    g_map_cfg;                               /* 0x004bcbf4 lpConfig */
+extern MapConfig*   g_map_cfg;                               /* 0x004bcbf4 lpConfig -- a POINTER to the config (mov eax,[0x4bcbf4]; mov di,[eax+0x20]) */
 extern const char*  g_ts_path_names[];                       /* 0x004b4f08 manbox01..04 */
 extern const signed char g_ts_walk_frame[];                  /* 0x004b4f18 per lane */
 extern const signed char g_ts_end_frame[];                   /* 0x004b4f1c per lane */
@@ -1080,7 +1080,56 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  * but it is a lie about the data structure and leaves tw/th/next 4 low, so it
  * is not shipped.  It does prove the aggregate run is modelled correctly and
  * isolates the residual to that one scalar.) */
-// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions and block layout, audit mismatch 317/347: the frame is two slots short -- see above)
+/* THIS ROUND (semantic fix + block-layout study; audit 317 -> 329 -> 231).
+ * 1. lpConfig (0x004bcbf4) is a POINTER to the map config (`mov edx,[4bcbf4]
+ *    / mov di,[edx+0x20]`), as mechrides.c/ridecb3.c already have it; the
+ *    old struct-form read was a semantic bug.  Fixing it alone moved the
+ *    audit from 317 to 329 (the register cascade shifts, the frame does not).
+ * 2. Case 0 / the shared CalcMoveLine tail.  The original lays out arm A
+ *    (lane > 1, +0x380/-0x280) falling THROUGH into the tail T at 0x4174d7,
+ *    arm B (lane <= 1, action = 3) after T, case 2 jumping BACK to T's first
+ *    reload (0x41758f -> 0x4174d7) and case 5 jumping back to T's `call`
+ *    (0x417851 -> 0x4174ee) with its own pushes in which target.y is
+ *    FORWARDED (`push ecx`) and target.x/world.* reloaded.  Measured facts
+ *    (scratchpad/joust/tsu_v*.py, ~60 variants + synthetic probes in
+ *    scratchpad/joust/syn/):
+ *    - A `goto move` label block is ALWAYS placed after its LAST goto source
+ *      in layout (after case 5 with two gotos, after case 2 with one, after
+ *      A only when the goto sources are textually before case 0 -- which
+ *      also moves their blocks before case 0, since case blocks follow
+ *      textual order).  A Duff-style `if (0) { case 2: ... }` normalises to
+ *      the same thing.  So case 2's jump to T's first reload cannot come
+ *      from a goto in a 0..6 textual switch, yet a textual copy of the call
+ *      in case 2 always forwards the last-stored target field (synthetic
+ *      probe: every spelling forwards one of x/y) and would merge only from
+ *      the `call`.  Unresolved.
+ *    - Identical IR suffixes are merged by an IR-level pass into the LAST
+ *      copy in layout (a textual copy in cases 0, 2 and 5 makes A and case 2
+ *      jump forward into case 5); a post-codegen cross-jump merges an
+ *      identical MACHINE-CODE suffix into the EARLIER block (synthetic F1:
+ *      case 0's copy jumps into case 2's `call`), which is what the
+ *      original's case 5 -> T shows.
+ *    - Case 5's forwarded `push ecx` is the store order world.x, world.y,
+ *      target.x, target.y with (qx+x)<<8 / (qy+y)<<8 computed ONCE (gx/gy
+ *      temps; the aliasing re-read of def->qx after the world.x store
+ *      otherwise recomputes them): synthetic table in
+ *      scratchpad/joust/syn/gen_s2.py, only wx,wy,tx,ty (or wx,wy,ty,tx)
+ *      gives `st104 st36 st108 st40 ld36 / ld108 push ecx / ld104`.
+ *    The form shipped here (if/else in case 0 with the tail after the join,
+ *    case 2 with its own textual copy, case 5 `goto move` with the world
+ *    stores first) is semantically identical and scores best on the strict
+ *    gate (231, no ESCAPES); the form I believe is the original's (case 2
+ *    goto, case 5 textual copy with gx/gy temps) scores 322-329 because
+ *    the tail lands after case 2 and the whole register cascade shifts.
+ * 3. FRAME: unchanged from the analysis above (two never-referenced homes at
+ *    F+0x04 and F+0x2c; `pos` as a 3-int vector accounts for F+0x2c exactly
+ *    and ridecb3.c adopted that for NewBNVPath, but here it does not move the
+ *    strict count; a Pos scr struct for sx/sy, a fresh sx2, wx/wy pre-reads
+ *    and their combinations never produce the original's dead `mov
+ *    [esp+0x20],ebp` spill of sx or the extra home).  mechrides.c's four BNV
+ *    rides carry exactly the same residual (dead homes + dead sx spill), so
+ *    it is one family-wide unknown, not a per-function spelling. */
+// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, audit mismatch 231/347: frame two homes short and the shared-tail layout -- see above)
 void TempleSlide_Update(RideElem* elem)
 {
     RideDef*   def = elem->data;
@@ -1117,22 +1166,23 @@ void TempleSlide_Update(RideElem* elem)
                 if ((unsigned char)lane > 1) {
                     b->target.x = (tx << 8) + 0x380;
                     b->target.y = (ty << 8) - 0x280;
-move:
-                    dir = (unsigned char)CalcMoveLine(b->world, b->target,
-                                                      b->path) + 0x10;
+                } else {
+                    b->target.x = (tx << 8) + 0x80;
+                    b->target.y = (ty - 5) << 8;
+                    dir = (unsigned char)CalcMoveLine(b->world, b->target, b->path) + 0x10;
                     b->state = 7;
                     b->new_dir = dir;
                     NewDirForAction(b, (unsigned char)((dir >> 5) + 3));
-                    b->action++;
+                    b->action = 3;
                     break;
                 }
-                b->target.x = (tx << 8) + 0x80;
-                b->target.y = (ty - 5) << 8;
-                dir = (unsigned char)CalcMoveLine(b->world, b->target, b->path) + 0x10;
+move:
+                dir = (unsigned char)CalcMoveLine(b->world, b->target,
+                                                  b->path) + 0x10;
                 b->state = 7;
                 b->new_dir = dir;
                 NewDirForAction(b, (unsigned char)((dir >> 5) + 3));
-                b->action = 3;
+                b->action++;
                 break;
 
             case 1:
@@ -1141,15 +1191,20 @@ move:
             case 2:
                 b->target.x = (def->footprint + sq->b.x + 4) << 8;
                 b->target.y = (def->f40 + sq->b.y + 2) << 8;
-                goto move;
+                dir = (unsigned char)CalcMoveLine(b->world, b->target, b->path) + 0x10;
+                b->state = 7;
+                b->new_dir = dir;
+                NewDirForAction(b, (unsigned char)((dir >> 5) + 3));
+                b->action++;
+                break;
 
             case 3:
                 screen = GetScreenCoordsForObject(sq, def);
                 GetTileDimensions(&tw, &th);
                 sx = (b->world.x - b->world.y) * tw >> 9;
                 sy = (b->world.x + b->world.y) * th >> 9;
-                sx = g_map_cfg.ox - Get_XScroll() + sx;
-                sy = sy + (g_map_cfg.oy - Get_YScroll());
+                sx = g_map_cfg->ox - Get_XScroll() + sx;
+                sy = sy + (g_map_cfg->oy - Get_YScroll());
                 sx -= g_ts_rider_dx / 2;
                 sx -= screen.ox;
                 b->flags |= 0x80;
@@ -1229,8 +1284,8 @@ move:
                     break;
                 }
                 b->world.x = ofs.ox + ((def->qx + sq->b.x) << 8);
-                b->target.x = ((def->qx + sq->b.x) << 8) + 0x80;
                 b->world.y = ofs.oy + ((def->qy + sq->b.y) << 8);
+                b->target.x = ((def->qx + sq->b.x) << 8) + 0x80;
                 b->target.y = ((def->qy + sq->b.y) << 8) + 0x80;
                 goto move;
 
@@ -1275,16 +1330,10 @@ extern Offset GetRenderOffsetForLayer(Spr* sprite, int layer);/* 0x00441ee0 */
 /* Draw every collected person whose long-term action equals `code`. */
 static __inline void Joust_DrawBand(Bloke** here, char n, int code)
 {
-    int     i;
-
-    if (n > 0) {
-        i = n;
-        do {
-            if ((*here)->action == code)
-                IP_RenderBlokeIn3DNow(*here);
-            ++here;
-        } while (--i);
-    }
+    char i;
+    for (i = 0; i < n; i++)
+        if (here[i]->action == code)
+            IP_RenderBlokeIn3DNow(here[i]);
 }
 
 /* NOTE: the block structure, the eight-slot collection array, every band and
@@ -1404,7 +1453,36 @@ static __inline void Joust_DrawBand(Bloke** here, char n, int code)
  *      original interleaves `push 0` before the coordinate add and holds the
  *      sprite global in the other register: a schedule/rotation, not a
  *      structural difference. */
-// WIP-FUNCTION: LEGOLAND 0x00408580  (552 of 552 instructions, mismatch 97; per-band guards recovered, lea/jle transposition remains -- see above)
+/* THIS ROUND (97 -> 3).  (1) The lea/jle transposition was never a scheduler
+ * artefact: Joust_DrawBand written as `char i; for (i = 0; i < n; i++)
+ * if (here[i]->action == code)` -- a CHAR index over here[i], the same shape
+ * ridecb1.c's restaurants use -- gives `test bl,bl / jle <group end> /
+ * lea esi / movsx edi,bl` with every guard threaded to the group end (97 ->
+ * 42).  (2) The five PrintSprite argument blocks: the sums must be spelled
+ * `screen.ox + off.ox` (screen FIRST, as ridecb1.c does), which makes the
+ * addition's destination the `off` register and lets VC6 load the sprite
+ * global before `push ebp` (42 -> 3).
+ * WHAT IS LEFT, 3 of 552, indices 301-303, in the rider loop: the original
+ * emits `mov [esp+0x14],0 / movsx ecx,[esi+0x3c] / lea eax,[edi+0x24] /
+ * mov [esp+0x18],ebx / push eax / mov [eax],ecx` -- the seat.oy store (ebx =
+ * the hoisted -0x30) sits BETWEEN the &p->local lea and its push -- where we
+ * emit both seat stores first.  Measured inert (all 3 or worse): all 24
+ * orders of the four stores (stores keep IR order, the push always glues to
+ * the lea), `Offset seat = {0,-0x30}`, `= {0}`, an int[2], an int temp for
+ * -0x30, `seat.oy = seat.ox - 0x30`, a pointer `lp = &p->local` (also
+ * re-bases the oy store), the seat born inside a static __inline helper (with
+ * or without the AdjustOffsetForViewMode call; the whole block as a helper
+ * re-allocates the function), a helper storing p->local, `for` vs `while`,
+ * splitting the && guard, `(short)` casts, same-width casts as no-code tuples
+ * at eleven earlier points, b/p re-read from r (re-allocates), a
+ * function-level or pre-loop `int seat_dy = -0x30` variable (the hoisted
+ * `mov ebx,-0x30` is the same either way), comma/arithmetic forms that put
+ * the seat.oy assignment inside the p->local.ox expression, and `lp =
+ * &p->local` taken before the seat stores.  Stores keep IR order and the
+ * push always glues to the lea, so the original's IR must have the
+ * seat.oy store between the address computation and the ox store -- no
+ * C spelling found reaches it. */
+// WIP-FUNCTION: LEGOLAND 0x00408580  (552 of 552 instructions, mismatch 3: the seat.oy store is scheduled between the lea and the push -- see above)
 void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode)
 {
     RideDef*   def = elem->data;
@@ -1436,7 +1514,7 @@ void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode
             Joust_DrawBand(here, n, 0x1c);
             off = GetRenderOffsetForLayer(g_joust_sprite, 0);
             AdjustOffsetForViewMode(&off);
-            PrintSprite(g_joust_specr, off.ox + screen.ox, off.oy + screen.oy,
+            PrintSprite(g_joust_specr, screen.ox + off.ox, screen.oy + off.oy,
                         mode, 0);
 
             Joust_DrawBand(here, n, 0x0c);
@@ -1445,7 +1523,7 @@ void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode
             Joust_DrawBand(here, n, 0x0f);
             off = GetRenderOffsetForLayer(g_joust_sprite, 0);
             AdjustOffsetForViewMode(&off);
-            PrintSprite(g_joust_specl, off.ox + screen.ox, off.oy + screen.oy,
+            PrintSprite(g_joust_specl, screen.ox + off.ox, screen.oy + off.oy,
                         mode, 0);
 
             Joust_DrawBand(here, n, 0x16);
@@ -1455,7 +1533,7 @@ void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode
             off = GetRenderOffsetForLayer(g_joust_sprite, 1);
             AdjustOffsetForViewMode(&off);
             PrintSprite(GetSpriteForLayer(g_joust_sprite, 1),
-                        off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                        screen.ox + off.ox, screen.oy + off.oy, mode, 0);
 
             r = def->riders;
             while (r) {
@@ -1489,7 +1567,7 @@ void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode
             Joust_DrawBand(here, n, 0x1e);
             off = GetRenderOffsetForLayer(g_joust_sprite, 1);
             AdjustOffsetForViewMode(&off);
-            PrintSprite(g_joust_fmask, off.ox + screen.ox, off.oy + screen.oy,
+            PrintSprite(g_joust_fmask, screen.ox + off.ox, screen.oy + off.oy,
                         mode, 0);
             return;
         }
@@ -1497,8 +1575,8 @@ void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode
     LLSSetFrame(GetLLSForLayer(g_joust_sprite, 1), frame);
     off = GetRenderOffsetForLayer(g_joust_sprite, 1);
     AdjustOffsetForViewMode(&off);
-    PrintSprite(GetSpriteForLayer(g_joust_sprite, 1), off.ox + screen.ox,
-                off.oy + screen.oy, mode, 0);
+    PrintSprite(GetSpriteForLayer(g_joust_sprite, 1), screen.ox + off.ox,
+                screen.oy + off.oy, mode, 0);
 }
 
 /* ==========================================================================
