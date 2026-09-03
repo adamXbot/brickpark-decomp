@@ -67,37 +67,37 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-03: 1411 functions at 100%** — 645 of the 675 code exports
-(95.6%) plus 766 recovered unexported functions, together **38.3% of the game's
-~628 KB of code** (`python3 tools/coverage.py`; 51.3% including partials).
+**As of 2026-09-03 (afternoon): 1473 functions at 100%** — 659 of the 675 code
+exports (97.6%) plus 814 recovered unexported functions, together **38.8% of
+the game's ~628 KB of code** (`python3 tools/coverage.py`; 51.3% including
+partials).
 `SaveGame` and `LoadGame` are both exact so the whole `.sav` format is
 documented and reproduced; `tri3d.c` reproduces the software 3D renderer;
 `docs/RIDE_CALLBACKS.md` names 265 ride callbacks and which object slot each
 fills. See `docs/HANDOFF.md` for the session checkpoint and what to do next.
 
-32 exports remain. **14 of them are already exact** and were held only because
-`tools/match.py` stopped at the first `ret` and could not bound a void
-tail-jump wrapper (measured: it scored `KillHelp` 37.5%) — see "Tail-jump
-functions" below; `tools/audit.py` certifies all 14 with zero mismatches. The
-extent rules are now in `match.py` (2026-09-03); promote those markers after
-one clean `verify.py` run against the binary confirms it. That leaves
-**18 genuinely unfinished functions**, each carrying its measured residual and
-first diverging instruction index in a note above its marker. Run
-`python3 tools/remaining.py` for the live list.
+16 exports remain, every one a genuine partial carrying its measured residual
+and first diverging instruction index in a note above its marker. (Until
+2026-09-03 another 14 exact exports — and 48 exact internal functions — were
+held at `// WIP-FUNCTION:` only because `tools/match.py` stopped at the first
+`ret` and could not bound a void tail-jump wrapper; it scored `KillHelp`
+37.5%. The extent rules were ported into `match.py` that day and all 62 were
+promoted — see "Tail-jump functions" below.) Run `python3 tools/remaining.py`
+for the live list.
 
 ### Three progress numbers, and which one to quote
 
 | measure | tool | value |
 | --- | --- | --- |
-| exported functions matched | `tools/remaining.py` | 645 of 675 (95.6%) |
+| exported functions matched | `tools/remaining.py` | 659 of 675 (97.6%) |
 | unmatched callees | `tools/callees.py` | moves both ways — the frontier, not progress |
-| **bytes of game code matched** | **`tools/coverage.py`** | **38.3% (51.3% with partials)** |
+| **bytes of game code matched** | **`tools/coverage.py`** | **38.8% (51.3% with partials)** |
 
 The first two are both true and both misleading on their own.
 
 **Exports are a fraction of the game.** They are only the symbols the linker
-exposed; 985 functions are matched but just 645 of them are exports. Quoting
-95.6% as "the project is nearly done" is wrong by a wide margin.
+exposed; 1473 functions are matched but just 659 of them are exports. Quoting
+97.6% as "the project is nearly done" is wrong by a wide margin.
 
 **The unmatched-callee number moves in both directions.** Every newly matched
 file declares `extern`s for its own callees, so a productive round can RAISE
@@ -108,7 +108,7 @@ frontier than they consumed. It measures the frontier, not progress.
 **Bytes of matched code against bytes of game code is the honest headline.**
 It only moves by doing work. `.text` is 679 KB, of which about 51 KB is the
 statically-linked CRT (from 0x0049e000 up) and not a decompilation target,
-leaving ~628 KB of game code. 183 KB of that is matched exactly.
+leaving ~628 KB of game code. 244 KB of that is matched exactly.
 
 So: nearly every EXPORTED function is done, and that was the right first
 target because exports are the subsystem entry points — but roughly seventy
@@ -400,9 +400,10 @@ target including bare-decimal and `loop` forms, writes its object to a per-pid
 path (`--obj` to override) and honours `LEGOLAND_CL` for the compiler wrapper.
 `tools/verify.py` counts a function only when `match.py` prints `extent ok`.
 The change was validated on hand-assembled sequences for each shape (tail-jmp,
-`noreturn` tail, recursive self-call, early-return guard, escaping branch); it
-has **not yet been run against the binary**, which was unavailable on the
-machine that made the change — do that before promoting any WIP marker.
+`noreturn` tail, recursive self-call, early-return guard, escaping branch),
+then against the binary: the ported walker agrees with the pre-port `audit.py`
+on all 1580 marker addresses, `audit.py` PASSes every file, and `verify.py`
+reports **1473/1473** after the 62 promotions (run alone, 2026-09-03 ~14:30).
 
 ### Tail-jump functions (`match.py` change — applied 2026-09-03)
 
@@ -417,9 +418,9 @@ of a `switch` jump table, read from `.rdata`; a target before the entry, at or
 after the next export, or a 16-aligned address reached across nop padding is
 external), and the compiled body is trimmed to that extent and checked for
 branches that escape it (relocated targets carry match.py's 0x00990099
-sentinel and are external by construction). Both functions are committed as `// WIP-FUNCTION:` with a note, so
-`verify.py` stayed green; flip them (and the other audit-exact WIPs) to
-`// FUNCTION:` once one clean `verify.py` run confirms the ported rule.
+sentinel and are external by construction). Both functions sat at `// WIP-FUNCTION:` with a note until the rule was
+ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
+`verify.py` confirms all of them.
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 

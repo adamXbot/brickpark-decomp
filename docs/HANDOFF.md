@@ -53,11 +53,13 @@ so no lane work was lost. Its `.git` held five `codex/*` branches (59–72
 commits each) of which only `codex/browser-runtime` is on origin; all five are
 fetched into this clone as local branches — push them if they are wanted.
 
-**Still missing: the compiler.** `toolchain` in the zip is only a symlink to
-`/Users/systemadmin/Downloads/alpha team/alphateam/toolchain`, and neither
-that tree nor `alphateam/tools/wibo-msvc/cl` is in the zip or on this machine.
-Nothing that compiles can run until that folder is copied over; then set
-`LEGOLAND_CL` (or restore the symlink and the old path).
+**The compiler was rebuilt, not copied.** `toolchain` in the zip was only a
+symlink into the missing "alpha team" tree, but `adamXbot/alphateam` (cloned
+to `../alphateam`) tracks `tools/wibo-msvc/cl` and
+`tools/setup_toolchain_macos.sh`, which downloads wibo 1.2.0, decomp.me's
+`win32/msvc6.3` package and isledecomp's SP3 libs into `toolchain/`. Set
+`LEGOLAND_CL=/Users/systemadmin/Documents/Development/Github/alphateam/tools/wibo-msvc/cl`
+before any tool that compiles; `match.py` passes `ALPHATEAM_VC6_ROOT` itself.
 
 **The `match.py` port is validated on the real binary** as far as it can be
 without compiling: the ported `true_extent` returns the same result as the
@@ -65,7 +67,11 @@ pre-port `audit.py` on all 1580 marker addresses, the widened `norm` agrees
 with the old `norm2` on every instruction of every original body, and
 `coverage.py` (which uses the ported walker) reproduces the checkpoint's
 38.3% / 51.3% exactly. `remaining.py` and `callees.py` also run. What is
-still owed is the compile side: one clean `verify.py`, then the promotions.
+still owed was the compile side — closed the same afternoon once the VC6
+toolchain was rebuilt from `adamXbot/alphateam`'s
+`tools/setup_toolchain_macos.sh` (into the gitignored `toolchain/`, C2.DLL
+12.00.8447 confirmed) with `LEGOLAND_CL` pointing at that repo's
+`tools/wibo-msvc/cl`: `audit.py` PASS, 62 promotions, `verify.py` 1473/1473.
 
 ---
 
@@ -78,11 +84,14 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **38.3% exact, 51.3% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1411 |
-| exported functions | `python3 tools/remaining.py` | 645 of 675 (95.6%) |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **38.8% exact, 51.3% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1473 |
+| exported functions | `python3 tools/remaining.py` | 659 of 675 (97.6%) |
 | unmatched callees | `python3 tools/callees.py` | 589, ~25,500 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 169 |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 107 |
+
+(The row values above were refreshed at ~14:30 AEST after the 62 promotions
+described in §0 and §2; the prose that follows in §1 predates them.)
 
 **Quote coverage.py.** The export figure (95.6%) badly overstates completion —
 exports are only the symbols the linker exposed, and 1411 functions are matched
@@ -119,12 +128,11 @@ Three shapes defeat `match.py`, which stops at the first `ret`:
 **Done 2026-09-03 (user's go-ahead given in session).** `match.py` now carries
 `true_extent` / `compiled_body` / `end_of_body` and the widened `norm`;
 `audit.py` imports them; `verify.py` requires match.py's `extent ok` token.
-Validated on synthetic byte sequences only (`scratchpad`-style harness, 16
-checks) because this machine has no binary. **What is still owed:** one clean
-`python3 tools/verify.py` run against `original/legoland.exe` — expect
-1411/1411 with no regressions, then run `match.py` on the 62 audit-exact WIPs
-and promote each that prints `extent ok` to `// FUNCTION:`. Do not promote on
-the strength of the synthetic tests alone.
+Validated first on synthetic byte sequences (16 checks), then — once the
+binary and toolchain were restored the same afternoon — against the real
+thing: `audit.py` PASS on all 119 files, `match.py` prints `extent ok` on all
+62 audit-exact WIPs, they were promoted, and `verify.py` (run alone) reports
+**1473/1473**. This item is closed; the count is 1473 exact / 107 WIP.
 
 ---
 
@@ -202,8 +210,8 @@ Lanes that had been running, all resumable from `docs/LANE_BRIEF.md`:
 
 ## 6. Where to go next
 
-**A. Run `verify.py` against the binary and promote the 62 audit-exact WIPs**
-(section 2) — the `match.py` port is in; the confirmation run is not.
+**A. Done (2026-09-03 afternoon):** the 62 audit-exact WIPs are promoted and
+`verify.py` is green at 1473/1473. Start at B.
 
 **B. The closest genuine partials.** 107 of the 169 WIPs are real partials, and
 each carries a note above its marker recording its measured residual, its first

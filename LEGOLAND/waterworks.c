@@ -465,7 +465,7 @@ void WW_ListUnlink(WaterRec** head, WaterRec* node)
  * WATER WORKS ENTRANCE
  * ========================================================================== */
 
-// WIP-FUNCTION: LEGOLAND 0x00417c00  (exact under audit.py; tail jmp, match.py cannot bound it)
+// FUNCTION: LEGOLAND 0x00417c00
 void WWEntrance_Create(RideElem* elem)
 {
     g_wwentrance_elem = elem;
@@ -473,7 +473,7 @@ void WWEntrance_Create(RideElem* elem)
     WW_LoadFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00417ae0  (exact under audit.py; tail jmp, match.py cannot bound it)
+// FUNCTION: LEGOLAND 0x00417ae0
 void WWEntrance_Destroy(void)
 {
     WW_KillFX();
@@ -601,7 +601,7 @@ void WaterBlock_Create(RideElem* elem)
     g_wb_sprite = LoadSprite(g_s_topwater, 1);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00417e40  (exact under audit.py; tail jmp, match.py cannot bound it)
+// FUNCTION: LEGOLAND 0x00417e40
 void WaterBlock_Destroy(void)
 {
     if (g_wb_sprite)
@@ -878,7 +878,7 @@ void Shower_Create(RideElem* elem)
     g_shower_sprite = LoadSprite(g_s_shower_lls, 1);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00418330  (exact under audit.py; tail jmp, match.py cannot bound it)
+// FUNCTION: LEGOLAND 0x00418330
 void Shower_Destroy(void)
 {
     if (g_shower_sprite)
@@ -1078,7 +1078,7 @@ void ElephantFountain_Create(RideElem* elem)
     g_elephantf_sprite = LoadSprite(g_s_elsquirt_lls, 1);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x004186f0  (exact under audit.py; tail jmp, match.py cannot bound it)
+// FUNCTION: LEGOLAND 0x004186f0
 void ElephantFountain_Destroy(void)
 {
     if (g_elephantf_sprite)

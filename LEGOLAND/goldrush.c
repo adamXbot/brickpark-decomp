@@ -484,7 +484,7 @@ void GoldRush_Create(RideElem* elem)
     g_gold_mask = LoadSprite("goldmask.lls", 1);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00406ab0  (exact under audit.py; ends in a tail jmp)
+// FUNCTION: LEGOLAND 0x00406ab0
 void GoldRush_Destroy(void)
 {
     if (g_gold_matte1)

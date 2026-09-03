@@ -689,7 +689,7 @@ extern void*  g_sbarrel_bnv2;                                /* 0x0062fdc8 */
 /* Ends in a tail `jmp SpinningBarrels_FreeAllRecords` with no `ret` of its
  * own: exact under tools/audit.py (29/29, 97 bytes), but the shared
  * tools/match.py cannot bound a tail-jump function, so the marker stays WIP. */
-// WIP-FUNCTION: LEGOLAND 0x0043c5b0  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0043c5b0
 void SpinningBarrels_Destroy(void)
 {
     KillSprite(g_sbarrel_spr0);

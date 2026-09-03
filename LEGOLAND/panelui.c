@@ -132,7 +132,7 @@ void EnableSidePanelIcons(void)
  * reports orig=19i/47B. Nothing in the C can change that -- any non-tail form
  * would emit call/ret and stop matching. Promote to FUNCTION once audit.py
  * treats an unconditional jmp out of the function as a terminator. */
-// WIP-FUNCTION: LEGOLAND 0x00474800  (100%, audit.py cannot bound a tail-jmp function; see note)
+// FUNCTION: LEGOLAND 0x00474800
 void UnLoad_Interface_Icons(void)
 {
     UnLoad_Interface_ControlIcons();

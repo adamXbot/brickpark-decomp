@@ -1211,7 +1211,7 @@ extern void  Sub_428750(void);                                  /* 0x00428750 */
 /* SQUARE_TRACK's create hook: claim the class sprite, make sure the basic
  * tile set is loaded, then build the piece geometry. The out-parameter of
  * LLIDB_FindElement is homed in the dead argument slot. */
-// WIP-FUNCTION: LEGOLAND 0x00427aa0  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00427aa0
 void Track_Create(RideElem* elem)
 {
     void*    found;
@@ -1251,7 +1251,7 @@ extern void  Sub_42a780(void);                          /* 0x0042a780 */
  * sub-system initialisers of the castle/coaster module in order.
  * (castleobj.c declares this `void Castle_Create(void)`; it really takes the
  * class element.) */
-// WIP-FUNCTION: LEGOLAND 0x00424150  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00424150
 void Castle_Create(RideElem* elem)
 {
     g_610a04 = 0;

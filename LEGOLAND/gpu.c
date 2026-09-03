@@ -349,7 +349,7 @@ void SetClipping(WinRect* r)
  * has (compare surface.c's status stack, which does exactly that).
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x00466560  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00466560
 void PushSetTarget(SpriteRec* s)
 {
     PushStatusAndUnlock_inl();

@@ -305,7 +305,7 @@ void UnLoadRin(Rin* rin)
 /* Ends in `jmp FreeRasterBuffer` (a void call in tail position), no ret:
  * audit.py bounds it and certifies all 72 instructions; the shared match.py /
  * verify.py cannot bound a tail-jmp function, hence the WIP marker. */
-// WIP-FUNCTION: LEGOLAND 0x004405a0  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x004405a0
 void UnInitMan(void)
 {
     int i;

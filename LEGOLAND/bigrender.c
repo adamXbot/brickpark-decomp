@@ -446,7 +446,7 @@ extern int   GetObjExitDir(ObjDefRec* o);                 /* 0x0045e710 */
  * adopts audit.py's terminator rules.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x00488c50  (exact: 13i/46B, mismatch=0 by audit.py; match.py cannot bound a noreturn tail)
+// FUNCTION: LEGOLAND 0x00488c50
 int RenderTiledSprite(SpriteRec* s, int x, int y, int w, int h, int e, int f)
 {
     WinRect rc;

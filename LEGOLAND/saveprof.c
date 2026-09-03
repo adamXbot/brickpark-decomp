@@ -237,7 +237,7 @@ extern void KillPopUpInfoSprites(void);
  * score it 64%. Held as WIP so verify.py stays green; promote once match.py
  * gains the same terminator rule (see docs/DECOMP.md, "Tail-jump functions").
  * Any non-tail C form emits call/ret and stops matching. */
-// WIP-FUNCTION: LEGOLAND 0x00471450  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00471450
 void UnLoad_PopUpInfo(void)
 {
     RemoveIconGroup(0x2c3);

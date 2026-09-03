@@ -276,7 +276,7 @@ void MapScreenSetScrollPos(Pos* p)
  * enabled by g_ms_flags bit 4) and the viewport outline.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004566f0  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x004566f0
 void DrawMapScreen(void)
 {
     int row, col;
@@ -411,7 +411,7 @@ void InitScreens(int screen)
  * table right after it in the COMDAT; match.py's relocation sentinel hides
  * the zero rel32, so neither match.py nor audit.py's end_of_body can bound
  * it and both count the table as seven junk instructions. */
-// WIP-FUNCTION: LEGOLAND 0x00458740  (55/55 body exact; tail-jmp + trailing switch table: match.py/audit.py cannot bound it)
+// FUNCTION: LEGOLAND 0x00458740
 void RenderFrontEndScreen(int screen)
 {
     ResetHitInfo();

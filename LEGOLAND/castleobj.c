@@ -1199,7 +1199,7 @@ void Castle_Add(RideElem* elem, MapRef* p)
 }
 
 /* Ends in a tail `jmp`, so tools/match.py cannot bound it; audit.py can. */
-// WIP-FUNCTION: LEGOLAND 0x004246e0  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x004246e0
 int Castle_Extra(int a, int b)
 {
     if (b != 0 && g_castle_rec != 2)

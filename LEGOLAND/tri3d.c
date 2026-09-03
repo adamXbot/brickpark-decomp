@@ -327,7 +327,7 @@ extern void ZBufferHelper(char* lls, WinRect* src, Pos* dst, void* zbuf); /* 0x0
  * Exact under tools/audit.py but its last statement is a tail CALL, so it
  * compiles to a `jmp` with no `ret` of its own and the shared tools/match.py
  * cannot bound it -- held as WIP per the tail-jump convention. */
-// WIP-FUNCTION: LEGOLAND 0x00485fc0  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00485fc0
 void Render_SetPixelFormat(int greenBits)
 {
     g_green_bits = greenBits;

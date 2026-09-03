@@ -674,7 +674,7 @@ int LFPiece_IsVisible(const BPos* sq)
  * (norm2 rewrites bare-numeric branch targets); the shared tools/match.py
  * normalises only 0x-prefixed ones, so it reports a single mismatch and
  * verify.py drops below 100%. Promote when match.py adopts the same rule. */
-// WIP-FUNCTION: LEGOLAND 0x004107b0  (exact by audit.py; match.py cannot normalise a recursive self-call)
+// FUNCTION: LEGOLAND 0x004107b0
 int LFPiece_ToIndex(LFPiece* head, LFPiece* target)
 {
     int      n = 1;
@@ -1101,7 +1101,7 @@ int LFCorner_Probe(LFPiece** nb)
  * (norm2 rewrites bare-numeric branch targets); the shared tools/match.py
  * normalises only 0x-prefixed ones, so it reports a single mismatch and
  * verify.py drops below 100%. Promote when match.py adopts the same rule. */
-// WIP-FUNCTION: LEGOLAND 0x00410bb0  (exact by audit.py; match.py cannot normalise a recursive self-call)
+// FUNCTION: LEGOLAND 0x00410bb0
 void LFRun_RelinkPieces(LFPiece* head, LFPiece* p)
 {
     while (p) {

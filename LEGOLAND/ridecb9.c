@@ -345,7 +345,7 @@ extern void KillMoneySFX(void);                              /* 0x00453930 */
 extern void* g_cafe_sprites[9];        /* 0x0081cd60 */
 extern void* g_cafe_chair_sprites[16]; /* 0x0081cda0 */
 
-// WIP-FUNCTION: LEGOLAND 0x00431520  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00431520
 void OctopusCafe_Destroy(void)
 {
     if (g_cafe_sprites[0]) KillSprite(g_cafe_sprites[0]);

@@ -1086,7 +1086,7 @@ extern void Sub_424890(void);                   /* 0x00424890 */
 extern void Sub_424990(void);                   /* 0x00424990 */
 extern void* g_castle_hooks[3];                 /* 0x00829bec */
 
-// WIP-FUNCTION: LEGOLAND 0x00423740  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00423740
 void CoasterGeomInit(void)
 {
     Sub_422fe0();
@@ -1095,7 +1095,7 @@ void CoasterGeomInit(void)
 
 /* Installs the castle's own three-hook table at 0x00829bec (immediately
  * below g_castle_def) and then runs the pass it belongs to. */
-// WIP-FUNCTION: LEGOLAND 0x00423db0  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00423db0
 void InstallCastleHooks(void)
 {
     g_castle_hooks[0] = (void*)Sub_424850;
@@ -1104,7 +1104,7 @@ void InstallCastleHooks(void)
     Sub_423d40();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00428b70  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00428b70
 void CoasterSceneInit(void)
 {
     Sub_428f00();

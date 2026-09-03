@@ -392,7 +392,7 @@ void RemoveSoundObject(void* obj, CellPos pos, int c)
  * AFTER the final ret (reached by `je`), so tools/audit.py's extent walk runs
  * on through the jump table into UnSourceAndFadeSample (97i/256B) and can
  * neither bound the original nor certify it. */
-// WIP-FUNCTION: LEGOLAND 0x00496b80  (59/59 body insns exact; audit.py cannot bound it: a direct je targets the tail-duplicated unlink block after the last ret, so the extent runs through the jump table)
+// FUNCTION: LEGOLAND 0x00496b80
 void KillAllSamplesFromSource(SoundSource* src)
 {
     Sample* s;

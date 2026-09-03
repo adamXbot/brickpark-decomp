@@ -145,7 +145,7 @@ void  DisableInfoPopUPIcons(void);
 /* ---- help --------------------------------------------------------------- */
 
 /* matchfull: 1/1. Tail `jmp` with no ret; audit.py bounds it, match.py cannot. */
-// WIP-FUNCTION: LEGOLAND 0x0046d100  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0046d100
 void KillHelp(void)
 {
     KillHelpText();
@@ -169,7 +169,7 @@ int DisplayAdvisorHelp(const char* text, int arg)
 
 /* Per-frame in-game help: cursor/tick updates, advisor text or bubble help,
  * the help icons, then the help keys. */
-// WIP-FUNCTION: LEGOLAND 0x0046cf60  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0046cf60
 void ProcessInGameHelp(void)
 {
     UpdateHelpCursor();
@@ -234,7 +234,7 @@ void DisableInfoPopUPIcons(void)
 }
 
 /* matchfull: full. Tail `jmp` with no ret; audit.py bounds it, match.py cannot. */
-// WIP-FUNCTION: LEGOLAND 0x00471510  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00471510
 void ResetInfoStruct(void)
 {
     g_info_f7c = 0;

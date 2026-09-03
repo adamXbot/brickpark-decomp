@@ -268,7 +268,7 @@ extern ShopDef* g_genstore_def;      /* 0x0081cb30 */
 extern void*    g_genstore_matte;    /* 0x0081cb08  "G_Store Matte.LLS"  */
 extern void*    g_genstore_matte2;   /* 0x0081cb24  "G_Store Matte2.LLS" */
 
-// WIP-FUNCTION: LEGOLAND 0x004375d0  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x004375d0
 void GeneralStore_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -280,7 +280,7 @@ void GeneralStore_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00437610  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00437610
 void GeneralStore_FreeResources(void)
 {
     KillSprite(g_genstore_matte);
@@ -304,7 +304,7 @@ void GeneralStore_SelectForPlacement(void)
 extern ShopDef* g_sheriff_def;       /* 0x0081cb14 */
 extern void*    g_sheriff_matte;     /* 0x0081cb38  "Sherifshut Matte.LLS" */
 
-// WIP-FUNCTION: LEGOLAND 0x00437ba0  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00437ba0
 void Sheriff_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -315,7 +315,7 @@ void Sheriff_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00437bd0  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00437bd0
 void Sheriff_FreeResources(void)
 {
     KillSprite(g_sheriff_matte);
@@ -363,7 +363,7 @@ void Sheriff_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
 extern ShopDef* g_bank_def;          /* 0x0081cb2c */
 extern void*    g_bank_matte;        /* 0x0081cb34  "Bank Matte.lls" */
 
-// WIP-FUNCTION: LEGOLAND 0x00438870  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00438870
 void Bank_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -374,7 +374,7 @@ void Bank_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x004388a0  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x004388a0
 void Bank_FreeResources(void)
 {
     KillSprite(g_bank_matte);
@@ -419,7 +419,7 @@ extern ShopDef* g_saloon_def;        /* 0x0081cb1c */
 extern void*    g_saloon_matte1;     /* 0x0081cb00  "SaloonMatte1.LLS" */
 extern void*    g_saloon_matte2;     /* 0x0081cb04  "SaloonMatte2.LLS" */
 
-// WIP-FUNCTION: LEGOLAND 0x00438c60  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00438c60
 void Saloon_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -431,7 +431,7 @@ void Saloon_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00438ca0  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00438ca0
 void Saloon_FreeResources(void)
 {
     KillSprite(g_saloon_matte1);
@@ -455,7 +455,7 @@ void Saloon_SelectForPlacement(void)
 extern ShopDef* g_explorers_def;     /* 0x0081cb44 */
 extern void*    g_explorers_matte;   /* 0x0081cb28  "Explorers Institute Matte.LLS" */
 
-// WIP-FUNCTION: LEGOLAND 0x0043a0f0  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0043a0f0
 void Explorers_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -466,7 +466,7 @@ void Explorers_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0043a120  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0043a120
 void Explorers_FreeResources(void)
 {
     KillSprite(g_explorers_matte);
@@ -580,7 +580,7 @@ void Shop_UnpavePathFootprint(ShopDef* def, Pos* at)
 extern ShopDef* g_legoshop1_def;     /* 0x0081cb3c */
 extern void*    g_legoshop1_matte;   /* 0x0081cb18  "Lego Shop 1 Matte.LLS" */
 
-// WIP-FUNCTION: LEGOLAND 0x00439200  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00439200
 void LegoShop1_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -653,7 +653,7 @@ void LegoShop1_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
 extern ShopDef* g_legoshop2_def;     /* 0x0081cb4c */
 extern void*    g_legoshop2_matte;   /* 0x0081cb20  "Lego Shop 2 Matte.LLS" */
 
-// WIP-FUNCTION: LEGOLAND 0x004396d0  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x004396d0
 void LegoShop2_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -665,7 +665,7 @@ void LegoShop2_LoadResources(ShopElem* elem)
 }
 
 /* The only one of the nine that null-checks its sprite before killing it. */
-// WIP-FUNCTION: LEGOLAND 0x00439700  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00439700
 void LegoShop2_FreeResources(void)
 {
     if (g_legoshop2_matte)
@@ -690,7 +690,7 @@ extern ShopDef* g_legomedia_def;     /* 0x0081cb40 */
 extern void*    g_legomedia_mask1;   /* 0x0081cb48  "LegMediaShopMask1.LLS" */
 extern void*    g_legomedia_mask2;   /* 0x0081cb50  "LegMediaShopMask2.LLS" */
 
-// WIP-FUNCTION: LEGOLAND 0x00439c20  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00439c20
 void LegoMedia_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -724,7 +724,7 @@ void LegoMedia_Remove(void* obj, ShopTile tile, void* ctx)
     Shop_UnpavePathFootprint(def, &at);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00439ce0  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x00439ce0
 void LegoMedia_FreeResources(void)
 {
     KillSprite(g_legomedia_mask1);
@@ -928,7 +928,7 @@ void JailCell_LoadResources(ShopElem* elem)
     LLSSetFrame(GetLLSForLayer(g_jail_sprite, 1), 9);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x004380f0  (void tail-call: ends in 'jmp JailCell_FreeAllRecords', which match.py cannot bound)
+// FUNCTION: LEGOLAND 0x004380f0
 void JailCell_FreeResources(void)
 {
     KillSprite(g_jail_matte);

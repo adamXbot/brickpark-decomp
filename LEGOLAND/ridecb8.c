@@ -896,7 +896,7 @@ void Food_SelectForPlacement(ShopElem* elem)
 /* ---- CHUCK WAGON -------------------------------------------------------- */
 extern ShopDef* g_chuckwagon_def;   /* 0x0081cd44 */
 
-// WIP-FUNCTION: LEGOLAND 0x0042e220  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e220
 void ChuckWagon_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -907,7 +907,7 @@ void ChuckWagon_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0042e250  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e250
 void ChuckWagon_FreeResources(void)
 {
     KillMoneySFX();
@@ -938,7 +938,7 @@ void ChuckWagon_DrawOverlay(ShopElem* elem, int x, int y, MapSquare* sq,
 /* ---- SHARK CAFE --------------------------------------------------------- */
 extern ShopDef* g_sharkcafe_def;    /* 0x0081cd18 */
 
-// WIP-FUNCTION: LEGOLAND 0x0042e5d0  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e5d0
 void SharkCafe_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -949,7 +949,7 @@ void SharkCafe_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0042e600  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e600
 void SharkCafe_FreeResources(void)
 {
     KillMoneySFX();
@@ -960,7 +960,7 @@ extern ShopDef* g_foodcart_drink_def;    /* 0x0081cd14 */
 extern ShopDef* g_foodcart_icecream_def; /* 0x0081cde0 */
 extern ShopDef* g_foodcart_food_def;     /* 0x0081cd3c */
 
-// WIP-FUNCTION: LEGOLAND 0x0042e770  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e770
 void FoodcartDrink_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -971,13 +971,13 @@ void FoodcartDrink_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0042e7a0  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e7a0
 void FoodcartDrink_FreeResources(void)
 {
     KillMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0042e7b0  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e7b0
 void FoodcartIcecream_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -988,13 +988,13 @@ void FoodcartIcecream_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0042e7e0  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e7e0
 void FoodcartIcecream_FreeResources(void)
 {
     KillMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0042e7f0  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e7f0
 void FoodcartFood_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -1005,7 +1005,7 @@ void FoodcartFood_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0042e820  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e820
 void FoodcartFood_FreeResources(void)
 {
     KillMoneySFX();
@@ -1033,7 +1033,7 @@ extern Spr*     g_castlebbq_layers;   /* 0x0081cd10 */
 /* One-entry FX list: "Dragon BBQ01.wav". */
 extern void*    g_castlebbq_fx;       /* 0x004b66e8 */
 
-// WIP-FUNCTION: LEGOLAND 0x0042e870  (100%, exact by audit.py; void tail-call 'jmp LoadMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e870
 void CastleBbq_LoadResources(ShopElem* elem)
 {
     ShopDef* def = elem->data;
@@ -1046,7 +1046,7 @@ void CastleBbq_LoadResources(ShopElem* elem)
     LoadMoneySFX();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0042e8b0  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042e8b0
 void CastleBbq_FreeResources(void)
 {
     Kill_FXList(&g_castlebbq_fx, 1);
@@ -1795,7 +1795,7 @@ void EarthSlide_FreeResources(ShopElem* elem)
     KillSprite(g_slide_spr2);
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0042f720  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0042f720
 void Restaurant1_FreeResources(void)
 {
     KillSprite(g_rest1_mask_main);

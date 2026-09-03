@@ -239,20 +239,20 @@ void* memset(void*, int, unsigned int);
 /* -------------------------------------------------------------- functions -- */
 
 /* Tail jump to the pool allocator; audit.py bounds the jmp, match.py cannot. */
-// WIP-FUNCTION: LEGOLAND 0x004830f0  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x004830f0
 void InitialiseBlokes(void)
 {
     AllocBlokePool();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0049a070  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0049a070
 void ControlWorkers(void)
 {
     ControlMechanics();
     ControlGardeners();
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0049b0b0  (100% by audit.py; match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x0049b0b0
 void RenderWorkerInterfaceGFX(void)
 {
     RenderWorkOrders(0);

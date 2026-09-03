@@ -685,7 +685,7 @@ void TempleSlide_LoadResources(RideElem* elem)
     g_ts_objsamples = g_ts_binv;
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00408c00  (void tail-call: ends in 'jmp Joust_FreeAllRecords', which match.py cannot bound)
+// FUNCTION: LEGOLAND 0x00408c00
 void Joust_FreeResources(void)
 {
     Kill_FXList(g_joust_fx, 1);

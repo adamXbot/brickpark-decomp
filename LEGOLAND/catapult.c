@@ -729,7 +729,7 @@ extern void  KillSprite(void* sprite);                          /* 0x00497bd0 */
 extern void  KillMoneySFX(void);                                /* 0x00453930 */
 extern void* g_legoshop1_matte;   /* 0x0081cb18  "Lego Shop 1 Matte.LLS" */
 
-// WIP-FUNCTION: LEGOLAND 0x004393e0  (100%, exact by audit.py; void tail-call 'jmp KillMoneySFX' -- match.py cannot bound a tail-jmp function)
+// FUNCTION: LEGOLAND 0x004393e0
 void LegoShop1_Destroy(void)
 {
     if (g_legoshop1_matte)
