@@ -5,7 +5,7 @@ This is the `CTX` block from the last workflow script (`ll-batch17`). Paste it a
 **2026-09-03 update (not yet folded into the block below):** `tools/match.py` now applies `audit.py`'s extent rules itself, so a void tail-`jmp` wrapper, a `noreturn` tail or a recursive function no longer needs the "match.py cannot bound" WIP form once a clean `verify.py` run has confirmed the port — until then keep using it. The compiler wrapper path can be overridden with `LEGOLAND_CL`.
 
 ```
-PROJECT: /Users/systemadmin/Downloads/legoland/legoland — a matching decompilation of
+PROJECT: /Users/systemadmin/Documents/Development/Github/legoland — a matching decompilation of
 LEGOLAND. Human-written C that, compiled with the VC6 SP3 toolchain the game shipped
 with (/O2 /Gy /Gd), must reproduce the original machine code function-by-function. No
 game binaries or code live in the repo; everything is reconstructed from analysis of the

@@ -5,7 +5,7 @@ Everything reverse-engineered so far. Read this + `docs/FORMATS.md`,
 
 ## Paths (local, absolute)
 
-- Project root: `/Users/systemadmin/Downloads/legoland/legoland`
+- Project root: `/Users/systemadmin/Documents/Development/Github/legoland` (was `~/Downloads/legoland/legoland` until 2026-09-03)
 - Game binary: `original/legoland.exe` (VC6 PE, image base 0x400000)
 - Extracted `main.z` members (levels, tiles, music, anims, the BUILD MENU
   config file confusingly named `legoland.exe`): `gamedata/main/`

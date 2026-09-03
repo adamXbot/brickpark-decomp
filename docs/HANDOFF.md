@@ -44,6 +44,29 @@ the `wibo-msvc/cl` wrapper hard-coded in `tools/match.py`, `tools/audit.py` and
   say so on the marker line:
   `grep -h '^// WIP-FUNCTION' LEGOLAND/*.c | grep -iE 'exact|100%' | grep -i audit`.
 
+**Update, ~13:45 AEST.** The user supplied `~/Downloads/legoland.zip`, the
+old checkout from the other machine. Restored from it into this checkout
+(all gitignored or untracked, none committed): `original/legoland.exe`
+(SHA-256 verified), `gamedata/` (222 MB), `scratchpad/` (180 MB, every lane's
+notes and repro pairs), `reccmp-user.yml`. The old tree was clean at `3a695b8`,
+so no lane work was lost. Its `.git` held five `codex/*` branches (59–72
+commits each) of which only `codex/browser-runtime` is on origin; all five are
+fetched into this clone as local branches — push them if they are wanted.
+
+**Still missing: the compiler.** `toolchain` in the zip is only a symlink to
+`/Users/systemadmin/Downloads/alpha team/alphateam/toolchain`, and neither
+that tree nor `alphateam/tools/wibo-msvc/cl` is in the zip or on this machine.
+Nothing that compiles can run until that folder is copied over; then set
+`LEGOLAND_CL` (or restore the symlink and the old path).
+
+**The `match.py` port is validated on the real binary** as far as it can be
+without compiling: the ported `true_extent` returns the same result as the
+pre-port `audit.py` on all 1580 marker addresses, the widened `norm` agrees
+with the old `norm2` on every instruction of every original body, and
+`coverage.py` (which uses the ported walker) reproduces the checkpoint's
+38.3% / 51.3% exactly. `remaining.py` and `callees.py` also run. What is
+still owed is the compile side: one clean `verify.py`, then the promotions.
+
 ---
 
 ## 1. Where the project stands
@@ -139,7 +162,7 @@ the strength of the synthetic tests alone.
 ## 4. Per-round integration checklist
 
 ```bash
-cd /Users/systemadmin/Downloads/legoland/legoland
+cd /Users/systemadmin/Documents/Development/Github/legoland
 # duplicate addresses across all files (must print nothing)
 grep -rhoE '//\s*(WIP-)?FUNCTION: LEGOLAND 0x[0-9a-fA-F]+' LEGOLAND/*.c \
   | grep -oE '0x[0-9a-fA-F]+' | tr 'A-F' 'a-f' | sort | uniq -d
@@ -147,7 +170,7 @@ grep -rhoE '//\s*(WIP-)?FUNCTION: LEGOLAND 0x[0-9a-fA-F]+' LEGOLAND/*.c \
 python3 tools/audit.py LEGOLAND/*.c | grep -E 'REJECT|FAIL|COMPILE FAILED'
 # /W3 clean
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" \
-  "/Users/systemadmin/Downloads/alpha team/alphateam/tools/wibo-msvc/cl" \
+  "${LEGOLAND_CL:-/Users/systemadmin/Downloads/alpha team/alphateam/tools/wibo-msvc/cl}" \
   /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/x.obj LEGOLAND/<file>.c
 python3 tools/verify.py     # ALONE. nothing else compiling.
 ```
