@@ -880,31 +880,21 @@ void CastleDummy_Remove(RideElem* elem, MapPos p, int c)
     Castle_Remove(0, zero, 0);
 }
 
-/* RESIDUAL (audit: 5 of 9 instructions mismatch, but every one of the five
- * differs ONLY in which register holds which value): the original keeps
- * `elem` in eax and `elem->data` in ecx; every C spelling tried here comes out
- * with the pair swapped (elem in ecx, def in eax) and is otherwise
- * instruction-for-instruction identical --
- *     orig: mov eax,[esp+4] / mov ecx,[eax+0xc] / mov [g_dummy_elem],eax
- *           / mov [g_dummy_def],ecx / mov eax,[ecx+0x64] / ...
- *     ours: mov ecx,[esp+4] / mov eax,[ecx+0xc] / mov [g_dummy_elem],ecx
- *           / mov [g_dummy_def],eax / mov eax,[eax+0x64] / ...
- * VC6 only puts the PARAMETER in eax here when it has a third use (a
- * post-store reload, or a trailing dead store), both of which cost an extra
- * instruction. ~25 spellings tried: statement permutations, an extra CSE'd
- * load, a struct for the two globals, store-forwarding the def through the
- * global, an inline helper, a return value, `#pragma optimize("a"/"w", on)`.
- * The sibling TrackH_Create/TrackH0_Create -- same shape plus a registry
- * append -- match exactly with the ordinary spelling, so the tie-break is the
- * two values' equal-length live ranges here. */
-// WIP-FUNCTION: LEGOLAND 0x00424830  (44.4% strict, 5 of 9 instructions differ only by the elem/def register pair; see note)
+/* CLOSED (was 5 of 9): the tie-break that puts `elem` in eax and its ObjDef
+ * in ecx is source ORDER plus a global-forwarded use. The ObjDef global is
+ * stored FIRST (`g_dummy_def = elem->data;`), the element global second, and
+ * the sprite is reached through `g_dummy_def` -- VC6 forwards the just-stored
+ * value across the adjacent store to the OTHER global (distinct globals cannot
+ * alias), so no reload is emitted, and the `def` value being a forwarded
+ * global rather than a named local is what flips the eax/ecx pair. A named
+ * `def` local with either statement order, and the elem-first order with the
+ * global use, all come out with the pair swapped (5 mismatches). */
+// FUNCTION: LEGOLAND 0x00424830
 void CastleDummy_Create(RideElem* elem)
 {
-    RideDef* def = elem->data;
-
+    g_dummy_def = elem->data;
     g_dummy_elem = elem;
-    g_dummy_def = def;
-    def->sprite->flags |= 0x2000;
+    g_dummy_def->sprite->flags |= 0x2000;
 }
 
 // FUNCTION: LEGOLAND 0x00427940
@@ -1237,19 +1227,21 @@ void DrivingSchool_TickRiders(RideElem* elem)
     RiderNode* rider = item->riders;
     RiderNode* next;
     Bloke* b;
+    MapPos* key;
 
     Sub_402c10();
     Sub_414440();
     while (rider) {
         b = rider->bloke;
         next = rider->next;
+        key = &rider->key.sq;
         if (b->state == 0) {
             switch (b->action) {
             case 0:
             {
                 unsigned char d;
-                b->target.x = (item->base_x + rider->key.sq.x) << 8;
-                b->target.y = (rider->key.sq.y + item->base_y - 3) << 8;
+                b->target.x = (item->base_x + key->x) << 8;
+                b->target.y = (key->y + item->base_y - 3) << 8;
                 d = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
                 b->state = 7;
                 b->new_dir = d;

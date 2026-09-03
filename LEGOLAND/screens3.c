@@ -1714,49 +1714,28 @@ char SaveSlotInput(Icon* p, int buttons, int a3, int a4)
 
 /* An empty save slot (SAVE mode only): clears the temp profile, selects the
  * slot and raises the name popup, seeded with the slot's existing name unless
- * that is the literal "EMPTY". */
-/* WIP: 22/27 instructions, byte-exact to index 21. The residual is the tail:
- * the original stores g_newsave_popup_up = 1 as an immediate and lets the body
- * fall through into the shared `mov al,1 / ret`, where VC6 here materialises
- * the return value into eax first (`mov eax,1`), reuses it for that store and
- * so has to duplicate the return block. Neither statement order, an extra
- * scope, split guards, an `rc` local nor a volatile store moves it; a volatile
- * store DOES fix the store order (popup before checkbox) but not the eax. */
-/* RE-MEASURED: the residual is ONE constant-propagation decision.  The body
- * stores 1 to a dword global and the function returns the char 1; VC6 sees the
- * constant twice, materialises `mov eax,1`, uses it for the store, and can
- * then no longer share the `mov al,1` of the two early-exit paths, so it
- * duplicates the return block (the ESCAPES the audit reports).  The original
- * stores the immediate (`mov dword ptr [0x798700],1`) and falls into the
- * shared `pop esi / mov al,1 / ret`.  Tried and inert: both store orders, the
- * guards as three leading `return 1;` early exits (that one splits the guard
- * into three separate `mov al,1 / ret` blocks and costs more), a de Morgan'd
- * single guard, an explicit `return 1;` inside the if as well, and volatile
- * stores (which fix the store ORDER -- popup before checkbox -- but not the
- * eax materialisation).  Whatever stops VC6 promoting that 1 into a register
- * finishes this function; nothing in the statement shape does. */
-/* THIS ROUND the residual was reduced to ONE cause with a clean explanation.
- * VC6 lowers the tail as: materialise the return constant (`mov eax,1`), reuse
- * eax as the SOURCE of the dword store, and then duplicate `mov al,1 / ret`
- * because the fall-through already has al set.  That is a /O2 SPEED choice --
- * `mov dword ptr [abs],imm32` is a 10-byte instruction, `mov [abs],eax` is 5 --
- * and it is what makes our body 29 instructions where the original is 27; the
- * original stores the immediate and falls into the shared `pop esi / mov al,1 /
- * ret`.  It is also what REORDERS the two stores: with eax=1 hoisted first, the
- * `g_frontend_checkbox_closed = 0` store is scheduled between the hoist and the
- * popup store.  Making `g_newsave_popup_up` volatile fixes the ORDER (popup
- * first, as the original) but keeps the eax hoist, so it costs one more
- * mismatch, not fewer, and is not in the original.
- * Newly measured inert (all byte-identical to the committed body): both store
- * orders, `g_newsave_popup_up = 0 + 1` and `= (int)1`, deriving the second
- * store's zero from the first (`= g_newsave_popup_up - 1`), the guards as three
- * nested ifs, as three `goto out` jumps to a labelled `return 1`, as a
- * `do { ... break ... } while (0)`, as a de Morgan'd single early return, an
- * explicit `return 1;` inside the if as well, `(char)1`, and return types
- * `signed char` / `unsigned char` / `short` / `int` (int and short still hoist
- * eax; short merely changes the duplicated block to `mov ax,1`).  Whatever
- * stops the hoist is not in the statement shape or the types. */
-// WIP-FUNCTION: LEGOLAND 0x0048e4f0  (81%, tail return block duplicated)
+ * that is the literal "EMPTY".
+ *
+ * CLOSED (27/27) by the degenerate `if (g_frontend_checkbox_closed) return 1;`
+ * between the body and the final `return 1`.  It emits no code: on the body
+ * path VC6 forwards the 0 just stored, on the guard-fail paths it tests the
+ * eax loaded at entry, and both arms reach the same return, so the branch is
+ * deleted late (identical targets) -- but only AFTER VC6 has decided how to
+ * pop the deferred `push esi`.  Without it the return block is a plain
+ * `mov al,1 / ret` and VC6 CLONES it into the pushed region (`... pop esi /
+ * ret` + `mov al,1 / ret` for the guards, the ESCAPES the audit reported);
+ * the two 1s then sit in one block and the constant is hoisted (`mov eax,1`
+ * reused as the store source).  With the extra branch the region exits into
+ * a shared return, VC6 inserts `pop esi` on that edge and falls into the one
+ * `mov al,1 / ret`, so the popup store keeps its immediate and the store
+ * order is the source order.  Measured on the way: an `else if (buttons & K)
+ * return 1;` chain also prevents the clone but leaves a root copy of
+ * `buttons` in al; a `push 1` argument anywhere before the stores stops the
+ * hoist alone (a constant cannot live in eax across a call) but not the
+ * clone; on a synthetic twin 8+ `&&` guards prevent the clone by predecessor
+ * count.  Everything in the earlier notes (statement shapes, gotos, loops,
+ * rc locals, volatile, global/return types, inline helpers) is inert. */
+// FUNCTION: LEGOLAND 0x0048e4f0
 char SaveEmptySlotInput(Icon* p, int buttons, int a3, int a4)
 {
     if (g_frontend_checkbox_closed && (buttons & 2) && !g_save_is_load) {
@@ -1768,6 +1747,8 @@ char SaveEmptySlotInput(Icon* p, int buttons, int a3, int a4)
         g_newsave_popup_up = 1;
         g_frontend_checkbox_closed = 0;
     }
+    if (g_frontend_checkbox_closed)     /* degenerate: folded late, see note */
+        return 1;
     return 1;
 }
 
@@ -1799,30 +1780,23 @@ void ResetSaveTimer(void)
 }
 
 /* Frees the singly linked list at 0x0066b44c and tails into the rest of the
- * teardown. Ends in a tail JMP, not a ret, AND is one instruction out:
- * 13/14, the head store is `mov [g],esi` where the original writes the copy
- * in eax (`mov eax,esi / ... / mov [g],eax`). Every loop spelling tried
- * (while/do-while/for, chained assignment, an explicit break on `next`)
- * produces the same register choice. */
-/* Re-measured: 13 of 14 index-for-index, the single mismatch is index 10 --
- * the original writes the head from the COPY (`mov eax,esi` at index 8 is
- * already there in both, and the original then stores eax) where VC6 stores
- * esi directly, knowing the two registers hold the same value.  Tail-jmp, so
- * it cannot be promoted even at 14/14; left as WIP. */
-// WIP-FUNCTION: LEGOLAND 0x004828f0  (93%, head store from esi not eax; also a tail-jmp function)
+ * teardown (a tail JMP, not a ret; audit.py bounds it).
+ * CLOSED by making the GLOBAL the loop variable: `while (g) { next = *g;
+ * MemFree(g); g = next; }`.  VC6 forwards the head store into the loop test,
+ * so eax carries "the value of g" (`mov eax,esi` = the forwarded copy) and
+ * the store then reads eax; with a local `p` (every while/do/for spelling,
+ * chained assignment, casts, an inlined helper) VC6 copy-propagates `next`
+ * into the store and writes esi.  The same idiom appears at 0x4054d5,
+ * 0x419f8a, 0x419fc5, 0x434ee7, 0x434f22 and 0x48117b. */
+// FUNCTION: LEGOLAND 0x004828f0
 void sub_4828f0(void)
 {
-    void* p;
     void* next;
 
-    p = g_66b44c;
-    if (p) {
-        do {
-            next = *(void**)p;
-            MemFree(p);
-            p = next;
-            g_66b44c = p;
-        } while (next);
+    while (g_66b44c) {
+        next = *(void**)g_66b44c;
+        MemFree(g_66b44c);
+        g_66b44c = next;
     }
     sub_482a80();
 }

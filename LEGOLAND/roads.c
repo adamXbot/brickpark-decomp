@@ -597,17 +597,61 @@ extern int ArcTan256(int x, int y);                            /* 0x004806e0 */
  * turn the three riders.
  * ========================================================================= */
 
-/* 330/330 instructions; 327 of them match index for index.  The whole
- * residual is three instructions in the straight-through loop: the original
- * emits the y product as `mov ecx,edi / mov [ebx-4],eax / imul ecx,[dy]`
- * (the counter copied into the destination first, so the copy can be
- * scheduled into the shadow of the x store) where this emits
- * `mov [ebx-4],eax / mov ecx,[dy] / imul ecx,edi`.  VC6 canonicalises
- * `int * int` with one memory operand to memory-first whatever the source
- * order -- verified against twenty-odd spellings of the multiply, the loop
- * and the operand types -- so the original's form needs a first operand
- * that is a COMPUTED rvalue which still lowers to a bare register move, and
- * that has not been found yet. */
+/* 330/330 instructions, 1108/1108 bytes; 327 match index for index and the
+ * residual is three instructions at index 275-277, the straight-run y product
+ * (0x00433bfd).  The original emits
+ *      mov ecx, edi / mov [ebx-4], eax / imul ecx, [esi+0x4b714c]
+ * (the counter copied into the destination, the table folded as the imul
+ * memory operand) where every C spelling measured so far emits
+ *      mov [ebx-4], eax / mov ecx, [esi+0x4b714c] / imul ecx, edi.
+ * The unported boating-school twin of this function (0x004198xx, straight
+ * loop at 0x00419c4f) has the identical form, so it is a property of the
+ * shared source, not a fluke.
+ *
+ * WHAT DECIDES THE ORDER (measured on ~70 kernel functions, see
+ * scratchpad/roads/k/): VC6 lowers `a * b` to `mov r, X / imul r, Y` by a
+ * fixed RANK of the operands, never by source order.  A compiler temporary
+ * (the result of an operation in the block -- sub, lea, and, movsx, a call
+ * result, or a load that is CSE'd because it is textually repeated) always
+ * becomes the destination copy, so the other operand is folded as the imul
+ * memory operand: `(j - k) * g[1]`, `h(j) * g[1]` and `out[3] * g[1]; ..
+ * out[3]` all give `imul r, [g]`.  A memory reference (global, static,
+ * array element, pointer deref, whatever its base symbol) outranks a
+ * register-candidate symbol (local, parameter, induction variable) and is
+ * loaded into the destination: `j * g[1]` and `g[1] * j` both give
+ * `mov r, [g] / imul r, j`.  Two symbols order by DECLARATION order, the
+ * earlier one copied, the later one folded from its home slot if it still
+ * lives there (`int f(int* o, int j, int k) { o[0] = k * j; return j; }`
+ * gives `mov ecx, j / imul ecx, [esp+k]`; swap the parameter order and it
+ * flips).  The original's y line is therefore MUL(temp, memref) with a temp
+ * whose only definition is a register copy of the counter -- and no
+ * spelling found makes VC6 keep such a copy: every identity is folded
+ * BEFORE the ordering.
+ *
+ * Ruled out, each measured against the full function (unless noted, all
+ * reproduce the same 3 mismatches): both source orders; `(long)`, `(int)`,
+ * `(unsigned)` (changes the float conversion), `(int)(unsigned)`,
+ * `(int)(__int64)`, pointer casts; `(j + 0)`, `-(-j)`, `~~j`, `j | 0`,
+ * `j & j`, `(j + i) - i`, `(j ^ i) ^ i`, `j / 1`, `j * (i + 1 - i)`,
+ * `j >> (i - i)`, comma and conditional forms (VC6 even folds
+ * `from != to ? j : 0` on this path); `(j & 0xff)`, `(short)j`, `(j % 256)`,
+ * `abs(j)` DO flip the order but keep their and/movsx/cdq (`(short)j` is
+ * 1 mismatch: `movsx ecx, di` for `mov ecx, edi`), `__assume` does not
+ * remove them; identity and multiply `static __inline` helpers (inlining
+ * runs before the ordering), helpers with a path-dead early return; `k = j`
+ * copies before or between the lines, `k = j; k *= dy`, `(k = j) * dy`,
+ * `j++`/`k++` inside the product, a second identical IV (`j, k` both
+ * stepping, VC6 merges them first), offset IVs `(k - 1)`, `(0x50 - k)`,
+ * pointer differences (all keep real arithmetic: 13-300 mismatches); the
+ * counter as `to`, `from`, `register`, `long`, `short` (widened plus a
+ * trip counter, 61), `unsigned` (jb), a struct member, a fresh block
+ * local; the table as `const`, a flat/2-D array, a byte-offset cast, a
+ * union, a `JcStep*` or `int*` local (forward-substituted, no change),
+ * `volatile`, a single-use `int dy` local (hoisted into ebp, 63); both
+ * products through named int temps (12); holding the x result across the
+ * y product (12); do/while, pointer loops, `j++` in the body (13).  The
+ * hoisted `fild` pair, the shared [esp+0x1c] spill home and everything
+ * else in the loop already match. */
 // WIP-FUNCTION: LEGOLAND 0x00433840  (330/330 insns, 3 mismatches; the straight-run y `imul` operand order)
 void JcBoat_Animate(JcBoat* b, int from, int to)
 {

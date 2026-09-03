@@ -1314,38 +1314,27 @@ extern void   AdjustBlokePosition(Offset* p);                /* 0x00442d60 */
 extern void*  GetSpriteForLayer(void* sprite, int layer);    /* 0x00441ec0 */
 
 extern ZSprite*   g_safari_zspr_obj;                         /* 0x0082c66c */
-extern int        g_safari_ofs2_x;                           /* 0x0082c670 */
-extern int        g_safari_ofs2_y;                           /* 0x0082c674 */
+extern Offset     g_safari_ofs2;                             /* 0x0082c670 (+4 = oy) */
 extern RenderList g_safari_list;                             /* 0x004cbecc */
 
-/* RESIDUAL 4/166, and it is the SAME immovable canonicalisation joust.c's
- * TempleSlide_Draw carries (116/120 there): in the two four-term screen sums
- * the original adds the offset pair in the HIGHER frame slot (zofs, entry-0x10)
- * before the one in the lower (ofs, entry-0x18); VC6 SP3 here always sorts the
- * operands of a commutative sum of independent stack loads by ascending frame
- * displacement, so it emits the lower first. Measured inert this round: all
- * operand permutations of both sums, explicit parenthesisation, accumulation
- * through a temp (costs 13), both declaration orders of the two Offsets, and
- * function-level vs block-scope declaration (block scope is what took this
- * from 161 to 162 -- it fixes the person-pointer load position -- so the rest
- * of the frame and every other instruction is right). Treat this and
- * TempleSlide_Draw / simcore.c's IsAdjacentPos as one open question.
- *
- * ROUND 2 measured a further twenty spellings, all inert at 162/166: reading
- * either Offset through a pointer local (VC6 folds the pointer back to the
- * frame reference), explicit parenthesisation into two pairs, every operand
- * permutation of both sums, `- -x` in place of `+ x`, declaring the pair as
- * an int[2], as one Offset[2], with the declaration order reversed, and with
- * zofs moved into its own inner block. What round 2 DID establish is the rule
- * itself, and it is not "source order": mark the LOWER-slot operand
- * `*(volatile int*)&ofs.ox` and the emission order flips to the original's
- * (zofs first) -- so VC6 sorts the REORDERABLE stack reads of a commutative
- * sum by ASCENDING frame displacement and leaves a non-reorderable read last.
- * The volatile costs 12 instructions elsewhere (it also flips which operand
- * becomes the accumulator, `add edx,ecx` for `add ecx,edx`), so it is not the
- * answer, but it names the target: a spelling that makes exactly one of the
- * two reads non-reorderable without making it volatile. */
-// WIP-FUNCTION: LEGOLAND 0x00414b80  (162/166; the two four-term sums add the higher frame slot first in the original -- VC6 canonicalises to lower-first)
+/* CLOSED (166/166). The last four mismatches were the operand order of the two
+ * four-term screen sums: the original adds zofs (the HIGHER frame slot, 0x18)
+ * before ofs (0x10); every scalar spelling adds ofs first. The lever is a
+ * WHOLE-STRUCT COPY for zofs: `zofs = g_safari_ofs2;` (the 0x82c670/0x82c674
+ * pair declared as one Offset). Why it works: VC6 ranks the operands of a
+ * commutative sum by the creation order of their back-end symbols, LATEST
+ * FIRST, and the frame slot by the same order (later-created = lower slot).
+ * With scalar field stores `zofs.ox = ..; zofs.oy = ..;` the member symbols
+ * zofs.ox/zofs.oy are created at the store (before ofs's), so zofs ranks
+ * earlier: higher slot AND last in the sum. A struct copy creates only the
+ * AGGREGATE symbol at that point (which still fixes the higher slot) and the
+ * member symbols are first created inside the sum, after ofs's, so they sort
+ * first. Measured: scalar stores in either order, every permutation of both
+ * sums, function-level/block/inner-block declarations (20 variants) all inert;
+ * `zofs = g_safari_ofs2;` alone closes it (copying ofs too is also exact).
+ * The same lever should close joust.c's TempleSlide_Draw (116/120), which
+ * carries the same residual. */
+// FUNCTION: LEGOLAND 0x00414b80
 void SafariRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                          void* clip, int mode)
 {
@@ -1384,8 +1373,7 @@ void SafariRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                         Offset    ofs;
                         Offset    zofs;
 
-                        zofs.ox = g_safari_ofs2_x;
-                        zofs.oy = g_safari_ofs2_y;
+                        zofs = g_safari_ofs2;      /* whole-struct copy: see note */
                         p = b->person;
                         ofs.ox = g_safari_rider_dx;
                         ofs.oy = g_safari_rider_dy;
@@ -2062,6 +2050,7 @@ void PlaneRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
     RiderNode* r;
     PlaneRec*  rec;
     unsigned short key;
+    char i;
 
     r = item->riders;
     rec = PlaneRide_FindRecord(sq);
@@ -2075,15 +2064,20 @@ void PlaneRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                 r = r->next;
             }
             if (n) {
-                MechDrawBand(found, n, 13);
-                MechDrawBand(found, n, 14);
+                for (i = 0; i < n; i++)
+                    if (found[i]->action == 13)
+                        IP_RenderBlokeIn3DNow(found[i]);
+                for (i = 0; i < n; i++)
+                    if (found[i]->action == 14)
+                        IP_RenderBlokeIn3DNow(found[i]);
                 LLSSetFrame(GetLLSForLayer(g_plane_layers, 1), rec->frame1);
                 off = GetRenderOffsetForLayer(item->sprite, 1);
                 AdjustOffsetForViewMode(&off);
                 PrintSprite(GetSpriteForLayer(item->sprite, 1),
-                            off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                            screen.ox + off.ox, screen.oy + off.oy, mode, 0);
+                r = item->riders;
                 **g_plane_zspr_obj->pframe = (unsigned short)rec->frame1;
-                for (r = item->riders; r; r = r->next) {
+                for (; r; r = r->next) {
                     if (sq->key == r->ride_id
                         && (r->bloke->flags & 0x80)) {
                         Bloke*    b = r->bloke;
@@ -2106,7 +2100,7 @@ void PlaneRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                 off = GetRenderOffsetForLayer(item->sprite, 2);
                 AdjustOffsetForViewMode(&off);
                 PrintSprite(GetSpriteForLayer(item->sprite, 2),
-                            off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                            screen.ox + off.ox, screen.oy + off.oy, mode, 0);
                 return;
             }
         }
@@ -2114,12 +2108,12 @@ void PlaneRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
         off = GetRenderOffsetForLayer(item->sprite, 1);
         AdjustOffsetForViewMode(&off);
         PrintSprite(GetSpriteForLayer(item->sprite, 1),
-                    off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                    screen.ox + off.ox, screen.oy + off.oy, mode, 0);
         LLSSetFrame(GetLLSForLayer(g_plane_layers, 2), rec->frame2);
         off = GetRenderOffsetForLayer(item->sprite, 2);
         AdjustOffsetForViewMode(&off);
         PrintSprite(GetSpriteForLayer(item->sprite, 2),
-                    off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                    screen.ox + off.ox, screen.oy + off.oy, mode, 0);
     }
 }
 
@@ -2221,7 +2215,7 @@ void SpiderRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                 off = GetRenderOffsetForLayer(g_spider_layers, 1);
                 AdjustOffsetForViewMode(&off);
                 PrintSprite(GetSpriteForLayer(g_spider_layers, 1),
-                            off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                            screen.ox + off.ox, screen.oy + off.oy, mode, 0);
                 off = GetRenderOffsetForLayer(g_spider_layers, 2);
                 AdjustOffsetForViewMode(&off);
                 PrintSprite(g_spider_zspr2, off.ox + screen.ox,
@@ -2264,11 +2258,11 @@ void SpiderRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
         off = GetRenderOffsetForLayer(g_spider_layers, 1);
         AdjustOffsetForViewMode(&off);
         PrintSprite(GetSpriteForLayer(g_spider_layers, 1),
-                    off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                    screen.ox + off.ox, screen.oy + off.oy, mode, 0);
         off = GetRenderOffsetForLayer(g_spider_layers, 2);
         AdjustOffsetForViewMode(&off);
         PrintSprite(GetSpriteForLayer(g_spider_layers, 2),
-                    off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                    screen.ox + off.ox, screen.oy + off.oy, mode, 0);
     }
 }
 
@@ -2399,9 +2393,9 @@ void SafariRide_Activate(RideElem* elem)
                 sy = (b->world.x + b->world.y) * th >> 9;
                 sx = g_map_cfg.ox - Get_XScroll() + sx;
                 sy = sy + (g_map_cfg.oy - Get_YScroll());
-                sx -= g_safari_ofs2_x / 2;
+                sx -= g_safari_ofs2.ox / 2;
                 sx -= screen.ox;
-                sy -= g_safari_ofs2_y / 2;
+                sy -= g_safari_ofs2.oy / 2;
                 sy -= screen.oy;
                 pos.x = sx * 2;
                 pos.y = sy * 2;
@@ -3181,7 +3175,7 @@ void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
             off = GetRenderOffsetForLayer(g_sbarrel_layers, 3);
             AdjustOffsetForViewMode(&off);
             PrintSprite(GetSpriteForLayer(g_sbarrel_layers, 3),
-                        off.ox + screen.ox, off.oy + screen.oy, 0, 0);
+                        screen.ox + off.ox, screen.oy + off.oy, 0, 0);
             **g_sbarrel_zspr_obj->pframe = (unsigned short)rec->frame3;
             for (r = item->riders; r; r = r->next) {
                 if (sq->key == r->ride_id && (r->bloke->flags & 0x80)) {
@@ -3221,7 +3215,7 @@ void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
             off = GetRenderOffsetForLayer(g_sbarrel_layers, 2);
             AdjustOffsetForViewMode(&off);
             PrintSprite(GetSpriteForLayer(g_sbarrel_layers, 2),
-                        off.ox + screen.ox, off.oy + screen.oy, 0, 0);
+                        screen.ox + off.ox, screen.oy + off.oy, 0, 0);
             for (i = 0; i < n; i++) {
                 if (found[i]->action == 16)
                     IP_RenderBlokeIn3DNow(found[i]);
@@ -3241,10 +3235,10 @@ void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
     off = GetRenderOffsetForLayer(g_sbarrel_layers, 3);
     AdjustOffsetForViewMode(&off);
     PrintSprite(GetSpriteForLayer(g_sbarrel_layers, 3),
-                off.ox + screen.ox, off.oy + screen.oy, 0, 0);
+                screen.ox + off.ox, screen.oy + off.oy, 0, 0);
     LLSSetFrame(GetLLSForLayer(g_sbarrel_layers, 2), rec->frame2);
     off = GetRenderOffsetForLayer(g_sbarrel_layers, 2);
     AdjustOffsetForViewMode(&off);
     PrintSprite(GetSpriteForLayer(g_sbarrel_layers, 2),
-                off.ox + screen.ox, off.oy + screen.oy, 0, 0);
+                screen.ox + off.ox, screen.oy + off.oy, 0, 0);
 }

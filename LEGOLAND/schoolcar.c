@@ -162,31 +162,32 @@ void RetireSchoolCar(SchoolCar* c)
  * ======================================================================== */
 extern int ArcTan256(int x, int y);                     /* 0x004806e0 */
 
-/* 103 instructions against the original's 106, and every block, branch sense,
- * x87 sequence and store is reproduced; the residual is ONE prologue
- * placement decision and the two instructions it drags with it.
- *
- * THE RESIDUAL, precisely: the original SINKS `push ebp` / `push edi` into
- * the non-empty-queue path (they sit at 0x004019eb / 0x004019ef, each
- * immediately before the first def of its register), leaving only
- * `push ecx / push ebx / push esi` at entry, so the empty-queue exit pops
- * three registers and the body pops five. We emit all five pushes at entry
- * and both exits pop five. That also costs the original's `xor ebx,ebx`
- * zero-extension of `frame` (VC6 proves the upper bits dead in our shape)
- * and turns the original's `and al,0xf` into `and eax,0xf`.
- * Tried and measured, none of them move the pushes: the body in a post-guard
- * inner scope; the body in a `do { ... } while (0)` exited by `break`; the
- * body in a `static __inline` helper; a `goto` form with the empty-queue
- * stores as the trailing block; `if (nwp) {body} else {zero}`; `c->wx` /
- * `c->wy` hoisted into locals before and after the guard; a `Waypoint*`
- * cursor instead of `c->wp[0]`; `int frame` with a separate `unsigned char`
- * for the nudge; and both orders of the dx/dy statements. /Ox and /O1 do not
- * split it either, so it is a source shape, not a flag. */
-// WIP-FUNCTION: LEGOLAND 0x004019c0  (103 insns vs 106; the original sinks push ebp/edi into the non-empty path)
+/* Closed from 103/106 by reading the two exits off the original: both store
+ * vx/vy from the SAME registers (edi/eax) and the zero arm burns THREE zero
+ * registers, which is one shared `c->vx = vx; c->vy = vy;` tail that VC6
+ * tail-duplicated into both arms of an `if (len) {...} else {...}`. That
+ * shape (not a `len == 0` early return) is what SINKS `push ebp` / `push
+ * edi` into the non-empty-queue path -- the empty-queue exit then pops
+ * three and the body five -- and lays the zero arm out after the normal
+ * epilogue. The rest are register tie-breaks and types, each measured:
+ *   * `int frame` (not `unsigned char`) buys the `xor ebx,ebx` zero-
+ *     extension at the load; the `--frame` / `++frame` nudge on the int is
+ *     still narrowed to `dec bl` / `inc bl` because only the byte is stored;
+ *   * dx BEFORE dy puts dy in ebp, dx in edi and later len in ebx;
+ *   * `c->frame = ((ArcTan256() + 8) >> 4) & 0xf; d = (c->frame - frame) &
+ *     0xf;` gives the byte `and al,0xf` (the field forwarded from al) where
+ *     an int temp `a` gives `and eax,0xf`;
+ *   * `c->frame &= 0xf` after the nudge is the forwarded copy `mov al,bl /
+ *     mov [..],bl / and al,0xf / mov [..],al`; `frame & 0xf` ands bl in place;
+ *   * vx computed before vy; the order of the zero arm's four stores is free.
+ * Every earlier attempt kept the `if (len == 0) {...; return;}` early
+ * return, and no scoping, helper or goto form splits the prologue while
+ * both exits store the fields directly. */
+// FUNCTION: LEGOLAND 0x004019c0
 void SchoolCarAccelerate(SchoolCar* c)
 {
-    unsigned char frame = c->frame;
-    int   dy, dx, len, a, d, speed;
+    int   frame = c->frame;
+    int   dy, dx, len, d, vx, vy;
     float fy, fx;
 
     if (c->nwp == 0) {
@@ -194,35 +195,35 @@ void SchoolCarAccelerate(SchoolCar* c)
         c->vy = 0;
         return;
     }
-    dy = c->wp[0].y - c->wy;
     dx = c->wp[0].x - c->wx;
+    dy = c->wp[0].y - c->wy;
     fy = (float)dy;
     fx = (float)dx;
     len = (int)sqrt(fx * fx + fy * fy);
-    if (len == 0) {
-        c->vx = 0;
+    if (len) {
+        c->ux = fx / len;
+        c->uy = fy / len;
+        c->frame = ((ArcTan256(dx, dy) + 8) >> 4) & 0xf;
+        d = (c->frame - frame) & 0xf;
+        if (d & 8)
+            d |= ~0xf;
+        if (d < -2 || d > 2) {
+            if (d & 8)
+                c->frame = --frame;
+            else
+                c->frame = ++frame;
+            c->frame &= 0xf;
+        }
+        vx = c->speed * dx / len;
+        vy = c->speed * dy / len;
+    } else {
+        vx = 0;
         c->ux = 0.0f;
         c->uy = 0.0f;
-        c->vy = 0;
-        return;
+        vy = 0;
     }
-    c->ux = fx / len;
-    c->uy = fy / len;
-    a = (((ArcTan256(dx, dy) + 8) >> 4)) & 0xf;
-    c->frame = (unsigned char)a;
-    d = (a - frame) & 0xf;
-    if (d & 8)
-        d |= ~0xf;
-    if (d < -2 || d > 2) {
-        if (d & 8)
-            c->frame = --frame;
-        else
-            c->frame = ++frame;
-        c->frame = (unsigned char)(frame & 0xf);
-    }
-    speed = c->speed;
-    c->vx = speed * dx / len;
-    c->vy = speed * dy / len;
+    c->vx = vx;
+    c->vy = vy;
 }
 
 /* =========================================================================
@@ -266,7 +267,7 @@ typedef struct RoutePos {
 /* One car of the train riding the route. */
 typedef struct RouteNode {
     unsigned char     pad00[0x40];
-    int               f40;      /* +0x40  the car's spacing parameter */
+    float             f40;      /* +0x40  the car's spacing parameter */
     RoutePos          at;       /* +0x44  where this car is */
     unsigned char     pad58[0xe4 - 0x58];
     void*             data;     /* +0xe4 */
@@ -279,7 +280,7 @@ struct CoasterRoute {
     int           deadline;     /* +0x08  game-clock stamp */
     RoutePos      pos;          /* +0x0c */
     unsigned char pad20[4];
-    int           f24;          /* +0x24  saved with the car */
+    float         f24;          /* +0x24  saved with the car (a float: see PositionRouteCars) */
     float         speed;        /* +0x28 */
     unsigned char pad2c[0x6c - 0x2c];
     CoasterRec*   owner;        /* +0x6c */
@@ -367,18 +368,34 @@ void Route_AddNode(CoasterRoute* rt, void* piece)
 
 /* Route state bit 1: the circuit is closed. The writers (0x0041e4c0,
  * 0x0041e4f0) treat +0x00 as a dword; this reader narrows to its low byte.
- * 4 of 5 instructions: the original loads the byte with `movsx eax,byte[eax]`
- * and we get `mov al,[eax]`. Measured and rejected: an `int` field (VC6
- * reassociates to `sar 1 / and 1`), `(x & 2) / 2`, a `signed char` local, an
- * `unsigned` result, char bitfield containers (signed and unsigned), and a
- * `volatile char` read -- volatile DOES buy the `movsx`, but then the shift
- * reassociates and the `and eax,2` is lost, so the two halves of the
- * instruction pair cannot be bought at the same time. The `and` survives
- * here only because the byte load leaves eax's upper bits dirty. */
-// WIP-FUNCTION: LEGOLAND 0x0041e4a0  (4/5; `mov al,[eax]` vs the original's `movsx eax,byte ptr [eax]`)
+ * Closed by two levers at once: the `and eax,2 / shr eax,1` pair is NOT a
+ * shift but VC6's lowering of a single-bit BOOLEAN test (`if (x & 2) return
+ * 1; return 0;` -- a `(x & 2) >> 1` spelling reassociates to `sar 1 / and
+ * 1`), and the `movsx eax,byte ptr` survives only when the byte is first
+ * widened into an `int` LOCAL that the test consumes; testing the field
+ * directly (`(f & 2) != 0`, `? 1 : 0`, `!!`) narrows the load to `mov al`.
+ * Route_HasDeadline below is the same function on bit 6. */
+// FUNCTION: LEGOLAND 0x0041e4a0
 int Route_IsClosed(CoasterRoute* rt)
 {
-    return ((unsigned)(*(char*)rt & 2)) >> 1;
+    int state = *(char*)rt;
+
+    if (state & 2)
+        return 1;
+    return 0;
+}
+
+/* Route state bit 6: a departure deadline (+0x08) has been armed. Same
+ * shape as Route_IsClosed; 0x0041e4c0 sets the bit when it stamps the
+ * deadline. */
+// FUNCTION: LEGOLAND 0x0041e4b0
+int Route_HasDeadline(CoasterRoute* rt)
+{
+    int state = *(char*)rt;
+
+    if (state & 0x40)
+        return 1;
+    return 0;
 }
 
 /* Clear that bit and put the route back into state 8 (running). */
@@ -718,7 +735,6 @@ void LoadCoasterWheelModel(void)
 
 /* ---- route ticking ----------------------------------------------------- */
 extern void Sub_41e400(CoasterRoute* rt);               /* 0x0041e400 */
-extern int  Route_HasDeadline(CoasterRoute* rt);        /* 0x0041e4b0 */
 extern void Sub_41e240(CoasterRoute* rt);               /* 0x0041e240 */
 extern void Sub_41e130(CoasterRoute* rt);               /* 0x0041e130 */
 extern void Sub_41e3a0(CoasterRoute* rt);               /* 0x0041e3a0 */
@@ -828,7 +844,7 @@ void SaveCoasterRouteState(CoasterRoute* rt, CoasterCarSave* out)
 {
     Sub_426ec0(&rt->pos, out->sub);
     out->f00 = rt->state;
-    out->f04 = rt->f24;
+    out->f04 = *(int*)&rt->f24;
     out->f08 = *(int*)&rt->speed;
     out->elapsed = GetGameTimer() - rt->started;
     out->remaining = rt->deadline - GetGameTimer();
@@ -1073,8 +1089,8 @@ void SetupTrackDrawView(void)
 }
 
 /* ---- Castle_Create's remaining initialisers ----------------------------
- * All three end in a tail call, so audit.py can bound them but the shared
- * match.py cannot: they keep a WIP marker. */
+ * All three end in a tail call; audit.py (and, since 2026-09-03, match.py)
+ * bound them by the extent rules and they audit [OK]. */
 extern void Sub_422fe0(void);                   /* 0x00422fe0 */
 extern void Sub_41fd30(void);                   /* 0x0041fd30 */
 extern void Sub_423d40(void);                   /* 0x00423d40 */
@@ -1219,26 +1235,21 @@ void Coaster3D_EndFrame(void)
  * spacing in the `a` slot and 0x00429f30's scalar out-parameter in the `at`
  * slot -- with the head sentinel cached in the `rt` slot.
  * ======================================================================== */
-extern void Sub_41e820(RouteNode* n, const RoutePos* at, int a);        /* 0x0041e820 */
+extern void Sub_41e820(RouteNode* n, const RoutePos* at, float a);      /* 0x0041e820 */
 extern void Sub_41e930(RouteNode* n, Vec3f* dir);                       /* 0x0041e930 */
-extern void Sub_429f30(Vec3f* dir, float step, RoutePos* from, int f40,
-                       float tol, RoutePos* out, int* out_a);           /* 0x00429f30 */
+extern void Sub_429f30(Vec3f* dir, float step, RoutePos* from, float f40,
+                       float tol, RoutePos* out, float* out_a);         /* 0x00429f30 */
 
-/* 65 instructions against the original's 66, the frame (0x34), all three
- * spilled scalars in their dead argument slots, both `rep movsd` copies, the
- * seven-argument call and the whole loop identical. The single missing
- * instruction is a DUPLICATED read of the `a` argument: the original loads
- * [esp+0x3c] TWICE before the prologue pushes -- once into ecx for the
- * `rt->f24` store and once into edx for the call -- where we load it once and
- * use the same register for both. `prev = head` as the initialiser (rather
- * than an assignment after the call) is what buys the original's spill of
- * `head` into the `rt` argument slot; measured and rejected for the second
- * load: a named `int aa = a` copy in four positions, `Sub_41e820(..., rt->f24)`
- * (forwards the stored value, same one load), and the store moved before,
- * between and after the two leading statements (moving it AFTER the call does
- * give 66 instructions, but with a 0x38 frame and 46 mismatches). */
-// WIP-FUNCTION: LEGOLAND 0x0041da10  (65 insns vs 66; the original loads the `a` argument twice)
-void PositionRouteCars(CoasterRoute* rt, int a, const RoutePos* at)
+/* Closed by TYPES alone: `a`, route +0x24, RouteNode +0x40, the spacing
+ * local and 0x00429f30's scalar out-parameter are all FLOATS. The original
+ * loads the `a` argument TWICE before the prologue pushes (ecx for the
+ * `rt->f24` store, edx for the call) -- VC6 never CSEs a float it merely
+ * bit-copies through integer registers, where an `int a` is read once and
+ * shared. Everything else (the 0x34 frame, the three scalars homed in dead
+ * argument slots, `prev = head` as an initialiser to buy the spill of `head`
+ * into the `rt` slot) was already right. */
+// FUNCTION: LEGOLAND 0x0041da10
+void PositionRouteCars(CoasterRoute* rt, float a, const RoutePos* at)
 {
     Vec3f      dir;
     RoutePos   prev_at;
@@ -1246,8 +1257,8 @@ void PositionRouteCars(CoasterRoute* rt, int a, const RoutePos* at)
     RouteNode* head = &rt->head;
     RouteNode* n = rt->head.next;
     RouteNode* prev = head;
-    int        spacing;
-    int        next_a;
+    float      spacing;
+    float      next_a;
 
     rt->f24 = a;
     rt->pos = *at;
@@ -1412,22 +1423,25 @@ void Coaster3D_SampleStats(void)
  * in the list for more than 5000 ticks is moved to state 4.
  *
  * The three calls to 0x00424b30 are the original's: a leading readiness
- * guard, then an explicit `if (!c) return;` and a do/while. A plain
- * `while ((c = ...) != 0)` is NOT the same shape -- VC6's rotation sends the
- * entry guard to the code after the loop, where the original sends it to the
- * shared epilogue, so the departure timer would be armed on an empty queue.
+ * guard, then the `while ((c = ...) != 0)` fetch. What closed it: the loop
+ * must EXIT VIA `break` to ONE trailing `if (boarded) arm;` -- that is what
+ * keeps `boarded` alive as ebx (`xor ebx,ebx` before the fetch, `mov ebx,1`
+ * in the body) and lets VC6 thread the paths where it knows the flag: the
+ * empty-queue guard goes straight to the shared epilogue (boarded == 0) and
+ * the loop's fall-through goes straight to the timer (boarded == 1), while
+ * the `break` path keeps the `test ebx,ebx`. The interrupted draft spelled
+ * the no-slot exit as an INNER `if (boarded) arm; return;`, which VC6 peels
+ * -- it hoists a first copy of the 0x0041e2b0 call out of the loop, deletes
+ * the flag and loses six instructions (83/89). A do/while with the same
+ * break is peeled too; while, for(;;) and the assignment-in-condition form
+ * all give the original.
  * ======================================================================== */
 extern int  g_castle_state;                             /* 0x00829ae0 */
 extern int  Sub_424c40(CoasterRec* r);                  /* 0x00424c40 */
 extern CoasterCar* Sub_424b30(CoasterRec* r);           /* 0x00424b30 */
 extern void Sub_424ae0(CoasterRec* r, int ticks);       /* 0x00424ae0 */
 
-/* Unfinished: 83 of the original's 89 instructions, 256 vs 266 bytes,
- * 89 mismatches. The lane writing this was stopped mid-function at a
- * session checkpoint, so the body is a partial draft rather than a
- * diagnosed near-miss — re-derive it from the disassembly rather than
- * trusting the shape below. */
-// WIP-FUNCTION: LEGOLAND 0x00424c70  (83/89 insns, 89 mismatches; interrupted draft)
+// FUNCTION: LEGOLAND 0x00424c70
 void Coaster_TickLoadingBay(CoasterRec* r)
 {
     int now = GetGameTimer();
@@ -1444,22 +1458,16 @@ void Coaster_TickLoadingBay(CoasterRec* r)
         if (!Sub_424b30(r))
             return;
         boarded = 0;
-        c = Sub_424b30(r);
-        if (!c)
-            return;
-        do {
+        while ((c = Sub_424b30(r)) != 0) {
             slot = Sub_41e2b0(r->route);
-            if (!slot) {
-                if (boarded)
-                    Sub_424ae0(r, 3000);
-                return;
-            }
+            if (!slot)
+                break;
             Sub_421590(c, slot);
             c->state = 2;
             boarded = 1;
-            c = Sub_424b30(r);
-        } while (c);
-        Sub_424ae0(r, 3000);
+        }
+        if (boarded)
+            Sub_424ae0(r, 3000);
     } else {
         CoasterCar* c = r->cars.next;
         CoasterCar* head = &r->cars;

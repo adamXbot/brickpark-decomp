@@ -84,14 +84,21 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **38.8% exact, 51.3% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1473 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **40.1% exact, 51.3% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1504 |
 | exported functions | `python3 tools/remaining.py` | 659 of 675 (97.6%) |
 | unmatched callees | `python3 tools/callees.py` | 589, ~25,500 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 107 |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 77 |
 
-(The row values above were refreshed at ~14:30 AEST after the 62 promotions
-described in §0 and §2; the prose that follows in §1 predates them.)
+(Row values refreshed ~16:50 AEST after the 62 promotions of §2 and the
+first section-B wave: 30 partials closed plus one new twin, `verify.py`
+1504/1504. Every single-mismatch function in §6B's table is now exact;
+RequestRoute and JcBoat_Animate stay at 3 with notes arguing the residual is
+a compiler temporary no C spelling reaches. Seven Fable lanes plus this
+session tripped the account session limit mid-wave — every lane was killed at
+once, as §7 warns; files were left compiling clean with honest markers. Run
+at most 4–5 concurrent lanes on Fable. ~30 new levers were added to
+`docs/DECOMP.md` today; the prose below predates all of this.)
 
 **Quote coverage.py.** The export figure (95.6%) badly overstates completion —
 exports are only the symbols the linker exposed, and 1411 functions are matched

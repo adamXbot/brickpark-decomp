@@ -18,7 +18,7 @@
  *   0x00435470  JUNGLE CRUISE             cb_9c    JungleCruise_Remove    [OK]
  *   0x00435750  JUNGLE CRUISE             cb_a8    JungleCruise_Tick      [WIP]
  *   0x00435ec0  JUNGLE CRUISE             cb_b8    LoadJungleCruise       [OK]
- *   0x00436a40  JUNGLE CRUISE WATER       cb_9c    JungleCruiseWater_Remove [WIP]
+ *   0x00436a40  JUNGLE CRUISE WATER       cb_9c    JungleCruiseWater_Remove [OK]
  *   0x004316f0  OCTOPUS CAFE              cb_a8    OctopusCafe_Tick       (analysed only)
  *   0x00431d00  OCTOPUS CAFE              cb_b0    OctopusCafe_Draw       (analysed only)
  *   0x00430b10  RESTAURANT 2              cb_b0    Restaurant2_Draw       (analysed only)
@@ -751,23 +751,25 @@ static __inline Cell* MapCellAt(int x, int y)
     return 0;
 }
 
-/* 328/328 instructions, 885 of 886 bytes.  The whole body -- the cell test,
- * the four ProbeRiver/UpdateRiverTile/RelinkRiverCell blocks and the four
- * diagonal ones -- is now exact; the residual is entirely in the tail, where
- * the original keeps the station cursor in EDI (leaving ESI free as a fourth
- * temporary, hence its extra `mov esi,edx` at 0x00436812) and this
- * reconstruction puts it in ESI and needs only three.  Spelling the four
- * `(mask & bit)` guards INLINE rather than through named locals was worth 16
- * of the original 37 mismatches: VC6 CSEs the inline form into a spilled
- * temporary and does NOT thread the `bit == 0` path across the next guard,
- * which is what the original does. */
-// WIP-FUNCTION: LEGOLAND 0x00436a40  (328/328 insns, 21 register mismatches in the tail)
+/* CLOSED (2026-09-03): the 21 tail mismatches were the station walker landing
+ * in ESI instead of EDI.  Transferred from the twin BoatingSchoolWater_Remove
+ * (ridecb5.c, 0x0041c130): the four u8 dock coordinates are widened into
+ * `int ax, ay, bx, by;` locals read in exactly that order BEFORE the
+ * BuildRoute call, instead of being passed straight from the fields.  That
+ * alone was enough here -- the twin also needed its volatile north/south
+ * flags routed through a plain scalar def, but this body already spells the
+ * four `(mask & bit)` guards inline (which VC6 CSEs into a spilled temporary
+ * and does not thread across the next guard), so the flag lever was not
+ * required.  Earlier passes recorded: inlining those guards was worth 16 of
+ * the original 37 mismatches. */
+// FUNCTION: LEGOLAND 0x00436a40
 void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
 {
     JcStation* st = g_jc_stations;
     Cell*      cell;
     int        mask;
     BPosW      owner;
+    int        ax, ay, bx, by;
 
     {
         int cx = bp.b.x;
@@ -875,7 +877,11 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
     JungleCruise_RebuildRoute(owner);
     while (st) {
         if (st->pos.w == owner.w) {
-            st->route = JungleCruise_BuildRoute(st->ax, st->ay, st->bx, st->by);
+            ax = st->ax;
+            ay = st->ay;
+            bx = st->bx;
+            by = st->by;
+            st->route = JungleCruise_BuildRoute(ax, ay, bx, by);
             return;
         }
         st = st->next;

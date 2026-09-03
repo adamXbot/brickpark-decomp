@@ -862,60 +862,25 @@ extern void   RenderBlokeList(RenderList* l);                        /* 0x00442f
 
 extern RenderList g_ts_blokelist;    /* 0x004cbf84 */
 
-/* NOTE: 116 of the original's 120 instructions match index-for-index. The
- * residual is two pairs of independent stack loads emitted in the opposite
- * order (indices 84/87 and 92/94): the original reads the rider offset before
- * the exit offset in the on-screen x sum and the exit offset before the rider
- * offset in the y sum, while VC6 here does the reverse in both. The frame
- * slots, the add order, the registers and every other instruction agree.
- * Measured as inert: all 24 operand permutations of the two four-term sums,
- * both declaration orders, function-level vs block-scope locals, an inlined
- * 4-argument adder, accumulation through a local temp, and assigning through
- * a pointer to the destination pair all produce the same schedule.  Re-tested
- * this round with every parenthesisation of the four-term sums, both
- * Offsets moved into the rider-loop block singly and together, and the two
- * AdjustOffsetForViewMode blocks swapped (that one DOES change the output --
- * it swaps the two frame homes and costs 6 -- so the fill order is right).
- * This is the same immovable canonicalisation simcore.c's IsAdjacentPos hits:
- * VC6 SP3 sorts the operands of a commutative sum of independent memory
- * loads by its own key and no source spelling reaches the other order. */
-
-/* MEASURED THIS ROUND.  The 4 mismatches (indices 84/87/92/94) are the two
- * MIDDLE operands of `b->ride_dx + rider.ox + exit.ox + screen.ox`: the
- * original adds `rider` (the higher frame slot) first, we add `exit` (the
- * lower) first.  Frame map, derived by tracking esp through the un-popped
- * argument pushes -- with E = esp on entry:
- *     exit   = E-0x18 / E-0x14      (globals 0x4cbf88 / 0x4cbf8c)
- *     rider  = E-0x10 / E-0x0c      (globals 0x4cbfc8 / 0x4cbfcc)
- *     screen = E-0x08 / E-0x04      (ox never stored -- it lives in ebx)
- * Those slots are ALREADY right: every other reference to them matches.  Only
- * the sum's operand order differs, and VC6 canonicalises it: ALL 24
- * permutations of the four terms, explicit parenthesisation of the left
- * subtree, and two- or three-statement temporaries all produce the identical
- * instruction stream (lower slot first).  All 6 permutations of the three
- * Offset DECLARATIONS also produce identical code -- declaration order is not
- * a lever for address-taken locals in this build; their slots follow first
- * use.  Making either operand's read volatile does flip the order (exit
- * volatile puts rider first at index 84) but wrecks the add direction and
- * costs 12-13.  This is the same commutative canonicalisation as simcore.c's
- * IsAdjacentPos; treat the two as one open question. */
-/* THE LEVER THAT FINISHED workorder2.c's RefreshObjList DOES NOT REACH THIS
- * ONE, and the reason is worth recording.  There the same canonicalisation
- * (VC6 SP3 sorting the two independent loads of a commutative sum by an
- * internal key that no source operand order touches) was moved by spelling one
- * operand through a pointer local with a DIFFERENT BASE SYMBOL --
- * `Rect* r = &sel->rect;` then `r->bottom`.  VC6 folds the address straight
- * back, so no instruction changes, but the operand sorts on `r` instead of on
- * `sel` and the pair flips.  Here the two operands are two whole STACK LOCALS
- * (`rider`, `exit`), and `Offset* pr = &rider;` folds to the same
- * `[esp+0x24]` with no new symbol at all: measured, all three of pr/pe/both
- * leave the schedule bit-identical.  Putting the two Offsets in one aggregate
- * (`struct { Offset exit; Offset rider; }` or `Offset eo[2]`, in either
- * order) DOES create a new symbol, but an aggregate local is placed at the top
- * of the frame, which moves every home and costs 12-13.  Volatile on either
- * operand flips the order and wrecks the add direction (12-13).  So the four
- * instructions stand. */
-// WIP-FUNCTION: LEGOLAND 0x00416fa0  (116/120; two pairs of independent stack loads scheduled in the opposite order)
+/* CLOSED (2026-09-03, 116/120 -> 120/120).  The last four instructions were
+ * the operand order of the two four-term sums `b->ride_dx + rider.ox +
+ * exit.ox + screen.ox`: the original adds `rider` before `exit`, VC6 here
+ * added `exit` first, and no permutation, parenthesisation, temporary,
+ * declaration order, scope, name, type, array/struct spelling or pointer cast
+ * moved it (all measured, ~40 variants this round on top of the previous
+ * rounds').  The rule finally recovered: VC6 SP3 canonicalises a commutative
+ * sum of independent memory leaves by the leaf's FIRST APPEARANCE IN THE
+ * FUNCTION'S IL (per symbol+offset, not per symbol), LATER-appearing leaf
+ * FIRST; frame homes are allocated on a different key, so swapping the two
+ * AdjustOffsetForViewMode blocks flips the sum order without moving a slot.
+ * In this source `rider.ox/oy` are first mentioned (stored) before
+ * `exit.ox/oy`, so `exit` sorted first.  The dead block-scoped reads of
+ * `exit.ox` and `exit.oy` before the rider loop emit no code but give those
+ * two leaves the earlier ids, and both sums come out in the original's
+ * order.  Reading only `exit.ox` fixed only the x sum (2 left), which is how
+ * the per-leaf granularity was established; placing the reads before
+ * GetScreenCoordsForObject also re-sorted `screen` and cost 4 the other way. */
+// FUNCTION: LEGOLAND 0x00416fa0
 void TempleSlide_Draw(RideElem* elem, int x, int y, RideTile* sq,
                       void* clip, int mode)
 {
@@ -938,6 +903,10 @@ void TempleSlide_Draw(RideElem* elem, int x, int y, RideTile* sq,
     RenderItems_New();
     g_ts_blokelist.head = 0;
 
+    {   /* dead reads: they only order the sum operands below (see note) */
+        int d0 = exit.ox;
+        int d1 = exit.oy;
+    }
     r = item->riders;
     while (r) {
         if (sq->key == r->ride_id && (r->bloke->flags & 0x80)) {

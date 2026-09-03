@@ -21,10 +21,10 @@
  *
  *   addr        class              slot   what it really does        state
  *   0x0042aa90  BALLOONZ           cb_a8  per-rider state machine    documented
- *   0x0042b2e0  BALLOONZ           cb_b0  depth-sorted overlay draw  WIP
- *   0x0042bcf0  CAROUSEL           cb_b0  depth-sorted overlay draw  WIP
+ *   0x0042b2e0  BALLOONZ           cb_b0  depth-sorted overlay draw  WIP (333)
+ *   0x0042bcf0  CAROUSEL           cb_b0  depth-sorted overlay draw  WIP (24)
  *   0x0042c820  CAROUSEL           cb_a8  per-rider state machine    documented
- *   0x0042d610  EARTH SLIDE RIDE   cb_a8  per-rider state machine    WIP 99.3%
+ *   0x0042d610  EARTH SLIDE RIDE   cb_a8  per-rider state machine    100%
  *   0x0042d9c0  ENTRANCE 1         cb_b0  depth-sorted overlay draw  100%
  *   0x0042f1a0  RESTAURANT 1       cb_a8  per-rider state machine    100%
  *   0x0042f4c0  RESTAURANT 1       cb_b0  depth-sorted overlay draw  100%
@@ -719,70 +719,56 @@ extern void*       g_slide_anim;   /* 0x006160e4  its 3D rider animation */
  *      release the "do not let anyone on" flag once the car has emptied
  * ========================================================================= */
 
-/* 274/276 instructions and 824/824 bytes -- mismatch 2 (it was 15).
+/* Case 0's queue-spot block.  `spot` MUST live here, not in EarthSlide_Tick:
+ * see the note below the helper. */
+static __inline void EarthSlide_AimAtQueue(RideObject* item, RiderNode* r, SlideRec* rec, Bloke* b)
+{
+    Pos spot;
+    EarthSlide_GetQueueSpot(item, (MapSquare*)&r->ride_id, &spot);
+    EarthSlide_JoinQueue(rec, r);
+    b->target.x = spot.x;
+    b->target.y = spot.y;
+}
+
+/* 276/276 instructions, 824/824 bytes -- audit.py [OK].
  *
- * THE LEVER that fixed the ebx/ebp tie-break: INTERLEAVE the two coordinate
- * sums instead of grouping the two key reads.  Writing
- *     kx = key->bx; tx = item->base_x + kx; ky = key->by; ty = ...
- * rather than
- *     kx = key->bx; ky = key->by; tx = ...; ty = ...
- * makes VC6 put `item` in ebp and `key` in ebx, which is what the original
- * does -- `tx` then inherits item's register and `ty` inherits key's, and 13
- * previously-swapped sites fall into place.  Both spellings are the same
- * arithmetic; only the interleaving moves the allocator.
+ * Two levers closed it:
  *
- * The 2 that remain are a schedule swap in case 0 (indices 62/64): the
- * original reads BOTH halves of the queue spot before it takes the address of
- * b->path --
- *     mov edx,[spot.x] / mov eax,[spot.y] / mov [b+0x24],edx /
- *     lea ecx,[b+0x98] / mov [b+0x28],eax
- * -- while VC6 here slots the `lea` between the two, reading spot.y after the
- * x store.  Two int temporaries DO produce the original's schedule but then
- * hand eax to spot.x and edx to spot.y (the original has them the other way
- * round) and cost 65; `b->target = spot;` as a struct copy moves three frame
- * homes; storing y before x costs 221.  2 is the floor of ~15 variants. */
-/* THIS ROUND the two remaining instructions were pinned down to a choice
- * between TWO spellings, each of which gets half of the pair right, and the
- * halves are mutually exclusive:
- *   * SCHEDULE.  An inlined two-scalar setter whose body stores y then x --
- *     `static __inline void Set(Bloke* b, int y, int x) { b->target.y = y;
- *     b->target.x = x; }` -- produces the original's exact schedule
- *     (load x, load y, store x, `lea ecx,[esi+0x98]`, store y): VC6 emits the
- *     argument loads in the REVERSE of the body's use order, and the address
- *     of the CalcMoveLine path argument then sinks between the two stores.
- *     But the whole block comes out rotated one register (x in eax, y in edx,
- *     the lea in eax) where the original has x in edx, y in eax, lea in ecx,
- *     and that rotation costs 65.  Param order in the call is inert; only the
- *     helper body's statement order moves the loads.
- *   * REGISTERS.  Making the spot.y read volatile
- *     (`b->target.y = *(volatile int*)&spot.y;`) keeps the original's
- *     registers AND fixes the lea's position, leaving a different pair of two
- *     -- the x store now precedes the y load instead of following it.  Same
- *     score, an extra volatile that is not in the original, so not shipped.
- * `b->target = spot;` (the natural 8-byte-pair spelling, which is what the
- * original's shape suggests) is rejected for a THIRD reason, now understood:
- * the struct assignment re-pools the two address-taken Pos locals -- `exit`
- * moves 0x18 -> 0x20 and `spot` 0x34 -> 0x2c -- and no permutation of the
- * thirteen declarations moves them back (address-taken locals pool by FIRST
- * USE, not declaration order; all six orders were measured identical). */
-/* THIS ROUND, four more spellings of the case-0 target store measured, none
- * moving the pair: `&b->path[0]` for the CalcMoveLine path argument (identical
- * object), `b->target = spot;` (17 mismatches -- it re-pools the Pos locals as
- * described above), storing y before x (221), and two int temporaries in all
- * four declaration/assignment orders (215 each -- worse than the 65 recorded
- * above because the temporaries now take frame homes).  The residual is still
- * exactly indices 62 and 64: the original issues `mov eax,[esp+0x38]` (spot.y)
- * before the x store and sinks `lea ecx,[esi+0x98]` between the two stores; we
- * emit the lea first and the y load between them. */
-/* THIS ROUND, five more shapes measured on the case-0 pair, all rejected:
- * `int sy = spot.y;` read before the x store (208 -- the temp takes a frame
- * home), the mirror `int sx = spot.x;` (65), an __inline setter taking
- * `(Bloke*, const Pos*)` with the body in x-then-y order (identical to the
- * committed body, 2) and in y-then-x order (215), and `b->target = spot;`
- * with `spot` declared BEFORE `exit` (10, and still the same 62/64 swap --
- * declaration order does not move the two pooled Pos homes, confirming the
- * earlier finding).  The residual is unchanged: indices 62 and 64. */
-// WIP-FUNCTION: LEGOLAND 0x0042d610  (99.3%, one two-instruction schedule swap in case 0)
+ * 1. INTERLEAVE the two coordinate sums instead of grouping the two key
+ *    reads (`kx = key->bx; tx = item->base_x + kx; ky = key->by; ty = ...`):
+ *    this makes VC6 put `item` in ebp and `key` in ebx, so `tx` inherits
+ *    item's register and `ty` key's, as the original has them (was 15 -> 2).
+ *
+ * 2. THE LAST PAIR (indices 62/64, `mov eax,[spot.y]` vs `lea ecx,[b+0x98]`)
+ *    was an ALIAS-ANALYSIS effect, not a schedule or register choice.  The
+ *    original loads BOTH halves of the queue spot before it stores
+ *    b->target.x, i.e. VC6 was free to hoist the spot.y load above a store
+ *    through `b`.  With `spot` a named, address-taken local of THIS function
+ *    (its address goes to EarthSlide_GetQueueSpot), VC6 treats every
+ *    pointer store as a possible alias of it, pins the y load after the x
+ *    store, and fills the slot with the lea.  Moving the queue-spot block
+ *    into a `static __inline` helper (EarthSlide_AimAtQueue) that owns the
+ *    `Pos spot` fixes it: an address-taken local born inside an inlined
+ *    helper is NOT in the caller's escaped-local class, so the store through
+ *    `b` no longer orders against it.  The helper keeps the scalar stores
+ *    (x then y); the original's `mov edx,eax` / reload of x from [b+0x24]
+ *    for the CalcMoveLine argument copy is what those scalar stores produce.
+ *    Frame home of spot (top slot, 0x20) is unchanged by the helper.
+ *
+ * Ruled out on the way (all measured): `b->target = spot;` (11: VC6 then
+ * CSEs the CalcMoveLine argument reads to spot and swaps the exit/spot
+ * frame homes); the same in a case-0 block scope (210); a volatile struct
+ * copy (2, keeps the frame but pins the y load); memcpy (11, = struct copy);
+ * any by-value Pos argument to an inlined setter (217, adds a frame temp);
+ * reusing the dead kx/ky or tx/ty locals or block-scoped int temps as the
+ * carriers (208 -- VC6 reverses the two stores once both values sit in
+ * temps); spot as int[2] or as a distinct anonymous struct type (2, inert);
+ * GetQueueSpot's out-parameter typed int* or void* (2, inert); #pragma
+ * optimize("w") (87 -- it does hoist the load but also changes case 5) and
+ * ("a") (241).  Earlier rounds' findings (two int temporaries, storing y
+ * first, __inline setters with (Bloke*, int, int) or (Bloke*, const Pos*)
+ * bodies in either order) are consistent with the above. */
+// FUNCTION: LEGOLAND 0x0042d610
 void EarthSlide_Tick(RideElem* elem)
 {
     RideObject*   item = elem->data;
@@ -792,7 +778,6 @@ void EarthSlide_Tick(RideElem* elem)
     SlideRec*     rec;
     MapSquare*    key;
     Pos           exit;
-    Pos           spot;
     int           kx;
     int           ky;
     int           tx;
@@ -820,10 +805,7 @@ void EarthSlide_Tick(RideElem* elem)
             switch (b->action) {
             case 0:
                 b->flags62 |= 8;
-                EarthSlide_GetQueueSpot(item, (MapSquare*)&r->ride_id, &spot);
-                EarthSlide_JoinQueue(rec, r);
-                b->target.x = spot.x;
-                b->target.y = spot.y;
+                EarthSlide_AimAtQueue(item, r, rec, b);
                 a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
                 b->state = 7;
                 b->new_dir = a;
@@ -1231,18 +1213,46 @@ extern SpriteObj* g_carousel_zspr;    /* 0x006160b8  z_Carousel.lls */
 /* THIS ROUND: the band loops were moved to the shared DrawBand helper above
  * (walk the PARAMETER, do not copy it into a local cursor).  That kills the
  * one hoisted `movsx` of the count and brings back every per-band
- * `test bl,bl / movsx` guard, so the body is now 412 of 412 instructions with
- * mismatch 216 (was 414 instructions / 277).  What is left is the same
- * lea/jle transposition the banded draws in westtown.c and joust.c carry --
- * the queue-address `lea` is the inlined parameter copy, so it lives in the
- * GUARD block and VC6's pairing scheduler slots it between the test and its
- * branch -- plus an esi/edi rename that follows from it. */
-// WIP-FUNCTION: LEGOLAND 0x0042bcf0  (412 of 412 instructions, mismatch 216; per-band guards recovered, lea/jle transposition remains)
+ * `test bl,bl / movsx` guard: 412 of 412 instructions, mismatch 216. */
+/* THIS ROUND (216 -> 24), three structural levers, all measured:
+ *  (1) THE ARRAY LIVES IN AN INNER SCOPE ENTERED AFTER `r = item->riders`.
+ *      A function-level `here[10] = {0}` is emitted first no matter what
+ *      (120 statement permutations proved it); as a block-scope local its
+ *      fill follows the rider load, so `mov esi,[ebx+0xcc]` lands at index 9
+ *      before the `rep stosd` and esi/edi take the original's roles for the
+ *      whole body.  Same trick Restaurant1_Draw (exact) already carried.
+ *  (2) `n = 0` is assigned BEFORE the block (before the fill in source):
+ *      VC6 sinks it past the fill and past `push ebp` and emits the
+ *      immediate `mov byte ptr [esp+0x80],0` the original has.  Inside the
+ *      block, in any position before the ctx stores, it is folded into the
+ *      fill's zero register (`mov byte,al`) four instructions too early;
+ *      after ctx.square it is an immediate but in the wrong place.
+ *  (3) THE RIDING LOOP CACHES `Bloke* b = r->bloke` (flags, person, f3c,
+ *      f3e read through it, esi across the two AdjustBlokePosition calls)
+ *      but the IP_RenderBlokeIn3DNow argument is `r->bloke` re-read through
+ *      r's spill slot; VC6 parks r in the dead `n` slot (0x7c) and `o` in
+ *      the dead `item` spill home (0x14).  With `r->bloke->x` everywhere,
+ *      r stays in esi and `o` takes its own slot (+4 on the whole frame).
+ * THE RESIDUAL (24 = 4 bands x 6) is one shape: the original puts the
+ * queue-address `lea esi,[esp+0x50]` AFTER the band's `jle` (in the loop
+ * preheader, between `movsx edx,cl` and the trip-count store) and threads
+ * every band's failed guard straight to the block after the fourth band
+ * (`jle 0x2d0` x4); we emit the lea in the guard block before the `jle`,
+ * so the guard blocks are not empty and each `jle` only reaches the next
+ * band.  Every spelling that moves the lea into the preheader (a cursor
+ * local born inside the guard, `if (n <= 0) return;`, the count widened
+ * before the guard, guard at the call site with a char or int count, an
+ * inline macro, an escaped or live-past-the-bands `n`) makes VC6 CSE the
+ * four `movsx` into one widened int (`mov [esp+0x7c],eax`) and DELETE the
+ * guards of bands 1..3 (248-263); decrementing the char copy instead of an
+ * int trip count gives a byte counter in a new slot (289).  The original
+ * has the preheader lea AND per-band guards AND no CSE; the construct that
+ * yields that combination was not found (~45 variants this round). */
+// WIP-FUNCTION: LEGOLAND 0x0042bcf0  (412 of 412 instructions, audit mismatch 24; four per-band lea/jle transpositions -- see note)
 void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
 {
     RideObject*  item = elem->data;
-    Bloke*       here[10] = { 0 };
     unsigned short key;
     DrawCtx      ctx;
     Offset       offA;
@@ -1255,6 +1265,9 @@ void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
 
     r = item->riders;
     n = 0;
+    {
+    Bloke* here[10] = { 0 };
+    
     ctx.tag = 0x103;
     ctx.elem = elem;
     ctx.square = *(unsigned short*)sq;
@@ -1302,21 +1315,23 @@ void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
             *(short*)*(g_carousel_zspr->lls_holder) = rec->frame;
 
             for (r = item->riders; r; r = r->next) {
-                if (*(unsigned short*)sq == r->ride_id
-                    && (r->bloke->flags62 & 0x80)) {
-                    Offset     o;
-                    Person3D*  p = r->bloke->person;
+                if (*(unsigned short*)sq == r->ride_id) {
+                    Bloke* b = r->bloke;
+                    if (b->flags62 & 0x80) {
+                        Offset     o;
+                        Person3D*  p = b->person;
 
-                    o.ox = g_carousel_pivot_x;
-                    o.oy = g_carousel_pivot_y;
-                    p->local.ox = r->bloke->f3c;
-                    p->local.oy = r->bloke->f3e;
-                    AdjustBlokePosition(&p->local);
-                    AdjustOffsetForViewMode(&o);
-                    p->screen.ox = r->bloke->f3c + o.ox + screen.ox;
-                    p->screen.oy = r->bloke->f3e + o.oy + screen.oy;
-                    AdjustBlokePosition(&p->screen);
-                    IP_RenderBlokeIn3DNow(r->bloke);
+                        o.ox = g_carousel_pivot_x;
+                        o.oy = g_carousel_pivot_y;
+                        p->local.ox = b->f3c;
+                        p->local.oy = b->f3e;
+                        AdjustBlokePosition(&p->local);
+                        AdjustOffsetForViewMode(&o);
+                        p->screen.ox = b->f3c + o.ox + screen.ox;
+                        p->screen.oy = b->f3e + o.oy + screen.oy;
+                        AdjustBlokePosition(&p->screen);
+                        IP_RenderBlokeIn3DNow(r->bloke);
+                    }
                 }
             }
 
@@ -1344,6 +1359,7 @@ void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
     AdjustOffsetForViewMode(&offA);
     PrintSprite(GetSpriteForLayer(g_carousel_layers, 2),
                 screen.ox + offA.ox, screen.oy + offA.oy, mode, &ctx);
+    }
 }
 
 /* =========================================================================
@@ -1470,7 +1486,45 @@ extern void*      g_bz_car_blue; /* 0x0061605c  BZBlueCarM1.lls */
  * schedule difference in the `off = GetRenderOffsetForLayer(...)` /
  * AdjustOffsetForViewMode pair at indices 61-71 (the original stores off.oy,
  * then takes &off and pushes it, then stores off.ox; we store ox first). */
-// WIP-FUNCTION: LEGOLAND 0x0042b2e0  (576 of 576 instructions, mismatch 341; frame now the original's except `car` -- see above)
+/* THIS ROUND (audit 341 -> 333; the side-by-side lister says 339 -> 331), and
+ * what the residual really is.  Everything up
+ * to index 33 is exact; the whole body then diverges on ONE allocator
+ * decision, the contest for the two free callee-saved registers after
+ * `saved = item->riders` kills `item` (edi) and the collect loop kills
+ * `sq` (ebp):
+ *     original   band trip counters -> edi (`movsx edi,bl / dec edi`),
+ *                screen.oy -> ebp from the first PrintSprite (index 102,
+ *                `mov ebp,[esp+0x34]`, kept through index 275),
+ *                `mode` reloaded from [esp+0x84] at every PrintSprite,
+ *                the hoisted collect key in ax (`mov ax,[ebp]`),
+ *                riding loop: r in ebx, the 0x12 pivot constant in ebp.
+ *     ours       trip counters -> ebp, `mode` hoisted into edi at 101,
+ *                screen.oy reloaded each time, the key in bp (VC6 reuses
+ *                the dead sq register for it), riding loop r in ebp and
+ *                0x12 in ebx.
+ * So screen.oy must out-rank both `mode` and the trip counters in the
+ * original's priority order and ranks below both here.  Two smaller
+ * residuals: `car` and the `saved` spill swap homes (E-0x4c / E-0x54), and
+ * the three occupied-path `off = GetRenderOffsetForLayer` sites store edx
+ * (oy) before the `lea/push` and eax after, where we store eax first -- the
+ * original's other two sites (empty path, banner) store eax first, so that
+ * is allocation context, not a source shape (an inline helper for the pair
+ * is byte-identical to the open-coded form).
+ * Measured and inert (339): `saved` declared first or last, `mode` routed
+ * through an int local assigned at entry (VC6 coalesces it), a u16 `key`
+ * local for the collect compare, the collect loop as a `for`, the pair
+ * helper, `pivot` assigned before `seat`, screen's halves copied into two
+ * ints or into the dead x/y parameters (331, same as the operand order).
+ * `screen.ox + off.ox` (this round's 8: the PrintSprite sums now build in
+ * the original's temp order) is shipped.  A volatile read of `mode` (probe
+ * only) is much worse (489): it changes the frame, so the original's
+ * per-call reload is a spill decision, not a source construct.
+ * The Carousel levers were checked here too: the array fill is already
+ * interleaved with the pushes at the top (the fill precedes `r =
+ * item->riders` in the original -- opposite of Carousel), `n = 0` already
+ * lands as `mov [esp+0x74],bl`, and the riding loop already caches
+ * `b = r->bloke`. */
+// WIP-FUNCTION: LEGOLAND 0x0042b2e0  (576 of 576 instructions, audit mismatch 333; callee-saved contest -- see note)
 void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
 {
@@ -1517,16 +1571,16 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
 
             DrawBand(here, n, 6);
             DrawBand(here, n, 5);
-            PrintSprite(g_bz_base1, off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+            PrintSprite(g_bz_base1, screen.ox + off.ox, screen.oy + off.oy, mode, 0);
 
             DrawBand(here, n, 4);
-            PrintSprite(g_bz_base2, off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+            PrintSprite(g_bz_base2, screen.ox + off.ox, screen.oy + off.oy, mode, 0);
 
             DrawBand(here, n, 0);
             DrawBand(here, n, 1);
             DrawBand(here, n, 2);
             DrawBand(here, n, 3);
-            PrintSprite(g_bz_base3, off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+            PrintSprite(g_bz_base3, screen.ox + off.ox, screen.oy + off.oy, mode, 0);
 
             DrawBand(here, n, 7);
             DrawBand(here, n, 0x0e);
@@ -1536,7 +1590,7 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
             off = GetRenderOffsetForLayer(g_bz_layers, 1);
             AdjustOffsetForViewMode(&off);
             PrintSprite(GetSpriteForLayer(g_bz_layers, 1),
-                        off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                        screen.ox + off.ox, screen.oy + off.oy, mode, 0);
 
             if (wheel % 8 == 0 || wheel == 0) {
                 LLSSetFrame(GetLLSForLayer(g_bz_layers, 1), wheel);
@@ -1551,18 +1605,18 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                 switch (Balloonz_CarSprite(wheel, car)) {
                 case 0:
                 case 3:
-                    PrintSprite(g_bz_car_red, off.ox + screen.ox,
-                                off.oy + screen.oy, mode, 0);
+                    PrintSprite(g_bz_car_red, screen.ox + off.ox,
+                                screen.oy + off.oy, mode, 0);
                     break;
                 case 1:
                 case 4:
-                    PrintSprite(g_bz_car_green, off.ox + screen.ox,
-                                off.oy + screen.oy, mode, 0);
+                    PrintSprite(g_bz_car_green, screen.ox + off.ox,
+                                screen.oy + off.oy, mode, 0);
                     break;
                 case 2:
                 case 5:
-                    PrintSprite(g_bz_car_blue, off.ox + screen.ox,
-                                off.oy + screen.oy, mode, 0);
+                    PrintSprite(g_bz_car_blue, screen.ox + off.ox,
+                                screen.oy + off.oy, mode, 0);
                     break;
                 }
             }
@@ -1600,7 +1654,7 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
     off = GetRenderOffsetForLayer(g_bz_layers, 1);
     AdjustOffsetForViewMode(&off);
     PrintSprite(GetSpriteForLayer(g_bz_layers, 1),
-                off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                screen.ox + off.ox, screen.oy + off.oy, mode, 0);
 
 banner:
     flag++;
@@ -1611,5 +1665,5 @@ banner:
     off = GetRenderOffsetForLayer(g_bz_layers, 2);
     AdjustOffsetForViewMode(&off);
     PrintSprite(GetSpriteForLayer(g_bz_layers, 2),
-                off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+                screen.ox + off.ox, screen.oy + off.oy, mode, 0);
 }

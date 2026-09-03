@@ -820,6 +820,60 @@ static __inline Cell* RouteCellAt(Pos* p)
  * `int cx = cur->pos.x;` temporaries in four positions (they always produce
  * the 481-instruction ecx form), `--to.y` and `to.y = to.y - 1`, and a
  * de Morgan'd `!(x != .. || y != ..)` goal test. */
+/* THIS ROUND (2026-09-03, ~115 more measured variants, residual UNCHANGED at
+ * 479/482, indices 31/32/38).  The target was restated from the machine code:
+ * the original's else block is `T2 = W1` (mov ecx,eax) with BOTH the to.x
+ * store and the push reading T2, and `g_route_to.y` in edx only because W1 is
+ * live into that copy.  So the original's IR holds TWO webs joined by a copy
+ * that VC6's coalescer/copy-propagator left alone; every C spelling we can
+ * write gives either one web (481 instructions, W in ecx) or an independent
+ * reload (482, the committed body).  Ruled out, all measured (all give the
+ * 481 one-web form unless noted):
+ *  - a user variable for the else block's x, single-def or MULTI-def (x
+ *    assigned in two or all four neighbour blocks, or on both failure paths
+ *    of the goal test phi-style): VC6 builds webs per def-use chain and
+ *    propagates every one of them;
+ *  - the x/y pair carried in an aggregate (`Pos p`, p.x/p.y assigned then
+ *    stored/pushed; `to = p`; `p = cur->pos` -- the last two keep 482 but
+ *    reorder the loads), in a static __inline SetPos(&to,x,y) / Step(&to,x,y)
+ *    helper (store + RouteInBounds inside), or a MakePos(x,y) helper
+ *    returning a Pos by value, in the north block alone or in all four;
+ *  - every post-CSE identity on the stored value: `+0`, `-0`, `*1`, `|0`,
+ *    `^0`, `&-1`, `>>0`, `<<0`, `/1`, `-(-x)`, `~~x`, `+1-1`, a (dx,dy) step
+ *    macro/helper with dx=0, a multi-def `dx` scalar or a `Pos step`
+ *    aggregate, casts to int/unsigned/long and a round trip through __int64
+ *    -- VC6 folds them all BEFORE CSE;
+ *  - a type CONVERSION between the node's pos and the tile: an unsigned or
+ *    long `pos` in RouteNode, an unsigned g_route_to, an unsigned `to`: the
+ *    field form then stops CSE-ing altogether (482, a reload at 38 exactly
+ *    like the struct copy) -- so a same-width conversion is a CSE barrier,
+ *    not a copy;
+ *  - the goal test restructured: axis first, nested ifs with a goto, de
+ *    Morgan, else-as-then, a `found` flag, a `x = cur->pos.x` local used by
+ *    the test (with struct-copy, field and push spellings for the else), and
+ *    memcmp(&cur->pos,&g_route_to,8) (NOT intrinsic-expanded: a call, 490);
+ *  - the neighbour as a separate `Pos nb` local instead of the `to` parameter
+ *    (function-level, first- or last-declared, or declared at the top of the
+ *    while body): byte-identical to reusing `to` -- VC6 homes it in the dead
+ *    parameter pair -- so parameter-vs-local is not the lever; four disjoint
+ *    inner-scope nb's move the frame (484 instructions);
+ *  - a register-homed neighbour (never address-taken) copied into an
+ *    address-taken `nb` right before RouteInBounds / inside the if: 462/457
+ *    at best, the copy still does not appear;
+ *  - RouteInBounds declared to take the tile BY VALUE (`RouteInBounds(Pos)`,
+ *    `RouteInBounds(to)`): byte-identical to the (int,int) prototype in both
+ *    the struct-copy (479) and field (481) forms, so the callee's prototype
+ *    is not recoverable from this site and is not a lever either.
+ * Corpus check: the byte pattern `mov ecx,eax / mov [esp+d8],ecx` occurs
+ * ONCE in the whole executable (here).  The four `mov rA,rB / mov [esp+d],rA`
+ * sites inside audit-exact functions (UpdateMapDrag 0x452156, bighelp.c
+ * 0x4554e4, fpui2.c 0x455937, loadmap.c 0x461ef3) are all a multi-def user
+ * variable with a register home assigned from a value that STAYS LIVE
+ * afterwards (`maxx = a` where `a` is reused), i.e. the copy survives only
+ * under interference.  W1 here has no later use, so the best remaining
+ * hypothesis is that the original source kept `cur->pos.x` live past the
+ * copy through a use that VC6 later deleted (or a use hidden in code that
+ * was #ifdef'd out); no surviving C reaches it.  Semantics are identical. */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)
 {
@@ -984,91 +1038,34 @@ void RequestRoute(Pos from, Pos to)
  * it to decide whether a bloke (and the cell it is scanning) touch an
  * attraction's access tile.  Not exported; sits directly in front of
  * ScanBlokeSurroundings. */
-/* 23/24 instructions, 46 bytes against the original's 45.  The original
- * evaluates the X term first (|dx| in ecx, |dy| in eax, `add eax,ecx`) with
- * both parameters in the callee-saved esi/edi and the pops sunk between the
- * two abs chains; VC6 here always canonicalises the commutative sum to
- * Y-first, leaves `a` in ecx and needs a closing `mov eax,edi`.  Swapping the
- * terms, splitting them into temporaries, `t += ...`, `1 == ...` and the
- * subtract-then-test form all reproduce the Y-first order.  Semantics are
- * identical.
- * Re-tested this round with dx/dy computed before the abs(), an `unsigned`
- * result, `const Pos*` parameters, a temporary for b->y alone (the original's
- * Y term really does load b->y into edx first while its X term uses a memory
- * operand, so the two terms are NOT symmetric in the original) and the
- * branchy `if (d < 0) d = -d;` form -- all twelve produce byte-identical
- * code.  This is the same commutative-sum canonicalisation joust.c's
- * TempleSlide_Draw is stuck on: VC6 SP3 orders the operands of `A + B` where
- * both are independent loads by its own key, and no source spelling reaches
- * the other order.  Treat both as one open question, not two. */
-/* NEW THIS ROUND, and it narrows the question a lot: the Y-first order is
- * carried by the abs() INTRINSIC, not by the sum.  Written with the branchy
- * absolute value --
- *     dx = a->x - b->x; dy = a->y - b->y;
- *     if (dx < 0) dx = -dx; if (dy < 0) dy = -dy; return dx + dy == 1;
- * -- VC6 evaluates the X term FIRST and accumulates the same way the original
- * does (`add eax,ecx`, result already in eax, no closing move); it just spells
- * the absolute value with test/jge/neg instead of cdq/xor/sub, so it is 22
- * instructions, not the original's 24.  Every spelling that keeps the
- * intrinsic -- both source orders of the sum, separate `dx`/`dy` locals with
- * the abs applied in either order or as separate statements, `t = abs(..); t
- * += abs(..)`, `1 == ...`, `!= 1` inverted, an `unsigned` accumulator, and
- * b-a instead of a-b -- produces byte-identical code with the +4 field first.
- * So: find a source form that keeps VC6's cdq/xor/sub abs expansion while
- * leaving the two terms in source order; that single fact also fixes the
- * register roles (a in esi, b in edi, |dx| in ecx) and the extra
- * `mov eax,edi`. */
-/* SAME CANONICALISATION AS workorder2.c's RefreshObjList, and this round's
- * lever does NOT reach it.  There, `origin_field + rect_field +/- 1` came out
- * with the two loads in the wrong order until one side was spelled through a
- * pointer local with a DIFFERENT BASE SYMBOL (`Rect* r = &sel->rect;` ->
- * `r->bottom`), which VC6 folds back to the identical addressing mode but
- * sorts on the new base -- that finished RefreshObjList exactly.  Here the two
- * operands already come from two DIFFERENT base symbols (the parameters `a`
- * and `b`), so there is no new base to introduce: `int* ay = &a->y;` folds to
- * `a` + 4 and changes nothing, and neither do temporaries for the two abs()
- * results in either order, `abs(b->x - a->x)`, an explicit
- * `if (d < 0) d = -d;` (20 instructions, a different shape), `1 == sum`, or
- * parenthesising the sum.  The whole 24-instruction body is a rotation of the
- * original's: the original computes the X term first into ecx and the Y term
- * second into eax (so `add eax,ecx` leaves the result in eax and the two pops
- * interleave into the dead operand registers), where VC6 gives us Y first in
- * edi and a closing `mov eax,edi`. */
-/* THIS ROUND -- the canonicalisation RULE was measured, and it says this shape
- * is unreachable.  VC6 SP3 sorts the operands of a commutative `+` whose two
- * halves are structurally identical by the FINAL ADDRESS OF EACH TERM'S
- * SUBTRAHEND, DESCENDING, and emits the higher one FIRST.  Probes (all
- * /O2 /Gy /Gd, all with the abs intrinsic):
- *     abs(a->x-b->x) + abs(a->z-b->z)   -> the z term (sub off 8) first
- *     abs(a->x-b->x) + abs(a->y-b->y)   -> the y term (sub off 4) first
- *     abs(a->x-b->y) + abs(a->y-b->x)   -> the FIRST term first (its sub is
- *                                          b->y, off 4, beating b->x's 0)
- *     abs(a->a-b->d) + abs(a->d-b->a)   -> the term whose sub is b->d (off 12)
- * Both of this function's terms are `a-b`, so their subtrahends are b->x (0)
- * and b->y (4) and the y term is ALWAYS emitted first -- which is the whole
- * residual, since the original emits the x term first.  Confirmed inert
- * because the offset fold happens BEFORE the sort: `int* by = &b->y;`,
- * `Pos* c = b;`, `Pos* b2 = (Pos*)((char*)b + 4)` used as `b2->x`, and
- * `P3* b8 = (P3*)((char*)b - 8)` used as `b8->p2` all collapse to the same
- * [reg+disp] and produce byte-identical code, so the RefreshObjList
- * "different base symbol" lever cannot reach this class.  Also re-measured
- * inert: `d = abs(dx); d += abs(dy);` in both orders, a static __inline
- * AbsDiff(int,int) helper, an __inline Manhattan(Pos*,Pos*) whose result is
- * compared to 1, four-local pre-loads of a->x/a->y/b->x/b->y, `int*` params
- * with a[0]/a[1], `!=1`, `1==`, `(unsigned)`, and char/short/int return types.
- * TWO POSITIVE FACTS worth keeping.  (i) The SAME expression over four INT
- * PARAMETERS -- `abs(p-q)+abs(r-s)` -- sorts the other way (first term first)
- * and reproduces the original's instruction sequence and interleave EXACTLY
- * (mov/mov/sub/cdq/mov ecx,eax/mov eax,r/xor/sub/mov edx,s/sub/cdq/xor/sub/
- * add eax,ecx), so parameter reads and pointer dereferences use DIFFERENT sort
- * keys.  (ii) `return !(abs(dx)+abs(dy)-1);` is the only spelling that leaves
- * the result in EAX and interleaves the two pops the way the original does --
- * but VC6 then fuses the add and the dec into `lea eax,[edi+eax-1]` (23
- * instructions).  The original needs eax-as-accumulator WITHOUT that fusion.
- * So the open question is no longer "which operand order": it is what makes a
- * two-pointer-dereference sum sort like the four-parameter one. */
-// WIP-FUNCTION: LEGOLAND 0x00450500  (95.8%, VC6 canonicalises the commutative sum to Y-first; one extra result move)
+/* CLOSED (24/24, 45 bytes) -- the lever is an AGGREGATE local for the two
+ * abs() results.  Every scalar spelling of `abs(a->x-b->x) + abs(a->y-b->y)`
+ * (some sixty were measured across four rounds: both source orders, dx/dy
+ * temporaries, accumulate forms, `1 ==`, `-1 == 0`, `!(..-1)`, unsigned,
+ * char/short returns, const/volatile parameters -- even `volatile Pos* a` --
+ * int* parameters, distinct struct types for a and b, mixed a-b / b-a signs,
+ * static __inline helpers, and a struct copy) comes out Y-TERM FIRST with the
+ * sum accumulated into the first term's register and a closing `mov eax,edi`.
+ * VC6 forward-substitutes every scalar temp into the `+`, and then sorts the
+ * two structurally identical operands by the displacement of their loads
+ * (+4 beats +0; separate int PARAMETERS all tie and keep source order, a
+ * `Pos` BY VALUE sorts +4 first too).  Storing the two abs() values into the
+ * fields of a `Pos` local stops the forward substitution: VC6 evaluates the
+ * two statements in SOURCE order (x first, into ecx), builds the sum from the
+ * field temps with the SECOND one as the add's destination (`add eax,ecx`,
+ * result already in eax), and the freed eax/ecx/edx let both pointers sit in
+ * esi/edi with the pops interleaved exactly as the original has them.  An
+ * `int d[2]` array or an address-taken `int t` (`*pt = abs(..)`) does the
+ * same; a `Pos d` holding the raw DIFFERENCES (abs applied at the sum) does
+ * not.  Also learned: `volatile` on the loads does NOT pin their evaluation
+ * order against the non-volatile ones, and the "add dest = second operand"
+ * shape is the signature of an operand that was NOT forward-substituted. */
+// FUNCTION: LEGOLAND 0x00450500
 int IsAdjacentPos(Pos* a, Pos* b)
 {
-    return abs(a->x - b->x) + abs(a->y - b->y) == 1;
+    Pos d;
+
+    d.x = abs(a->x - b->x);
+    d.y = abs(a->y - b->y);
+    return d.x + d.y == 1;
 }

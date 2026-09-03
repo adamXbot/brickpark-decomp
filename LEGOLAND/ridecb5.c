@@ -18,8 +18,8 @@
  *   addr        class                  slot     what it really is      state
  *   0x0041a040  BOATING SCHOOL         cb_98    BoatingSchool_Add    WIP 218i, 8 X
  *   0x0041a720  BOATING SCHOOL         cb_a8    BoatingSchool_Tick   WIP 358i
- *   0x0041c130  BOATING SCHOOL WATER   cb_9c    BoatingSchoolWater_R WIP 331i, 38 X
- *   0x00413b50  DRIVING SCHOOL ROADS   cb_90    Roads_CalcCursor     WIP 226i, 1 X
+ *   0x0041c130  BOATING SCHOOL WATER   cb_9c    BoatingSchoolWater_R [OK]
+ *   0x00413b50  DRIVING SCHOOL ROADS   cb_90    Roads_CalcCursor     [OK]
  *
  * ... plus the seven unowned helpers those two modules call, six of them
  * exact:
@@ -32,16 +32,18 @@
  *   0x00413450  Road_FindDiagonals    ring slots 1/3/5/7                WIP 62/64
  *   0x00413e30  Road_SnapCursor       snap the cursor to the road grid  [OK]
  *
- * NOTE ON THE FOUR WIPs.  All four have the original's exact instruction
- * count, block order and stack homes; what differs is a whole-function
- * rotation of the eax/ecx/edx scratch trio (and, in BoatingSchool_Tick, one
- * cold block that VC6 sinks instead of leaving inline).  ridecb1.c and
- * ridecb2.c record the identical residual on their own copies of the same
- * two functions (JungleCruiseWater_Remove is line-for-line the same routine
- * as BoatingSchoolWater_Remove and is stuck on the same permutation), and
- * castleobj.c records it on DrivingSchool_TickRiders, so it is being decided
- * upstream of anything the C can say.  Every re-spelling tried is listed
- * above each function.
+ * NOTE ON THE WIPs (2026-09-03).  Two of the former four closed, and both
+ * fixes are levers that transfer to the twins in ridecb1.c/ridecb2.c:
+ *   - Roads_CalcCursor: an uninitialised u16 local read as a WORD needs the
+ *     u16 wrapped in a one-member struct (a plain u16 whose uses are all
+ *     promoted compares is stored int-wide);
+ *   - BoatingSchoolWater_Remove: a volatile flag computed THROUGH a plain
+ *     scalar (`n0 = m & 1; north = n0; if (n0)`) stays out of the scratch
+ *     rotation, and byte fields passed to a call must be widened into int
+ *     locals (in declaration order) BEFORE the call.
+ * The remaining three keep the original's instruction count, block order
+ * and stack homes; each note above its marker records the measured
+ * residual, the first diverging index and everything ruled out.
  *
  * The same four addresses appear again in loaders.c's GetInterface
  * (0x0041b150), the BOATING SCHOOL family's built-in object-library
@@ -176,8 +178,37 @@ extern void  BsWater_SetTile(int x, int y, int mask, void* owner); /* 0x0041c4c0
  * ORIGINAL QUIRK reproduced: `frame` (+0x0c) is seeded to 9999 while the tick
  * handler wraps it at 100, so a freshly built school runs its animation from
  * 10000 upwards until the counter is reset by a save/load.
+ *
+ * RESIDUAL (measured 2026-09-03, audit 218/218 insns, 683/683 bytes,
+ * mismatch=8, first diverging index 39).  Indices 39..50 only: the original
+ * emits the zero-stores in source order and threads the AddBasicObject
+ * argument through them -- `mov edx,[esp+14h]` (o) at 42 between the q[0]
+ * and q[1] stores, `push edx` at 45 between q[2] and q[3], and the list-head
+ * load at 48 directly before its store -- whereas we hoist the `o` load to
+ * 39 (the first slot after dl dies), sink the push to 49 and load the head
+ * one slot early.  Registers, stack homes and everything outside 39..50 are
+ * exact.  What the measurements established:
+ *   - the `o` load is hoisted to the EARLIEST free scratch register: with
+ *     the plain order `q[4]=0; next=head; head=st` it climbs to index 33 in
+ *     ecx and renames the by-temp cl->bl (147 X); only `next=head` spelled
+ *     before `q[4]=0` keeps head in ecx and o in edx (the current 8 X); every
+ *     other position of the link statement (8 tried) gives 8 or worse;
+ *   - `void* volatile o` pins the load at its IR position: it then lands at
+ *     49 adjacent to its push, so the original's load/push gap is not a
+ *     latency rule but a split of one IR node placed BETWEEN the stores; a
+ *     volatile read copied into a named local (after q[0]/q[1]/take) puts
+ *     the copy in a register and destroys the bl plan (199 X);
+ *   - ruled out with no change (still 8 X): `obj = o` at entry, `int o`
+ *     with a cast, a one-member struct parameter by value, `*&o`, a pointer
+ *     alias `po=&o; *po`, `(void)&o`, chained `q[0]=q[1]=q[2]=0` (9 X),
+ *     `backwards=count=0` (9 X), `q[3]=q[4]=0` after the link;
+ *   - `memset(st->q,0,20)` and a memset over +0x08..+0x2b expand through
+ *     `lea ecx,[edi+18h]` pointer stores, not [edi+disp] (wrong shape).
+ * Best hypothesis: the original's argument push was hoisted at IR level to a
+ * position no C statement order reaches (the same class as ridecb9.c's
+ * JungleCruise_Add zero split and popup.c's RequestRoute argument order).
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x0041a040  (218/218 insns, 683/683 bytes, 8 mismatches: pure scheduling slack around the `o` argument)
+// WIP-FUNCTION: LEGOLAND 0x0041a040  (218/218 insns, 683/683 bytes, 8 mismatches at idx 39..50: the `o` argument load/push threaded between the zero-stores)
 void BoatingSchool_Add(void* o, Pos* pos)
 {
     BsStation* st;
@@ -291,19 +322,25 @@ void BoatingSchool_Add(void* o, Pos* pos)
  * original's `mov eax,ebp / and eax,2 / mov [esp+18h],eax` for east and its
  * block layout for the four diagonals.
  *
- * STATE: 331 of the original's 332 instructions, block for block identical,
- * every stack home identical (st/stub/east/south in the 0x20 frame; `owner`,
- * `north` and each block's `probe` in the three dead argument slots).  What
- * differs is 38 SCRATCH-REGISTER names: in the FIRST TWO blocks the three
- * `lea` temporaries come out rotated one register on (ecx/edx/eax where the
- * original has eax/ecx/edx) and the rotation decays by the third block; and
- * in the tail the station walker lands in esi where the original uses edi,
- * which is why the original needs one extra `mov esi,edx` to hold a byte
- * across a push (hence 331 vs 332).  ridecb2.c's JungleCruiseWater_Remove --
- * the same function written for the jungle cruise -- is stuck on exactly the
- * same two permutations, so it is being decided upstream of anything the C
- * can say.  Every re-spelling tried here (probe/m scoping, nested call,
- * pointer-to-owner, loop shape, volatile combinations) leaves it untouched.
+ * CLOSED (was 331/332 with 38 scratch-register mismatches) by two levers,
+ * both of which transfer to ridecb2.c's JungleCruiseWater_Remove:
+ *
+ *   1. A VOLATILE FLAG COMPUTED THROUGH A PLAIN SCALAR.  `north = mask & 1;
+ *      if (north)` evaluates the rvalue into a scratch TEMPORARY and stores
+ *      it, and that temporary takes a slot in VC6's eax/ecx/edx rotation, so
+ *      every `lea` temp of the next two blocks came out one register on
+ *      (ecx/edx/eax for the original's eax/ecx/edx).  `n0 = mask & 1;
+ *      north = n0; if (n0)` makes the flag a variable def in eax outside the
+ *      rotation; the code is byte-identical up to the tail and 38 -> 21.
+ *   2. WIDEN BYTE ARGUMENTS INTO INT LOCALS BEFORE THE CALL, in declaration
+ *      order.  `BuildRoute(st->ax, st->ay, st->bx, st->by)` evaluates the
+ *      four u8 fields right-to-left straight into the pushes and puts the
+ *      station walker in esi; reading them into `int ax, ay, bx, by` first
+ *      moves the walker to edi and gives the original's bx, ay, [bx->esi],
+ *      by, ax load order with the extra `mov esi,edx` (332 insns).  All 24
+ *      read orders were measured; only the natural ax, ay, bx, by is exact
+ *      (the others 4..12 X).  `unsigned char` parameters on the extern and a
+ *      swapped key compare do nothing.
  * ========================================================================= */
 
 /* The map grid the cell fetch walks (same layout as objmap2.c). */
@@ -393,17 +430,20 @@ static __inline Cell* MapCellAt(int x, int y)
     return 0;
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0041c130  (331/332 insns, 38 scratch-register mismatches from idx 73)
+// FUNCTION: LEGOLAND 0x0041c130
 void BoatingSchoolWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
 {
     BsStation* st = g_bs_stations;
     Cell*      cell;
     int        mask;
     volatile int north;
+    int        n0;          /* plain scalar the volatile flag is computed through: see note */
+    int        s0;
     int        east;
     volatile int south;
     int        west;
     BPosW      owner;
+    int        ax, ay, bx, by;  /* the dock bytes widened BEFORE the call: see note */
 
     {
         int cx = bp.b.x;
@@ -423,8 +463,9 @@ void BoatingSchoolWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
     BsWater_RemoveOne(o, bp, ctx);
     BoatingSchool_AddTake(owner, -1);
 
-    north = mask & 1;
-    if (north) {
+    n0 = mask & 1;
+    north = n0;
+    if (n0) {
         int ny = ctx->origin.y - 5;
         int nx = ctx->origin.x;
         BPosW probe;
@@ -443,8 +484,9 @@ void BoatingSchoolWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
         BsWater_SetTile(nx, ny, m, &owner);
         BsWater_Relink(nx, ny, &owner);
     }
-    south = mask & 4;
-    if (south) {
+    s0 = mask & 4;
+    south = s0;
+    if (s0) {
         int ny = ctx->origin.y + 5;
         int nx = ctx->origin.x;
         BPosW probe;
@@ -516,7 +558,11 @@ void BoatingSchoolWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
     BoatingSchool_RebuildRoute(owner);
     while (st) {
         if (st->key == owner.w) {
-            st->route = BoatingSchool_BuildRoute(st->ax, st->ay, st->bx, st->by);
+            ax = st->ax;
+            ay = st->ay;
+            bx = st->bx;
+            by = st->by;
+            st->route = BoatingSchool_BuildRoute(ax, ay, bx, by);
             return;
         }
         st = st->next;
@@ -621,8 +667,27 @@ int Road_FindCardinals(int x, int y, RoadRec** out)
     return n;
 }
 
-/* The same for the four DIAGONAL ring slots. */
-// WIP-FUNCTION: LEGOLAND 0x00413450  (62/64 insns, VC6's duplicated `mov edi,[n]` on both arms of the third counter test)
+/* The same for the four DIAGONAL ring slots.
+ *
+ * RESIDUAL (measured 2026-09-03, audit 64 vs 62 insns, 157 vs 153 bytes,
+ * mismatch=27, first diverging index 37).  Higher register pressure than the
+ * cardinal twin (x+4, y-4, y+4 and `out` all hold callee-saved registers
+ * across the calls) spills `n` to [esp+10h] for the first two tests; after
+ * the third call edi (y+4) dies and `n` migrates into it.  The original
+ * splits that web at the BLOCK boundary: `jne` to the taken arm with
+ * `mov edi,[n]; inc edi`, and an inline fall-through arm holding only the
+ * edge reload `mov edi,[n]; jmp merge` (two reloads, 64 insns).  We hoist the
+ * common reload into the predecessor (one `mov edi,[esp+18h]` before the
+ * `add esp,8`, then `je` over a bare `inc edi`), two instructions short; the
+ * fourth test and the epilogue are identical in shape.  Ruled out (all
+ * normalise to the hoisted form, still 27 X): `else n = n;`, `+1 / +0` arms,
+ * `n = r ? n + 1 : n` on the third test and on all of them, `unsigned n`;
+ * moving the `out` store ahead of the increment (59 X) and carrying the
+ * second half in a second counter `m = n` (47 X) rewrite the register plan.
+ * Best hypothesis: VC6's arm-merge/hoist of identical successor reloads fires
+ * for us because both reloads are one IR node at the split; the original's
+ * were emitted per edge (the same class as ridecb1/2's JungleCruise copies). */
+// WIP-FUNCTION: LEGOLAND 0x00413450  (62/64 insns, 27 X from idx 37: the third test's `n` reload hoisted above the branch instead of duplicated on both arms)
 int Road_FindDiagonals(int x, int y, RoadRec** out)
 {
     int      n = 0;
@@ -781,8 +846,20 @@ RoadRec* Road_SnapCursor(Cursor* c)
  * group id.  It is unreachable in practice (Road_CardinalGroup returning
  * non-zero guarantees one of the four cardinals is set), which is why it
  * survived.
+ *
+ * CLOSED (was 225/226, the one miss at idx 97): that uninitialised read is
+ * `mov si, WORD ptr [esp+0x44]`, and a plain `unsigned short group` local
+ * emits `mov esi, DWORD ptr` there -- VC6 promotes a u16 local whose every
+ * use is a promoted compare to int-width storage, so its undefined-value
+ * load is 4 bytes wide.  Wrapping the u16 in a one-member struct
+ * (`group.id`) keeps the 16-bit storage class (aggregates are never
+ * promoted) while VC6 still enregisters it in si and still reads the
+ * undefined path from the same slot, now as a word.  Ruled out first:
+ * `short`, scoping the local inside the validity block, an explicit
+ * `else group = group;`, and routing the compares through a static __inline
+ * helper taking `unsigned short` by value (all left idx 97 unchanged).
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00413b50  (226/226 insns, 721 vs 722 bytes, ONE mismatch: `mov esi,dword` where the original has `mov si,word`)
+// FUNCTION: LEGOLAND 0x00413b50
 void Roads_CalcCursor(MapObj* o, int sx, int sy)
 {
     WinRect        area;
@@ -790,7 +867,7 @@ void Roads_CalcCursor(MapObj* o, int sx, int sy)
     ObjDef*        cls = o->cls;
     RoadRec*       snap;
     int            mask;
-    unsigned short group;
+    struct { unsigned short id; } group;   /* one-member struct: see note */
     int            cost;
     int            people;
 
@@ -819,30 +896,30 @@ void Roads_CalcCursor(MapObj* o, int sx, int sy)
                                        g_edit_cursor_origin.y, ring) == 0)
                     goto reject;
                 if (ring[0])
-                    group = ring[0]->group;
+                    group.id = ring[0]->group;
                 else if (ring[2])
-                    group = ring[2]->group;
+                    group.id = ring[2]->group;
                 else if (ring[4])
-                    group = ring[4]->group;
+                    group.id = ring[4]->group;
                 else if (ring[6])
-                    group = ring[6]->group;
+                    group.id = ring[6]->group;
                 Road_FindCardinals(g_edit_cursor_origin.x, g_edit_cursor_origin.y, ring);
                 Road_FindDiagonals(g_edit_cursor_origin.x, g_edit_cursor_origin.y, ring);
-                if (ring[0] && ring[0]->group == group)
+                if (ring[0] && ring[0]->group == group.id)
                     mask = 1;
-                if (ring[1] && ring[1]->group == group)
+                if (ring[1] && ring[1]->group == group.id)
                     mask |= 2;
-                if (ring[2] && ring[2]->group == group)
+                if (ring[2] && ring[2]->group == group.id)
                     mask |= 4;
-                if (ring[3] && ring[3]->group == group)
+                if (ring[3] && ring[3]->group == group.id)
                     mask |= 8;
-                if (ring[4] && ring[4]->group == group)
+                if (ring[4] && ring[4]->group == group.id)
                     mask |= 0x10;
-                if (ring[5] && ring[5]->group == group)
+                if (ring[5] && ring[5]->group == group.id)
                     mask |= 0x20;
-                if (ring[6] && ring[6]->group == group)
+                if (ring[6] && ring[6]->group == group.id)
                     mask |= 0x40;
-                if (ring[7] && ring[7]->group == group)
+                if (ring[7] && ring[7]->group == group.id)
                     mask |= 0x80;
                 if ((mask & 7) == 7 || (mask & 0x1c) == 0x1c ||
                     (mask & 0x70) == 0x70 || (mask & 0xc1) == 0xc1) {
@@ -919,6 +996,43 @@ void Roads_CalcCursor(MapObj* o, int sx, int sy)
  * The two SoundSource locals do NOT share a frame slot (case 1's is at
  * frame-0x20, case 5's at frame-0x10) even though the cases are disjoint --
  * the same shape castleobj.c records for the driving school.
+ *
+ * RESIDUAL (measured 2026-09-03, audit 358/358 insns, 1181 vs 1164 bytes,
+ * mismatch=289 index-for-index, first diverging index 64).  A difflib
+ * alignment of the two columns (scratchpad/ridecb5/sdiff.py) shows the real
+ * differences are few and the rest is a 4-instruction offset:
+ *   1. case 0's queue-full arm.  The original keeps it INLINE after the
+ *      then-arm (`mov edx,[g_bs_cls]; push ebp; push edx; jmp` into case 6's
+ *      shared `call RemoveBlokeFromRide; add esp,8`); we merge the pushes
+ *      too and jump into case 6's own `mov eax,[g_bs_cls]; push ebp; push
+ *      eax`.  The pushes stay separate in the original only because they
+ *      use different registers (edx vs ecx), i.e. it is the same root as 2.
+ *   2. the scratch trio: the original's switch body is one register AHEAD
+ *      of ours in the eax/ecx/edx rotation from `st->count++` (edx vs ecx)
+ *      through case 4 (cls in ecx vs eax) to case 6 (ecx vs eax); inside
+ *      case 0 ours also refuses to reuse ecx after key.b.x dies and parks
+ *      the seat offset in edi where the original takes ecx and ebp.  Read
+ *      as liveness: values that die at their last use in the original
+ *      (the slot-loop pointer edx, the widened key.b.x) stay allocated in
+ *      ours to the end of the case.
+ *   3. cases 3/4/5 compute `ty` in place (`shl edx,8 / add edx,K`, then
+ *      `mov ecx,edx` to push it) where we fold the add into
+ *      `lea eax,[edx+K]`; case 0 stores dir8 before action (we swap them).
+ * FIXED here: the animation loop's LLSSetFrame arms are spelled
+ * failure-first (`if (!backwards) ... else ...`), which gives the original's
+ * inline nframes-frame arm and out-of-line `jne` (the count is unchanged but
+ * the tail now aligns).  Ruled out (289 or worse): `def` for either
+ * RemoveBlokeFromRide call (demotes def to a frame local, 274/0x34 frame),
+ * `q[4]` through a local, `!st->q[4]`, the inverted queue-full test, an
+ * explicit pointer walk of the slot loop (291), `key.w = inst->key.w`,
+ * reordering the next/key/bloke reads (293/298), `!b->action`, a u8 switch
+ * operand, a `for` station search, action stored before dir8 (hoists the
+ * store above the call), the seat offset via a SeatOfs pointer (288) or via
+ * int locals, key.b.x/y widened into ints.  Best hypothesis: the live-range
+ * ends in 2 are decided by VC6's loop/scope regions and need the original's
+ * exact statement grouping in case 0 (a helper or block structure we have
+ * not found); ridecb2.c's JungleCruise_Tick and castleobj.c's
+ * DrivingSchool_TickRiders record the same shape.
  * ========================================================================= */
 
 /* A person as this handler sees it (same record as ridecb1.c/ridecb2.c). */
@@ -995,7 +1109,7 @@ extern int      g_bs_tick;           /* 0x004cc08c the 0x50-tick counter */
 extern SeatOfs  g_bs_seat_ofs[];     /* 0x004b52b0, indexed backwards */
 extern void*    g_bs_launch_sample;  /* 0x004b52c8 */
 
-// WIP-FUNCTION: LEGOLAND 0x0041a720  (358/358 insns; case 0's queue-full arm is sunk into case 6 and the scratch trio is rotated)
+// WIP-FUNCTION: LEGOLAND 0x0041a720  (358/358 insns, 289 X index-for-index from idx 64: case 0's queue-full arm sunk into case 6 and the switch body one register behind in the scratch rotation)
 void BoatingSchool_Tick(void)
 {
     RideInst*        next;
@@ -1129,10 +1243,12 @@ void BoatingSchool_Tick(void)
     for (st = g_bs_stations; st; st = st->next) {
         st->frame++;
         if (st->frame <= lls->nframes) {
-            if (st->backwards)
-                LLSSetFrame(lls, st->frame);
-            else
+            /* Spelled failure-first: the original lays the counting-down
+             * arm out of line (`jne`) and the nframes-frame arm inline. */
+            if (!st->backwards)
                 LLSSetFrame(lls, lls->nframes - st->frame);
+            else
+                LLSSetFrame(lls, st->frame);
         }
         if (st->backwards == 0 && st->frame == 100) {
             st->frame = 0;

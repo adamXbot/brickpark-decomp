@@ -18,10 +18,10 @@ import capstone
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-from match import load_exe, rva2off, obj_function_code, norm  # noqa: E402
+from match import load_exe, rva2off, obj_function_code, norm, CL_WRAPPER  # noqa: E402
 
 IMAGE_BASE = 0x400000
-CL = "/Users/systemadmin/Downloads/alpha team/alphateam/tools/wibo-msvc/cl"
+CL = CL_WRAPPER  # honours LEGOLAND_CL (see match.py)
 
 
 def disasm_full(code, base=0):

@@ -239,12 +239,14 @@ extern int      g_lf_corner_index;      /* 0x004c2af4 */
 
 /* ---- engine / CRT ------------------------------------------------------ */
 extern void  free(void* p);                                      /* 0x0049e4d0 */
+int   memcmp(const void* a, const void* b, unsigned int n);      /* CRT, intrinsic */
+#pragma intrinsic(memcmp)
 extern void* malloc(unsigned int n);                             /* 0x0049e4ff */
 
 /* ---- log-flume helpers that live in logflume.c or later here ----------- */
 extern LFPiece* LFTrack_FindPiece(const BPos* sq);               /* 0x00408f30 */
 extern void     LFTrack_FillNeighbours(BPos sq);                 /* 0x00409360 */
-extern LFPiece* LFPiece_FindAt(const volatile BPosW* sq);        /* 0x00408ef0 (defined below) */
+extern LFPiece* LFPiece_FindAt(const BPosW* sq);                 /* 0x00408ef0 (defined below) */
 extern int      LFPiece_HasRider(LFPiece* p);                    /* 0x0040b390 */
 
 /* =========================================================================
@@ -375,34 +377,35 @@ int LFRun_BoatIndex(LFRun* run)
 
 /* Find the station/run whose map square is sq.
  *
- * RESIDUAL (16 of 18 instructions).  The original reads run->sq.w into dx
- * and compares it against MEMORY (`cmp dx, word ptr [ecx]`), i.e. the key
- * word is re-read from *sq on every iteration instead of being hoisted, and
- * each 16-bit load is preceded by a DEAD `lea edx,[eax+0x14]`.  Marking the
- * key pointer volatile reproduces the non-hoist (and so the compare shape)
- * but not the two dead leas, and leaves ecx/edx swapped.  The same residual
- * sits on ridecb3.c's Balloonz_FindRec / Carousel_FindRec and westtown.c's
- * JailCell_FindRecord, which are the same idiom against other lists -- so
- * whatever construct emits the lea is shared game-wide and is still open. */
-// WIP-FUNCTION: LEGOLAND 0x00408ec0  (16/18 instructions; two dead leas and one register pair)
-LFRun* LFStation_FindAt(const volatile BPosW* sq)
+ * Closed (18/18) with waterworks.c's WW_ListFind lever: the square compare
+ * is an INTRINSIC memcmp of length 2, not a 16-bit '=='.  VC6 expands it to
+ * 'lea edx,[run+0x14] / mov dx,[run+0x14] / cmp dx,[sq]' -- the lea is the
+ * intrinsic's first-operand address, left DEAD once the load folds the
+ * addressing mode back onto the base, and the second operand stays a memory
+ * operand instead of being hoisted out of the loop.  Every '==' spelling
+ * (volatile included) hoists *sq and drops the leas.  The same fix applies
+ * to ridecb3.c's Carousel_FindRec / Balloonz_FindRec and westtown.c's
+ * JailCell_FindRecord (not this lane's files). */
+// FUNCTION: LEGOLAND 0x00408ec0
+LFRun* LFStation_FindAt(const BPosW* sq)
 {
     LFRun* run = g_lf_queue;
 
     if (run) {
-        do {
-            unsigned short v = run->sq.w;
-            if (v == sq->w)
-                return run;
+        while (memcmp(&run->sq, sq, 2) != 0) {
             run = run->next;
-        } while (run);
+            if (!run)
+                return 0;
+        }
+        return run;
     }
     return 0;
 }
 
-/* The same walk one level deeper: for every run, over its piece list. */
-// WIP-FUNCTION: LEGOLAND 0x00408ef0  (19/21 instructions; the same two dead leas as LFStation_FindAt)
-LFPiece* LFPiece_FindAt(const volatile BPosW* sq)
+/* The same walk one level deeper: for every run, over its piece list.
+ * Closed (21/21) by the same intrinsic memcmp as LFStation_FindAt. */
+// FUNCTION: LEGOLAND 0x00408ef0
+LFPiece* LFPiece_FindAt(const BPosW* sq)
 {
     LFRun*   run = g_lf_queue;
     LFPiece* p;
@@ -410,8 +413,7 @@ LFPiece* LFPiece_FindAt(const volatile BPosW* sq)
     while (run) {
         p = run->pieces;
         while (p) {
-            unsigned short v = p->sq.w;
-            if (v == sq->w)
+            if (memcmp(&p->sq, sq, 2) == 0)
                 return p;
             p = p->next;
         }
@@ -650,7 +652,7 @@ int LFPiece_ShapeIndex(LFPiece* p)
 int LFPiece_IsVisible(const BPos* sq)
 {
     int      r = 0;
-    LFPiece* p = LFPiece_FindAt((const volatile BPosW*)sq);
+    LFPiece* p = LFPiece_FindAt((const BPosW*)sq);
 
     if (p)
         r = LFPiece_HasRider(p);
@@ -733,20 +735,25 @@ LFPiece* LFPiece_FromIndex(LFPiece* head, unsigned int packed)
 
 /* Walk back to the head of a piece's route.  Returns the piece itself when
  * the route is a closed ring (the walk comes back round), and 0 when the
- * chain runs into a null in the middle. */
-// WIP-FUNCTION: LEGOLAND 0x004090e0  (14/18 instructions; the walker copy is scheduled after the ring compare)
+ * chain runs into a null in the middle.
+ *
+ * Closed (18/18) by re-reading the link in the loop CONDITION: 'while
+ * (p->back) { p = p->back; ... }' lets VC6 CSE the load into ecx, copy it
+ * into eax FIRST and compare eax with start; the explicit-walker form
+ * 'q = p->back; while (q) { p = q; if (p == start) ...' compares ecx before
+ * the copy.  The redundant 'if (p == 0) return 0;' is really there (test
+ * eax,eax after the ring compare) -- keep it. */
+// FUNCTION: LEGOLAND 0x004090e0
 LFPiece* LFPiece_RouteHead(LFPiece* p)
 {
     LFPiece* start = p;
-    LFPiece* q     = p->back;
 
-    while (q) {
-        p = q;
+    while (p->back) {
+        p = p->back;
         if (p == start)
             return start;
         if (p == 0)
             return 0;
-        q = p->back;
     }
     return p;
 }
@@ -901,47 +908,58 @@ extern RideDef*  g_lfdr_def;            /* 0x004c8d6c  LOG FLUME DROP */
 extern RideDef*  g_lfcs_def;            /* 0x004c2bf0  LOG FLUME CSAW */
 extern RideDef*  g_lfhu_def;            /* 0x004c2b60  LOG FLUME HOLD UP */
 
-// WIP-FUNCTION: LEGOLAND 0x0040f360  (37/37 instructions, 119/119 bytes; ecx/edx exchanged)
+/* Closed (37/37) like LFDrop_Geom: coordinates read straight from the byte
+ * parameter at each store, in the order N.x, N.y, S.x; only the y of the
+ * final sum goes through a named int.  Store order matters here: N.x, S.x,
+ * N.y (18 differ) and any 'int x' routing (23-25) both lose. */
+// FUNCTION: LEGOLAND 0x0040f360
 void LFTunnel_Geom(BPos sq, LFGeom* out)
 {
     int      h = g_lf_footprint.v[3] - g_lf_footprint.v[1];
     RideDef* def = g_lftu_def;
-    int      x;
     int      y;
 
     sq.x = (unsigned char)(sq.x + (unsigned char)def->footprint.v[0]);
     sq.y = (unsigned char)(sq.y + (unsigned char)def->footprint.v[1]);
     out->dirs = 5;
-    x = sq.x;
-    out->pt[0].x = x + 6;
-    out->pt[2].x = x + 2;
+    out->pt[0].x = sq.x + 6;
+    out->pt[0].y = sq.y;
+    out->pt[2].x = sq.x + 2;
     y = sq.y;
-    out->pt[0].y = y;
     out->pt[2].y = (g_lftu_def->footprint.v[3] - g_lftu_def->footprint.v[1])
                    - h + y + 1;
 }
 
-// WIP-FUNCTION: LEGOLAND 0x00410360  (36/36 instructions, 116/116 bytes; ecx/edx exchanged)
+/* Closed (36/36): the coordinates are read straight from the byte PARAMETER
+ * at each store ('sq.x + 2', 'sq.y'); only the y used in the final sum goes
+ * through a named int.  Routing x through 'int x = sq.x' gave the temporary
+ * a higher allocation priority than the span and swapped ecx/edx throughout. */
+// FUNCTION: LEGOLAND 0x00410360
 void LFDrop_Geom(BPos sq, LFGeom* out)
 {
     int      h = g_lf_footprint.v[3] - g_lf_footprint.v[1];
     RideDef* def = g_lfdr_def;
-    int      x;
     int      y;
 
     sq.x = (unsigned char)(sq.x + (unsigned char)def->footprint.v[0]);
     sq.y = (unsigned char)(sq.y + (unsigned char)def->footprint.v[1]);
     out->dirs = 5;
-    x = sq.x;
-    out->pt[0].x = x + 2;
+    out->pt[0].x = sq.x + 2;
+    out->pt[0].y = sq.y;
+    out->pt[2].x = sq.x + 2;
     y = sq.y;
-    out->pt[0].y = y;
-    out->pt[2].x = x + 2;
     out->pt[2].y = (g_lfdr_def->footprint.v[3] - g_lfdr_def->footprint.v[1])
                    - h + y + 1;
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0040f830  (39/39 instructions, 120/120 bytes; register permutation)
+/* Closed (39/39).  Three things had to be right at once: the span is a
+ * named local at the top (VC6 then schedules its two loads after the byte
+ * adds and sinks the sub to the tail by itself); the W point is stored
+ * straight from the byte parameter ('sq.x', 'sq.y + 3') with x and y copied
+ * into ints only afterwards; and E.x is stored BEFORE E.y, so that the
+ * 'inc esi / store' of y+1 lands between the class-span loads and the final
+ * lea.  E.y first (any spelling) leaves 20-38 differing. */
+// FUNCTION: LEGOLAND 0x0040f830
 void LFCsaw_Geom(BPos sq, LFGeom* out)
 {
     int      w = g_lf_footprint.v[2] - g_lf_footprint.v[0];
@@ -952,16 +970,17 @@ void LFCsaw_Geom(BPos sq, LFGeom* out)
     sq.x = (unsigned char)(sq.x + (unsigned char)def->footprint.v[0]);
     sq.y = (unsigned char)(sq.y + (unsigned char)def->footprint.v[1]);
     out->dirs = 0xa;
-    y = sq.y;
+    out->pt[3].x = sq.x;
+    out->pt[3].y = sq.y + 3;
     x = sq.x;
-    out->pt[3].x = x;
-    out->pt[3].y = y + 3;
-    out->pt[1].y = y + 1;
+    y = sq.y;
     out->pt[1].x = (g_lfcs_def->footprint.v[2] - g_lfcs_def->footprint.v[0])
                    - w + x + 1;
+    out->pt[1].y = y + 1;
 }
 
-// WIP-FUNCTION: LEGOLAND 0x0040feb0  (39/39 instructions, 122/122 bytes; register permutation)
+/* Closed (39/39) with exactly LFCsaw_Geom's spelling. */
+// FUNCTION: LEGOLAND 0x0040feb0
 void LFHoldUp_Geom(BPos sq, LFGeom* out)
 {
     int      w = g_lf_footprint.v[2] - g_lf_footprint.v[0];
@@ -972,13 +991,13 @@ void LFHoldUp_Geom(BPos sq, LFGeom* out)
     sq.x = (unsigned char)(sq.x + (unsigned char)def->footprint.v[0]);
     sq.y = (unsigned char)(sq.y + (unsigned char)def->footprint.v[1]);
     out->dirs = 0xa;
-    y = sq.y;
+    out->pt[3].x = sq.x;
+    out->pt[3].y = sq.y + 9;
     x = sq.x;
-    out->pt[3].x = x;
-    out->pt[3].y = y + 9;
-    out->pt[1].y = y + 7;
+    y = sq.y;
     out->pt[1].x = (g_lfhu_def->footprint.v[2] - g_lfhu_def->footprint.v[0])
                    - w + x + 1;
+    out->pt[1].y = y + 7;
 }
 
 /* =========================================================================
@@ -1339,12 +1358,13 @@ extern char g_lf_norect_msg[];                                   /* 0x004b4a24 *
  * piece and tests the point against the piece's own footprint rectangle
  * offset by its square.  A piece whose rectangle cannot be resolved is
  * reported to the debug log and skipped. */
-/* RESIDUAL: 71/71 instructions, 176 of 177 bytes.  The original copies the
- * run-list head into a second register before the guard (`mov ecx,eax`) and
- * spills THAT; this reconstruction spills the loaded value directly.  Two
- * named locals, an outer `if` around the walk and a do/while all get
- * coalesced back into one register. */
-// WIP-FUNCTION: LEGOLAND 0x0040d210  (71/71 instructions; one missing register copy)
+/* Closed (71/71) by the 'head read at declaration + a second read in the
+ * guard' lever: 'run = g_lf_queue; if (g_lf_queue) { while (run) ... }'.
+ * VC6 CSEs the two global reads into eax, tests THAT, and gives the walker
+ * its own copy ('mov ecx,eax') which is what gets spilled.  A do/while
+ * inside the guard adds an instruction; testing 'run' itself coalesces the
+ * copy away. */
+// FUNCTION: LEGOLAND 0x0040d210
 LFPiece* LFTrack_FindPieceAt(int x, int y)
 {
     LFRun*     run = g_lf_queue;
@@ -1352,22 +1372,24 @@ LFPiece* LFTrack_FindPieceAt(int x, int y)
     Footprint* fp;
     BPos       sq;
 
-    while (run) {
-        p = run->pieces;
-        while (p) {
-            LFPiece_QueryRect(p, &fp, &sq);
-            if (fp) {
-                int bx = sq.x;
-                int by = sq.y;
-                if (x >= fp->v[0] + bx && x <= fp->v[2] + bx &&
-                    y >= fp->v[1] + by && y <= fp->v[3] + by)
-                    return p;
-            } else {
-                DBPrintf(g_lf_norect_msg);
+    if (g_lf_queue) {
+        while (run) {
+            p = run->pieces;
+            while (p) {
+                LFPiece_QueryRect(p, &fp, &sq);
+                if (fp) {
+                    int bx = sq.x;
+                    int by = sq.y;
+                    if (x >= fp->v[0] + bx && x <= fp->v[2] + bx &&
+                        y >= fp->v[1] + by && y <= fp->v[3] + by)
+                        return p;
+                } else {
+                    DBPrintf(g_lf_norect_msg);
+                }
+                p = p->next;
             }
-            p = p->next;
+            run = run->next;
         }
-        run = run->next;
     }
     return 0;
 }
@@ -1524,14 +1546,15 @@ void LFPiece_RefreshAt(const Pos* pos)
  * cell span) in that axis, exactly as the straight pieces do.
  * ========================================================================= */
 
-/* RESIDUAL: 142/142 instructions and 469/469 bytes, 15 differing.  SPECIAL
- * CORNER 3's arm schedules its two byte updates INTERLEAVED (add, store,
- * load, add, store) where the original does both loads, both adds and then
- * both stores; SPECIAL CORNER 2's arm differs only in two scratch register
- * names.  Hoisting the footprint bytes into locals, swapping the two
- * coordinate updates and moving the mask store all leave corner 3 the same
- * way round. */
-// WIP-FUNCTION: LEGOLAND 0x0040e440  (142/142 instructions, 469/469 bytes, 15 differing)
+/* Closed (142/142) by ONE statement swap in SPECIAL CORNER 2's arm: the
+ * source stores E.y (y+2) BEFORE S.x (x+2).  VC6 had already hoisted the
+ * x+2 add, so y+2 is born while x+2, y and out are all live and lands in
+ * esi; the two adjacent stores are then swapped back by the peephole.  The
+ * register allocation is function-wide, so that one change also put
+ * SPECIAL CORNER 3's byte updates into the four-register parallel form --
+ * every arm-local spelling of corner 3 (dirs position, statement order,
+ * direct byte reads, byte-update order) had left it sequential. */
+// FUNCTION: LEGOLAND 0x0040e440
 void LFCorner_Geom(BPos sq, LFGeom* out)
 {
     int cellw = g_lf_footprint.v[2] - g_lf_footprint.v[0];
@@ -1560,8 +1583,8 @@ void LFCorner_Geom(BPos sq, LFGeom* out)
         out->pt[1].x = (g_lfc2_def->footprint.v[2] - g_lfc2_def->footprint.v[0])
                        - cellw + x + 1;
         y = sq.y;
-        out->pt[2].x = x + 2;
         out->pt[1].y = y + 2;
+        out->pt[2].x = x + 2;
         out->pt[2].y = (g_lfc2_def->footprint.v[3] - g_lfc2_def->footprint.v[1])
                        - cellh + y + 1;
         break;
@@ -1637,11 +1660,14 @@ void LFPiece_SpliceBetween(LFPiece* before, LFPiece* after, LFPiece* piece)
 extern char g_lf_join_msg[];                                     /* 0x004b4910 */
 extern char g_lf_both_msg[];                                     /* 0x004b48e4 */
 
-/* RESIDUAL: 72/72 instructions and 166/166 bytes, 6 differing -- VC6 places
- * the `reverse nb[j]` push block immediately after the both-ends-free
- * bail-out instead of after the two `reverse nb[i]` blocks.  A goto, an
- * inverted guard and a selector variable all leave it where it is. */
-// WIP-FUNCTION: LEGOLAND 0x00409b70  (72/72 instructions, 166/166 bytes, 6 differing)
+/* Closed (72/72) by the block ORDER of the three reverse arms: the original
+ * lays out 'both free' first, then 'reverse nb[j]', then 'reverse nb[i]'
+ * falling through -- which is a leading '&&' guard (VC6 jump-threads its
+ * two failure edges straight into the later tests) followed by a three-arm
+ * chain whose FIRST arm is the '!oi && !oj' one.  The nested
+ * 'if (oi) { if (oj) ...; reverse j } else if (!oj) ... else ...' form puts
+ * the reverse-nb[j] block right after the bail-out. */
+// FUNCTION: LEGOLAND 0x00409b70
 void LFRoute_Join(int i, int j, LFPiece** nb, LFPiece* piece)
 {
     int oi;
@@ -1650,17 +1676,16 @@ void LFRoute_Join(int i, int j, LFPiece** nb, LFPiece* piece)
     DebugPrint(g_lf_join_msg);
     oi = LFPiece_CursorFits(nb[i]);
     oj = LFPiece_CursorFits(nb[j]);
-    if (oi) {
-        if (oj) {
-            DebugPrint(g_lf_both_msg);
-            return;
-        }
-        LFPiece_ReverseRoute(nb[j]);
-    } else if (!oj) {
-        LFPiece_ReverseRoute(nb[i]);
-    } else {
-        LFPiece_ReverseRoute(nb[i]);
+    if (oi && oj) {
+        DebugPrint(g_lf_both_msg);
+        return;
     }
+    if (!oi && !oj)
+        LFPiece_ReverseRoute(nb[i]);
+    else if (oi)
+        LFPiece_ReverseRoute(nb[j]);
+    else
+        LFPiece_ReverseRoute(nb[i]);   /* the degenerate arm, see above */
     if (!nb[i]->fwd && !nb[j]->back)
         LFPiece_SpliceBetween(nb[i], nb[j], piece);
     else

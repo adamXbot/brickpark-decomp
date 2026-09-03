@@ -67,8 +67,8 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-03 (afternoon): 1473 functions at 100%** — 659 of the 675 code
-exports (97.6%) plus 814 recovered unexported functions, together **38.8% of
+**As of 2026-09-03 (evening): 1504 functions at 100%** — 659 of the 675 code
+exports (97.6%) plus 845 recovered unexported functions, together **40.1% of
 the game's ~628 KB of code** (`python3 tools/coverage.py`; 51.3% including
 partials).
 `SaveGame` and `LoadGame` are both exact so the whole `.sav` format is
@@ -91,12 +91,12 @@ for the live list.
 | --- | --- | --- |
 | exported functions matched | `tools/remaining.py` | 659 of 675 (97.6%) |
 | unmatched callees | `tools/callees.py` | moves both ways — the frontier, not progress |
-| **bytes of game code matched** | **`tools/coverage.py`** | **38.8% (51.3% with partials)** |
+| **bytes of game code matched** | **`tools/coverage.py`** | **40.1% (51.3% with partials)** |
 
 The first two are both true and both misleading on their own.
 
 **Exports are a fraction of the game.** They are only the symbols the linker
-exposed; 1473 functions are matched but just 659 of them are exports. Quoting
+exposed; 1504 functions are matched but just 659 of them are exports. Quoting
 97.6% as "the project is nearly done" is wrong by a wide margin.
 
 **The unmatched-callee number moves in both directions.** Every newly matched
@@ -495,6 +495,170 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   register-resident flag *test* is spelled `test dl, 0x20`; a 16-bit *value* op
   survives only with more than one 16-bit consumer. `LoadBaseMap` has the same
   ghost at 0x00462333 (`test byte ptr [..], 0x20` with no jump).
+
+- **A single-bit reader is a boolean test, not a shift (`Route_IsClosed`,
+  2026-09-03).** `movsx eax, byte ptr [..] / and eax, M / shr eax, k` on a
+  one-bit mask is VC6's lowering of `int s = *(char*)p; if (s & M) return 1;
+  return 0;`. Spelling it `(x & M) >> k` reassociates to `sar k / and 1`, and
+  testing the field directly (`(f & M) != 0`, `? 1 : 0`, `!!`) narrows the
+  load to `mov al`; the `movsx` survives only when the byte is first widened
+  into an `int` local that the test consumes. ~60 measured variants.
+- **A float bit-copied through integer registers is never CSE'd
+  (`PositionRouteCars`).** Two reads of the same stack argument — `mov ecx,
+  [esp+a]` for a field store and `mov edx, [esp+a]` for a push — mean the
+  argument is a `float` (with the field, the callee parameter and the out-param
+  all `float`); an `int` argument is read once and shared. Types alone closed
+  62 mismatches.
+- **A boarded-flag loop must exit by `break` to ONE trailing `if (flag)
+  f();` (`Coaster_TickLoadingBay`).** VC6 then keeps the flag in a
+  callee-saved register (`xor ebx,ebx` before, `mov ebx,1` inside) and
+  jump-threads the constant paths. Writing the same exit as an inner
+  `if (flag) f(); return;` makes VC6 peel the first iteration (a hoisted copy
+  of the call, flag deleted). `while`, `for(;;)` and `while ((c = g()) != 0)`
+  all work; `do/while` with the same `break` is peeled.
+- **Split prologue via a shared duplicated tail (`SchoolCarAccelerate`).**
+  When both exits store the same fields from the same registers, the source is
+  one shared `c->a = va; c->b = vb;` tail after `if (len) {...} else {...}`:
+  VC6 tail-duplicates it, lays the else arm after the normal epilogue and
+  sinks the pushes of registers first defined past the leading guard. An early
+  `if (len == 0) {...; return;}` with direct stores pins every push at entry
+  however it is scoped. Companion tie-breaks: an `int` local for a `u8` field
+  buys `xor ebx,ebx / mov bl`; `--frame` on that int still narrows to
+  `dec bl`; `c->f = expr & 0xf; d = (c->f - frame) & 0xf` gives a byte
+  `and al,0xf` (field forwarded) where an int temp gives `and eax,0xf`.
+
+- **An uninitialised-local reload is a real load (`LFTrack_Update`,
+  `LFTrack_Add`).** A `mov reg, [esp+N]` on a fallback path that re-reads a
+  slot another local lives in is a read of an UNINITIALISED variable (original
+  bug): write the `if / else if` chain with no else arm and VC6 homes the
+  undefined value in a dead argument slot and emits the load. Any explicit
+  fallback (`(LFRun*)nb`, a union read, a cast through `&nb`, `volatile`) is
+  CSE'd into `mov reg,reg`.
+- **Dummy out-pointers home rightmost-first (`LFEntrance_Update2`).** Two
+  uninitialised locals passed as out-pointers always land with the
+  first-evaluated (rightmost) one in the lowest dead-argument slot; no
+  declaration order, scope, type or helper changes it. When the original has
+  them the other way, one dummy is the address of a dead PARAMETER.
+- **Indexed loops keep store-before-load (`SaveLogFlume`).** Over an array of
+  records, `b[i].f = call(); b[i].g = call(b[i].g);` with `i` counting up (VC6
+  reverses it to `mov edi,4 / dec edi` and strength-reduces the pointer) keeps
+  the `f` store before the `g` load; the walking-pointer form hoists the load.
+  The record struct needs its real size so `b[i]` strides.
+- **A duplicated else arm names the scratch registers (`LFTrack_Interact`).**
+  `if (a) { if (b || c) Alt(); else Normal(); } else Normal();` (VC6 merges the
+  two `Normal` calls) puts the mode temp in edx for Alt and ecx for Normal; the
+  single `if (a && (b || c))` form gives the opposite. A `switch` reproduces
+  the allocation but lowers the compares to `sub ecx, K`.
+- **Constant stores to globals sink, so put them first (`LFEntrance_Update`).**
+  VC6 sinks immediate stores to globals below the computed stores of the same
+  block, so emitted order does not show where they were in the source. Putting
+  the link-chain stores first reserved eax for the zero from the top of the
+  block and made the loads alternate ecx/edx as the original does.
+- **A two-statement adjustment keeps association and can move register
+  allocation back into the prologue (`LFEntrance_Update`).** `a.y = fp1 + my;
+  a.x++; a.y -= dy;` merges into one store but keeps `(fp1 + my) - dy`, and
+  that changed priorities so far back that a prologue mismatch vanished. Every
+  single-expression spelling canonicalises to the same object.
+
+- **An aggregate local defeats forward substitution into a commutative sum
+  (`IsAdjacentPos`).** VC6 forward-substitutes every scalar temp into `A + B`
+  and then sorts structurally identical operands by the displacement of their
+  loads, descending (`+4` before `+0`). Storing the two operands into fields of
+  a `Pos` local (or `int d[2]`, or an address-taken `int`) evaluates them in
+  source order and makes the sum's destination the SECOND operand's register
+  (`add eax, ecx`, no closing `mov eax, edi`). Diagnostic: "add dest = second
+  operand" means an operand was not forward-substituted. `volatile` on the
+  loads does not pin their order.
+- **A same-width type conversion is a CSE barrier (`RequestRoute`).** An
+  `unsigned`/`long` field read into an `int` store makes VC6 reload the field
+  rather than CSE it.
+- **A `Pos` by-value parameter is byte-identical to `(int, int)`** at a call
+  site whose argument is an address-taken struct: VC6 forwards the fields, so
+  the callee prototype is not recoverable from such a site. (`RequestRoute` is
+  defined `(Pos from, Pos to)` in simcore.c and declared `(int, int, int,
+  int)` in popup.c; ABI-identical, both left as they are.)
+
+- **Free-a-global-list stores the head from eax only when the global IS the
+  loop variable (`sub_4828f0`).** `while (g) { next = *(void**)g; MemFree(g);
+  g = next; }` lets VC6 forward the head store into the loop test, so eax
+  carries the value and the store reads it. Any local `p` (while/do/for,
+  chained assignment, casts, inline helpers) copy-propagates `next` into the
+  store and writes esi. ~35 inert variants. The same idiom sits, unmatched, at
+  0x4054d5, 0x419f8a, 0x419fc5, 0x434ee7, 0x434f22 and 0x48117b.
+- **Return-block cloning for a deferred push, and the constant hoist it drags
+  in (`SaveEmptySlotInput`).** When `push esi` is sunk past leading guards and
+  the body ends in a `return K` shared with the guard-fail paths, VC6 clones
+  the return into the pushed region and then hoists `mov eax,1`, reordering
+  the adjacent immediate stores. To get ONE shared `mov al,1 / ret` with
+  immediate stores in source order, put a branch between the body and the
+  final return whose arms both reach it and whose test is already
+  register-resident on every path: `if (g) return 1; return 1;` on the guard
+  global folds late with no residue. A test on a parameter leaves a dead root
+  copy. A `push 1` argument before the stores kills the hoist on its own
+  (`push 2` does not) because a call clobbers eax, which is why matched twins
+  that call `PlayInstanceOfSample(.., 0, 1, 0)` never showed it.
+
+- **An uninitialised `u16` local read as a WORD needs a one-member struct
+  (`Roads_CalcCursor`).** A `unsigned short` local whose every use is a promoted
+  compare gets int-wide storage, so its undefined-value load is `mov esi,
+  dword`. Wrapping it (`struct { unsigned short id; } group;`) keeps it in
+  `si` and reads the same slot as `mov si, word`. `short`, scoping,
+  `else x = x;` and an inline helper with a u16 parameter do nothing. (The
+  slot is the spilled `snap` pointer in the dead `o` argument home — the
+  original bug is "low word of a pointer used as a road group id".)
+- **A flag computed from a `volatile` through a plain scalar rotates the
+  scratch registers (`BoatingSchoolWater_Remove`).** `north = mask & 1;
+  if (north)` on a volatile evaluates the rvalue into a temporary that takes a
+  slot in the eax/ecx/edx rotation; `n0 = mask & 1; north = n0; if (n0)` makes
+  it a variable def in eax outside the rotation (38 -> 21 in one step).
+- **Widen byte fields into `int` locals before a call, in declaration order
+  (`BoatingSchoolWater_Remove`).** `f(st->ax, st->ay, st->bx, st->by)`
+  evaluates right-to-left straight into pushes; `int ax, ay, bx, by;` read in
+  natural order gives the original's load order and moved the loop walker from
+  esi to edi. All 24 orders measured; only ax, ay, bx, by is exact.
+- **Aggregates are never the answer for SPILLED flags:** a struct/array of
+  flags collapses the frame; spilled flags need separate homes, including dead
+  argument slots.
+
+- **`imul` operand order is a fixed RANK, never source order (`JcBoat_Animate`,
+  ~270 measured variants).** For `a * b` with one foldable memory operand VC6
+  emits `mov r, X / imul r, Y` by rank: (1) a compiler TEMPORARY — the result
+  of an operation in the block, a call result, or a load CSE'd because it is
+  textually repeated — is always the destination copy, so the other operand is
+  folded (`(j-k)*g[1]`, `h(j)*g[1]` give `imul r, [g]`; the same load through
+  a NAMED local ranks as a symbol instead); (2) a MEMORY reference outranks a
+  register-candidate symbol and is loaded into the destination (`j*g[1]` and
+  `g[1]*j` both give `mov r,[g] / imul r,j`); (3) two SYMBOLS order by
+  DECLARATION order — the earlier-declared is copied, the later folded from its
+  home slot (swapping two parameters flips it). Source order, `register`,
+  same-width casts, identities and inline helpers all normalise first. This
+  explains `Sub_423480` (a CSE'd field read used twice) and `MapToPlayfield`'s
+  `imul eax, [esp+8]`. The one residual it does not reach: a product whose
+  multiplier was a bare temp copy of an IV that no C spelling reproduces.
+
+- **Inlined-helper locals escape alias analysis (`EarthSlide_Tick`).** An
+  address-taken local born inside a `static __inline` helper is not in the
+  caller's escaped-local class, so a store through an unrelated pointer no
+  longer orders against loads of it and VC6 can hoist the load above the
+  store. A named function-level local whose address went to any real call
+  pins every such load after every pointer store. Worth the last 2.
+- **Aggregate `= {0}` placement is a SCOPE lever (`Carousel_Draw`).** A
+  function-level aggregate initialiser's fill is emitted before every other
+  statement (120 permutations measured); putting the array in an inner scope
+  places the `rep stosd` exactly where the scope opens, so a load written
+  before the block precedes the fill and keeps its register through it.
+  `n = 0` assigned BEFORE the fill is sunk past it and the next push and
+  stored as an immediate; assigned after it reuses the fill's `al`.
+- **Empty per-band guard blocks trigger jump threading and a widened count
+  (`Carousel_Draw`).** With `if (n > 0)` guards on the same non-escaped char
+  `n`, an empty guard block lets VC6 thread failed guards, prove later guards
+  redundant and CSE the four `movsx` into one int; a `lea` in the guard block
+  (an inlined parameter copy the helper walks) suppresses all three.
+- **Cache `b = r->bloke` but pass `r->bloke` to the trailing call** to make VC6
+  spill the walker into a dead slot and keep the bloke in esi across calls.
+- **A compile error can yield a stale "0 mismatches" from a side-by-side
+  lister** that reuses the previous object; make harnesses fail loudly on
+  `error C`.
 
 Recorded so they are not re-derived; several cost hundreds of measured variants:
 

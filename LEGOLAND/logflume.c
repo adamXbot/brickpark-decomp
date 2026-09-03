@@ -1588,11 +1588,6 @@ typedef struct Rect { int left; int top; int right; int bottom; } Rect;
 /* The neighbour-array pointer the probe hands back. The original reads the
  * SAME slot back as a run pointer on the "no neighbours" path (see below),
  * so it is modelled as a union of the two views. */
-typedef union LFNbSlot {
-    struct LFRun*    run;
-    struct LFPiece** pieces;
-} LFNbSlot;
-
 extern void* g_8003f0;   /* 0x008003f0  head of the preview-cursor chain */
 extern int   CheckForPeople(const Rect* r);                      /* 0x00485260 */
 extern int   GetObjCost(RideDef* def);                           /* 0x00480da0 */
@@ -1614,22 +1609,22 @@ extern void LFRun_KeepOnly(LFRun* run, LFPiece** nb);            /* 0x004094b0 *
 extern void LFTrack_CommitPlacement(LFPiece** nb,
                                     EditCursorRec* c);           /* 0x0040d520 */
 
-/* RESIDUAL (1 of 163 instructions): 163/163 instructions, 536 of 538 bytes.
- * The single difference is the fallback arm of the neighbour chain: the
- * original re-fetches the neighbour-array pointer from its stack home
- * (`mov ecx,[esp+0x20]`) where this reconstruction reuses the copy the chain
- * already has in eax (`mov ecx,eax`) -- two bytes shorter, same value.
- * Forcing the reload with a volatile read produces a byte-for-byte-length
- * match but swaps eax and ecx through the whole chain (16 register-naming
- * mismatches), so the shorter form is kept. Everything else -- the two
- * cursor blocks, the degenerate SetCursorError(0xe) in both arms, the
- * switch over CheckForPeople, the merged `add esp,0x14` -- is exact. */
-// WIP-FUNCTION: LEGOLAND 0x0040c4a0  (99.4%, one fallback reload vs register copy)
+/* CLOSED (163/163, 538 bytes): the last residual was the fallback arm of
+ * the neighbour chain, where the original loads `run` from a stack slot
+ * (`mov ecx,[esp+0x20]`, the same slot `nb` lives in).  That is not a
+ * reload of `nb` at all: `run` is UNINITIALISED when all four neighbours are
+ * null (an original latent bug -- the arm is unreachable because
+ * CountNeighbours returned non-zero).  Writing NO else-arm reproduces it:
+ * VC6 homes the undefined value in the dead `elem` argument slot, which is
+ * also where `nb` was homed, and emits a real load.  Any explicit fallback
+ * (`(LFRun*)nb`, a union read, a cast through &nb) is CSE'd into
+ * `mov ecx,eax`. */
+// FUNCTION: LEGOLAND 0x0040c4a0
 void LFTrack_Update(RideElem* elem, int screen, int mode)
 {
     Rect       r;
     RideDef*   def = elem->data;
-    LFNbSlot   nb;
+    LFPiece**  nb;
     BPos       sq;
     int        people;
     int        cost;
@@ -1662,30 +1657,27 @@ void LFTrack_Update(RideElem* elem, int screen, int mode)
     if (CursorIsValid(&g_edit_cursor)) {
         sq.x = (unsigned char)(g_lf_footprint.v[0] + g_mapref.x);
         sq.y = (unsigned char)(g_mapref.y + g_lf_footprint.v[1]);
-        LFTrack_ProbeNeighbours(sq, &nb.pieces);
-        LFTrack_DropFullNeighbours(nb.pieces);
-        if (LFTrack_CountNeighbours(nb.pieces) == 0) {
+        LFTrack_ProbeNeighbours(sq, &nb);
+        LFTrack_DropFullNeighbours(nb);
+        if (LFTrack_CountNeighbours(nb) == 0) {
             SetCursorError(&g_edit_cursor, 0xe);
         } else {
-            LFRun*    run;
+            LFRun*    run;   /* ORIGINAL BUG: unset if all four are null */
             int       mask;
 
             SetCursorError(&g_edit_cursor, 0xe);
-            if (nb.pieces[0])
-                run = nb.pieces[0]->run;
-            else if (nb.pieces[1])
-                run = nb.pieces[1]->run;
-            else if (nb.pieces[2])
-                run = nb.pieces[2]->run;
-            else if (nb.pieces[3])
-                run = nb.pieces[3]->run;
-            else
-                /* verbatim; see the note above. */
-                run = nb.run;
-            LFRun_KeepOnly(run, nb.pieces);
-            mask = LFTrack_NeighbourMask(nb.pieces);
-            if (LFTrack_MaskIsLegal(mask, nb.pieces)) {
-                LFTrack_CommitPlacement(nb.pieces, &g_edit_cursor);
+            if (nb[0])
+                run = nb[0]->run;
+            else if (nb[1])
+                run = nb[1]->run;
+            else if (nb[2])
+                run = nb[2]->run;
+            else if (nb[3])
+                run = nb[3]->run;
+            LFRun_KeepOnly(run, nb);
+            mask = LFTrack_NeighbourMask(nb);
+            if (LFTrack_MaskIsLegal(mask, nb)) {
+                LFTrack_CommitPlacement(nb, &g_edit_cursor);
                 ResetCursorFootprint(&g_edit_cursor);
             }
         }
@@ -1714,16 +1706,13 @@ extern void  StandardRemoveObject(void* a, BPosW sq, void* c);   /* 0x0045f220 *
  * from the template and shrunk by one cell in both axes before the object
  * is handed to AddBasicObject, so the map object covers the drawn cell
  * rather than the template's inclusive rect. */
-/* RESIDUAL (22 of 107 instructions): 107/107 instructions and 320 of 321
- * bytes, every instruction present and in the same shape. What differs is
- * register naming and local scheduling in the tail: the original reloads the
- * neighbour array one instruction earlier (before the deferred `push edi`)
- * and carries the class definition in edx where this reconstruction uses
- * ecx, which shifts the register names of the two footprint decrements and
- * the AddBasicObject argument setup. The `volatile` on `nb` is a codegen
- * lever, not semantics: it reproduces the original's re-fetch of the array
- * pointer after every call (VC6 would otherwise keep it in esi). */
-// WIP-FUNCTION: LEGOLAND 0x0040c780  (107/107 insns, 320/321 bytes, register naming in the tail)
+/* CLOSED (107/107, 321 bytes): same lever as LFTrack_Update -- the
+ * neighbour chain has NO else-arm, so `run` is uninitialised when all four
+ * neighbours are null (original latent bug).  VC6 then homes `run` on the
+ * stack and re-fetches the array pointer after every call; the earlier
+ * `volatile nb` + `run = (LFRun*)nb` fallback only approximated that and
+ * cost 23 register-naming mismatches in the tail. */
+// FUNCTION: LEGOLAND 0x0040c780
 void LFTrack_Add(RideElem* elem, const Pos* pos)
 {
     BPos      bp;
@@ -1736,9 +1725,9 @@ void LFTrack_Add(RideElem* elem, const Pos* pos)
     p.y = bp.y;
     piece = LFPiece_Alloc();
     if (piece) {
-        LFPiece** volatile nb;
+        LFPiece**          nb;
         LFPiece**          q;
-        LFRun*             run;
+        LFRun*             run;   /* ORIGINAL BUG: unset if all four are null */
 
         piece->def = g_lftr_def;
         piece->f28 = 0;
@@ -1755,8 +1744,6 @@ void LFTrack_Add(RideElem* elem, const Pos* pos)
             run = q[2]->run;
         else if (q[3])
             run = q[3]->run;
-        else
-            run = (LFRun*)nb;
         LFRun_AddCount(run, 1);
         if (run) {
             q = nb;
@@ -2016,18 +2003,24 @@ extern EditCursorRec g_lf_cursor_a;     /* 0x004c8d78  flume square, in */
 extern EditCursorRec g_lf_cursor_b;     /* 0x004c2c18  flume square, out */
 extern EditCursorRec g_lf_cursor_c;     /* 0x00830fc0  the station itself */
 
-/* RESIDUAL (48 of 95 instructions): 95/95 instructions, 392 of 389 bytes.
- * Every instruction, every store and every constant matches; what differs is
- * register naming and scheduling in three places, all downstream of one
- * choice in the prologue -- the original reads g_lf_footprint.v[1] into ecx
- * BEFORE it reads the `mode` argument, where VC6 here claims ecx for `mode`
- * first and pushes the flume top into esi instead. That shifts eax/ecx/edx
- * through the cursor-C block and the two footprint decrements. The
- * double store to g_lf_cursor_a.x / g_lf_cursor_b.x is NOT a mistake: the
- * original really writes the coordinate, then the y (a load through `def`,
- * which VC6 must assume may alias), then the coordinate again incremented,
- * and that is reproduced here. */
-// WIP-FUNCTION: LEGOLAND 0x0040a930  (95/95 insns; register naming from one prologue read order)
+/* CLOSED (95/95, 389 bytes) by two source-order levers, from 48 mismatches:
+ *  1. The cursor-C block: the four LINK-CHAIN stores (g_8003f0, a.link,
+ *     b.link, c.link = 0) come FIRST in the source.  VC6 sinks constant
+ *     stores to globals below the computed ones, so the emitted order is
+ *     unchanged, but the zero for c.link is now defined at the top of the
+ *     block and eax is reserved for it -- the loads then alternate ecx/edx
+ *     exactly as the original does.
+ *  2. The cursor-A/B blocks: the `dy` adjustment is a SECOND statement on
+ *     the y coordinate, after the x++ (`a.y = fp1 + my; a.x++; a.y -= dy;`).
+ *     VC6 merges the two y stores (the x++ store between them cannot alias)
+ *     but keeps the association `(fp1 + my) - dy` / `(fp3 + my - 1) + dy`,
+ *     and that changes the allocation priorities all the way back to the
+ *     prologue: v[1] now takes ecx before `mode` is read, exactly as the
+ *     original.  Every single-expression spelling of the y formulas
+ *     canonicalises to the same 32-mismatch object.
+ * The double store to a.x / b.x is real: x, then y (a load through `def`,
+ * which may alias), then x again incremented. */
+// FUNCTION: LEGOLAND 0x0040a930
 void LFEntrance_Update(RideElem* elem, int screen, int mode)
 {
     int      dy  = g_lf_footprint.v[3] - g_lf_footprint.v[1];
@@ -2037,14 +2030,14 @@ void LFEntrance_Update(RideElem* elem, int screen, int mode)
     DefaultCursor(&g_edit_cursor);
     SetEditCursorFootPrint(&def->footprint);
 
-    g_lf_cursor_c.x = g_mapref.x;
-    g_lf_cursor_c.y = g_mapref.y;
-    g_lf_cursor_c.footprint.v[1] = g_edit_cursor.footprint.v[1] - 1;
-    g_lf_cursor_c.footprint.v[0] = g_edit_cursor.footprint.v[0] + 3;
     g_8003f0 = &g_lf_cursor_a;
     g_lf_cursor_a.link = &g_lf_cursor_b;
     g_lf_cursor_b.link = &g_lf_cursor_c;
     g_lf_cursor_c.link = 0;
+    g_lf_cursor_c.x = g_mapref.x;
+    g_lf_cursor_c.y = g_mapref.y;
+    g_lf_cursor_c.footprint.v[1] = g_edit_cursor.footprint.v[1] - 1;
+    g_lf_cursor_c.footprint.v[0] = g_edit_cursor.footprint.v[0] + 3;
     g_lf_cursor_c.footprint.v[2] = g_edit_cursor.footprint.v[2] + 1;
     g_lf_cursor_c.footprint.v[3] = g_edit_cursor.footprint.v[3] + 1;
     g_lf_cursor_c.footprint.parts = 0;
@@ -2057,11 +2050,13 @@ void LFEntrance_Update(RideElem* elem, int screen, int mode)
     ResetCursorFootprint(&g_lf_cursor_a);
 
     g_lf_cursor_a.x = g_lfen_def->footprint.v[0] + g_mapref.x;
-    g_lf_cursor_a.y = g_lfen_def->footprint.v[1] + g_mapref.y - dy;
+    g_lf_cursor_a.y = g_lfen_def->footprint.v[1] + g_mapref.y;
     g_lf_cursor_a.x++;
+    g_lf_cursor_a.y -= dy;
     g_lf_cursor_b.x = g_lfen_def->footprint.v[0] + g_mapref.x;
-    g_lf_cursor_b.y = g_lfen_def->footprint.v[3] + g_mapref.y - 1 + dy;
+    g_lf_cursor_b.y = g_lfen_def->footprint.v[3] + g_mapref.y - 1;
     g_lf_cursor_b.x++;
+    g_lf_cursor_b.y += dy;
     g_lf_cursor_b.footprint = g_lf_cursor_a.footprint;
     ResetCursorFootprint(&g_lf_cursor_b);
     ValidateCursor(&g_edit_cursor, def);
@@ -2094,19 +2089,21 @@ extern void   BasicObjectDCalcCursor(void* a, void* b);          /* 0x00480bb0 *
 extern void   BuildCursorPtr(EditCursorRec* c, int a, int b);    /* 0x0045f5f0 */
 extern void   RenderCursor(EditCursorRec* c);                    /* 0x0045ff00 */
 
-/* RESIDUAL (3 of 77 instructions): 77/77 instructions and 294/294 bytes,
- * identical except that VC6 homes the helper's two out-pointers in the
- * opposite pair of dead argument slots -- the footprint out lands at [esp+8]
- * here and at [esp+4] in the original, which flips the two `lea`s and the
- * one read. Neither declaration order nor block scope nor an out[2] array
- * moves it. */
-// WIP-FUNCTION: LEGOLAND 0x0040aac0  (96.1%, out-pointer slot pair swapped)
+/* CLOSED (77/77, 294 bytes).  The last residual was the pair of dead
+ * argument slots the helper's two out-pointers are homed in: the original
+ * has the footprint out at [esp+4] and the dummy out at [esp+8].  No shape
+ * of two uninitialised LOCALS reaches that (declaration order, block scope,
+ * types, names, an out[2] array, a static __inline wrapper, a temp for
+ * either address were all measured at 3 mismatches): VC6 always hands the
+ * first-evaluated (rightmost) argument the lowest free slot.  What the
+ * original does is pass the address of the dead second PARAMETER as the
+ * dummy out (`&b`), so only `fp` needs a home and it takes the `a` slot. */
+// FUNCTION: LEGOLAND 0x0040aac0
 void LFEntrance_Update2(void* a, void* b)
 {
     LFRun*     st;
     LFPiece*   p;
     Footprint* fp;
-    void*      out2;
 
     BasicObjectDCalcCursor(a, b);
     DefaultCursor(&g_lf_cursor_d);
@@ -2115,7 +2112,7 @@ void LFEntrance_Update2(void* a, void* b)
         p = st->pieces;
         while (p) {
             if (p->f28 != -1) {
-                LFPiece_GetFootprint(p, &fp, &out2);
+                LFPiece_GetFootprint(p, &fp, &b);   /* b is dead: used as the dummy out */
                 if (fp == 0)
                     goto next;
                 g_lf_cursor_d.footprint = *fp;
@@ -2202,6 +2199,7 @@ typedef struct LFBoatSave {
     int   f00;                  /* +0x00  animation reference */
     unsigned char pad04[8];
     void* f0c;                  /* +0x0c  piece -> index */
+    unsigned char pad10[0x14];
 } LFBoatSave;                   /* 0x24 */
 
 extern int   SaveGameWrite(const void* buf, unsigned int n);     /* 0x0047d760 */
@@ -2211,11 +2209,14 @@ extern int   LFRun_SaveState(LFRun* st);                         /* 0x00410910 *
 extern void  LFAnim_SaveRef(void* set, int* ref);                /* 0x004123c0 */
 extern int   LFAnim_SaveId(void* set, int ref);                  /* 0x004123a0 */
 
-/* RESIDUAL (4 of 87 instructions): 87/87 instructions and 282/282 bytes.
- * Inside the four-boat loop VC6 hoists the read of the boat's animation
- * reference one instruction above the store of its converted piece index,
- * where the original keeps them in source order; nothing else differs. */
-// WIP-FUNCTION: LEGOLAND 0x00410930  (95.4%, two scheduled instructions swapped in the boat loop)
+/* CLOSED (87/87, 282 bytes).  The last residual (the boat loop hoisting the
+ * animation read above the piece-index store) was the loop FORM: the
+ * original indexes the boat array (`b[i]`, i counting up, VC6 reverses it
+ * into the `mov edi,4 / dec edi` down-counter and strength-reduces esi),
+ * and with the indexed form VC6 keeps the store and the following load in
+ * source order.  The walking-pointer form (`b = b + 0x24`) reorders them.
+ * LFBoatSave must be its real 0x24 bytes for `b[i]` to stride correctly. */
+// FUNCTION: LEGOLAND 0x00410930
 int SaveLogFlume(void)
 {
     int         zero;
@@ -2238,10 +2239,9 @@ int SaveLogFlume(void)
         buf.f38 = LFRun_SaveState(st);
         LFAnim_SaveRef(g_lfen_def->fcc, &buf.f2c);
         b = (LFBoatSave*)buf.boats;
-        for (i = 4; i != 0; i--) {
-            b->f0c = LFPiece_ToIndex(buf.f10, b->f0c);
-            b->f00 = LFAnim_SaveId(g_lfen_def->fcc, b->f00);
-            b = (LFBoatSave*)((char*)b + 0x24);
+        for (i = 0; i < 4; i++) {
+            b[i].f0c = LFPiece_ToIndex(buf.f10, b[i].f0c);
+            b[i].f00 = LFAnim_SaveId(g_lfen_def->fcc, b[i].f00);
         }
         SaveGameWrite(&buf, 0xd4);
         st = st->next;
@@ -2316,22 +2316,27 @@ int LoadLogFlume(void)
 extern void LFTrack_DrawAlt(LFPiece* p, int mode);               /* 0x0040ca60 */
 extern void LFTrack_DrawNormal(LFPiece* p, int mode);            /* 0x0040cc00 */
 
-/* RESIDUAL (4 of 25 instructions): 25/25 instructions and 65/65 bytes, with
- * only the scratch register for the render mode swapped between the two
- * arms -- the original loads it into edx in the first arm and ecx in the
- * second, VC6 here does the reverse. Splitting the condition, hoisting the
- * variant into a local and an explicit tail-duplicated `return` all produce
- * the same allocation. */
-// WIP-FUNCTION: LEGOLAND 0x0040cc50  (84%, edx/ecx swapped between the two arms)
+/* CLOSED (25/25, 65 bytes).  The edx/ecx naming of the render-mode scratch
+ * register in the two arms is decided by the SOURCE SHAPE of the else-arm:
+ * one `if (a && (b || c)) Alt else Normal` gives ecx to Alt; a nested
+ * `if (a) { if (b || c) Alt else Normal } else Normal` -- two textual
+ * Normal calls that VC6 merges into one block -- gives edx to Alt and ecx
+ * to the merged Normal block, as the original has it.  A switch on the
+ * variant reproduces the allocation too but lowers the compares to
+ * `sub ecx,0 / sub ecx,2` instead of test/cmp. */
+// FUNCTION: LEGOLAND 0x0040cc50
 void LFTrack_Interact(void* a, void* b, void* c, const BPos* sq,
                       void* e, int mode)
 {
     LFPiece* p = LFPiece_FindAt(sq);
 
     if (p) {
-        if (p->f18 == 2 && (p->f1c == 0 || p->f1c == 2))
-            LFTrack_DrawAlt(p, mode);
-        else
+        if (p->f18 == 2) {
+            if (p->f1c == 0 || p->f1c == 2)
+                LFTrack_DrawAlt(p, mode);
+            else
+                LFTrack_DrawNormal(p, mode);
+        } else
             LFTrack_DrawNormal(p, mode);
     }
 }
@@ -2372,14 +2377,39 @@ extern void LFAnim_Release(LFAnimRefs* refs);                    /* 0x00411ed0 *
 extern void LFStation_Unlink(LFRun* st);                         /* 0x00408e80 */
 extern void RemoveAllBlokesFromRide(RideDef* def, BPosW sq);     /* 0x0048a2e0 */
 
-/* RESIDUAL (11 of 102 instructions): 102/102 instructions and 343/343
- * bytes, same instructions throughout. The original SINKS the store of the
- * cursor's x coordinate to just before the register is reused for the
- * packed square (four instructions later); VC6 here issues it as soon as
- * the value is ready, which shifts four neighbouring instructions.
- * Swapping the two coordinate assignments, hoisting either operand into a
- * temporary and moving the footprint copy all make it worse. */
-// WIP-FUNCTION: LEGOLAND 0x0040abf0  (89%, one sunk store in the per-piece loop)
+/* RESIDUAL (11 of 102 instructions, first divergence at index 39): 102/102
+ * instructions and 343/343 bytes; the whole body is exact except the
+ * SCHEDULE of the 15 instructions that build the cursor's origin and copy
+ * the footprint (orig 39-53).  The original issues the g_lf_footprint.v[2]
+ * load FIRST (into ecx, right after the two footprint decrements), then the
+ * x chain, then the y byte, hoists `lea edi,&cur.footprint` above the y add,
+ * SINKS the cur.x store to just after the g_lftr_def reload (before the
+ * `mov dx,[p->sq]` and the rep movsd), and hoists that dx load above the
+ * copy.  VC6 here loads the x byte first, stores cur.x as soon as it is
+ * ready and loads dx after the copy.  Register allocation is identical.
+ * Measured (~110 variants, all 11 or worse unless noted):
+ *  - statement order (x/y/copy in every permutation) and operand order in
+ *    both sums: canonicalised, 11 (y-first 12, copy-first 31-34);
+ *  - global-load temporaries (v0, v2, a `const int*` into the footprint,
+ *    separate globals), a `RideDef* def` local anywhere, a Footprint* to the
+ *    source, memcpy/#pragma intrinsic, a dst pointer: 11;
+ *  - static __inline helpers (origin only / origin+copy / scalar x,y args
+ *    in either order, with or without the copy): 11-41;
+ *  - two-def forms (`cur.x = byte; cur.x += v0`): 71+, cur is address-taken
+ *    so both stores survive; a Pos aggregate or BPosW local: 36-78;
+ *  - byte temporaries: `y = p->sq.b.y` BEFORE the x statement makes 39-45
+ *    EXACT (v[2] load first, x chain, y byte late, lea edi hoisted) but the
+ *    y sum then lands in ecx (`add ecx,eax`) where the original keeps eax
+ *    (`add eax,ecx`), and everything after follows that register: 24.  No
+ *    spelling of that temp (int/unsigned/uchar, declaration order, comma
+ *    expression, v2 temp as well, sum temp, x temp too, y store before or
+ *    after the copy, memcpy) moves the destination register.
+ * Best hypothesis: the y coordinate is read through a temporary that VC6
+ * treats as an expression temp (so the sum coalesces into the byte's
+ * register) yet is defined before the x statement -- an inlined helper or
+ * a macro shape not yet found.  The bug note above (v[2] for the y offset)
+ * is confirmed by the address the original loads (0x4b4730). */
+// WIP-FUNCTION: LEGOLAND 0x0040abf0  (89%, schedule of the origin/copy block, see note)
 void LFEntrance_Remove(RideElem* elem, BPosW sq, void* c)
 {
     LFRun*        st;
