@@ -8,7 +8,8 @@ Scans LEGOLAND/*.c for reccmp-style markers:
     <return type> Name(args...)
 
 compiles each file with the VC6 SP3 toolchain, and diffs each annotated
-function against original/legoland.exe (see tools/match.py).
+function against original/legoland.exe over its full extent (see tools/match.py).
+Run it ALONE: nothing else may be compiling while it runs.
 """
 import glob
 import os
@@ -50,9 +51,13 @@ def main():
                 [sys.executable, os.path.join(HERE, "match.py"),
                  os.path.relpath(f, ROOT), name, addr],
                 capture_output=True, text=True, cwd=ROOT)
-            m = re.search(r"MATCH:\s*(\d+)/(\d+)\s*instructions\s*=\s*([\d.]+)%", r.stdout)
+            m = re.search(r"MATCH:\s*(\d+)/(\d+)\s*instructions\s*=\s*([\d.]+)%(?:\s*\[([^\]]*)\])?", r.stdout)
             pct = float(m.group(3)) if m else 0.0
-            good = pct >= 100.0
+            # match.py bounds both bodies by the original's true extent and
+            # prints "[orig=NNi/NNNB; extent ok]" only when the instruction
+            # count, byte length, and every instruction agree and no branch
+            # escapes the extent. A bare 100% without that token is not a match.
+            good = pct >= 100.0 and bool(m) and "extent ok" in (m.group(4) or "")
             ok += good
             rows.append((name, addr, pct, good, os.path.basename(f)))
     for name, addr, pct, good, fn in rows:

@@ -93,21 +93,26 @@ Three shapes defeat `match.py`, which stops at the first `ret`:
    ones, so it reports one mismatch (measured: 96.2% and 97.3% on the two Log
    Flume recursive functions).
 
-`tools/audit.py` already implements every rule needed; the fix is to port its
-`true_extent` / `end_of_body` / `norm2` logic into `match.py`. **It has not been
-done because `match.py` and `verify.py` are shared with Codex and the standing
-instruction is to coordinate before changing them.** Codex was out of credits
-until 2026-09-08. Get the user's go-ahead, then apply it and re-run `verify.py`
-over the whole tree to confirm nothing regresses.
+**Done 2026-09-03 (user's go-ahead given in session).** `match.py` now carries
+`true_extent` / `compiled_body` / `end_of_body` and the widened `norm`;
+`audit.py` imports them; `verify.py` requires match.py's `extent ok` token.
+Validated on synthetic byte sequences only (`scratchpad`-style harness, 16
+checks) because this machine has no binary. **What is still owed:** one clean
+`python3 tools/verify.py` run against `original/legoland.exe` — expect
+1411/1411 with no regressions, then run `match.py` on the 62 audit-exact WIPs
+and promote each that prints `extent ok` to `// FUNCTION:`. Do not promote on
+the strength of the synthetic tests alone.
 
 ---
 
 ## 3. Rules that are not in the code
 
 - **Never run `verify.py` or `match.py` concurrently with anything that
-  compiles.** They share one fixed object path. Two runs during this session
-  disagreed by 49 functions and flagged four phantom regressions, because a
-  background disassembly was still going. Run it alone; distrust any run that
+  compiles.** They used to share one fixed object path (`/tmp/_match.obj`):
+  two runs in one session disagreed by 49 functions and flagged four phantom
+  regressions because a background disassembly was still going. Since
+  2026-09-03 `match.py` writes a per-pid object, which removes that cause, but
+  keep running it alone until a clean run confirms it; distrust any run that
   was not.
 - **Count committed markers, not the working tree.** `verify.py` and
   `progress.py` read on-disk files, which include in-flight lane work.
@@ -174,8 +179,8 @@ Lanes that had been running, all resumable from `docs/LANE_BRIEF.md`:
 
 ## 6. Where to go next
 
-**A. Port the extent rules into `match.py`** (section 2) — 62 functions, gated
-on the user's go-ahead.
+**A. Run `verify.py` against the binary and promote the 62 audit-exact WIPs**
+(section 2) — the `match.py` port is in; the confirmation run is not.
 
 **B. The closest genuine partials.** 107 of the 169 WIPs are real partials, and
 each carries a note above its marker recording its measured residual, its first

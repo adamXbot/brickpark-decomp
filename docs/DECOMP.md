@@ -42,17 +42,21 @@ in [`LEGOLAND/legoland.h`](../LEGOLAND/legoland.h).
 
 ### Full-body verification (important)
 
-`tools/match.py` (and therefore `tools/verify.py`) disassembles only up to the
-**first `ret`**. For a single-`ret` function that is the whole body, but for a
-function with an early-return guard it compares only the prologue — a stand-in
-tail would pass falsely. Every committed function is therefore also gated by
-**`tools/audit.py`**, which establishes each original function's true extent
-by control flow (the first `ret` that no earlier branch jumps past, or an
-unconditional `jmp` that leaves the function) and requires the compiled body to
-match it on instruction count, byte length and a strict index-for-index
-comparison. `tools/matchfull.py` (full body, difflib-aligned) is the
-iteration tool; `audit.py` is the authority. Prologue-only or fabricated-tail
-reconstructions are never committed as `// FUNCTION:`.
+Until 2026-09-03 `tools/match.py` (and therefore `tools/verify.py`)
+disassembled only up to the **first `ret`**, so a function with an early-return
+guard was compared only on its prologue and a void tail-`jmp` wrapper could not
+be bounded at all. **Both now use the same extent rules as `tools/audit.py`:**
+the original's true extent is found by control flow (the first `ret` or
+unconditional `jmp` that no earlier branch jumps past, following `switch` jump
+tables and stopping at the 16-aligned padding after a `noreturn` call), the
+compiled COMDAT is trimmed to that extent, and a match requires the same
+instruction count, the same byte length, zero normalised mismatches and no
+branch escaping the extent. `match.py` prints `[orig=NNi/NNNB; extent ok]` on
+its `MATCH:` line only when all four hold, and `verify.py` counts nothing
+without that token. `audit.py` imports the walker from `match.py`, so the two
+gates cannot disagree. `tools/matchfull.py` (full body, difflib-aligned) is the
+iteration tool. Prologue-only or fabricated-tail reconstructions are never
+committed as `// FUNCTION:`.
 
     python3 tools/audit.py LEGOLAND/foo.c      # [OK]/[WIP]/[REJECT], ends PASS/FAIL
 
@@ -71,13 +75,15 @@ documented and reproduced; `tri3d.c` reproduces the software 3D renderer;
 `docs/RIDE_CALLBACKS.md` names 265 ride callbacks and which object slot each
 fills. See `docs/HANDOFF.md` for the session checkpoint and what to do next.
 
-32 exports remain. **14 of them are already exact** and are held only because
-the shared `tools/match.py` stops at the first `ret` and cannot bound a void
-tail-jump wrapper (measured: it scores `KillHelp` 37.5%) — see "Tail-jump
-functions" below; `tools/audit.py` certifies all 14 with zero mismatches. That
-leaves **18 genuinely unfinished functions**, each carrying its measured
-residual and first diverging instruction index in a note above its marker.
-Run `python3 tools/remaining.py` for the live list.
+32 exports remain. **14 of them are already exact** and were held only because
+`tools/match.py` stopped at the first `ret` and could not bound a void
+tail-jump wrapper (measured: it scored `KillHelp` 37.5%) — see "Tail-jump
+functions" below; `tools/audit.py` certifies all 14 with zero mismatches. The
+extent rules are now in `match.py` (2026-09-03); promote those markers after
+one clean `verify.py` run against the binary confirms it. That leaves
+**18 genuinely unfinished functions**, each carrying its measured residual and
+first diverging instruction index in a note above its marker. Run
+`python3 tools/remaining.py` for the live list.
 
 ### Three progress numbers, and which one to quote
 
@@ -387,14 +393,18 @@ label differs.
 
 ## Tooling note (for Codex)
 
-`tools/match.py`'s disassembler **stops at the first `ret`**, so multi-return
-functions are only verified up to that point. `tools/matchfull.py` (new file;
-does not touch the shared `match.py`/`verify.py`, takes `--obj` for parallel
-safety) compares the **whole** function, and `tools/audit.py` is the strict
-extent gate described above. Suggest folding the full-body walk into
-`match.py` alongside the parallel-safety fix.
+**Applied 2026-09-03 with the user's go-ahead:** `tools/match.py` now bounds
+both bodies by the original's true extent (the walker that lived in
+`tools/audit.py`, which now imports it), normalises every direct branch/call
+target including bare-decimal and `loop` forms, writes its object to a per-pid
+path (`--obj` to override) and honours `LEGOLAND_CL` for the compiler wrapper.
+`tools/verify.py` counts a function only when `match.py` prints `extent ok`.
+The change was validated on hand-assembled sequences for each shape (tail-jmp,
+`noreturn` tail, recursive self-call, early-return guard, escaping branch); it
+has **not yet been run against the binary**, which was unavailable on the
+machine that made the change — do that before promoting any WIP marker.
 
-### Tail-jump functions (proposed `match.py` change — shared file, not applied)
+### Tail-jump functions (`match.py` change — applied 2026-09-03)
 
 A void wrapper whose last statement is a call compiles to a tail `jmp` with
 **no `ret`** of its own, e.g. `UnLoad_PopUpInfo` (0x00471450: `push 0x2c3 /
@@ -408,9 +418,8 @@ after the next export, or a 16-aligned address reached across nop padding is
 external), and the compiled body is trimmed to that extent and checked for
 branches that escape it (relocated targets carry match.py's 0x00990099
 sentinel and are external by construction). Both functions are committed as `// WIP-FUNCTION:` with a note, so
-`verify.py` stays green; flip them to `// FUNCTION:` once `match.py` applies
-the same rule (the change is the `true_extent`/`end_of_body` pair in
-`tools/audit.py`).
+`verify.py` stayed green; flip them (and the other audit-exact WIPs) to
+`// FUNCTION:` once one clean `verify.py` run confirms the ported rule.
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
