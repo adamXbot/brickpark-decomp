@@ -30,15 +30,17 @@
  *   0x0042bc90  Carousel_StartRide         27/27    [OK]
  *   0x0042c800  Carousel_TickInstances     12/12    [OK]
  *   0x0042aa60  Balloonz_CarAtPlatform     17/17    [OK]
- *   0x0042bc60  Carousel_FindRec           18/18 insns, 14 mismatches   [WIP]
- *   0x0042a980  Balloonz_FindRec           18/18 insns, 14 mismatches   [WIP]
- *   0x0042c820  Carousel_Tick             378/378 insns, 357 mismatches [WIP]
- *   0x0042aa90  Balloonz_Tick             637/637 insns, 567 mismatches [WIP]
- *   0x0042fbb0  Restaurant2_Tick          658/658 insns, 262 mismatches [WIP]
+ *   0x0042bc60  Carousel_FindRec           18/18    [OK]
+ *   0x0042a980  Balloonz_FindRec           18/18    [OK]
+ *   0x0042fbb0  Restaurant2_Tick          658/658, 2193/2193 bytes      [OK]
+ *   0x0042c820  Carousel_Tick             378/378 insns, 239 mismatches [WIP]
+ *   0x0042aa90  Balloonz_Tick             637/637 insns,  78 mismatches [WIP]
  *
- * Every one of the three big handlers reproduces the original's instruction
- * COUNT and block layout exactly; what is left in each is a register or frame
- * permutation, described in the note above its marker.
+ * All three big handlers reproduce the original's instruction COUNT and block
+ * layout exactly; RESTAURANT 2 is byte-exact, and what is left in the other
+ * two is a register or frame permutation, described in the note above its
+ * marker.  The levers that closed RESTAURANT 2 are written out above its
+ * body and several of them transfer to any +0xa8 handler.
  *
  * A +0xa8 handler is called with the class's LLIDB element, once per frame,
  * by the class walk at 0x0045b5e2 (gated on ObjDef->flags & 0x20).  Its body
@@ -427,21 +429,59 @@ void Carousel_TickInstances(void)
 /* NOTE: all 378 instructions, the whole block layout, both jump tables and
  * every frame slot that is written are reproduced; the residual is one
  * callee-saved TIE-BREAK.  The original puts `item` (which becomes `tx`) in
- * ebx and `rec` in ebp, so case 1's isometric solve loads b->world.x/y into
- * ebx/edi -- the registers tx and ty had -- and has to spill `rec` to its home
- * at entry+0x24 (the extra frame slot our version does not allocate: 0x34 vs
- * 0x3c).  VC6 here picks the other assignment, item in ebp and rec in ebx, so
- * rec survives case 1 in a register and is never homed, and sx/sy land in the
- * other pair.  Every remaining mismatch is that rename.
- * Measured as inert: declaration order (all permutations of item/rec/key),
- * splitting `item = elem->data` off its declaration, the six phrasings of the
- * (wx +/- wy) * tile >> 9 pair, hoisting the world reads above
- * GetTileDimensions (this one IS needed and is kept -- it is what puts the two
- * reads before the call), while vs for, and a goto-based `!rec` exit.
+ * ebx and `rec` in ebp; case 1 then needs a FIFTH callee-saved value, so it
+ * spills `rec` to its home at entry+0x24 at its DEF (`mov [esp+0x24],ebp`
+ * right after the `test`) and reloads it for Carousel_PickSeat, and ebx (tx,
+ * dead in case 1) is free for the `mov ebp,ebx` copy of wx.  VC6 here picks
+ * the other assignment, item in ebp and rec in ebx, so rec survives case 1 in
+ * a register, wy has to be spilled around GetTileDimensions instead, and the
+ * two reloads never appear.  Net: the original has 2 instructions our body
+ * does not (the rec spill at index 25 and its reload at index 145), and we
+ * have 1 it does not (the wy spill).  A `volatile` rec PROBE confirms the
+ * direction: taking rec out of the register race puts `item` in ebx exactly as
+ * the original does (but costs 18 bytes of reloads, so it is not a candidate).
+ * The lever wanted is whatever lowers rec's priority below the item/tx web's
+ * without moving code -- the same open twin as mechrides.c's BNV-ride
+ * _Activate callbacks and popup.c's DrawPopUpInfo halfw/bottom race.
+ *
+ * WHAT CLOSED 357 -> 239 (2026-09-04): the post-scroll x is a SEPARATE local
+ * (`sx2 = g_map_cfg->ox - Get_XScroll() + sx;` ... `pos.x = sx2 * 2;`).  That
+ * is what makes VC6 store the dying `sx` to its home -- the original's
+ * apparently dead `mov [esp+0x24], ebp` at index 102, which is the same "dead
+ * spill of sx" recorded as a family-wide unknown for the BNV-ride callbacks.
+ * With it, indices 99..103 (`imul/sar/sar/mov [esp+0x24],ebp/call`) match
+ * exactly.  Doing the same to `sy` as well (sy2) is WORSE (235 but sy lands in
+ * a scratch ecx, not the original's ebx), so only x is split.
+ * Measured as inert on top of that: declaration order (all permutations of
+ * item/rec/key), splitting `item = elem->data` off its declaration, all six
+ * phrasings of the (wx +/- wy) * tile >> 9 pair, both commutations of the two
+ * scroll adds, both commutations of tx and ty, all six permutations of the
+ * next/b/key reads at the loop head, a two-def `tx = item->base_x; tx += ...`,
+ * `rec == 0` vs `!rec`, reading the world coords after GetTileDimensions
+ * (358), inlining b->world into the shift pair (358), an explicit `wc = wx`
+ * copy, and lowering rec's reference count in case 0 or case 5 by holding the
+ * incremented byte in a local.  Measured and WORSE: computing tx/ty BEFORE the
+ * FindRec call (241 but the loop head is then wrong -- the original computes
+ * them after the null test), tx-only before (307), ty-only before (243),
+ * `volatile` on tx/ty (366 and ESCAPES).
+ * Also measured as inert AFTER the sx2 split (2026-09-04): all eight source
+ * orders of the switch cases except the current 0,1,2,5,7,8,13,14 are WORSE
+ * (254..362 -- the case order IS the block layout, and this one is right);
+ * `key` read before `b` at the loop head (the lever that closed
+ * Restaurant2_Tick and fixed Balloonz_Tick's cursor -- inert here because
+ * Carousel's cursor is already in eax); `register` on tx or item; splitting
+ * `tx = (tx<<8)+0x80` and `ty = (ty<<8)+0x80` into two statements; a
+ * `unsigned char* seats = rec->seat` temp in case 13; a two-def
+ * `nb = rec->aboard - 1` in case 14; all seven phrasings of the (wx +/- wy)
+ * pair (computing sx BEFORE sy drops the register-blind difference from 22 to
+ * 9 but LOSES the dead sx home store and one instruction, 286/377 -- keep sy
+ * first); reordering the four clamp subtractions or the two pos stores
+ * (238-239); and reading `item` for GetScreenCoordsForObject straight from
+ * elem->data (358, +2 instructions).
  * What IS fixed here: lpConfig (0x004bcbf4) is a POINTER, not a struct --
  * joust.c's TempleSlide_Update reads it as a struct and that is why its own
  * scroll block does not match. */
-// WIP-FUNCTION: LEGOLAND 0x0042c820  (378/378 instructions and block layout, audit mismatch 357/378: item/rec swapped between ebx and ebp, which renames almost every line)
+// WIP-FUNCTION: LEGOLAND 0x0042c820  (378/378 instructions and block layout, audit mismatch 239/378, first diff at index 0: item/rec swapped between ebx and ebp, which renames almost every line and costs the rec spill/reload pair)
 void Carousel_Tick(RideElem* elem)
 {
     RideObject*   item = elem->data;
@@ -463,6 +503,7 @@ void Carousel_Tick(RideElem* elem)
     int           wy;
     int           seat;
     unsigned char a;
+    int           sx2;
 
     r = item->riders;
     while (r) {
@@ -501,13 +542,13 @@ void Carousel_Tick(RideElem* elem)
                 GetTileDimensions(&tw, &th);
                 sy = (wx + wy) * th >> 9;
                 sx = (wx - wy) * tw >> 9;
-                sx = g_map_cfg->ox - Get_XScroll() + sx;
+                sx2 = g_map_cfg->ox - Get_XScroll() + sx;
                 sy = sy + (g_map_cfg->oy - Get_YScroll());
-                sx -= g_carousel_dx / 2;
-                sx -= screen.ox;
+                sx2 -= g_carousel_dx / 2;
+                sx2 -= screen.ox;
                 sy -= g_carousel_dy / 2;
                 sy -= screen.oy;
-                pos.x = sx * 2;
+                pos.x = sx2 * 2;
                 pos.y = sy * 2;
                 b->person->zsprite = g_carousel_zspr;
                 b->person->driven = 1;
@@ -753,27 +794,69 @@ int Balloonz_CarAtPlatform(char wheel, char half)
  * skips PASS 2 entirely for that frame.
  * ========================================================================= */
 
-/* NOTE: all 637 instructions, both passes, all sixteen case blocks and the
- * record copy-in/copy-out are reproduced, and the frame is 0x38 against the
- * original's 0x34.  The residual is a scratch-register ROTATION in the
- * CalcMoveLine argument set-up (the original threads ecx/edx/eax where this
- * body threads edx/eax/ecx) plus the one extra frame slot, which together
- * rename most lines and make audit.py report a branch escaping the extent.
+/* NOTE: all 637 instructions, both passes, all sixteen case blocks, the frame
+ * (0x34) and every frame home are reproduced; 1983 bytes against 1993.  What
+ * closed 567+ESCAPES -> 78 on 2026-09-04, in the order the levers were found:
+ *
+ *  (a) `docked = rec->docked;` must be read BEFORE the
+ *      `**g_bz_zspr->lls_holder = rec->zframe;` store.  That store is a
+ *      may-alias barrier: with it first VC6 cannot hoist the `rec->docked`
+ *      load above it, and the original's indices 50/51 show the load first.
+ *      This is what put the per-block scratch rotation into phase.  The six
+ *      queue blocks (cases 1..6) are emitted with a THREE-STEP rotation of
+ *      eax/ecx/edx over {&b->path, target.y, b->world.y, target.x,
+ *      b->world.x}; the blocks that land on the same rotation as case 13's
+ *      block (the layout-last copy, at 0x0042afe0) get their 12-instruction
+ *      tail cross-jumped away into it at 0x0042afef and shrink to five
+ *      instructions.  The original merges cases 2 and 5; with the wrong phase
+ *      we merged case 3 (+12 instructions and ESCAPES) or cases 1 and 4.
+ *      Diagnostic: the register of the FIRST `lea r,[esi+0x98]` -- ecx is
+ *      right, eax or edx is one rotation step out
+ *      (scratchpad/ridecb3/pr.py prints the sequence).
+ *  (b) `at` must be `int`, not `unsigned char`, at BOTH Balloonz_CarAtPlatform
+ *      call sites: `at = Balloonz_CarAtPlatform(..); b->seat = (char)at;
+ *      cars.c[(unsigned char)at] = 1;`.  With a char `at` VC6 round-trips the
+ *      index through its home (`mov [esp+N],al / add esp,0x24 / mov ecx,[..] /
+ *      and ecx,0xff`) where the original keeps it in eax (`mov [esi+0x36],al /
+ *      and eax,0xff`).  Worth 3 instructions in pass 1 and 1 in pass 2 --
+ *      this is what got the instruction count to exactly 637.
+ *  (c) `key` is taken from the rider BEFORE `b = r->bloke` (the lever that
+ *      closed Restaurant2_Tick): that keeps the cursor in eax, which is what
+ *      the original's `lea ebp,[eax+0xc]` needs.  With `b` first VC6 puts the
+ *      cursor in ebp and consumes it with `add ebp,0xc`.
+ *  (d) the four record copy-in / copy-out blocks are pure store-schedule
+ *      levers; the orders in the text are the hill-climbed optima
+ *      (scratchpad/ridecb3/climb.py, all-pairs, re-run after every other
+ *      lever because the landscape moves).
+ *
+ * What is LEFT (9 register-blind differences, 10 bytes, first diff index 9):
+ *  - the two `name[8] = "Bloke??"` stores straddle the `item->riders` load
+ *    differently (the original loads the rider list first, stores name[0..3],
+ *    tests, homes the cursor, then stores name[4..7]), and our homes for
+ *    `item` and the cursor sit 4 lower than the original's (0x24/0x20 against
+ *    0x28/0x24) although the frame size matches.
+ *  - pass 2's `hold = 0` and `docked = 0` are CSE'd into `xor eax,eax` plus
+ *    two register stores where the original emits two `mov dword ptr [..],0`
+ *    immediates 11 instructions apart (indices 537/548) -- that is the whole
+ *    10-byte deficit.  ALL 56 placements of the two assignments among the
+ *    seven pass-2 copy-in reads give exactly the same code, so the CSE is
+ *    placement-invariant here; `unsigned int hold`, swapping the two
+ *    declarations and `hold = 0 * (int)rec` are all inert, and `char hold`
+ *    breaks the CSE but loses four instructions.
+ * Also measured as inert: all six permutations of the next/b/key reads once
+ * (c) is in place, the `**lls_holder` store written through one or two named
+ * pointer temps or with the zframe read into a temp, named byte temps for
+ * key->bx / key->by, and splitting `item = elem->data` off its declaration.
  * The pass-1 / pass-2 local sets deliberately live in two disjoint blocks:
- * that is what makes them share frame slots the way the original does
- * (entry-0x28 is a char in pass 1 and an int in pass 2, entry-0x14 is `next`
- * in pass 1 and the wheel angle in pass 2).
- * Measured as inert: moving `item` into the pass-1 block, block-scoping the
- * case-12 temp, and re-ordering the declarations to the original's slot
- * order. */
-// WIP-FUNCTION: LEGOLAND 0x0042aa90  (637/637 instructions and block layout, audit mismatch 567/637: a three-way scratch-register rotation plus one extra frame slot)
+ * that is what makes them share frame slots the way the original does. */
+// WIP-FUNCTION: LEGOLAND 0x0042aa90  (637/637 instructions, 1983 vs 1993 bytes, audit mismatch 78/637, first diff at index 9: the name[8] initialiser stores straddle the rider-list load differently and pass 2's two zero stores are CSE'd into a zero register)
 void Balloonz_Tick(RideElem* elem)
 {
     RideObject*   item = elem->data;
 
     {
     char          alighting;
-    unsigned char at;
+    int           at;
     char          half;
     int           waiting;
     char          frame;
@@ -795,20 +878,20 @@ void Balloonz_Tick(RideElem* elem)
     r = item->riders;
     while (r) {
         next = r->next;
-        b = r->bloke;
         key = (MapSquare*)&r->ride_id;
+        b = r->bloke;
         rec = Balloonz_FindRec(key);
         if (!rec)
             return;
-        riders = rec->riders;
         waiting = rec->waiting;
+        riders = rec->riders;
         cars = rec->cars;
-        frame = rec->wheel;
         half = rec->half;
-        unloading = rec->unloading;
+        frame = rec->wheel;
         alighting = rec->alighting;
-        **g_bz_zspr->lls_holder = rec->zframe;
+        unloading = rec->unloading;
         docked = rec->docked;
+        **g_bz_zspr->lls_holder = rec->zframe;
         tx = item->base_x + key->bx;
         ty = key->by + item->base_y;
 
@@ -898,9 +981,9 @@ void Balloonz_Tick(RideElem* elem)
                     b->state = 7;
                     b->new_dir = a;
                     NewDirForAction(b, (unsigned char)((a >> 5) + 3));
-                    at = (unsigned char)Balloonz_CarAtPlatform(frame, half);
-                    b->seat = at;
-                    cars.c[at] = 1;
+                    at = Balloonz_CarAtPlatform(frame, half);
+                    b->seat = (char)at;
+                    cars.c[(unsigned char)at] = 1;
                     b->f58 = (rand() % 3 + 4) * 50;
                     riders++;
                     waiting--;
@@ -999,13 +1082,13 @@ void Balloonz_Tick(RideElem* elem)
             }
         }
 
-        rec->riders = riders;
         rec->waiting = waiting;
-        rec->half = half;
+        rec->riders = riders;
         rec->cars = cars;
-        rec->docked = docked;
+        rec->half = half;
         rec->zframe = frame;
         rec->alighting = alighting;
+        rec->docked = docked;
         rec->unloading = unloading;
         r = next;
     }
@@ -1014,7 +1097,7 @@ void Balloonz_Tick(RideElem* elem)
     /* ---- PASS 2: turn every wheel ------------------------------------- */
     {
     char          alighting;
-    char          at;
+    int           at;
     char          half;
     int           waiting;
     char          wheel;
@@ -1033,8 +1116,8 @@ void Balloonz_Tick(RideElem* elem)
         cars = rec->cars;
         unloading = rec->unloading;
         hold = 0;
-        alighting = rec->alighting;
         half = rec->half;
+        alighting = rec->alighting;
         docked = 0;
 
         if (wheel % 8 == 0 || wheel == 0) {
@@ -1061,8 +1144,8 @@ void Balloonz_Tick(RideElem* elem)
         }
 
         rec->riders = riders;
-        rec->cars = cars;
         rec->waiting = waiting;
+        rec->cars = cars;
         rec->half = half;
         rec->wheel = wheel;
         rec->alighting = alighting;
@@ -1150,8 +1233,8 @@ extern RestRec2* Restaurant2_FindRec(MapSquare* sq);                 /* 0x0042f9
  * rider's world position. */
 extern void Restaurant2_SeatCustomer(RiderNode* r, int which, int step); /* 0x0042fa90 */
 /* Start / stop the restaurant's sample, sourced at the packed map square. */
-extern void Restaurant2_StartSound(unsigned int square);             /* 0x0042fb00 */
-extern void Restaurant2_StopSound(unsigned int square);              /* 0x0042fb60 */
+extern void Restaurant2_StartSound(unsigned short square);           /* 0x0042fb00 */
+extern void Restaurant2_StopSound(unsigned short square);            /* 0x0042fb60 */
 
 extern RestRec2* g_r2_recs;        /* 0x00616148 the per-placement list */
 extern int       g_r2_path_dx[];   /* 0x004b685c the waiter's x steps */
@@ -1209,26 +1292,46 @@ extern int       g_r2_path_dy[];   /* 0x004b68e0 the waiter's y steps */
  * Every pass-2 iteration also advances the building's own frame (0..0x1f).
  * ========================================================================= */
 
-/* NOTE: all 658 instructions, both passes, both jump tables and the whole
- * block layout are reproduced, and 15 of the 18 frame slots land exactly where
- * the original has them.  Two things are left:
- *   - `walking`, `queued` and `seated` are rotated through the three slots at
- *     entry-0x40 / -0x3c / -0x38: VC6 here gives the two `unsigned char`
- *     locals the lower pair and the int the upper, where the original has the
- *     int first.  Declaration order is inert for this (six permutations
- *     measured, including moving the chars to the head and to the tail of the
- *     block), and the two are genuinely `unsigned char` -- the original
- *     compares them with `cmp byte ptr [..],3 / jae` and widens them with
- *     `and eax,0xff`.
- *   - action 12's three-way join comes out with the phase test inverted, so
- *     the seat call is jumped to rather than fallen into and the `serving`
- *     test is duplicated.
- * What made the rest fall into place: pass 1 and pass 2 share ONE set of
- * function-level locals (the original colours pass 2's `returning` onto pass
- * 1's rider slot and its animation frame onto the dead `elem` argument slot),
- * and the copy-out order has to be the original's store order, which is NOT
- * the copy-in order. */
-// WIP-FUNCTION: LEGOLAND 0x0042fbb0  (658/658 instructions and block layout, audit mismatch 262/658: three frame slots rotated and action 12's join inverted)
+/* CLOSED 2026-09-04 (262 -> 0).  Five levers, in the order they were found;
+ * every one of them is worth trying on the other +0xa8 handlers:
+ *
+ *  1. The two sound helpers take an `unsigned short`, NOT an int (262 -> 56
+ *     on its own).  The original loads the square with `mov dx, word ptr
+ *     [esi+4]` and pushes edx with the top half still dirty; an `int`
+ *     parameter makes VC6 zero-extend first (`xor edx,edx`), which is four
+ *     extra instructions across the four call sites.  Extern prototype types
+ *     really are caller-side codegen levers.
+ *  2. Pass 2's six phase blocks are laid out in the source order 0,1,2,4,5,3
+ *     -- VC6 emits switch case blocks in SOURCE order, and the original's
+ *     layout has case 3 last (245 vs 260 for 0,1,2,4,3,5).
+ *  3. Every phase's counter test is written with the COUNTER STEP as the
+ *     `if` arm and the state change as the `else` (`if (s <= 8) serve = s+1;
+ *     else {...}`), so the step falls through and the state change is jumped
+ *     to.  Written the other way round VC6 inverts the whole block and, in
+ *     four of the six cases, folds the step into a memory `inc`/`dec` instead
+ *     of the original's load/step/store through a register.
+ *  4. Action 12's three-way join needs `if (phase == 2 && serving == 0) goto
+ *     seat; if (phase != 2) goto notserving; goto advance;` -- the redundant
+ *     second phase test is what makes VC6 put the join BEFORE the seat call
+ *     and reproduce the original's two-entry block (`je 0x430036` enters at
+ *     the `xor eax,eax`, `jne 0x430038` enters one instruction later, because
+ *     the phase!=0 path already has eax = 0).  The straight
+ *     `if (phase != 2) .. if (serving != 0) ..` spelling emits the seat call
+ *     first and jumps backwards into it.
+ *  5. `key` is taken from the rider BEFORE `b = r->bloke` (40 -> 22 and the
+ *     byte count exact).  That keeps the cursor in eax and gives the
+ *     original's `lea ebp,[eax+0xc]`; with `b` first VC6 puts the cursor in
+ *     ebp and consumes it with `add ebp,0xc`.
+ *  Plus: `if (!(queued > 0) && !(seated > 0))` for the two `unsigned char`
+ *  flags (the original tests them with `test cl,cl / ja`, not `jne`), and the
+ *  four record copy-in / copy-out blocks in the store orders below, which are
+ *  the hill-climbed optima (scratchpad/ridecb3/climb.py) -- the last two
+ *  mismatches were `b->speed` and `b->action++` the wrong way round in
+ *  action 14.
+ * Structure facts: pass 1 and pass 2 share ONE set of function-level locals
+ * (the original colours pass 2's `returning` onto pass 1's rider slot and its
+ * animation frame onto the dead `elem` argument slot). */
+// FUNCTION: LEGOLAND 0x0042fbb0
 void Restaurant2_Tick(RideElem* elem)
 {
     char          step;
@@ -1262,8 +1365,8 @@ void Restaurant2_Tick(RideElem* elem)
     r = item->riders;
     while (r) {
         next = r->next;
-        b = r->bloke;
         key = (MapSquare*)&r->ride_id;
+        b = r->bloke;
         rec = Restaurant2_FindRec(key);
         if (!rec)
             return;
@@ -1412,8 +1515,8 @@ void Restaurant2_Tick(RideElem* elem)
             case 11:
                 if (phase <= 1 && seated < 3) {
                     b->world.x = (tx << 8) - 0xa9c;
-                    b->action++;
                     b->world.y = (ty << 8) + seated * 100 - 0xd2c;
+                    b->action++;
                     seated++;
                 }
                 break;
@@ -1433,10 +1536,16 @@ void Restaurant2_Tick(RideElem* elem)
                     }
                     goto r2_notserving;
                 }
+                /* The phase test is deliberately written twice: it is what
+                 * makes VC6 emit this join BEFORE the seat call and enter it
+                 * at two different instructions (see the note above).  Do not
+                 * "simplify" to if (phase != 2) .. if (serving != 0) .. -- that
+                 * spelling puts the call first and jumps backwards into it. */
+                if (phase == 2 && serving == 0)
+                    goto r2_seat;
                 if (phase != 2)
                     goto r2_notserving;
-                if (serving != 0)
-                    goto r2_advance;
+                goto r2_advance;
 r2_seat:
                 Restaurant2_SeatCustomer(r, 2, step);
                 break;
@@ -1466,8 +1575,8 @@ r2_advance:
                 b->state = 7;
                 b->new_dir = a;
                 NewDirForAction(b, (unsigned char)((a >> 5) + 3));
-                b->action++;
                 b->speed = (unsigned char)b->saved_speed;
+                b->action++;
                 seated--;
                 break;
 
@@ -1478,20 +1587,20 @@ r2_advance:
             }
         }
 
-        rec->serve = serve;
         rec->step = step;
-        rec->seated = seated;
+        rec->serve = serve;
         rec->walking = walking;
-        rec->idle = idle;
-        rec->ready = ready;
-        rec->serving = serving;
         rec->queued = queued;
+        rec->seated = seated;
+        rec->ready = ready;
         rec->phase = phase;
+        rec->idle = idle;
         rec->seating = seating;
-        rec->waiter_x = waiter_x;
         rec->called = called;
+        rec->serving = serving;
         rec->leaving = leaving;
         rec->clearing = clearing;
+        rec->waiter_x = waiter_x;
         rec->waiter_y = waiter_y;
         r = next;
     }
@@ -1499,34 +1608,34 @@ r2_advance:
     /* ---- PASS 2: the restaurants themselves --------------------------- */
     rec = g_r2_recs;
     while (rec) {
+        step = rec->step;
         frame = rec->frame;
         serve = rec->serve;
         walking = rec->walking;
         queued = rec->queued;
         seated = rec->seated;
         idle = rec->idle;
-        seating = rec->seating;
         phase = rec->phase;
-        step = rec->step;
+        seating = rec->seating;
         called = rec->called;
         leaving = rec->leaving;
         swing = rec->swing;
         serving = rec->serving;
         clearing = rec->clearing;
         returning = rec->returning;
-        waiter_y = rec->waiter_y;
         waiter_x = rec->waiter_x;
+        waiter_y = rec->waiter_y;
 
         switch (phase) {
         case 0:
             if (walking != 0) {
                 char s = serve;
-                if (s > 8) {
+                if (s <= 8) {
+                    serve = (char)(s + 1);
+                } else {
                     phase = 1;
                     serve = 8;
                     seating = 1;
-                } else {
-                    serve = (char)(s + 1);
                 }
             }
             break;
@@ -1535,7 +1644,9 @@ r2_advance:
             if (called != 0) {
                 char s = serve;
                 seating = 0;
-                if (s < 0) {
+                if (s >= 0) {
+                    serve = (char)(s - 1);
+                } else {
                     swing = 0;
                     called = 0;
                     phase = 2;
@@ -1543,29 +1654,56 @@ r2_advance:
                     waiter_x = 0x143;
                     waiter_y = 0;
                     Restaurant2_StartSound(rec->square);
-                } else {
-                    serve = (char)(s - 1);
                 }
             }
             break;
 
         case 2:
-            if (step > 0x20) {
+            if (step <= 0x20) {
+                step++;
+                waiter_x -= g_r2_path_dx[step];
+                waiter_y += g_r2_path_dy[step];
+            } else {
                 serving = 1;
                 idle = 0;
                 phase = 4;
                 swing = 0;
                 Restaurant2_StopSound(rec->square);
-            } else {
-                step++;
-                waiter_x -= g_r2_path_dx[step];
-                waiter_y += g_r2_path_dy[step];
             }
             break;
 
-        case 3:
+        case 4:
+            if (swing <= 8) {
+                swing++;
+            } else {
+                phase = 5;
+                leaving = 1;
+                clearing = 1;
+                swing = 8;
+            }
+            break;
+
+        case 5:
+            /* `!(x > 0)` and not `x == 0`: both flags are unsigned char and
+             * the original tests them with `test cl,cl / ja`, not `jne`. */
+            if (!(queued > 0) && !(seated > 0)) {
+                clearing = 0;
+                leaving = 0;
+                if (swing >= 0) {
+                    swing--;
+                } else {
+                    returning = 1;
+                    phase = 3;
+                    step = 0x20;
+                    Restaurant2_StartSound(rec->square);
+                }
+            }
+            break;        case 3:
             if (returning != 0) {
-                if (step < 0) {
+                if (step >= 0) {
+                    serving = 0;
+                    step--;
+                } else {
                     serving = 0;
                     phase = 0;
                     swing = 0;
@@ -1573,38 +1711,11 @@ r2_advance:
                     step = 0;
                     serve = 0;
                     Restaurant2_StopSound(rec->square);
-                } else {
-                    serving = 0;
-                    step--;
                 }
             }
             break;
 
-        case 4:
-            if (swing > 8) {
-                phase = 5;
-                leaving = 1;
-                clearing = 1;
-                swing = 8;
-            } else {
-                swing++;
-            }
-            break;
 
-        case 5:
-            if (queued == 0 && seated == 0) {
-                clearing = 0;
-                leaving = 0;
-                if (swing < 0) {
-                    returning = 1;
-                    phase = 3;
-                    step = 0x20;
-                    Restaurant2_StartSound(rec->square);
-                } else {
-                    swing--;
-                }
-            }
-            break;
         }
 
         if (++frame > 0x1f)

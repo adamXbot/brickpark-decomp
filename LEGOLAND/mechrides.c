@@ -1544,7 +1544,26 @@ extern CarRow  g_tower_car[4];                               /* 0x004b77a8 */
  *     All eight permutations of the tx/row/tilex/tiley statements are inert.
  *   Copters_Activate's lever (a nested call written as a statement) does not
  *   apply: this function has no nested-call argument. */
-// WIP-FUNCTION: LEGOLAND 0x0043bac0  (222/222 instructions; case 2/7 block placement and the tile.x-spill/pointer-in-eax allocation -- see above)
+/* ROUND 4 (audit 169 -> 149). Two changes, both structural:
+ *   - The `case 2: case 7:` (SpaceTower_Queue) labels moved to just before
+ *     `case 8:`, which is where the original lays that block (round 3 had
+ *     measured the layout but not committed it because it cost 8 alone).
+ *   - The frame hole at entry-0x08 is NOT an unknown local after all: the
+ *     original's `base[2]` array sits at 0x08-0x0f (only [1] used), and the
+ *     missing home is `tilex`, which the original SPILLS at its def and
+ *     reloads at both uses.  Forcing that with a volatile READ at the case-8
+ *     use (`(def->qx + *(volatile int*)&tilex)`) makes the frame 0x10 == 0x10
+ *     and the whole prologue exact.  (The same volatile-read lever closed the
+ *     rec spill in SpiderRide_Activate; a volatile STORE is folded away.)
+ * WHAT IS LEFT (149): the ebx/ebp swap between the rider cursor and the
+ * rematerialised map-square pointer, which cascades through the whole body,
+ * and with it the original's CSE of `&r->tile` into eax across the jump table
+ * (case 0 pushes it; ours re-does the `lea`).  Measured and inert now: all
+ * six orders of the next/b/rec statements, a named `RideTile* tile` local for
+ * the FindRecord and TakeSeat calls (identical code) or for every use (231),
+ * `int tiley`, `if (b->state == 0)` vs `if (!b->state)`, and splitting the
+ * base[1] sum. */
+// WIP-FUNCTION: LEGOLAND 0x0043bac0  (33%, 149/222; frame and block layout now exact, the cursor/pointer register swap remains -- see above)
 void SpaceTower_Activate(RideElem* elem)
 {
     RideDef*   def = elem->data;
@@ -1590,10 +1609,6 @@ void SpaceTower_Activate(RideElem* elem)
                 r->bloke->f38 = 0;
                 b->action++;
                 break;
-            case 2:
-            case 7:
-                SpaceTower_Queue(r);
-                break;
             case 3:
                 seat = b->seat;
                 b->target.x = (g_tower_seat[seat].dx + tilex) << 8;
@@ -1627,8 +1642,12 @@ void SpaceTower_Activate(RideElem* elem)
                 BlokeSetFrame(b, 0);
                 b->action++;
                 break;
+            case 2:
+            case 7:
+                SpaceTower_Queue(r);
+                break;
             case 8:
-                b->target.x = ((def->qx + tilex) << 8) + 0x80;
+                b->target.x = ((def->qx + *(volatile int*)&tilex) << 8) + 0x80;
                 b->target.y = ((def->qy + RIDE_TILE(r)->b.y) << 8) + 0x80;
                 dir = (unsigned char)CalcMoveLine(b->world, b->target,
                                                   b->path) + 0x10;
@@ -1684,42 +1703,32 @@ static __inline void MechDrawBand(Bloke** found, char n, int code)
     }
 }
 
+int   memcmp(const void* a, const void* b, unsigned int n);      /* CRT, intrinsic */
+#pragma intrinsic(memcmp)
+
 extern void  SpaceTower_DrawCar(TowerRec* rec, int car, int mode); /* 0x0043aee0 */
 
 extern AnimRef g_bloke_anim_ref[];                           /* 0x004b775c */
 extern int     g_anim_tower_a;                               /* 0x004b7750 */
 extern int     g_anim_tower_b;                               /* 0x004b76b8 */
 
-/* STATE: all 288 instructions and the whole block layout are reproduced and
- * the semantics are certain. Three codegen facts are not: (1) the original
- * keeps a DEAD `lea eax,[edi+0xc]` (the map-square address computed and then
- * discarded) in each rider test -- a merged-arm ghost no spelling of the
- * compare reproduces (pointer local, cast through the address, both compare
- * directions measured); (2) the two `off + screen` sums come out as `lea`
- * here and as two-def `add`s in the original (temporaries, compound
- * assignment and both operand orders all canonicalise to the same form); and
- * (3) the registers that carry the screen pair are swapped. Together they
- * shift the displacements, so the strict gate rejects it.
- *
- * ROUND 2 pinned down what that dead lea IS and what it is not. VC6 emits
- * exactly this pair -- `mov r16,[p+K]` immediately followed by `lea r32,[p+K]`
- * with the compare taken from the r16 -- when a NAMED pointer to that field is
- * live OUT of the loop; a two-function micro test reproduces it byte for byte,
- * and the lea then lands in a callee-saved register because the value must
- * survive. Here it lands in a SCRATCH register that the very next instruction
- * overwrites (eax at 0x0043afbd, killed by `mov eax,[edi+8]`; ecx at
- * 0x0043b013, killed by `mov ecx,[esp+0x30]`), so the pointer has NO use at
- * all: an earlier pass created it and a later one removed every consumer.
- * Ten spellings were measured, all inert (no lea at all): the key compared
- * through a pointer local, through the macro inline, in both compare
- * directions, hoisted into an unsigned short temp, the pointer declared at
- * function level, a static __inline predicate taking the pointer, another
- * taking two RideTiles BY VALUE, a whole-RideTile struct copy, byte-wise
- * b.x/b.y compares, and `(RideTile*)((char*)r + 0x0c)` pointer arithmetic.
- * A null test on the pointer (`&& k`) DOES produce the lea -- VC6 never folds
- * `&x != 0` -- but leaves a `test/je` pair behind that the original lacks, so
- * the construct being looked for is one whose consumer VC6 deletes late. */
-// WIP-FUNCTION: LEGOLAND 0x0043af50  (288/288 instructions and block layout; a dead lea, the sum form and two register roles differ)
+/* CLOSED (288/288, 849 B). Two levers, both already in the playbook but not
+ * tried together here; 250 -> 0 in two steps:
+ * (1) `PrintSprite(spr, screen.ox + off.ox, ..)` -- SCREEN FIRST (Joust).  All
+ *     six call sites: with `off.ox + screen.ox` VC6 emits a three-register
+ *     `lea` (both operands live past the sum) where the original has the
+ *     two-operand `add eax, ebp` that lets the offset half die, and that
+ *     rotated the registers for the rest of the body (250 -> 255 strict but
+ *     register-blind 242 -> 30, which is what showed the change was right).
+ * (2) The rider test is an INTRINSIC 2-byte `memcmp(t, sq, 2) == 0`, not
+ *     `t->key == sq->key`.  That is what emits the "dead" `lea eax,[edi+0xc]`
+ *     the previous rounds could not explain: VC6's inline memcmp
+ *     materialises the first operand's ADDRESS and then folds the comparison
+ *     into a word load, leaving the lea with no consumer (the same signature
+ *     the _FindRec/_FindRecord searches have, and logflume2.c's
+ *     LFStation_FindAt).  Ten `==` spellings had been measured and none can
+ *     produce it.  With both levers the body is byte-exact. */
+// FUNCTION: LEGOLAND 0x0043af50
 void SpaceTower_Interact(RideElem* elem, int x, int y, RideTile* sq,
                          void* clip, int mode)
 {
@@ -1740,7 +1749,7 @@ void SpaceTower_Interact(RideElem* elem, int x, int y, RideTile* sq,
             while (r) {
                 RideTile* t = RIDE_TILE(r);
 
-                if (t->key == sq->key
+                if (memcmp(t, sq, 2) == 0
                     && !(r->bloke->flags & 0x80)
                     && g_bloke_anim_ref[r->bloke->anim].anim == &g_anim_tower_a)
                     IP_RenderBlokeIn3DNow(r->bloke);
@@ -1748,49 +1757,49 @@ void SpaceTower_Interact(RideElem* elem, int x, int y, RideTile* sq,
             }
             SpaceTower_DrawCar(rec, 1, mode);
             SpaceTower_DrawCar(rec, 2, mode);
-            PrintSprite(g_spacetower_spr1, off1.ox + screen.ox,
-                        off1.oy + screen.oy, mode, 0);
+            PrintSprite(g_spacetower_spr1, screen.ox + off1.ox,
+                        screen.oy + off1.oy, mode, 0);
             SpaceTower_DrawCar(rec, 0, mode);
             SpaceTower_DrawCar(rec, 3, mode);
             r = item->riders;
             while (r) {
                 RideTile* t = RIDE_TILE(r);
 
-                if (t->key == sq->key
+                if (memcmp(t, sq, 2) == 0
                     && !(r->bloke->flags & 0x80)
                     && g_bloke_anim_ref[r->bloke->anim].anim == &g_anim_tower_b)
                     IP_RenderBlokeIn3DNow(r->bloke);
                 r = r->next;
             }
-            PrintSprite(g_spacetower_spr0, off1.ox + screen.ox,
-                        off1.oy + screen.oy, mode, 0);
+            PrintSprite(g_spacetower_spr0, screen.ox + off1.ox,
+                        screen.oy + off1.oy, mode, 0);
             LLSSetFrame(GetLLSForLayer(g_spacetower_layers, 5), rec->frame5);
             off2 = GetRenderOffsetForLayer(g_spacetower_layers, 5);
             AdjustOffsetForViewMode(&off2);
             PrintSprite(GetSpriteForLayer(g_spacetower_layers, 5),
-                        off2.ox + screen.ox, off2.oy + screen.oy, mode, 0);
+                        screen.ox + off2.ox, screen.oy + off2.oy, mode, 0);
             LLSSetFrame(GetLLSForLayer(g_spacetower_layers, 3), rec->frame3);
             off2 = GetRenderOffsetForLayer(g_spacetower_layers, 3);
             AdjustOffsetForViewMode(&off2);
             PrintSprite(GetSpriteForLayer(g_spacetower_layers, 3),
-                        off2.ox + screen.ox, off2.oy + screen.oy, mode, 0);
+                        screen.ox + off2.ox, screen.oy + off2.oy, mode, 0);
         } else {
             SpaceTower_DrawCar(rec, 1, mode);
             SpaceTower_DrawCar(rec, 2, mode);
-            PrintSprite(g_spacetower_spr1, off1.ox + screen.ox,
-                        off1.oy + screen.oy, mode, 0);
+            PrintSprite(g_spacetower_spr1, screen.ox + off1.ox,
+                        screen.oy + off1.oy, mode, 0);
             SpaceTower_DrawCar(rec, 0, mode);
             SpaceTower_DrawCar(rec, 3, mode);
             LLSSetFrame(GetLLSForLayer(g_spacetower_layers, 5), rec->frame5);
             off2 = GetRenderOffsetForLayer(g_spacetower_layers, 5);
             AdjustOffsetForViewMode(&off2);
             PrintSprite(GetSpriteForLayer(g_spacetower_layers, 5),
-                        off2.ox + screen.ox, off2.oy + screen.oy, mode, 0);
+                        screen.ox + off2.ox, screen.oy + off2.oy, mode, 0);
             LLSSetFrame(GetLLSForLayer(g_spacetower_layers, 3), rec->frame3);
             off2 = GetRenderOffsetForLayer(g_spacetower_layers, 3);
             AdjustOffsetForViewMode(&off2);
             PrintSprite(GetSpriteForLayer(g_spacetower_layers, 3),
-                        off2.ox + screen.ox, off2.oy + screen.oy, mode, 0);
+                        screen.ox + off2.ox, screen.oy + off2.oy, mode, 0);
         }
     }
 }
@@ -2401,8 +2410,26 @@ extern short  Get_XScroll(void);                             /* 0x004615f0 */
 extern short  Get_YScroll(void);                             /* 0x00461600 */
 extern float  GetUnitDepth(float near_z, float far_z);       /* 0x0044de50 */
 /* 0x00484c20 */
+/* The seed position handed to a BNV path is THREE ints, not two: the four
+ * _Activate frames each carry an unreferenced dword directly above their two
+ * seed locals (pos at frame+0x24 and pos2 at frame+0x30 in the Barrels, 12
+ * bytes apart), which is the z the ride never fills in. Declaring the sixth
+ * parameter `Pos*` makes the locals 8 bytes and shortens every frame by 8. */
+typedef struct BnvPos {
+    int x;                   /* +0x00 */
+    int y;                   /* +0x04 */
+    int z;                   /* +0x08 never stored by any of the four rides */
+} BnvPos;
+
+/* The 8-byte object the four _Activate frames spill sx into; see the note in
+ * SpinningBarrels_Activate. */
+typedef struct SpillPair {
+    int x;
+    int y;
+} SpillPair;
+
 extern void*  NewBNVPath(void* bin, int tag, const char* name,
-                         float near_z, float far_z, Pos* pos);
+                         float near_z, float far_z, BnvPos* pos);
 extern void   BNVPath_SetDFrame(Bloke* b, void* path, int dframe); /* 0x004850b0 */
 extern int    UpdateBlokeFromBNVPath(Bloke* b, void* path);  /* 0x00484cd0 */
 extern int    BNVPath_GetDFrame(void* path);                 /* 0x00484ff0 */
@@ -2423,18 +2450,27 @@ extern char g_safari_pathname[];                             /* 0x004b4cac "manb
 extern const int g_safari_end_on[8];                         /* 0x004b4cc4 */
 extern const int g_safari_end_off[8];                        /* 0x004b4ce4 */
 
-/* STATE (this round): lpConfig is read through its POINTER (a semantic fix,
- * see SpinningBarrels_Activate), the MOUNT block reads world.x/y into wx/wy
- * before GetTileDimensions and assigns the scroll stage to a fresh `sx2`
- * (the two-def shape the original has), and case 7's pos2 pair goes through
- * two int temps. Register-blind alignment 216 -> 68 lines; the strict count
- * moves less because the head still has the cursor/ObjDef register split
- * (the original spills the ObjDef and keeps the cursor in the dead argument
- * slot). Unlike the other three BNV rides, SafariRide_SeatOf really does take
- * the rider's tile (0x00415760 reads [arg2] as the key), so that call stays.
- * The residual frame is 0x28 vs 0x38: as in the Barrels and the Space Tower
- * the original carries homes nothing references. */
-// WIP-FUNCTION: LEGOLAND 0x00415220  (402/402 instructions, both dispatch tables and block layout; the MOUNT block now has the Barrels shape, the head register split remains -- see above)
+/* STATE: lpConfig is read through its POINTER (a semantic fix, see
+ * SpinningBarrels_Activate), the MOUNT block reads world.x/y into wx/wy
+ * before GetTileDimensions, and unlike the other three BNV rides
+ * SafariRide_SeatOf really does take the rider's tile (0x00415760 reads
+ * [arg2] as the key), so that call stays two-argument.
+ * THIS ROUND (audit 333 -> 143, frame 0x34 -> 0x38 == the original, byte
+ * length 1291 vs 1292): the whole head (indices 0-84) is now exact.  Two
+ * transfers did it, and they had to go in together (measured as a 2x2x2 grid,
+ * every other cell 249-340):
+ *   1. `SpillPair spill; *(volatile int*)&spill.x = sx;` for the original's
+ *      dead sx store at index 76 and the phantom dword that follows it (see
+ *      the SpinningBarrels_Activate note, items 4-5), AND
+ *   2. a FRESH `sy2` for the y chain (with `sy` reused the strict count is
+ *      249), keeping the pivot-before-screen.oy order.
+ *   3. The BNV seed is a 12-byte `BnvPos` here too.
+ * WHAT IS LEFT (143): the divergence starts at index 85 and is the same
+ * y-chain residual as the other three -- the original accumulates the y chain
+ * in sy's callee-saved register (`xor eax,eax / mov ax,[cfg+0x22] /
+ * sub eax,edx / add ebx,eax`) where we build it in the delta's register --
+ * followed by a naming cascade through the rest of the body. */
+// WIP-FUNCTION: LEGOLAND 0x00415220  (64%, 143/402; frame exact and the head exact, the y-chain register cascade remains -- see above)
 void SafariRide_Activate(RideElem* elem)
 {
     RideDef*    def = elem->data;
@@ -2443,8 +2479,8 @@ void SafariRide_Activate(RideElem* elem)
     int         th;
     RiderNode*  next;
     Offset      screen;
-    Pos         pos;
-    Pos         pos2;
+    BnvPos      pos;
+    BnvPos      pos2;
     RiderNode*  r;
     SafariRec*  rec;
     Bloke*      b;
@@ -2456,6 +2492,9 @@ void SafariRide_Activate(RideElem* elem)
     int         wx;
     int         wy;
     int         sx2;
+    SpillPair   spill;
+    int         sy2;
+
 
     SafariRide_TickMachine();
     r = def->riders;
@@ -2484,14 +2523,15 @@ void SafariRide_Activate(RideElem* elem)
                 GetTileDimensions(&tw, &th);
                 sx = (wx - wy) * tw >> 9;
                 sy = (wx + wy) * th >> 9;
+                *(volatile int*)&spill.x = sx;
                 sx2 = g_map_cfg->ox - Get_XScroll() + sx;
-                sy = sy + (g_map_cfg->oy - Get_YScroll());
+                sy2 = sy + (g_map_cfg->oy - Get_YScroll());
                 sx2 -= g_safari_ofs2.ox / 2;
                 sx2 -= screen.ox;
-                sy -= g_safari_ofs2.oy / 2;
-                sy -= screen.oy;
+                sy2 -= g_safari_ofs2.oy / 2;
+                sy2 -= screen.oy;
                 pos.x = sx2 * 2;
-                pos.y = sy * 2;
+                pos.y = sy2 * 2;
                 b->person->zsprite = g_safari_zspr;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617787.0f, -1618006.0f);
@@ -2659,7 +2699,7 @@ typedef struct SBarrelRec {
 
 extern int  rand_w(void);                                    /* 0x0049e4b2 */
 extern void SpinningBarrels_TickMachine(void);               /* 0x0043c930 */
-extern int  SpinningBarrels_SeatOf(RiderNode* r, SBarrelRec* rec, int cap); /* 0x0043ce10 -- takes the RECORD: it indexes the seat bytes at rec+0x21 */
+extern int  SpinningBarrels_SeatOf(RiderNode* r, SBarrelRec* rec, char cap); /* 0x0043ce10 -- takes the RECORD: it indexes the seat bytes at rec+0x21 */
 extern void SpinningBarrels_SetFull(SBarrelRec* rec);        /* 0x0043c320 */
 
 extern char g_sbarrel_pathname[];                            /* 0x004b78b4 "BoxBloke??" */
@@ -2679,14 +2719,42 @@ extern char g_sbarrel_pathname[];                            /* 0x004b78b4 "BoxB
  *      the sum lands in sx's register, where the original puts it in the
  *      register that computed (ox - xscroll) and lets sx die -- the two-def
  *      shape. This is what flips def/rec back to ebx/ebp.
- * WHAT IS LEFT: the frame is 0x30 against 0x3c -- the original has three homes
- * nothing in it references (0x18 in the pool, 0x44/0x48 on top: dead locals
- * whose stores were eliminated, as in SpaceTower_Activate); the original
- * accumulates `sy` IN PLACE while only `sx` takes the fresh register (with a
- * single fresh `sx2` the register rotation of the scroll stage changes, 92);
- * the original's dead `mov [esp+0x14],ebp` spill of sx into tile's home; and
- * case 8's pos2 pair computed-both-then-stored. */
-// WIP-FUNCTION: LEGOLAND 0x0043c950  (362/362 instructions and block layout; frame 0x30 vs 0x3c -- three dead homes of the original -- and the case-1 scroll stage, see above)
+ * THIS ROUND (audit 69 -> 25). The frame is now byte-for-byte the original's
+ * (0x3c, 1148 B == 1148 B) and every [esp+N] displacement matches:
+ *   4. The BNV seed is TWELVE bytes, not eight (`BnvPos`): the never-written
+ *      third dword above each of `pos` (frame+0x24) and `pos2` (frame+0x30)
+ *      is its z.  That closed two of the three "dead homes".
+ *   5. The third one is not a variable at all: it is the SECOND HALF of an
+ *      8-byte object the original spills sx into.  `SpillPair spill;` plus
+ *      `*(volatile int*)&spill.x = sx;` reproduces both the dead
+ *      `mov [esp+0x24],ebp` and the phantom dword: VC6 lifetime-colours the
+ *      pair onto the home `tile` has just stopped using, so .x lands on
+ *      tile's slot (frame+0x04) and .y is the phantom (frame+0x08).  Measured
+ *      and rejected first: unused locals of every type (dropped), an
+ *      address-taken scalar through a no-op `static __inline` (dropped), a
+ *      12-byte struct for tw/th with only &member taken (VC6 drops the unused
+ *      member), `int dim[3]` and a whole-struct touch (both reserve, but an
+ *      aggregate goes to the TOP of the frame, not into the scalar pool).
+ *   6. SpinningBarrels_SeatOf's third parameter is a `char`: the original
+ *      pushes `mov al,[def+0x2e] / push eax` with no zero-extension, which
+ *      only a char-typed parameter fed the truncated `short` field produces.
+ *   7. Case 8 stores pos2.y BEFORE pos2.x -- with the natural order VC6 sorts
+ *      the two movsx loads by descending displacement (+0x3e first).
+ *   8. Of the four subtraction statements only the RELATIVE order of the two
+ *      sy2 ones matters (all 24 permutations measured): screen.oy before the
+ *      pivot half is what hoists its load above the x pivot.
+ * WHAT IS LEFT (25, all in the case-1 scroll stage, indices 110-137, plus the
+ * two case-8 pos2 stores): the original accumulates the y chain IN PLACE in
+ * sy's register (`add ebx,edx`) where we build it in the delta's register
+ * (`add ecx,ebx`), which rotates ecx/edx and the screen.ox/oy load order for
+ * the rest of the block.  This is now the ONE residual shared by all four BNV
+ * _Activate callbacks.  Ruled out for it: `sy +=` / `sy = sy + ..` in place
+ * (51, the whole wx/wy allocation rotates), operand order, a named delta
+ * local declared before or after sy, `sy2 = sy; sy2 += ..`, `sy - (yscroll -
+ * oy)`, an inline `((wx+wy)*th>>9) + ..` (the imul then sinks below the
+ * call), two-def `sy = ..*th; sy >>= 9`, and all four wx/wy and sx/sy
+ * statement orders. */
+// WIP-FUNCTION: LEGOLAND 0x0043c950  (93%, 25/362; frame and byte length exact, the case-1 y-chain register remains -- see above)
 void SpinningBarrels_Activate(RideElem* elem)
 {
     RideDef*    def = elem->data;
@@ -2695,8 +2763,8 @@ void SpinningBarrels_Activate(RideElem* elem)
     int         th;
     RiderNode*  next;
     Offset      screen;
-    Pos         pos;
-    Pos         pos2;
+    BnvPos      pos;
+    BnvPos      pos2;
     RiderNode*  r;
     SBarrelRec* rec;
     Bloke*      b;
@@ -2709,6 +2777,7 @@ void SpinningBarrels_Activate(RideElem* elem)
     int         wy;
     int         sx2;
     int         sy2;
+    SpillPair   spill;
 
     r = def->riders;
     while (r) {
@@ -2743,12 +2812,28 @@ void SpinningBarrels_Activate(RideElem* elem)
                 GetTileDimensions(&tw, &th);
                 sx = (wx - wy) * tw >> 9;
                 sy = (wx + wy) * th >> 9;
+                /* THE FAMILY-WIDE RESIDUAL, SOLVED.  The original stores sx
+                 * into a frame home here and never reads it back, and carries
+                 * one more dword nothing references at all -- the two halves
+                 * of ONE EIGHT-BYTE spilled object, of which only .x is ever
+                 * written.  An 8-byte local with a volatile store to its first
+                 * member reproduces both: VC6 lifetime-colours it into the
+                 * home `tile` has just stopped using (frame+0x04), and its
+                 * second dword is the "phantom" slot at frame+0x08 that no
+                 * scalar, array, unused local or inline-helper temporary could
+                 * ever produce.  What the original's source spelled here is
+                 * unknown; this reproduces its object exactly. */
+                *(volatile int*)&spill.x = sx;
                 sx2 = g_map_cfg->ox - Get_XScroll() + sx;
                 sy2 = sy + (g_map_cfg->oy - Get_YScroll());
                 sx2 -= g_sbarrel_pivot_x / 2;
                 sx2 -= screen.ox;
-                sy2 -= g_sbarrel_pivot_y / 2;
+                /* screen.oy BEFORE the pivot (the sum is the same): only that
+                 * order gets its load hoisted above the x pivot the way the
+                 * original does.  All 24 permutations measured; the relative
+                 * order of the two sy2 statements is the only one that counts. */
                 sy2 -= screen.oy;
+                sy2 -= g_sbarrel_pivot_y / 2;
                 pos.x = sx2 * 2;
                 pos.y = sy2 * 2;
                 b->person->zsprite = g_sbarrel_spr2;
@@ -2757,7 +2842,7 @@ void SpinningBarrels_Activate(RideElem* elem)
                 b->b35 = 0;
                 sprintf_w(&g_sbarrel_pathname[8], "%02d",
                           SpinningBarrels_SeatOf(r, rec,
-                                                 *(unsigned char*)&g_sbarrel_def->capacity));
+                                                 (char)g_sbarrel_def->capacity));
                 b->bnvpath = NewBNVPath(g_sbarrel_tab0, 0, g_sbarrel_pathname,
                                         -1617922.25f, -1618065.75f, &pos);
                 b->action++;
@@ -2780,10 +2865,14 @@ void SpinningBarrels_Activate(RideElem* elem)
                 break;
             case 8:
                 {
+                    /* .y stored first: with the natural order VC6 sorts the
+                     * two movsx loads by descending displacement (+0x3e
+                     * first); storing y first restores the +0x3c/+0x3e load
+                     * order the original has. */
                     int px = b->ride_dx * 2;
                     int py = b->ride_dy * 2;
-                    pos2.x = px;
                     pos2.y = py;
+                    pos2.x = px;
                 }
                 BlokeWalkAnim(b);
                 BlokeSetFrame(b, 0);
@@ -2865,7 +2954,7 @@ void SpinningBarrels_Activate(RideElem* elem)
  * ========================================================================== */
 
 extern void SpiderRide_TickMachine(void);                    /* 0x00416310 */
-extern int  SpiderRide_SeatOf(RiderNode* r, SpiderRec* rec, int cap); /* 0x00416830 -- takes the RECORD: it indexes the seat bytes at rec+0x1c */
+extern int  SpiderRide_SeatOf(RiderNode* r, SpiderRec* rec, char cap); /* 0x00416830 -- takes the RECORD: it indexes the seat bytes at rec+0x1c */
 extern void SpiderRide_SetFull(SpiderRec* rec);              /* 0x00415a60 */
 
 extern char g_spider_pathname[];                             /* 0x004b4d94 "manbox??" */
@@ -2876,32 +2965,49 @@ extern const int g_spider_end_off[8];                        /* 0x004b4ddc */
  * layout are reproduced; the semantics and the record layout are certain.
  * Same residual class as the other updates: the frame is short and the
  * cursor/ObjDef/record register split differs. */
-/* THIS ROUND (audit 351 -> 195): two semantic fixes -- SpiderRide_SeatOf takes
- * the RECORD (0x00416830 indexes the seat bytes at arg2+0x1c; the original
- * reloads rec from its 0x1c home for the push), and lpConfig (0x004bcbf4) is
- * read through its pointer. The middle cases (index 100-299) now match; the
- * head and the tail do not: the original spills rec at its def and gives
- * that register to the fresh scroll-stage value (`sx2 = cfg->ox -
- * Get_XScroll() + sx` lands in edi, sx dies in ebp), where ours keeps rec in
- * ebx across case 0 and spills sx2 across Get_YScroll; the frame is 0x28
- * against 0x3c. The Barrels' MOUNT levers (wx/wy hoisted above
- * GetTileDimensions, fresh sx2/sy2, pos temps) were transferred and measured
- * here in nine combinations: register-blind alignment improves (117 -> 83
- * with the projection written sy-then-sx) but the strict count does not
- * (367-373), because the rec/sx2 register decision does not flip in this body
- * -- here the MOUNT is case 0 and rec is used at its top (joined++/timer) as
- * well as at the SeatOf call. Reordering the JOIN stores, `sy +=`, and fresh
- * sy2 are inert. */
-// WIP-FUNCTION: LEGOLAND 0x00416330  (376/376 instructions and block layout; head/tail register split, rec kept vs spilled -- see above)
+/* THIS ROUND (audit 195 -> 63, byte length now exact at 1228). Five levers,
+ * four of them transfers from the Barrels:
+ *   1. A NAMED `tile` local (RIDE_TILE(r) once, used by FindRecord, by
+ *      GetScreenCoordsForObject and by case 13) instead of the macro at each
+ *      site: 212 -> 165 X on its own; case 13 reads it out of ebp as the
+ *      original does.
+ *   2. The rec spill the original does at its def is reached by making the
+ *      SeatOf argument a VOLATILE READ of the variable --
+ *      `SeatOf(r, *(SpiderRec* volatile*)&rec, ..)`.  That forces rec into
+ *      memory, so VC6 stores it right after the null test (the original's
+ *      `mov [esp+0x1c],edi` between `test` and `je`) and reloads it for the
+ *      push; the reload also frees rec's register for wy, which is what lets
+ *      the wx/wy pair live across GetTileDimensions.  A volatile store
+ *      (`*(volatile T**)&rec = rec` / `= FindRecord(..)`) is INERT here --
+ *      VC6 folds the self-assignment away; only the volatile READ works.
+ *   3. `SpillPair spill; *(volatile int*)&spill.x = sx;` for the dead sx
+ *      spill + phantom dword (see SpinningBarrels_Activate note items 4-5).
+ *   4. `wy = b->world.y; wx = b->world.x;` BEFORE GetTileDimensions, and a
+ *      fresh `sx2` for the x chain.
+ *   5. `b->flags |= 0x80;` moved ABOVE the two sx2 subtractions (it is
+ *      order-independent).  With the flag store between the x and y
+ *      subtractions VC6 reassociates `sx2 -= a; sx2 -= b;` into
+ *      `neg/sub/add` (three instructions, wrong registers, +3 length);
+ *      above them it keeps the original's two separate `sub edi,eax`.
+ *      Worth 321 -> 79 X on its own.  The frame is now 0x3c == 0x3c.
+ * WHAT IS LEFT (63): (a) the wx/wy register pair is ebp/edi where the
+ * original has edi/ebx -- a naming cascade through the whole MOUNT block
+ * (declaration order and assignment order of wx/wy are inert); (b) the same
+ * y-chain-in-place residual as the Barrels (indices 75-97); (c) case 7's
+ * pos2 pair (the Barrels' temps-and-y-first form measures 280 here, the
+ * plain two stores 79); (d) case 13's store ordering around
+ * ScreenToMapRef/CalcMoveLine (indices 317-336). */
+// WIP-FUNCTION: LEGOLAND 0x00416330  (83%, 63/376; frame and byte length exact, wx/wy register pair and the y chain remain -- see above)
 void SpiderRide_Activate(RideElem* elem)
 {
     RideDef*    def = elem->data;
     int         tw;
     int         th;
     RiderNode*  next;
+    RideTile*   tile;
     Offset      screen;
-    Pos         pos;
-    Pos         pos2;
+    BnvPos      pos;
+    BnvPos      pos2;
     RiderNode*  r;
     SpiderRec*  rec;
     Bloke*      b;
@@ -2910,13 +3016,19 @@ void SpiderRide_Activate(RideElem* elem)
     int         sx;
     int         sy;
     unsigned char dir;
+    SpillPair   spill;
+    int         wx;
+    int         wy;
+    int         sx2;
+
 
     r = def->riders;
     SpiderRide_TickMachine();
     while (r) {
         next = r->next;
         b = r->bloke;
-        rec = SpiderRide_FindRecord(RIDE_TILE(r));
+        tile = RIDE_TILE(r);
+        rec = SpiderRide_FindRecord(tile);
         if (rec == 0)
             break;
         if (b->state == 0) {
@@ -2925,26 +3037,29 @@ void SpiderRide_Activate(RideElem* elem)
                 rec->joined++;
                 rec->timer = 180;
                 b->flags |= 8;
-                screen = GetScreenCoordsForObject(RIDE_TILE(r), def);
+                screen = GetScreenCoordsForObject(tile, def);
+                wy = b->world.y;
+                wx = b->world.x;
                 GetTileDimensions(&tw, &th);
-                sx = (b->world.x - b->world.y) * tw >> 9;
-                sy = (b->world.x + b->world.y) * th >> 9;
-                sx = g_map_cfg->ox - Get_XScroll() + sx;
+                sx = (wx - wy) * tw >> 9;
+                sy = (wx + wy) * th >> 9;
+                *(volatile int*)&spill.x = sx;
+                sx2 = g_map_cfg->ox - Get_XScroll() + sx;
                 sy = sy + (g_map_cfg->oy - Get_YScroll());
-                sx -= g_spider_zframe / 2;
-                sx -= screen.ox;
                 b->flags |= 0x80;
+                sx2 -= g_spider_zframe / 2;
+                sx2 -= screen.ox;
                 sy -= g_spider_zstate / 2;
                 sy -= screen.oy;
-                pos.x = sx * 2;
+                pos.x = sx2 * 2;
                 pos.y = sy * 2;
                 b->person->zsprite = g_spider_tab3;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617787.75f, -1618096.5f);
                 b->b35 = 0;
                 sprintf_w(&g_spider_pathname[6], "%02d",
-                          SpiderRide_SeatOf(r, rec,
-                                            *(unsigned char*)&g_spider_def->capacity));
+                          SpiderRide_SeatOf(r, *(SpiderRec* volatile*)&rec,
+                                            (char)g_spider_def->capacity));
                 b->bnvpath = NewBNVPath(g_spider_tab1, 1, g_spider_pathname,
                                         -1617787.75f, -1618096.5f, &pos);
                 UpdateBlokeFromBNVPath(b, b->bnvpath);
@@ -3018,8 +3133,8 @@ void SpiderRide_Activate(RideElem* elem)
                 BlokeSetFrame(b, b->b74);
                 break;
             case 13:
-                qx = def->qx + RIDE_TILE(r)->b.x;
-                qy = def->qy + RIDE_TILE(r)->b.y;
+                qx = def->qx + tile->b.x;
+                qy = def->qy + tile->b.y;
                 SPIDER_SEAT(rec, b->seat) = 0;
                 b->person->zsprite = 0;
                 b->flags &= (unsigned short)~0x80u;
@@ -3074,7 +3189,7 @@ void SpiderRide_Activate(RideElem* elem)
 #define PLANE_SEAT(rec, i) (((unsigned char*)(rec))[0x1b + (i)])
 
 extern void PlaneRide_TickMachine(void);                     /* 0x0043e3f0 */
-extern int  PlaneRide_SeatOf(RiderNode* r, PlaneRec* rec, int cap); /* 0x0043e050 -- takes the RECORD: it indexes the seat bytes at rec+0x1c */
+extern int  PlaneRide_SeatOf(RiderNode* r, PlaneRec* rec, char cap); /* 0x0043e050 -- takes the RECORD: it indexes the seat bytes at rec+0x1c */
 extern void PlaneRide_SetFull(PlaneRec* rec);                /* 0x0043d990 */
 
 extern char g_plane_pathname[];                              /* 0x004b79bc "manbox??" */
@@ -3085,23 +3200,34 @@ extern void* g_plane_tab2;                                   /* 0x0062fe8c */
  * layout are reproduced; the semantics and the record layout are certain.
  * Same residual class as the other updates (frame size and the
  * cursor/ObjDef/record register split). */
-/* THIS ROUND (audit 370 -> 205): the same two semantic fixes as the Spider --
- * PlaneRide_SeatOf takes the RECORD (0x0043e050 indexes arg2+0x1c) and
- * lpConfig is a pointer. Same residual as the Spider: the middle cases match,
- * the head keeps rec in a register where the original spills it (0x1c) and
- * hands its register to the fresh scroll value, and the frame is 0x28 against
- * 0x44. The Barrels MOUNT transfer (wx/wy, sx2/sy2, pos temps) measured
- * 375-380 strict / 119-130 register-blind: inert here. */
-// WIP-FUNCTION: LEGOLAND 0x0043e410  (387/387 instructions and block layout; head/tail register split, rec kept vs spilled -- see above)
+/* THIS ROUND (audit 205 -> 108, frame now 0x44 == 0x44). The Spider recipe
+ * transfers wholesale -- named `tile` local, the volatile READ of `rec` at the
+ * SeatOf call to force its spill, `SpillPair spill` for the dead sx store and
+ * its phantom dword, wx/wy read before GetTileDimensions, a fresh `sx2`,
+ * `b->flags |= 0x80` moved above the sx2 subtractions, and a `char` capacity
+ * parameter -- plus one thing only the Plane has:
+ *   case 7 fills a SEPARATE 8-byte Offset (frame+0x14), hands it to
+ *   UnAdjustBlokePosition and copies it into `pos2` (frame+0x38); `pos` at
+ *   frame+0x2c is case 0's seed only.  Our old body reused pos2 as the
+ *   scratch and passed `pos` to NewBNVPath.  The frame proves the three
+ *   objects: 0x14 (8) scratch, 0x1c (8) screen, 0x24 (8) spill pair,
+ *   0x2c (12) pos, 0x38 (12) pos2 = 0x44.
+ * WHAT IS LEFT (108): the head is a three-way register rotation -- the
+ * original has r=edi, tile=ebx, rec=ebp, we have r=ebx, tile=ebp, rec=edi
+ * (all six orders of the `next`/`b`/`tile` statements measured, inert) --
+ * and then the same wx/wy pair and y-chain residual as the Spider. */
+// WIP-FUNCTION: LEGOLAND 0x0043e410  (72%, 108/387; frame exact, head register rotation and the y chain remain -- see above)
 void PlaneRide_Activate(RideElem* elem)
 {
     RideDef*    def = elem->data;
     int         tw;
     int         th;
     RiderNode*  next;
+    RideTile*   tile;
+    Offset      ofs;
     Offset      screen;
-    Pos         pos;
-    Pos         pos2;
+    BnvPos      pos;
+    BnvPos      pos2;
     RiderNode*  r;
     PlaneRec*   rec;
     Bloke*      b;
@@ -3110,12 +3236,18 @@ void PlaneRide_Activate(RideElem* elem)
     int         sx;
     int         sy;
     unsigned char dir;
+    SpillPair   spill;
+    int         wx;
+    int         wy;
+    int         sx2;
+
 
     r = def->riders;
     while (r) {
         next = r->next;
         b = r->bloke;
-        rec = PlaneRide_FindRecord(RIDE_TILE(r));
+        tile = RIDE_TILE(r);
+        rec = PlaneRide_FindRecord(tile);
         if (rec == 0)
             return;
         if (b->state == 0) {
@@ -3124,26 +3256,29 @@ void PlaneRide_Activate(RideElem* elem)
                 rec->joined++;
                 rec->timer = 180;
                 b->flags |= 8;
-                screen = GetScreenCoordsForObject(RIDE_TILE(r), def);
+                screen = GetScreenCoordsForObject(tile, def);
+                wy = b->world.y;
+                wx = b->world.x;
                 GetTileDimensions(&tw, &th);
-                sx = (b->world.x - b->world.y) * tw >> 9;
-                sy = (b->world.x + b->world.y) * th >> 9;
-                sx = g_map_cfg->ox - Get_XScroll() + sx;
+                sx = (wx - wy) * tw >> 9;
+                sy = (wx + wy) * th >> 9;
+                *(volatile int*)&spill.x = sx;
+                sx2 = g_map_cfg->ox - Get_XScroll() + sx;
                 sy = sy + (g_map_cfg->oy - Get_YScroll());
-                sx -= g_plane_rider_dx / 2;
-                sx -= screen.ox;
                 b->flags |= 0x80;
+                sx2 -= g_plane_rider_dx / 2;
+                sx2 -= screen.ox;
                 sy -= g_plane_rider_dy / 2;
                 sy -= screen.oy;
-                pos.x = sx * 2;
+                pos.x = sx2 * 2;
                 pos.y = sy * 2;
                 b->person->zsprite = g_plane_zsprite;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617706.75f, -1617948.625f);
                 b->b35 = 0;
                 sprintf_w(&g_plane_pathname[6], "%02d",
-                          PlaneRide_SeatOf(r, rec,
-                                           *(unsigned char*)&g_plane_def->capacity));
+                          PlaneRide_SeatOf(r, *(PlaneRec* volatile*)&rec,
+                                           (char)g_plane_def->capacity));
                 b->bnvpath = NewBNVPath(g_plane_tab1, 1, g_plane_pathname,
                                         -1617706.75f, -1617948.625f, &pos);
                 UpdateBlokeFromBNVPath(b, b->bnvpath);
@@ -3179,21 +3314,21 @@ void PlaneRide_Activate(RideElem* elem)
                     PlaneRide_SetFull(rec);
                 break;
             case 7:
-                pos2.x = b->ride_dx * 2;
-                pos2.y = b->ride_dy * 2;
+                ofs.ox = b->ride_dx * 2;
+                ofs.oy = b->ride_dy * 2;
                 BlokeWalkAnim(b);
                 BlokeSetFrame(b, 0);
-                UnAdjustBlokePosition((Offset*)&pos2);
+                UnAdjustBlokePosition(&ofs);
                 b->flags |= 0x80;
-                pos.x = pos2.x;
-                pos.y = pos2.y;
+                pos2.x = ofs.ox;
+                pos2.y = ofs.oy;
                 b->person->zsprite = g_plane_zsprite;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617706.75f, -1617948.625f);
                 b->b35 = 2;
                 sprintf_w(&g_plane_pathname[6], "%02d", b->seat);
                 b->bnvpath = NewBNVPath(g_plane_tab2, 2, g_plane_pathname,
-                                        -1617706.75f, -1617948.625f, &pos);
+                                        -1617706.75f, -1617948.625f, &pos2);
                 BNVPath_SetDFrame(b, b->bnvpath, 0);
                 UpdateBlokeFromBNVPath(b, b->bnvpath);
                 b->action++;
@@ -3216,8 +3351,8 @@ void PlaneRide_Activate(RideElem* elem)
                 BlokeSetFrame(b, b->b74);
                 break;
             case 13:
-                qx = def->qx + RIDE_TILE(r)->b.x;
-                qy = def->qy + RIDE_TILE(r)->b.y;
+                qx = def->qx + tile->b.x;
+                qy = def->qy + tile->b.y;
                 PLANE_SEAT(rec, b->seat) = 0;
                 b->person->zsprite = 0;
                 b->flags &= (unsigned short)~0x80u;
@@ -3263,6 +3398,7 @@ void PlaneRide_Activate(RideElem* elem)
  * blit mode 0 rather than the caller's mode -- this ride ignores it. */
 
 extern ZSprite* g_sbarrel_zspr_obj;                          /* 0x0062fe00 */
+extern Offset   g_sbarrel_pivot;                             /* 0x0062fdd8 (+4 = oy); the 0x62fdd8/dc pair as one Offset */
 
 /* Position one riding bloke (the Plane's lever: a static __inline helper so
  * `piv` is an inline-expansion temporary outside the caller's alias class,
@@ -3270,11 +3406,9 @@ extern ZSprite* g_sbarrel_zspr_obj;                          /* 0x0062fe00 */
  * way the original does). */
 static __inline void SpinningBarrels_PlaceRider(Bloke* b, Offset* screen)
 {
+    Offset    piv = g_sbarrel_pivot;
     Person3D* p = b->person;
-    Offset    piv;
 
-    piv.oy = g_sbarrel_pivot_y;
-    piv.ox = g_sbarrel_pivot_x;
     p->local.ox = b->ride_dx;
     p->local.oy = b->ride_dy;
     AdjustBlokePosition(&p->local);
@@ -3284,34 +3418,32 @@ static __inline void SpinningBarrels_PlaceRider(Bloke* b, Offset* screen)
     AdjustBlokePosition(&p->screen);
 }
 
-/* STATE: all 373 instructions and the whole block layout (both arms, the five
- * array passes, the shared final blit) are reproduced; the semantics are
- * certain. Residual is frame/register allocation of the same class as the
- * other two array-collecting draws. */
-/* Also measured this round and REJECTED for this function: `Bloke* found[15]
- * = { 0 };` in place of the memset (361, worse -- with fifteen entries the
- * original really does use a bare `rep stosd`, i.e. a memset, not an
- * initialiser; the immediate-plus-register-stores form only appears for the
- * FOUR-entry array in PlaneRide_Interact).
- * THIS ROUND: the five band loops here are the SAME shape that took
- * PlaneRide_Interact from 237 mismatches to 94 and Balloonz_Draw from 507 to
- * 341 -- rewriting them as `MechDrawBand(found, n, code)` recovers every
- * per-band `test cl,cl / movsx` guard and cuts the difflib alignment against
- * the original from 414 diff lines to 305.  It is NOT shipped here because the
- * strict index gate gets slightly worse (344 -> 350) and the count goes from
- * 374 to 371 against the original's 373: this function ALSO diverges at index
- * 0, in the prologue, where the original schedules `mov ebp,[eax+N]` and
- * `mov esi,[ebp+N]` one slot later and initialises the `found[]` array with an
- * immediate store plus `rep stosd` where we push first.  Fix the prologue
- * first, then re-apply the band helper -- the two are independent and the
- * helper is the right structural answer. */
-// WIP-FUNCTION: LEGOLAND 0x0043be70  (373/373 instructions and block layout; frame and register allocation differ -- band helper pending, see above)
+/* CLOSED (373/373). 39 -> 0 in three steps, all frame/alias levers:
+ * (1) TWO Offset locals, split by BLIT, not by kind: the original keeps the
+ *     layer-3 blit's offset (both arms) in one home (0x20) and the two matte
+ *     blits' AND the layer-2 blit's offset in another (0x18). One `off` for
+ *     everything gives a frame 8 bytes short; `off` for layer 3 + `moff` for
+ *     the mattes only leaves the layer-2 blit on the wrong home (20 X).
+ *     Declaration order and block scope of the two are inert (four forms all
+ *     exact); wrapping the layer-3 blit in its own inner scope costs 37.
+ * (2) The rider pivot is ONE 8-byte global (0x62fdd8/dc) copied whole:
+ *     `Offset piv = g_sbarrel_pivot;` declared BEFORE `p`. That is what
+ *     issues the loads in DESCENDING displacement order (0x62fddc first) with
+ *     the `p = b->person` load between them (the Plane's ofs/p interleave
+ *     with the pair reversed). Scalar stores in either order, or the struct
+ *     copy as a statement after `p`, leave the pair ascending (+2/+4).
+ * (3) The band loops are `char i` (transfer #1) -- already in place.
+ * Also measured and rejected: the layer blits or the matte blits as a
+ * static __inline helper (loses the shared LLSSetFrame/GetLLS scheduling,
+ * 362/158 X); a third Offset for the second matte (61). */
+// FUNCTION: LEGOLAND 0x0043be70
 void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
                               void* clip, int mode)
 {
     RideDef*    item = elem->data;
     LayerOut    lay;
-    Offset      off;
+    Offset      off;         /* the layer-3 blit's offset (frame 0x20) */
+    Offset      moff;        /* the matte and layer-2 blits' offset (0x18) */
     Offset      screen;
     RiderNode*  r;
     SBarrelRec* rec;
@@ -3361,15 +3493,15 @@ void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
                 if (found[i]->action == 15)
                     IP_RenderBlokeIn3DNow(found[i]);
             }
-            off = GetRenderOffsetForLayer(g_sbarrel_layers, 1);
-            AdjustOffsetForViewMode(&off);
-            PrintSprite(g_sbarrel_spr0, off.ox + screen.ox,
-                        off.oy + screen.oy, 0, 0);
+            moff = GetRenderOffsetForLayer(g_sbarrel_layers, 1);
+            AdjustOffsetForViewMode(&moff);
+            PrintSprite(g_sbarrel_spr0, moff.ox + screen.ox,
+                        moff.oy + screen.oy, 0, 0);
             LLSSetFrame(GetLLSForLayer(g_sbarrel_layers, 2), rec->frame2);
-            off = GetRenderOffsetForLayer(g_sbarrel_layers, 2);
-            AdjustOffsetForViewMode(&off);
+            moff = GetRenderOffsetForLayer(g_sbarrel_layers, 2);
+            AdjustOffsetForViewMode(&moff);
             PrintSprite(GetSpriteForLayer(g_sbarrel_layers, 2),
-                        screen.ox + off.ox, screen.oy + off.oy, 0, 0);
+                        screen.ox + moff.ox, screen.oy + moff.oy, 0, 0);
             for (i = 0; i < n; i++) {
                 if (found[i]->action == 16)
                     IP_RenderBlokeIn3DNow(found[i]);
@@ -3378,10 +3510,10 @@ void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
                 if (found[i]->action == 17)
                     IP_RenderBlokeIn3DNow(found[i]);
             }
-            off = GetRenderOffsetForLayer(g_sbarrel_layers, 1);
-            AdjustOffsetForViewMode(&off);
-            PrintSprite(g_sbarrel_spr1, off.ox + screen.ox,
-                        off.oy + screen.oy, 0, 0);
+            moff = GetRenderOffsetForLayer(g_sbarrel_layers, 1);
+            AdjustOffsetForViewMode(&moff);
+            PrintSprite(g_sbarrel_spr1, moff.ox + screen.ox,
+                        moff.oy + screen.oy, 0, 0);
             return;
         }
     }
@@ -3391,9 +3523,9 @@ void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
     PrintSprite(GetSpriteForLayer(g_sbarrel_layers, 3),
                 screen.ox + off.ox, screen.oy + off.oy, 0, 0);
     LLSSetFrame(GetLLSForLayer(g_sbarrel_layers, 2), rec->frame2);
-    off = GetRenderOffsetForLayer(g_sbarrel_layers, 2);
-    AdjustOffsetForViewMode(&off);
+    moff = GetRenderOffsetForLayer(g_sbarrel_layers, 2);
+    AdjustOffsetForViewMode(&moff);
     PrintSprite(GetSpriteForLayer(g_sbarrel_layers, 2),
-                screen.ox + off.ox, screen.oy + off.oy, 0, 0);
+                screen.ox + moff.ox, screen.oy + moff.oy, 0, 0);
     }
 }

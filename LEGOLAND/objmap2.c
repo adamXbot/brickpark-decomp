@@ -1230,7 +1230,53 @@ static __inline int UidHit(Cell* c, ObjDef* def, int x, int y)
  *   allocation puzzles the ALIGNED distance is the number that moves; the
  *   index-for-index count mostly measures how far one inserted instruction
  *   shifted the rest of the body, and it hid this lever from two earlier
- *   passes. */
+ *   passes.
+ *
+ * 2026-09 PASS 4.  No improvement (still 20 / 477B / 191i); the residual is
+ * now bounded by a PROOF that the two wanted properties are mutually
+ * exclusive over the whole map-pointer family.  Tooling: scratchpad/objmap2/p4
+ * (ut.py = harness, u1..u7.py = the sweeps).
+ *   MECHANISM (recovered, was only guessed before).  The original's three
+ *   `mov esi,[g_map]` (0x48a402, and the pads 0x48a4d9 / 0x48a547) are ONE
+ *   value whose live range is split by the two clobbers (`mov esi,
+ *   [g_map_rows]` and `mov esi,[ebp+0xc]`), with the reload placed at each
+ *   region ENTRY, i.e. BEFORE the `lea ecx,[eax-1] / test / jl` sign test -
+ *   because the LEFT probe's copy is still live along the sign-test FAILURE
+ *   edge and is what the RIGHT probe reads (0x48a556/0x48a564 read esi on
+ *   every edge that leaves the left probe before 0x48a522).  Ours emits
+ *   exactly three loads too, but each at the FIRST USE inside its own
+ *   `x >= 0` branch, so nothing is live across the failure edge and the right
+ *   probe reloads for itself.  Instruction count, byte count and the free
+ *   registers are identical; only that liveness differs, and the esi/edx
+ *   role swap follows from it (the longer range takes the callee-saved
+ *   register).
+ *   THE RULE that blocks every fix (104 variants: all 52 ways of grouping the
+ *   four probes over `Map*` locals - helper-local, caller-local or helper
+ *   parameter - measured with the assignments both at first use and all at
+ *   the function top).  A `Map* m = g_map;` local is copy-propagated away and
+ *   compiles BYTE-IDENTICALLY to a direct global read whenever the ABOVE and
+ *   BELOW probes use the SAME pointer expression - which is exactly the
+ *   condition for the vertical width/height CSE ([esp+0x14] + ebx) that this
+ *   body needs.  Give the above and below probes two DIFFERENT locals and the
+ *   fold stops: the horizontal probes then get the original's landing-pad
+ *   reload before the sign test, but the vertical CSE is gone and VC6 spends
+ *   the freed ebx on a hoisted g_map_rows (468B, 146).  One local shared by
+ *   ALL FOUR probes hoists the load to the entry block, the common dominator
+ *   of its uses (477B, 28, first divergence 6, otherwise identical to this
+ *   code).  So "pads" and "vertical CSE" cannot both be had from any
+ *   pointer-variable spelling.
+ *   Additionally measured and BYTE-IDENTICAL to this code (do not repeat):
+ *   a horizontal-only helper with `int w = g_map->width;` read before the
+ *   guard; one with `Map* m; int w, h;` all named; the negated
+ *   `if (x < 0 || x >= m->width || ...) return 0;` guard; four separate early
+ *   `return 0;` guards; a degenerate `if (g_map_rows) m = g_map; else m =
+ *   g_map;`; `CellM(Map* m, int y, int x)` with g_map passed at each call
+ *   site; and the x/y local-vs-expression matrix re-measured in the PASS-3
+ *   shape (x as an int local is still a loss - 481B).
+ *   Left to try: something that makes rematerialising the global at the right
+ *   probe UNATTRACTIVE (the original preferred a live range over a 6-byte
+ *   reload), or a shape in which the vertical width/height CSE survives
+ *   without the two vertical probes sharing one pointer expression. */
 // WIP-FUNCTION: LEGOLAND 0x0048a3e0  (89.5%, left/right probes reload g_map at its use into edx, the original at the probe entry into esi)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {
@@ -1452,7 +1498,77 @@ static __inline void PeopleCheck(Cursor* cur, Rect* r, WinRect* bound, Pos* o)
  *    the last question is only why the original spends ONE register on both
  *    origin halves.  It is NOT register pressure: ebx is genuinely dead across
  *    this block in the original too - its first definition is the x-loop
- *    variable at 0x45f91f, well after the block. */
+ *    variable at 0x45f91f, well after the block.
+ *
+ * 2026-09 PASS 4.  No improvement (still 5 / 617B / 205i, first divergence
+ * 42, aligned register-normalised edit distance TWO - exactly ONE displaced
+ * instruction).  ~1760 further variants, tooling in scratchpad/objmap2/p4
+ * (vt.py = harness, vc1..vc13.py = the sweeps).  The residual is now pinned
+ * to a single measured rule, and that rule blocks every spelling.
+ *   THE RULE (proved in isolation, scratchpad/objmap2/p4/vc5.py).  A store to
+ *   an ESCAPED CALLER LOCAL placed between two reads of a pointer field kills
+ *   the CSE and forces a RELOAD of the field.  Probe: move the IMMEDIATE
+ *   store `bound->left = 0;` (no loads, so register pressure cannot explain
+ *   it) into the helper between the top and bottom sums - `cur->origin.y` is
+ *   then loaded TWICE.  `bound` is escaped (its address reaches the real
+ *   IntersectRect call); `foot`/`hit` are born inside the inlined helper and
+ *   are NOT in that class, so their stores are not barriers.
+ *   WHY THAT SETTLES THE SHAPE.  The original stores bound.right at index 45,
+ *   i.e. BETWEEN its two `origin.y` uses (the top sum at 44 and the bottom
+ *   sum at 49), and still loads origin.y only once.  So in the ORIGINAL'S
+ *   SOURCE that store cannot sit between the two sums either - it must be
+ *   before them, exactly as here - and the displacement to index 45 is done
+ *   later, by the scheduler.  Every C spelling that puts the store after the
+ *   top sum pays for it: the escaped-store barrier reloads origin.y (166),
+ *   unless origin.y is made immune, and both ways of doing that cost more
+ *   than they save (see below).
+ *   Measured this pass, all worse, do not repeat:
+ *    - origin.y through a named scalar `int py = o->y;` in the helper (immune
+ *      to the barrier: the reload does go away) x px named/inline x 5 store
+ *      positions x all 24 orders of {bound.top, bound.left, bound.bottom,
+ *      h = g_map->height} in the caller, 480 variants: best 19, 618B - the
+ *      height LOAD always sinks with its store, dragging g_map's register
+ *      across the top sum.  Putting a bound store after `h = g_map->height`
+ *      to pin that load does not pin it;
+ *    - the origin passed BY VALUE (argument temps, also immune): best 18,
+ *      618B, and it loads BOTH origin halves up front, where the original
+ *      loads origin.x late at index 52;
+ *    - `bound` born inside the inlined helper (out of the caller's escaped
+ *      class, so its stores stop being barriers): worse still;
+ *    - 576 variants: all 24 foot-sum orders x all 24 caller bound-store
+ *      orders in the PASS-3 shape.  sums top,bottom,left,right x bound
+ *      top,left,bottom,right is the UNIQUE 5; next best 6 (bound tlRb, which
+ *      diverges at 40), then 7;
+ *    - all four bound stores moved INSIDE the helper before the sums, 24
+ *      orders: byte-identical 5.  So there is NO scheduling-region boundary
+ *      at the inline site - the scheduler simply keeps this store next to its
+ *      load whatever region it is in;
+ *    - the height read spelled (int) / (unsigned) / (long) / (unsigned short)
+ *      / +0 / |0 / *(&..): all byte-identical.  Unlike the float case there
+ *      is no surviving no-code integer conversion tuple;
+ *    - scheduler-window probe (p4/gap.py): padding the block with 1-3 extra
+ *      instructions ahead of it shifts the whole block but the load->store
+ *      gap stays 1, so window alignment counted from the function start is
+ *      not the actor;
+ *    - the four sums computed into scalar locals first, then stored: 135;
+ *    - `WinRect bound = { 0, 0, g_map->height, g_map->height };` in the rect
+ *      block (165, 618B) is the ONLY shape that reproduces the wanted
+ *      behaviour in kind: the two height reads are NOT CSE'd (two loads, as
+ *      in the original) and the initialiser's LAST store IS sunk past the
+ *      `cur->origin.y` load WITHOUT breaking its CSE - confirming that
+ *      initialiser stores are non-aliasing.  It still cannot be the original:
+ *      the sunk store is always the HIGHEST-OFFSET field (bound.bottom at
+ *      +0xc) where the original sinks bound.right at +8, it only sinks ONE
+ *      slot where the original sinks three, and the two zero stores come out
+ *      in field order left,top where the original has top,left.  Partial
+ *      initialisers plus a trailing assignment (165/166) do not help.
+ *   DIAGNOSTIC worth keeping: VC6 separates the FIRST height load from its
+ *   store by two instructions (it schedules `xor edx,edx` in between) and the
+ *   second by one; the original separates the second by four, filling the gap
+ *   with the first three instructions of the sums.  Same multiset, same
+ *   registers, only the order differs - so the pre-scheduling list differs by
+ *   one item's position, and no source order reaches it without breaking the
+ *   origin.y CSE. */
 // WIP-FUNCTION: LEGOLAND 0x0045f810  (97.6%, bound.right store scheduled before the top sum: 5 insns at idx 42-46)
 void ValidateCursor(Cursor* cur, ObjDef* def)
 {

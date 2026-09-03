@@ -280,44 +280,42 @@ static __inline int MouseOverIcon(Icon* p)
  *   (0xf0, 0xd1)  its price (ObjDef +0x26) as "%d", 0x43 x 0x12
  * then blits the entry's preview sprite at (0xc4, 0x64).
  *
- * RESIDUAL (2 instructions of 240).  The original computes each of the first
- * two text widths as TWO adds -- `add eax,0BBh` then `add eax,0FFFFFF3Fh`
- * (-0C1h) -- where VC6 folds `g_pu_mock->w + 0xbb - 0xc1` to a single
- * `sub reg,6`.  Everything else in the body matches index for index.  VC6 SP3
- * only leaves the pair unfolded when the `+ 0xbb` node has MORE THAN ONE
- * consumer and the extra consumer comes FIRST (measured: a store to a global
- * or a call taking the value before the subtraction gives `add/add`; a
- * consumer AFTER gives `add` + `lea [r-193]`; a single consumer always folds).
- * Ruled out this round, all still folding to `sub reg,6`: every spelling of
- * the expression (operand order, extra parentheses, `+ -0xc1`, `- 0xc0 - 1`,
- * `~0xc0`, `-(0xc1 - R)`, three-constant chains such as `w + 0xbe - 3 - 0xc1`
- * and `- (0xbe + 3)`); routing either constant through a local (single or
- * repeated assignment, `register`, across the Format if/else join, as an
- * `enum`), which VC6 constant-propagates before it folds; a `static const int`
- * (that one LOADS the constant from memory instead); four static __inline
- * shapes (a right-edge accessor, a `Sub(a,b)`, an `Add(a,b)`, and a
- * `PrintBox(s,x,y,x2,y2,f)` whose x is used twice), including one whose local
- * holds the edge and is expanded at both call sites; narrowing to `short` (16-
- * bit arithmetic plus a movsx) and every parameter type for the width slot
- * (short / unsigned / long / unsigned char).  So the missing ingredient is a
- * SECOND consumer of `g_pu_mock->w + 0xbb`, evaluated before the width, that
- * costs no instruction -- and nothing in the original's instruction stream is
- * one.  Next thing to try: whether the real prototype of PrintCachedText
- * passes the panel edge somewhere else too (a 10th argument would change the
- * `add esp,48h`, so it is not that), or whether this file used a geometry
- * accessor that also updated a global the disassembly attributes elsewhere.
+ * The two caption widths are `panel right edge - text margin`, and the
+ * original does NOT fold the two constants: it emits `add eax,0BBh` then
+ * `add eax,0FFFFFF3Fh` (-0C1h) where a plain `g_pu_mock->w + 0xbb - 0xc1`
+ * compiles to one `sub reg,6`.  VC6 SP3 reassociates `(X + c1) - c2` only
+ * when the `X + c1` node has a SINGLE consumer; give it a second consumer
+ * that is evaluated first and both adds survive (measured: a second call
+ * argument, a store, or -- at zero instructions -- a TEST of the value in
+ * an `if` condition whose body is empty, which VC6 deletes only after the
+ * fold decision).  The empty guard below is that second consumer: it emits
+ * nothing, and `if (right)`, `if (right < 0)`, `if (right > 0)`,
+ * `if (right != 0)`, `if (right < 0xc1)`, `if (right >= 0x27f)` and
+ * `if (right > 0xc1)` all give a byte-identical body, so the original's
+ * source had some body-less (or compiled-out) test of the panel's right
+ * edge between the edge and the two captions.  Everything that does NOT
+ * work, for the record: every spelling of the expression itself (operand
+ * order, `+ -0xc1`, `~0xc0`, `-(0xc1 - R)`, three-constant chains), casts
+ * that do not change width (`(unsigned)`, `(long)`, `| 0`, `^ 0`, `* 1`),
+ * a `short` local (adds a movsx), routing either constant through a local
+ * -- single assignment, repeated assignment, `const`, `enum` -- four
+ * `static __inline` shapes including a right-edge accessor and a
+ * `PrintBox(s,x,y,x2,y2,...)`, a shared `right` used by both captions (VC6
+ * spills it across the call: +2 instructions and a worse body) or by the
+ * icon placements as well, a `volatile` read of the width field (blocks the
+ * fold but changes the schedule), and a degenerate ternary (same).
  *
  * Finally each of the three icons whose sprite the cursor is NOT over is
  * reset to its "off" sprite (the hover sprite is set by the icon's own
  * input handler), and the carousel ends are greyed out: prev is hidden on
  * the first entry, next on the last.
  * ------------------------------------------------------------------------- */
-// WIP-FUNCTION: LEGOLAND 0x004720a0  (238 of the original's 240 instructions,
-//   832B vs 842B; the ONLY residual is the two text widths -- see the note above)
+// FUNCTION: LEGOLAND 0x004720a0
 void DrawPopUpMock(void)
 {
     BlitCtx ctx;
     char    text[0x80];
+    int     right;
 
     ctx.kind = 1;
     memset(&ctx.sub, 0, sizeof(ctx.sub));
@@ -334,10 +332,16 @@ void DrawPopUpMock(void)
     else
         Format(text, "You have %d new objects", g_mock_count);
 
-    PrintCachedText(text, 0xc1, 0x30, g_pu_mock->w + 0xbb - 0xc1, 0x14,
+    /* `right` is the panel's right edge; the empty guard is what stops VC6
+     * folding the two constants into one `sub` (see the note above). */
+    right = g_pu_mock->w + 0xbb;
+    if (right > 0xc1) { }
+    PrintCachedText(text, 0xc1, 0x30, right - 0xc1, 0x14,
                     2, 5, 0xff0000, 0xffffff);
+    right = g_pu_mock->w + 0xbb;
+    if (right > 0xc1) { }
     PrintCachedText(g_mock_defs[g_mock_index]->name, 0xc1, 0x4b,
-                    g_pu_mock->w + 0xbb - 0xc1, 0x14, 2, 5, 0xff0000, 0xffffff);
+                    right - 0xc1, 0x14, 2, 5, 0xff0000, 0xffffff);
     PrintCachedText(g_mock_defs[g_mock_index]->desc, 0x13e, 0x68, 0xfc, 0x77,
                     2, 0x10, 0xff0000, 0xffffff);
     Format(text, "%d", g_mock_defs[g_mock_index]->cost);
@@ -470,48 +474,37 @@ static __inline Sprite* PathSprite(int* base, int id)
  *        the centre are computed even for a gardener list, where nothing is
  *        drawn with them.  Reproduced.
  * ------------------------------------------------------------------------- */
-/* RESIDUAL (one instruction of 354).  Our body is 355 instructions to the
- * original's 354 and matches it index for index everywhere EXCEPT the rect
- * loop's landing pad: the original reloads only `i` there
+/* CLOSED (was 355 emitted against the original's 354: one extra
+ * `mov edx,[esp+10h]` reload in the rect loop's landing pad).  The original
+ * reloads only `i` there
  *     0049acbc  mov eax,[esp+18h]        ; i
- *     0049acc0  mov ecx,[edx+10h]        ; o->rects   -- edx still holds `o`
- * because VC6 forwards the `mov edx,[esp+10h]` the loop BOTTOM already did
- * for `i < o->nrects` across the back edge, while the pre-header jumps
- * straight to 0049acc0.  Ours reloads `o` as well (`mov edx,[esp+10h]`
- * between the two), so the pre-header jumps one instruction further and the
- * whole body shifts by one; nothing else differs and the frame is identical
- * slot for slot (0x50 bytes: o -50, l1 -4c, i -48, colour -44, r2 -40,
- * path -3c, cls -38, sw/t3 -34, sh -30, (int)sw spill -2c, pt -28, b -20,
- * r -10, with r.left/r.right never leaving ebp/edi so r's first and third
- * words are allocated but never written).
+ *     0049acc0  mov ecx,[edx+10h]        ; o->rects  -- edx still holds `o`
+ * because it keeps `o` in edx across the back edge, where ours reloaded it
+ * too and the pre-header's `jmp` therefore landed one instruction further on.
  *
- * Measured and identical (all 355, pad unchanged): every loop spelling for
- * both loops (for / while / do-while / `continue` instead of `if (i == 0)`,
- * `++i`, `!i`, `o->nrects > i`, `(n = o->nrects)`); `&o->rects[i]` vs
- * `o->rects + i` vs the index expression written out four times; splitting
- * the four `r.*` assignments into loads then `+=`; a `Pos op = o->pos` copy;
- * a second `WorkOrder* w = o` for the body (356); a `mech` copy of the
- * parameter (356); swapping the assigned/unassigned PrintSprite arms (345);
- * declaring `path` separately, later, or as `ElemData*`; declaring l1/r2/t3/
- * cx/cy/sw/sh block-scope inside the `i == 0` arm; function-level xc/yc;
- * `3 + (xc|yc)`; folding yc into xc (351); and inlining both TileSprite and
- * PathSprite by hand.
+ * The fix is the SOURCE ORDER of the two independent entry stores: writing
+ * `colour` before `o` in both arms of the `mechanic` test.  VC6 reorders the
+ * pair anyway (it emits colour first either way), so the emitted prologue is
+ * identical, but the order the two webs are CREATED in decides their
+ * allocation priority, and with `colour` first `o`'s web survives in edx over
+ * the whole rect loop and the landing pad loses its reload.  Frame, block
+ * layout and every other instruction were already exact.
  *
- * WHAT IT IS: pure register-allocation pressure, and it is measurable --
- * making the path-tile base a fresh global read inside PathSprite (so `path`
- * stops being a memory local live across the loop) drops us to exactly 354
- * instructions with the pad reloading only `i`, and deleting the whole
- * `i == 0` arm puts `o` in edi and spills it nowhere at all.  So the five
- * memory-resident values live across the rect loop (o, i, colour, path, cls)
- * are one too many for VC6 to forward the bottom's load, and the original
- * evidently gave the allocator one fewer live value somewhere inside the
- * `i == 0` arm.  Next thing to try: a shape for that arm that needs one
- * fewer simultaneously-live temporary -- the four corner probes are the
- * obvious candidate (l1/r2/t3 plus the sign-extended sprite size).
+ * Two other shapes also produced the one-instruction pad, both at the cost of
+ * moving code: reading `sw`/`sh` after the first corner probe (354/1107B but
+ * 15 mismatches around index 185), and declaring `cx`/`cy` inside
+ * `if (mechanic)` (354 but VC6 then hoists the mechanic test above the
+ * centre computation, 22 mismatches from index 291).  Inert, for the record:
+ * every loop spelling for both loops; `&o->rects[i]` vs `o->rects + i` vs the
+ * index written out; a function-level `rc`; `!i` for `i == 0`; block scope
+ * for l1/r2/t3, cx/cy, sw/sh, pt/b, r, or all of them; a named widened
+ * `sw2`; a `Sprite* sp = cls->sprite`; `sw << 1`; `(l1 + r2 - sw)/2`;
+ * a `Probe(&pt, &b, x, y)` inline helper for the four corner probes;
+ * `unsigned colour`; reading `cls` as `o->obj->cls` at each use; declaring
+ * `path` last; and zero-cost dead tests (`if (path) { }` and friends) at the
+ * top or bottom of the `i == 0` arm.
  */
-// WIP-FUNCTION: LEGOLAND 0x0049ac50  (354 of the original's 354 instructions
-//   reproduced, 355 emitted: one extra `mov edx,[esp+10h]` reload at the rect
-//   loop's landing pad -- see the note above; everything else is exact)
+// FUNCTION: LEGOLAND 0x0049ac50
 void RenderWorkOrders(int mechanic)
 {
     int*       path = (int*)g_worker_path_tiles->data;
@@ -526,12 +519,16 @@ void RenderWorkOrders(int mechanic)
     int        cx, cy;
     short      sw, sh;
 
+    /* colour BEFORE o in both arms: the two stores are independent and VC6
+     * reorders them anyway, but their source order decides the order the two
+     * webs are created in, and that is what puts `o` in edx across the rect
+     * loop's back edge (see the note above). */
     if (mechanic) {
-        o = g_mechanic_orders;
         colour = 0xe04040;
+        o = g_mechanic_orders;
     } else {
-        o = g_gardener_orders;
         colour = 0x40e040;
+        o = g_gardener_orders;
     }
     while (o) {
         cls = o->obj->cls;
@@ -771,32 +768,66 @@ extern int g_popup_y;              /* 0x007fded0  PopUpInfo.pos.y */
  *      comparison ELIDED, because VC6 knows 5 < 0x82.
  *   y  clamped to [0x25, 0x16f - height].
  * ------------------------------------------------------------------------- */
-/* RESIDUAL (one instruction of 43).  42 emitted, index-for-index identical
- * up to the y clamp; the original materialises the low bound in a register
- * before the store
- *     0047191e  mov eax,25h
- *     ...       mov [7fdeccH],ecx  /  mov [7fded0H],eax
- * where every spelling tried makes VC6 store the immediate directly
- * (`mov dword ptr [7fded0H],25h`, one instruction).  Note the two forms are
- * the SAME LENGTH (5+5 vs 10 bytes) because an absolute store from eax uses
- * the short A3 opcode, so this is not a size choice.  Measured and still
- * folding: the constant routed through the shared `limit` variable, through
- * `y` itself, through a `limit` that is also the compare operand, as an
- * `int limit = 0x25` initialiser, via a Pos struct for the two globals, with
- * the store pair before/after the branch, with the arms swapped, with a
- * dead symmetric `if (y > limit) g_popup_y = y;` after it (VC6 range-folds
- * that away and still stores the immediate), and as a phi joined after the
- * if/else (41 instructions -- VC6 then shares one store pair instead of
- * duplicating it into both arms, which is a bigger divergence).  So the
- * original's `limit` is live in eax across the join for a reason this
- * shape does not yet reproduce; the high arm's two-def clamp
- * (`g_popup_y = limit; if (y <= limit) g_popup_y = y;`) IS exact.  Also
- * ruled out: hoisting `limit = 0x16f - h` above the branch so the low arm
- * is a SECOND def of a multi-def variable (41), and re-nesting the high
- * arm's test under an explicit `if (y >= 0x25)` after a joined phi (41). */
-// WIP-FUNCTION: LEGOLAND 0x004718c0  (42 of the original's 43 instructions;
-//   only the y-clamp low bound differs -- see the note above)
-void ClampPopUpToScreen(int size)
+/* RESIDUAL (3 of 43; was 16 of 42).  The function RETURNS the y bound it
+ * settled on -- popup.c's only call site declares it `void` and ignores the
+ * value, but nothing else explains the two eax defs: the low arm's
+ * `mov eax,25h` feeds BOTH the store to g_popup_y and the return, and the
+ * high arm's eax is `0x16f - h` for the same two consumers.  With the
+ * `return` in place the body is 43/43 instructions and the low arm is
+ * emitted exactly (`mov eax,25h / pop edi / mov [7fdeccH],ecx /
+ * mov [7fded0H],eax / pop esi / ret`).
+ *
+ * What is left (first diverging index 25, 143 vs 144 bytes) is WHERE the
+ * constant's def sits:
+ *     original   cmp esi,25h / jge <high> / mov eax,25h
+ *     ours       mov eax,25h / cmp esi,eax / jge <high>
+ * VC6 builds a constant WEB as soon as a constant has two register uses, and
+ * the web then ABSORBS the compare's immediate occurrence and parks the def
+ * at the common dominator (one byte shorter, hence the 143).  Proof of the
+ * mechanism, both measured: change only the compare's constant (`y < 0x26`)
+ * and the def drops into the low arm with everything else identical
+ * (mismatch 1, the compare); write the test as `y - 0x25 < 0` (lea/test) and
+ * the low arm is again exact.  The one-register-use case does NOT web --
+ * buildtick.c's GetBuildTime is `cmp eax,32h / jge / mov eax,32h` from
+ * `if (cost < 50) return 50;` -- so the original's source must spell the
+ * compare's 0x25 as a constant distinct from the arm's, and no C spelling
+ * found does that: VC6 keys constants by VALUE only.  Ruled out (all give
+ * the same hoist): `int top = 0x25` used for the compare, for the arm, or
+ * for both; a `const` local; a two-def `limit` dominating the branch;
+ * `static __inline int Top(void) { return 0x25; }`; `37`, `'\045'`,
+ * `0x26 - 1`, `-(-0x25)`, `0x25u`, `0x25L`; unsigned/short/char/long return
+ * types; an unsigned alias of the global for the store; `return
+ * (g_popup_y = 0x25)`, the comma form, a read-back `return g_popup_y`,
+ * `y = 0x25; return y;`; an inlined `SetPos(x, 0x25)` helper; `!(y >= 0x25)`,
+ * `0x25 > y`, `g_popup_y < 0x25`, `(unsigned)y < 0x25u` (gives `jae`);
+ * `y + 1 < 0x26` and `y - 1 < 0x24` (VC6 keeps the inc/dec: 34 instructions);
+ * a `goto` that puts the low arm's TEXT before the compare; and zero-cost
+ * dead tests (`if (w) { }`, `if (h) { }`, `if (x) { }`, `if (y) { }`, before
+ * the clamp or inside the arm) meant to keep eax busy at the compare -- the
+ * trick that closed DrawPopUpMock is inert here because the web's placement,
+ * not a fold, is what moves.  Also inert: a DEGENERATE branch defining the
+ * bound on both arms (`if (g_panel_state.f00 == 2) top = 0x25; else top =
+ * 0x25;`, and the same on `x`/`size`) in the hope that the phi would hide the
+ * constant from the compare until after web placement -- VC6 folds those at
+ * the front end; carrying the bound in a reassigned PARAMETER (`size`) or in
+ * a dead local (`x`, `w`, `h`) after its last use; and `*(volatile int*)&top`
+ * at the compare (a real reload, 35 instructions).
+ * Also still ruled out from the earlier void-returning shape: routing the
+ * constant through `limit`, a Pos struct for the two globals, swapped arms,
+ * a dead symmetric `if (y > limit) g_popup_y = y;` (range-folded away), and
+ * a joined phi after the if/else (41 instructions -- one shared store pair).
+ * Only the three instructions at 25..27 differ; the whole x clamp and the
+ * whole high arm are index-for-index exact.
+ *
+ * Measured rule, worth keeping: a constant with ONE register use plus an
+ * immediate use stays split (GetBuildTime); with TWO register uses it becomes
+ * a web that swallows every other occurrence, including `cmp reg,imm`, and
+ * the def lands at their common dominator.  renderinit.c's
+ * SetBridgeDrawOffsets is the same web seen from the other side -- `mov
+ * eax,6Dh` exists there only because 0x6d is stored to two globals. */
+// WIP-FUNCTION: LEGOLAND 0x004718c0  (43/43 instructions, 143/144 bytes,
+//   mismatch 3: the y-clamp low bound's constant def is one block too early)
+int ClampPopUpToScreen(int size)
 {
     int x = g_popup_x;
     int y = g_popup_y;
@@ -812,16 +843,17 @@ void ClampPopUpToScreen(int size)
     if (x < 0x82 && g_panel_state.f00 != 2)
         x = 0x82;
     if (y < 0x25) {
-        limit = 0x25;
         g_popup_x = x;
-        g_popup_y = limit;
-    } else {
-        limit = 0x16f - h;
-        g_popup_x = x;
-        g_popup_y = limit;
-        if (y <= limit)
-            g_popup_y = y;
+        g_popup_y = 0x25;
+        return 0x25;
     }
+    limit = 0x16f - h;
+    g_popup_x = x;
+    g_popup_y = limit;
+    /* ORIGINAL BUG: the y-kept path still returns the limit, not y. */
+    if (y <= limit)
+        g_popup_y = y;
+    return limit;
 }
 
 /* ============================================== pop-up text measurement */

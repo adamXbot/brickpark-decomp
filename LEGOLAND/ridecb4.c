@@ -10,10 +10,10 @@
  * elsewhere); they agree with ridecb1.c / ridecb2.c.
  *
  *   addr        class            slot     what it really is         state
- *   0x004316f0  OCTOPUS CAFE     cb_a8    OctopusCafe_Tick          [WIP 87.6%]
+ *   0x004316f0  OCTOPUS CAFE     cb_a8    OctopusCafe_Tick          [WIP 87.4%]
  *   0x00431c50  OCTOPUS CAFE     (helper) CafeDrawTable             [OK]
  *   0x00431d00  OCTOPUS CAFE     cb_b0    OctopusCafe_Draw          [OK]
- *   0x00430b10  RESTAURANT 2     cb_b0    Restaurant2_Draw          [WIP 98.1%]
+ *   0x00430b10  RESTAURANT 2     cb_b0    Restaurant2_Draw          [OK]
  *
  * (ridecb2.c's header carried a first-pass analysis of the three callbacks;
  * the names were confirmed against SetCustomCallbacks and are kept.
@@ -80,7 +80,10 @@
  *
  * Stage 1/2 share a block that falls THROUGH into 3/4, and the 1..4 walk
  * and stage 12's walk share a tail (the compiler cross-jumped them); the C
- * reproduces that with plain fall-through and a `goto`.
+ * reproduces that with plain fall-through and a `goto`.  Stage 6's copy of
+ * the "face the target and advance" tail is written OUT IN FULL even though
+ * the original ends up jumping into stage 12's copy -- see the note above
+ * the marker: only the duplicated form keeps the deferred `add esp`.
  * ======================================================================== */
 
 /* An {x,y} pair in 24.8 world units, passed by value. */
@@ -172,29 +175,63 @@ extern void   RemoveBlokeFromRide(RideObject* item, RiderNode* r);   /* 0x0048a1
 extern void   BuyItem(RideElem* elem, MapSquare* at, int which);     /* 0x004539e0 */
 
 
-/* 87.6% full-body (359 of 410 by tools/matchfull; 404 instructions in ours
- * and 404 in the original, index-for-index mismatch 299 because one early
- * displacement shifts the rest).  Cases 0-5, 7, 9, 10, 12-18 are exact,
- * INCLUDING the 13..16 retrace loop, the cross-jumped 1..4 / 12 walk tail and
- * the `goto` from case 6 into it.  The residual is in the three cases that
- * add a CHAIR OFFSET (6, 8, 11): the original materialises the waypoint's x
- * AND both offset words into registers before the sum, e.g. at 0x00431833
- * `mov ebx,[ecx*8+g_cafe_pos]` / `add ebx,eax` / `lea edx,[ebx+edx-0x80]`,
- * where VC6 here folds one of the three loads into the `add`.
+/* 2026-09-04: audit.py mismatch 299 -> 51 of 404, and the body is now the
+ * original's SIZE exactly (404 instructions / 1288 bytes, no ESCAPES).  Two
+ * things closed the 248:
  *
- * What was measured: the expression's additive SPELLING is not a lever at all
- * -- six orderings and every parenthesisation compile to the identical object,
- * because VC6 reassociates the sum before instruction selection.  What DOES
- * force a table read into a register is a possibly-aliasing store between the
- * read and its use, which is why case 6's waypoint read is hoisted above the
- * `b->world = b->target` copy here (semantically free: the tables are const
- * data the copy cannot touch, and it buys the correct instruction count).
- * The same trick applied to cases 8 and 11 makes them WORSE (81.7% / 77.2%),
- * so it is not the mechanism the original used.  A pointer local for the
- * waypoint moves the fold onto the offset instead; `volatile` on either table
- * forces the load but then reassociates the sum the wrong way round.  The
- * missing lever is whatever keeps all three terms in registers at once. */
-// WIP-FUNCTION: LEGOLAND 0x004316f0  (87.6%, cases 6/8/11 fold one table load)
+ *  (a) Case 6 must carry its OWN copy of the `b->state = 7; NewDirForAction(b,
+ *      (a >> 5) + 3); b->action++;` tail instead of a `goto` into case 12's.
+ *      VC6 cross-jumps the two copies post-codegen anyway (case 6 ends in
+ *      `jmp 0x431aba`, into case 12's copy), but only when they are separate
+ *      statements does the CalcMoveLine cleanup stay DEFERRED: the original
+ *      merges it with NewDirForAction's into one `add esp,0x1c` in the shared
+ *      block.  With the `goto`, case 7 -- which reaches the same tail with an
+ *      empty stack -- gets merged in too, the deferral is impossible, both
+ *      cleanups are emitted separately (`add esp,0x14` + `add esp,8`) and
+ *      case 7 loses its own six-instruction copy.  Same cause, both symptoms.
+ *      Cases 13..16 and 17 already showed the merged `add esp,0x1c`/`0x20`.
+ *  (b) The three chair-offset cases (6, 8, 11) need the waypoint AND the two
+ *      offset words in registers before the sum.  A read into a plain `int`
+ *      local is forward-substituted and folded back into the `add`; reading
+ *      them into ONE-DIMENSIONAL ARRAY locals with constant indices
+ *      (`int oa[2]`, `int wa[2]`) defeats forward substitution, keeps them in
+ *      registers, costs no frame (VC6 scalarises a constant-indexed local
+ *      array) and restores the missing four instructions.  `volatile` does
+ *      the same but is dirtier and scores worse everywhere else.
+ *      With the arrays in place the STATEMENT ORDER inside each case is a
+ *      real lever and was searched exhaustively (120 + 840 + 20 valid orders,
+ *      coordinate-descended to a fixed point): the winning orders all read
+ *      the Y offset BEFORE the X one and put a store to `b` (`b->world =
+ *      b->target`, `b->seated = 1`) between the offset reads and their use.
+ *
+ * WHAT IS LEFT (51 mismatches, all in cases 6/8/11, register naming only --
+ * register-blind edit distance is 16).  The three-term sum
+ * `waypoint + (cell << 8) + offset - 0x80` is associated the wrong way: the
+ * original pairs (waypoint + cell) in the `add` and puts the offset in the
+ * closing `lea` (`mov ebx,[ecx*8+g_cafe_pos] / add ebx,ecx /
+ * lea edx,[ebx+edx-0x80]`); ours pairs (cell + offset) and puts the waypoint
+ * in the lea.  Consequence: the cell byte's `xor r,r / mov r8,[edi] / shl r,8`
+ * is hoisted several slots early into a callee-saved register instead of
+ * sitting next to the `add`, and every register downstream is renamed.
+ *
+ * Ruled out for the association, all measured: all six textual orders of the
+ * three terms and every parenthesisation (identical objects -- VC6 sorts the
+ * flattened sum before instruction selection); the constant written at the
+ * end, in the middle, or bracketed with one term; named `int` locals for any
+ * subset of {waypoint, cell shift, offset} (48 combinations); a `const
+ * CafeOfs*` / `const Pos*` pointer local (moves the fold, does not remove
+ * it); `unsigned`/`long` locals with a narrowing cast; a two-statement
+ * partial sum (`px = wp + cell; target = px + ofs - 0x80`); an inline helper
+ * `CafeTarget(wp, cell, ofs, bias)` in four parameter orders; a whole-row
+ * `CafeOfs` struct copy (grows the frame); one merged `int t[4]` for both
+ * pairs in four index assignments (55, worse); `volatile` on the waypoint
+ * (387 instructions, much worse).  The observed rank is: a MEMORY reference
+ * pairs with the computed shift ahead of an array symbol, and an array symbol
+ * pairs with it ahead of nothing -- so the pair can be made (cell, waypoint)
+ * by leaving the waypoint inline, but then it is FOLDED (`add r,[mem]`) and
+ * the body is four instructions short.  Getting the waypoint both FIRST and
+ * in a register is the one thing no spelling reached. */
+// WIP-FUNCTION: LEGOLAND 0x004316f0  (87.4%, 51/404 by audit; cases 6/8/11 pair the sum the other way)
 void OctopusCafe_Tick(RideElem* elem)
 {
     RideObject*   item = elem->data;
@@ -205,9 +242,8 @@ void OctopusCafe_Tick(RideElem* elem)
     int           seat;
     int           step;
     int           row;
-    int           px;
-    int           ox;
-    int           oy;
+    int           oa[2];
+    int           wa[2];
     unsigned char a;
 
     r = item->riders;
@@ -248,29 +284,35 @@ void OctopusCafe_Tick(RideElem* elem)
                 break;
             case 6:
                 step = g_cafe_walk[(b->seat >> 1) * 4 + 4];
-                px = g_cafe_pos[step].x;
-                b->world = b->target;
+                wa[0] = g_cafe_pos[step].x;
                 row = g_cafe_chair_dir[b->seat];
-                ox = g_cafe_chair_ofs[row].stand_x;
-                oy = g_cafe_chair_ofs[row].stand_y;
-                b->target.x = px + (key->bx << 8) + ox - 0x80;
-                b->target.y = g_cafe_pos[step].y + (key->by << 8) + oy + 0x80;
+                oa[1] = g_cafe_chair_ofs[row].stand_y;
+                b->world = b->target;
+                oa[0] = g_cafe_chair_ofs[row].stand_x;
+                b->target.x = wa[0] + (key->bx << 8) + oa[0] - 0x80;
+                wa[1] = g_cafe_pos[step].y;
+                b->target.y = wa[1] + (key->by << 8) + oa[1] + 0x80;
                 a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
                 b->new_dir = a;
-                goto face_and_advance;
+                b->state = 7;
+                NewDirForAction(b, (unsigned char)((a >> 5) + 3));
+                b->action++;
+                break;
             case 7:
                 NewDirForAction(b, (unsigned char)((b->dir - 4) & 7));
                 b->action++;
                 break;
             case 8:
                 b->world = b->target;
-                b->seated = 1;
                 row = g_cafe_chair_dir[b->seat];
-                ox = g_cafe_chair_ofs[row].sit_x;
-                oy = g_cafe_chair_ofs[row].sit_y;
+                oa[1] = g_cafe_chair_ofs[row].sit_y;
+                oa[0] = g_cafe_chair_ofs[row].sit_x;
+                b->seated = 1;
                 step = g_cafe_walk[(b->seat >> 1) * 4 + 4];
-                b->target.x = g_cafe_pos[step].x + (key->bx << 8) + ox - 0x80;
-                b->target.y = g_cafe_pos[step].y + (key->by << 8) + oy + 0x80;
+                wa[0] = g_cafe_pos[step].x;
+                b->target.x = wa[0] + (key->bx << 8) + oa[0] - 0x80;
+                wa[1] = g_cafe_pos[step].y;
+                b->target.y = wa[1] + (key->by << 8) + oa[1] + 0x80;
                 a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
                 b->new_dir = a;
                 b->state = 7;
@@ -294,11 +336,13 @@ void OctopusCafe_Tick(RideElem* elem)
                 b->f70 = 0;
                 BlokeWalkAnim(b);
                 row = g_cafe_chair_dir[b->seat];
-                ox = g_cafe_chair_ofs[row].stand_x;
-                oy = g_cafe_chair_ofs[row].stand_y;
+                oa[1] = g_cafe_chair_ofs[row].stand_y;
+                oa[0] = g_cafe_chair_ofs[row].stand_x;
                 step = g_cafe_walk[(b->seat >> 1) * 4 + 4];
-                b->target.x = g_cafe_pos[step].x + (key->bx << 8) + ox - 0x80;
-                b->target.y = g_cafe_pos[step].y + (key->by << 8) + oy + 0x80;
+                wa[0] = g_cafe_pos[step].x;
+                b->target.x = wa[0] + (key->bx << 8) + oa[0] - 0x80;
+                wa[1] = g_cafe_pos[step].y;
+                b->target.y = wa[1] + (key->by << 8) + oa[1] + 0x80;
                 a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
                 b->new_dir = a;
                 b->state = 7;
@@ -312,7 +356,6 @@ void OctopusCafe_Tick(RideElem* elem)
                 b->target.y = g_cafe_pos[step].y + (key->by << 8) + 0x80;
                 a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
                 b->new_dir = a;
-            face_and_advance:
                 b->state = 7;
                 NewDirForAction(b, (unsigned char)((a >> 5) + 3));
                 b->action++;
@@ -588,25 +631,40 @@ static __inline void Rest2DrawStage(Bloke** list, int n, int stage)
             IP_RenderBlokeIn3DNow(list[i]);
 }
 
-/* 530/530 instructions and 1541/1541 bytes -- the same size as the original
- * to the byte, and every block matches instruction for instruction.  The one
- * residual is WHERE the compiler puts the eleven-instruction tail that the
- * facing-2 and facing-4/5 arms share (the layer-3 GetSpriteForLayer +
- * PrintSprite + `mov ebx,[n]` + `jmp` at 0x00430d43).  The original keeps the
- * copy that belongs to the facing-2 arm and makes the facing-4/5 arm jump
- * BACK into it; VC6 here cross-jumps the other way -- it keeps the facing-4/5
- * copy and makes the facing-2 arm jump forward -- which displaces 171 of the
- * 530 index positions even though the instructions themselves are right.
- * Measured: the direction follows the SOURCE order of the two arms (VC6 keeps
- * the LATER arm's copy), so writing them as `... else if (facing == 5 ||
- * facing == 4) {C} else if (facing == 2) {B}` does keep the facing-2 copy --
- * but then the dispatch tests 5/4 before 2, which the original does not.
- * Ten structural variants were measured (nested if/else, a leading `goto`
- * guard, a switch, an inlined shared helper, bare-block wraps, both `||`
- * orders); this spelling is the one whose DISPATCH is exact, so it is the one
- * kept.  Everything else in the function -- the frame, the collect loop, all
- * three facing arms, the stage loops and the tail -- is instruction-exact. */
-// WIP-FUNCTION: LEGOLAND 0x00430b10  (98.1%, shared tail cross-jumped the other way)
+/* Exact (530/530 instructions, 1541/1541 bytes).  Closed 2026-09-04 by the
+ * EMPTY TRAILING `else { }` on the facing chain.
+ *
+ * What was wrong before: the eleven-instruction tail the facing-2 and
+ * facing-4/5 arms share (the layer-3 GetSpriteForLayer + PrintSprite +
+ * `mov ebx,[n]` + `jmp`, at 0x00430d43) was cross-jumped the WRONG WAY.  The
+ * original keeps the facing-2 arm's copy and makes the facing-4/5 arm jump
+ * BACKWARDS into it; without the empty else VC6 keeps the facing-4/5 copy and
+ * makes facing-2 jump forward, displacing 171 of the 530 index positions
+ * although every instruction was already right.
+ *
+ * The mechanism: the LAST arm of an if/else chain is the block that falls
+ * through into the join, so its copy of a shared tail is free to keep while
+ * the earlier arm's copy costs a `jmp` -- VC6 therefore deletes the EARLIER
+ * arm's copy.  Give the chain one more (empty) arm and the facing-4/5 block
+ * has to jump to the join like everyone else, the tie breaks the other way,
+ * and the merge goes backwards into the facing-2 arm exactly as the original.
+ * `else { }` is the only spelling that works: `else { stmt; }`, `else if
+ * (facing == 3) { stmt; }` and a trailing separate `if` all add real code
+ * (+14 .. +27 instructions, ESCAPES), and `else { n = n; }` is folded to a
+ * `goto`-shaped chain that hoists the `n` reload out of the shared tail.
+ *
+ * Ruled out first, all inert (about 45 measured variants): every additive
+ * spelling and both operand orders of the two sums in each arm's layer-3
+ * PrintSprite (all 16 combinations byte-identical), bare-block / `do {} while
+ * (0)` / `if (1)` wrappers on either tail, `(char)`/`(DrawCtx*)` casts, a
+ * sprite temp (breaks the merge entirely, +8 and ESCAPES), nested if/else,
+ * `if (facing != 0 && facing != 1)`, a switch (VC6 builds a jump table), and
+ * six `goto`-label spellings -- all of which converge on one shape that moves
+ * the `n` reload into the join block and loses an instruction.  Source order
+ * IS a lever (`... else if (facing == 5 || facing == 4) {C} else if (facing
+ * == 2) {B}` keeps the facing-2 copy) but it also moves the 5/4 dispatch
+ * ahead of the 2 test, which the original does not do. */
+// FUNCTION: LEGOLAND 0x00430b10
 void Restaurant2_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                       void* clip, int mode)
 {
@@ -709,6 +767,12 @@ void Restaurant2_Draw(RideElem* elem, int x, int y, MapSquare* sq,
         AdjustOffsetForViewMode(&off);
         PrintSprite(GetSpriteForLayer(g_rest2_layers, 3),
                     screen.ox + off.ox, screen.oy + off.oy, mode, &ctx);
+    } else {
+        /* Every other facing draws nothing here.  This empty arm is NOT
+         * cosmetic: it stops the facing-4/5 block being the last one before
+         * the join, which is what makes VC6 cross-jump the shared layer-3
+         * tail BACKWARDS into the facing-2 arm the way the original does.
+         * See the note above the marker. */
     }
 
     Rest2DrawStage(here, n, 0);

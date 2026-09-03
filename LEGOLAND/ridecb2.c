@@ -964,7 +964,8 @@ extern int    g_jc_anim_tick;        /* 0x00629c54 */
 /* Seat pixel offsets, indexed BACKWARDS: g_jc_seat_ofs[-slot]. */
 extern SeatOfs g_jc_seat_ofs[];      /* 0x004b72b0 */
 
-/* 354/354 instructions, 1108 of 1114 bytes.  TWO SEMANTIC FIXES this pass:
+/* 354/354 instructions, 1109 of 1114 bytes; mismatch 229 -> 208 (audit.py).
+ * TWO SEMANTIC FIXES from an earlier pass, still standing:
  *  - case 1's "find a free boat seat" loop exits straight to the case end
  *    when no seat is free (the original threads the `i == 3` test away), and
  *  - case 3's walk target is built from the INSTANCE's map square (`key`,
@@ -974,13 +975,71 @@ extern SeatOfs g_jc_seat_ofs[];      /* 0x004b72b0 */
  * Also: the call to ScreenToMapRef2 passes a THIRD argument the two-parameter
  * callee never reads (the original pushes a zero for it, and the merged
  * `add esp,0x3c` counts 15 pushes in that case, not 14).
- * The residual is a systematic register permutation: the original puts the
- * function-wide constant zero in EBX and the instance cursor in EBP, this
- * reconstruction the other way round, and the second loop's station cursor
- * lands in EAX where the original uses ECX.  Both are pure allocator
- * tie-breaks -- the instruction sequence is otherwise the same -- but they
- * inflate the index-for-index mismatch count badly. */
-// WIP-FUNCTION: LEGOLAND 0x00435750  (354/354 insns, systematic ebx<->ebp / eax<->ecx swap)
+ *
+ * WHAT CLOSED 21 OF THE RESIDUAL THIS PASS -- two source-order levers, both
+ * semantics-preserving and both measured against ~200 rejected variants:
+ *  - `b = inst->bloke;` moved AHEAD of the station-search loop.  That alone
+ *    puts the function-wide constant zero in EBX and the instance cursor in
+ *    EBP, which is how the original has them; with `b` written after the
+ *    search (the obvious spelling) the two are swapped and every `cmp r,0`,
+ *    `push 0` and zero store in the function is off by a register.  All 24
+ *    permutations of the four head assignments x 3 positions relative to the
+ *    search were measured: the placement of `b` is the ONLY knob that flips
+ *    it (assigning `inst` late flips it too, but then the `mov ebp,[eax+0xcc]`
+ *    cannot stay in the prologue).  The first 110 instructions now match.
+ *  - case 3's `b->flags &= ~0x80` written AFTER the two world stores.
+ *
+ * WHAT IS LEFT.  First divergence: index 110, the loop-2 head.  The original
+ * allocates its three temps key->EAX(ax), st->ECX, next->EDX; we get
+ * st->EAX and next/key sharing ECX.  Everything after it is knock-on:
+ *   * the switch selector and `seat` land in ECX where the original uses EAX;
+ *   * case 0's target arithmetic therefore runs one step out of phase -- the
+ *     key.b.y read is scheduled BEFORE the seat-table dx load instead of
+ *     after it, so the dx load takes EDI and the dy load takes EAX where the
+ *     original re-uses its serial ECX for dx and spends the dead EBP on dy;
+ *   * the final `add` then accumulates into the table value instead of into
+ *     the shift result, so b->ty ends up in EAX, and the `mov ecx, edx` the
+ *     original needs to free EDX for the b->tx reload never appears.  The
+ *     body is exactly ONE instruction short because of that copy, which is
+ *     why cases 1/3/4/5 are all off by one index.  Comparing our tail
+ *     shifted by one leaves only 32 of 148 tail instructions wrong.
+ *
+ * THE ROOT CAUSE, located by probe: it is case 1's `for (i = 0; i < 3; i++)`
+ * scan of the boat seats.  Stub that loop out (keeping its guard) and `st`
+ * moves to ECX immediately; keep the loop and drop the guard and it stays in
+ * EAX.  `st` and case 1's `i` interfere and VC6 colours them the other way
+ * round from the original -- our `st` wins EAX, the original's `i` does.
+ *
+ * Ruled out (all measured, all identical or worse).  Head: every permutation
+ * of the four head assignments and of moving `next`/`b` past the search;
+ * for/while/do-while/rotated/`&&`-condition search shapes; a `static
+ * __inline` finder taking BPosW or unsigned short; a separate cursor
+ * variable; loop-2-only copies of st/key/next/b/i/seat (a separate `key`
+ * moves its frame home and costs 2); block-scope declarations; `switch` on an
+ * int or uchar temp; `case 2:`/`default:` added; `while (inst != 0)`,
+ * `for(;;)`, `for (; inst; inst = next)` and a `goto tail`; comparing against
+ * `inst->key.w`; writing the key or next store through a cast pointer to make
+ * the local address-taken.  Case 1: while/`!=`/`continue`/`!p` loop forms, a
+ * different index variable (fresh `j`, or `seat`), unsigned counters, and all
+ * 60 orderings of the five stores in its body -- the current order is the
+ * unique one that reproduces the original's store schedule.  Case 0: a
+ * `SeatOfs*` pointer, `int oa[2]`, int temporaries for either table read,
+ * `* 256`, operand swaps in both the inner and the outer sum, and
+ * `(int)`/`(unsigned char)`/`|0`/`+0`/`&0xff`/byte-pointer spellings of
+ * key.b.y.
+ *
+ * Three spellings DO produce the original's case-0 register plan and the
+ * missing `mov ecx, edx` -- `(unsigned char)(key.w >> 8)` for key.b.y (124
+ * mismatches), and moving either `b->action = 7` or `b->flags |= 8` down
+ * between the b->ty store and the CalcMoveLine call (130) -- but the first
+ * costs an extra `xor/mov al` pair, the second is a semantic change the
+ * original does not make (its action store is emitted after the call, so it
+ * cannot have been before it in the source), the third puts a store the
+ * original emits at the top of the block into the middle of it, and all
+ * three cost the `mov edi, 0x96` hoist in loop 1.  They are recorded as
+ * evidence that the one missing instruction is the whole tail, not adopted.
+ * The correct fix is whatever makes case 1's `i` outrank `st` for EAX. */
+// WIP-FUNCTION: LEGOLAND 0x00435750  (354/354 insns, 208 mismatches; loop-2 `st` colours to EAX, not ECX)
 void JungleCruise_Tick(void)
 {
     ObjDef*    def = g_jc_station_cls;
@@ -1038,12 +1097,12 @@ void JungleCruise_Tick(void)
         st = g_jc_stations;
         next = inst->next;
         key = inst->key;
+        b = inst->bloke;
         while (st) {
             if (st->pos.w == key.w)
                 break;
             st = st->next;
         }
-        b = inst->bloke;
         if (b->action == 0) {
             switch (b->stage) {
             case 0:
@@ -1105,9 +1164,9 @@ void JungleCruise_Tick(void)
                     screen.y = p->sy - screen.y;
                 }
                 ScreenToMapRef2(&screen, &world, 0);
-                b->flags &= (unsigned short)~0x80;
                 b->x = world.x;
                 b->y = world.y;
+                b->flags &= (unsigned short)~0x80;
                 b->speed = 0xa;
                 b->tx = (((int)g_jc_station_cls->ox + key.b.x) << 8) - 0x180;
                 b->ty = (((int)g_jc_station_cls->oy + key.b.y) << 8) + 0x80;

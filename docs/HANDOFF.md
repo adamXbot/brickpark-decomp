@@ -84,26 +84,31 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **42.4% exact, 51.3% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1529 |
-| exported functions | `python3 tools/remaining.py` | 663 of 675 (98.2%) |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **44.3% exact, 51.3% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1540 |
+| exported functions | `python3 tools/remaining.py` | 664 of 675 (98.4%) |
 | unmatched callees | `python3 tools/callees.py` | 589, ~25,500 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 52 |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 41 |
 
-(Row values refreshed 2026-09-04 ~00:30 AEST after the 62 promotions of §2
-and three section-B waves: wave one closed 30 partials plus one new twin
-(1504/1504), wave two 15 more (1519/1519), wave three 10 more (1529/1529).
-Fully exact files now: schoolcar, screens3, castleobj, bnvmove, tri3d,
-bigscreens, softblit, westtown. The second session-limit hit came at FOUR
-concurrent Fable lanes, so the working cap is 3; late on 2026-09-03 the API
-itself returned 529 overloads for a stretch and killed lanes at launch — back
-off ten minutes rather than retrying in a loop. Every single-mismatch function in §6B's table is now exact;
-RequestRoute and JcBoat_Animate stay at 3 with notes arguing the residual is
-a compiler temporary no C spelling reaches. Seven Fable lanes plus this
-session tripped the account session limit mid-wave — every lane was killed at
-once, as §7 warns; files were left compiling clean with honest markers. Run
-at most 4–5 concurrent lanes on Fable. ~30 new levers were added to
-`docs/DECOMP.md` today; the prose below predates all of this.)
+(Row values refreshed 2026-09-04 after four section-B waves: 30 partials plus
+one new twin (1504/1504), then 15 (1519), 10 (1529) and 11 (1540). Fully
+exact files now: schoolcar, screens3, castleobj, bnvmove, tri3d, bigscreens,
+softblit, westtown, westtown2, ridecb1. **Wave four ran on Opus 5** — the
+Fable quota was exhausted mid-wave; both models work, lanes are
+model-agnostic. Operational limits: the account session limit hit at seven and
+again at four concurrent Fable lanes, so the working cap is 3; the API also
+returned 529 overloads for a stretch and killed lanes at launch — back off ten
+minutes rather than retrying in a loop. Every kill left the files compiling
+clean with honest markers, and two closes were recovered from disk after the
+lane that made them died before reporting. ~140 levers were added to
+`docs/DECOMP.md` across these waves; the prose below predates all of this.)
+
+**Functions now formally EXHAUSTED — do not re-grind** (each note records the
+proof): `UpdateControllerFromMouseData` (102/109, an allocator state no C
+construct reaches), `ValidateCursor` (5; the store its residual needs was
+displaced by the scheduler, so no source ordering reaches it), and
+`BoatingSchool_Add` (8; the full 36-body cross-product of take-position x
+link-order is a unique minimum).
 
 **Quote coverage.py.** The export figure (95.6%) badly overstates completion —
 exports are only the symbols the linker exposed, and 1411 functions are matched

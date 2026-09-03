@@ -985,7 +985,24 @@ extern void  GetTileDimensions(int* out_w, int* out_h);      /* 0x00460540 */
 extern short Get_XScroll(void);                              /* 0x004615f0 */
 extern short Get_YScroll(void);                              /* 0x00461600 */
 extern float GetUnitDepth(float near_z, float far_z);        /* 0x0044de50 */
-extern void* NewBNVPath(void* bin, int tag, const char* name, float near_z, float far_z, Pos* pos); /* 0x00484c20 */
+/* NewBNVPath's sixth parameter is a THREE-int position, not a Pos: the never-
+ * written dword above the seed local is its z (mechrides.c's four BNV rides
+ * carry the same evidence, 12 bytes apart between two seed locals). */
+typedef struct BnvPos {
+    int x;                   /* +0x00 */
+    int y;                   /* +0x04 */
+    int z;                   /* +0x08 never stored by this ride */
+} BnvPos;
+
+/* The 8-byte object case 3's frame spills sx into; only .x is ever written,
+ * and VC6 lifetime-colours it onto the (dead there) rider-cursor home, so the
+ * upper dword is the frame's second never-referenced slot. */
+typedef struct SpillPair {
+    int x;
+    int y;
+} SpillPair;
+
+extern void* NewBNVPath(void* bin, int tag, const char* name, float near_z, float far_z, BnvPos* pos); /* 0x00484c20 */
 extern void  BNVPath_SetDFrame(Bloke* b, void* path, int dframe); /* 0x004850b0 */
 extern int   UpdateBlokeFromBNVPath(Bloke* b, void* path);   /* 0x00484cd0 */
 extern int   BNVPath_GetDFrame(void* path);                  /* 0x00484ff0 */
@@ -1013,22 +1030,11 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
     TempleSlide_UpdateFullFlag(tile);
 }
 
-/* NOTE: all 347 instructions and the whole block layout (both jump tables, the
- * shared CalcMoveLine tail that cases 0, 2 and 5 fall into or jump to, the
- * deferred four-register prologue, the reuse of the argument slot for the
- * ObjDef pointer) are reproduced, but two frame facts are not:
- *   - the original's local area is 0x30 bytes with the slots at entry-0x2c and
- *     entry-0x04 never referenced; this source produces 0x28 with no holes.
- *     Declaring the NewBNVPath position local as a THREE-int vector accounts
- *     for the entry-0x04 slot exactly (frame 0x2c), which is good evidence the
- *     ride hands NewBNVPath a 12-byte vector and not an 8-byte pair; no
- *     declaration order or grouping found so far accounts for entry-0x2c.
- *   - the map square lands in ebx and the ride's base tile y in ebp, where the
- *     original has them the other way round.
- * Both shift every stack displacement and register name, so the strict
- * index-for-index gate rejects it even though the instruction sequence is
- * right. Left as WIP with the semantics recovered. */
-
+/* NOTE (SUPERSEDED IN PART, kept for the reasoning): the earlier rounds got all
+ * 347 instructions and the block layout but had the frame 8 bytes short and the
+ * map square in ebx where the original has it in ebp.  BOTH of those are FIXED
+ * now -- see "FRAME SOLVED" below -- so ignore the old claims that the local
+ * area is 0x28 and that no declaration accounts for the two holes. */
 /* FRAME MAP, RE-DERIVED EXACTLY (this round; the earlier analysis above it
  * had three of the homes wrong -- `ofs` is NOT pooled with `th`).  Let F be
  * esp after `sub esp,0x30`, so the locals are F+0x00..F+0x2f, the return
@@ -1057,30 +1063,24 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  *             as the `def` home for the rest of the body
  * So the frame splits cleanly into a SCALAR run F+0x00..F+0x13 (five 4-byte
  * homes) and an AGGREGATE run F+0x14..F+0x2f (ofs 8 + screen 8 + pos 12 = 0x1c
- * bytes, in declaration order ascending).  This source produces the same
- * aggregate run but only FOUR scalars, hence `sub esp,0x28` (0x2c once `pos`
- * is three ints) against the original's 0x30, and every displacement from `tw`
- * upward is 4 low -- which is the whole of the 317-instruction mismatch, plus
- * the ebx/ebp swap (the original has the map square in ebp and the base tile y
- * in ebx) that follows from it.
- * THE ONE THING STILL MISSING is therefore a FIFTH scalar home, ordered
- * between `r` and `tw`, that the original allocates and never reads.  Evidence
- * about what it is: in case 3 the original emits `mov [esp+0x20],ebp` at
- * 0x004175d2 -- a store of `sx` into F+0x00, i.e. into the rider cursor's own
- * home, which is dead there.  So VC6 DID give `sx` a stack home and lifetime-
- * coloured it onto `r`; the natural reading is that `sy` got a home too and
- * that its (equally dead) store was the one that got eliminated, leaving the
- * bare slot at F+0x04.  Nothing tried this round makes VC6 home either of
- * them: `sx`/`sy` at function scope, in case 3's block, `tw`/`th` and `pos`
- * moved into case 3's block, `ofs` into case 5's block, all six declaration
- * permutations, and `ofs` as two plain ints instead of an Offset -- every one
- * still emits four scalar homes.  (A 12-byte `ofs` with a dead leading member
- * DOES produce `sub esp,0x30` with ofs/screen/pos landing on the original's
- * homes exactly, and drops the first divergence from index 0 to index 16 --
- * but it is a lie about the data structure and leaves tw/th/next 4 low, so it
- * is not shipped.  It does prove the aggregate run is modelled correctly and
- * isolates the residual to that one scalar.) */
-/* THIS ROUND (semantic fix + block-layout study; audit 317 -> 329 -> 231).
+ * bytes, in declaration order ascending).
+ *
+ * FRAME SOLVED (2026-09-04), by the two levers the mechrides.c lane derived on
+ * its four BNV-ride _Activate callbacks, which carry the identical residual:
+ *   - F+0x2c: `pos` is a THREE-int vector (`BnvPos`), not a `Pos`; NewBNVPath's
+ *     sixth parameter is a 12-byte position whose z this ride never writes.
+ *   - F+0x04 and the dead `mov [esp+0x20],ebp` at 0x004175d2: they are ONE
+ *     8-byte spilled object of which only `.x` is ever written.
+ *     `SpillPair spill;` plus `*(volatile int*)&spill.x = sx;` right after sy
+ *     is computed reproduces both -- VC6 lifetime-colours the pair onto the
+ *     rider cursor's home (dead inside case 3) and its second dword becomes
+ *     the phantom at F+0x04.  Nothing else reserves a scalar-pool home: unused
+ *     locals of every type are dropped and an array goes to the aggregate pool.
+ * With both in place the prologue is `sub esp,0x30`, EVERY displacement in the
+ * body matches, and the loop head's register assignment comes out right too
+ * (ebx = def->base_x then ty, ebp = sq, esi = b, edi = tx) once the block
+ * layout below is also fixed. */
+/* EARLIER ROUND (semantic fix + block-layout study; audit 317 -> 329 -> 231).
  * 1. lpConfig (0x004bcbf4) is a POINTER to the map config (`mov edx,[4bcbf4]
  *    / mov di,[edx+0x20]`), as mechrides.c/ridecb3.c already have it; the
  *    old struct-form read was a semantic bug.  Fixing it alone moved the
@@ -1121,15 +1121,83 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  *    gate (231, no ESCAPES); the form I believe is the original's (case 2
  *    goto, case 5 textual copy with gx/gy temps) scores 322-329 because
  *    the tail lands after case 2 and the whole register cascade shifts.
- * 3. FRAME: unchanged from the analysis above (two never-referenced homes at
- *    F+0x04 and F+0x2c; `pos` as a 3-int vector accounts for F+0x2c exactly
- *    and ridecb3.c adopted that for NewBNVPath, but here it does not move the
- *    strict count; a Pos scr struct for sx/sy, a fresh sx2, wx/wy pre-reads
- *    and their combinations never produce the original's dead `mov
- *    [esp+0x20],ebp` spill of sx or the extra home).  mechrides.c's four BNV
- *    rides carry exactly the same residual (dead homes + dead sx spill), so
- *    it is one family-wide unknown, not a per-function spelling. */
-// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, audit mismatch 231/347: frame two homes short and the shared-tail layout -- see above)
+ * 3. FRAME: SOLVED this round -- see "FRAME SOLVED" above. */
+/* THIS ROUND (2026-09-04).  Two structural facts recovered; the strict audit
+ * count went 231 -> 281 while the CONTENT match went the other way, so read
+ * the numbers carefully before "improving" it back:
+ *
+ *     metric                              before   now
+ *     audit strict index-for-index         231     281   (worse)
+ *     LCS of the instruction streams       189     272   (much better)
+ *     LCS ignoring register names          276     301   (better)
+ *     compiled instruction count           357     367   (orig 347)
+ *
+ * The strict count is inflated by ONE 13-instruction displacement (item 2), and
+ * the frame is now provably exact, so this is the better base to continue from.
+ *
+ * 1. FRAME (see above): `BnvPos pos` (3 ints) + `SpillPair spill` written once
+ *    through a volatile.  `sub esp,0x30`, every displacement right, and the
+ *    loop head allocates ebx = def->base_x/ty and ebp = sq exactly as the
+ *    original does.  Instructions 0..60 are now byte-identical.
+ * 2. BLOCK LAYOUT: the tail after `if (lane > 1)` must be a TEXTUAL COPY in
+ *    every arm -- no `goto move` anywhere.  With any goto, VC6 moves the label
+ *    block to after its last goto source (measured again this round: case 2
+ *    only -> 0x3e5, both -> 0x3ea; a fall-through predecessor does NOT pin it,
+ *    arm A just gets a `jmp`).  All-textual reproduces the original's layout
+ *    (case0 0x76, T 0xa7, armB 0xea, case2 0x13c, case3 0x164, case4 0x288,
+ *    case5 0x34d, case6 0x426, break target 0x44a) and the exact reload+push
+ *    block at T.  FIRST DIVERGENCE IS NOW INDEX 61.
+ * 3. THE RESIDUAL, index 61: the CROSS-JUMP SURVIVOR.  The original keeps the
+ *    `call CalcMoveLine` in T (0xbe) and case 5 ends `jmp 0xbe`; we emit the
+ *    call in case 5's copy and T ends `jmp <case5>`.  Everything else about
+ *    that merge is right (case 2 -> T's first reload, exactly as the original).
+ *    MEASURED RULE, from scratchpad/joust/syn/gen_merge.py and gen_m7.py plus
+ *    the k_c5_first variant: when two blocks share an identical machine-code
+ *    suffix VC6 keeps the copy that is LAST IN SOURCE ORDER and turns the
+ *    others into jumps -- confirmed in four independent probes (2-case, 7-case,
+ *    and with the case labels permuted, where moving `case 5` textually first
+ *    moved the surviving copy to case 2).  The original therefore behaves as
+ *    if case 0's tail were the last copy, which no case ordering can produce
+ *    (the case blocks are laid out in textual order, and the original's are in
+ *    0..6 order).  A `goto` cannot be the answer either: case 5 jumps to the
+ *    CALL, i.e. into the middle of the tail, which no label can name.
+ *    Ruled out this round: all four if/else shapes for case 0 (arm A inline,
+ *    arm B first, both arms carrying their own tail, arms swapped) -- all give
+ *    the same merge; distinct `dir` variables per copy (VC6 normalises them);
+ *    all 24 store orders in case 5; case 2 as a goto placed in situ and before
+ *    case 0; permuting the case labels.  A DIFFERENT statement order inside
+ *    case 5's tail does break the merge and drops the strict count to 208
+ *    (scratchpad/joust/tsu_v26.py, probe_alt5) -- but it is provably NOT the
+ *    original's source: the original merges FROM THE CALL, which requires the
+ *    post-call code, and hence the source statement order, to be identical.
+ * 4. CASE 5's remaining ~20 instructions: the original computes
+ *    `(qx+bx)<<8` and `(qy+by)<<8` ONCE and reuses them (`shl eax,8` then
+ *    `add eax,0x80`); we recompute, because the store to b->world.x forces an
+ *    alias reload of def->qx.  Every spelling that CSEs them needs a temp, and
+ *    ANY extra live value anywhere in the function (a fresh gx/gy, reusing
+ *    sx/sy or tx/ty, wx/wy pre-reads, sx2/sy2) flips the loop head back to
+ *    ebx = sq / ebp = ty and costs far more than it gains (measured: rb-LCS
+ *    301 -> 295..307 but strict 281 -> 296..346).  Seventeen head spellings
+ *    were swept against the CSE base (operand order, statement order,
+ *    declaration order, two-def forms, `unsigned char lane`, a base_x-first
+ *    read): the head assignment is completely insensitive to spelling, so it
+ *    is pure allocation pressure.  Fixing item 3 first is the way in: with the
+ *    merge right, case 5's CSE is the only thing left.  The audit's ESCAPES
+ *    flag is the same fact: those ~20 extra instructions push branch targets
+ *    past the original's end.  CSEing only ONE axis (`sx = (def->qx +
+ *    sq->b.x) << 8;`, gy left recomputed) keeps the head, clears ESCAPES and
+ *    lands 347i/1121B against 347i/1122B -- but at strict 291, and a source
+ *    that CSEs one axis and not the other is not credible, so it is not
+ *    shipped (scratchpad/joust/tsu_v28.py, h_gx_only).
+ * 5. CASE 3 also wants the mechrides.c shape (`wy`/`wx` read before
+ *    GetTileDimensions, then `sx2`/`sy2` as SECOND variables) -- the original
+ *    loads world.y/world.x at 0x41759f/0x4175a2 before the call and homes both
+ *    halves of `screen`, which we do not.  It is written the mechrides way in
+ *    scratchpad/joust/tsu_v24.py (f7_cse: rb-LCS 307, the best shape found,
+ *    358 instructions) but it flips the head, so it is not shipped.
+ * Tooling: scratchpad/joust/align.py (LCS-aligned diff), rbscore.py
+ * (register-blind LCS), ttv.py + tsu_v13..v28.py (the variant sets above). */
+// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, audit mismatch 281/347, first divergence 61: frame and block layout now exact, one cross-jump survivor wrong -- see above)
 void TempleSlide_Update(RideElem* elem)
 {
     RideDef*   def = elem->data;
@@ -1143,7 +1211,8 @@ void TempleSlide_Update(RideElem* elem)
     unsigned char dir;
     Offset     ofs;
     Offset     screen;
-    Pos        pos;
+    BnvPos     pos;
+    SpillPair  spill;
     int        tw;
     int        th;
     int        sx;
@@ -1176,9 +1245,7 @@ void TempleSlide_Update(RideElem* elem)
                     b->action = 3;
                     break;
                 }
-move:
-                dir = (unsigned char)CalcMoveLine(b->world, b->target,
-                                                  b->path) + 0x10;
+                dir = (unsigned char)CalcMoveLine(b->world, b->target, b->path) + 0x10;
                 b->state = 7;
                 b->new_dir = dir;
                 NewDirForAction(b, (unsigned char)((dir >> 5) + 3));
@@ -1203,6 +1270,7 @@ move:
                 GetTileDimensions(&tw, &th);
                 sx = (b->world.x - b->world.y) * tw >> 9;
                 sy = (b->world.x + b->world.y) * th >> 9;
+                *(volatile int*)&spill.x = sx;
                 sx = g_map_cfg->ox - Get_XScroll() + sx;
                 sy = sy + (g_map_cfg->oy - Get_YScroll());
                 sx -= g_ts_rider_dx / 2;
@@ -1287,7 +1355,12 @@ move:
                 b->world.y = ofs.oy + ((def->qy + sq->b.y) << 8);
                 b->target.x = ((def->qx + sq->b.x) << 8) + 0x80;
                 b->target.y = ((def->qy + sq->b.y) << 8) + 0x80;
-                goto move;
+                dir = (unsigned char)CalcMoveLine(b->world, b->target, b->path) + 0x10;
+                b->state = 7;
+                b->new_dir = dir;
+                NewDirForAction(b, (unsigned char)((dir >> 5) + 3));
+                b->action++;
+                break;
 
             case 6:
                 TempleSlide_ReleaseLane(b->seat, sq);
@@ -1482,7 +1555,55 @@ static __inline void Joust_DrawBand(Bloke** here, char n, int code)
  * push always glues to the lea, so the original's IR must have the
  * seat.oy store between the address computation and the ox store -- no
  * C spelling found reaches it. */
-// WIP-FUNCTION: LEGOLAND 0x00408580  (552 of 552 instructions, mismatch 3: the seat.oy store is scheduled between the lea and the push -- see above)
+/* THIS ROUND (2026-09-04): the ORIGINAL'S IR IS NOW KNOWN, and so is why we
+ * cannot ship it.  Still 3 of 552, indices 301-303.
+ *
+ * WHAT PRODUCES THE ORIGINAL'S SCHEDULE, exactly:
+ *     static __inline void JD_S(Offset* s, Offset* o, int v)
+ *     { s->oy = -0x30; o->ox = v; }
+ *     ...
+ *     seat.ox = 0;
+ *     JD_S(&seat, &p->local, b->ride_dx);
+ *     p->local.oy = b->ride_dy;
+ * The inline expansion evaluates the arguments into temporaries FIRST (the
+ * `movsx` of ride_dx and the `lea` of &p->local) and only then runs the body,
+ * so the IR becomes [st seat.ox; ld dx; lea; st seat.oy; st local.ox] -- the
+ * one order no plain-C statement sequence can express, because in
+ * `p->local.ox = b->ride_dx;` the load, the address and the store are one
+ * statement and nothing can be placed between the address and the store.
+ * It reproduces indices 299-305 BYTE FOR BYTE, including the original's
+ * `mov [esp+0x18],ebx` sitting between the lea and the push.
+ *
+ * WHY IT IS NOT SHIPPED: that reordering, and only that reordering, rotates
+ * the register allocation of the WHOLE function -- 552 instructions still,
+ * but 63 mismatches from index 33, where the hoisted `sq->key` goes to `di`
+ * instead of `ax` and the collected bloke to `eax` instead of `ecx`, which
+ * then flips the store order of the two halves of `off` at 114-117.  The
+ * escape itself is innocent: `JD_Ox(&seat)`, `JD_Oy(&seat)`, a helper taking
+ * &seat that stores `o->ox` BEFORE `s->oy`, and a three-parameter helper with
+ * a dead first argument all stay at 3 with no rotation (jd_v19.py,
+ * diag_dummy3 in jd_v16.py).  So it is the ORDER that costs it, and the
+ * original somehow has the order without the cost.
+ * Measured inert against the rotation (jd_v14/16/17/18/20.py): all six
+ * parameter orders, `int*`/`void*`/`register`/`const`/`short` parameter
+ * types, a returning helper, `__forceinline`, a macro (comma expressions are
+ * normalised to statement order before scheduling, so every comma/LHS-comma
+ * form gives the plain-C schedule), the seat declared first in the block,
+ * eight spellings of the collection loop, an explicit `key` local, and
+ * `void*`/`int*` prototypes for AdjustBlokePosition/AdjustOffsetForViewMode.
+ * Whole-block helpers (the ridecb1 rider-placement shape) re-allocate the
+ * function: 97-328 mismatches.
+ *
+ * ALTERNATIVE 3-MISMATCH FORM: writing the block
+ *     seat.ox = 0; p->local.ox = b->ride_dx; seat.oy = -0x30;
+ *     p->local.oy = b->ride_dy;
+ * also scores 3 but moves the first divergence to 303 (we then emit
+ * push/st local.ox/st seat.oy where the original has st seat.oy/push/
+ * st local.ox).  Same rotation, one slot the other way; kept out because the
+ * shipped order reads as the original's (both seat fields set together) and
+ * the count is identical.  All 24 store orders were re-measured this round;
+ * only these two reach 3. */
+// WIP-FUNCTION: LEGOLAND 0x00408580  (552 of 552 instructions, mismatch 3 at indices 301-303: the seat.oy store is scheduled between the lea and the push; the IR that does it is known but rotates the whole allocation -- see above)
 void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode)
 {
     RideDef*   def = elem->data;

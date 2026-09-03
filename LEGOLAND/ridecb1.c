@@ -1539,7 +1539,68 @@ extern void*      g_bz_car_blue; /* 0x0061605c  BZBlueCarM1.lls */
  * item->riders` in the original -- opposite of Carousel), `n = 0` already
  * lands as `mov [esp+0x74],bl`, and the riding loop already caches
  * `b = r->bloke`. */
-// WIP-FUNCTION: LEGOLAND 0x0042b2e0  (576 of 576 instructions, audit mismatch 333; callee-saved contest -- see note)
+/* Position one riding bloke: its person's own offset is the seat pivot (view
+ * adjusted, then lifted 8), its screen position that plus the seat offset and
+ * the square's screen origin.  MUST be a static __inline helper (the
+ * PlaneRide_PlaceRider / SpinningBarrels_PlaceRider lever): with the same
+ * statements open-coded in the loop body the block is byte-identical except
+ * for one allocator flip -- the `b->f3c - pivot.ox` value takes eax and the
+ * `lea` of &p->local ecx, where the original (and this helper) give the value
+ * ecx and every pushed argument address eax.  As inline-expansion temporaries
+ * `seat`/`pivot` sit outside the caller's escaped-local class, so the value
+ * and the address are ranked as they are in the second (p->screen) block. */
+static __inline void Balloonz_PlaceRider(Bloke* b, int dx, int dy, Offset screen)
+{
+    Person3D* p;
+    Offset    seat;
+    Offset    pivot;
+
+    seat.ox = dx + 0xc;
+    seat.oy = dy - 6;
+    pivot.ox = 0x12;
+    pivot.oy = 0;
+    AdjustOffsetForViewMode(&pivot);
+    pivot.oy -= 8;
+    p = b->person;
+    p->local.ox = b->f3c - pivot.ox;
+    p->local.oy = b->f3e - pivot.oy;
+    AdjustBlokePosition(&p->local);
+    AdjustOffsetForViewMode(&seat);
+    p->screen.ox = b->f3c - pivot.ox + seat.ox + screen.ox;
+    p->screen.oy = b->f3e - pivot.oy + seat.oy + screen.oy;
+    AdjustBlokePosition(&p->screen);
+}
+
+/* CLOSED (2026-09-04, 333 -> 11 -> 7 -> 0; 1748 -> 1749 bytes = the
+ * original's exact length).  Two changes, both measured:
+ *  (1) THE RIDING LOOP'S BLOKE PLACEMENT IS A static __inline HELPER
+ *      (Balloonz_PlaceRider above -- the PlaneRide_PlaceRider /
+ *      SpinningBarrels_PlaceRider lever).  With the same statements
+ *      open-coded in the loop body the block came out byte-identical except
+ *      for ONE allocator flip in the first AdjustBlokePosition block
+ *      (indices 443-453): the `b->f3c - pivot.ox` value took eax and the
+ *      `lea` of &p->local ecx, where the original gives the value ecx and
+ *      the pushed argument address eax -- exactly what its own SECOND
+ *      (p->screen) block, and every other lea/push in the function, does.
+ *      As inline-expansion temporaries `seat`/`pivot` sit outside the
+ *      caller's escaped-local class, and the value/address pair is then
+ *      ranked the same way in both blocks.  Worth the last 7.
+ *  (2) Before the helper was tried, `fx = b->f3c;` read into a named int
+ *      BEFORE `pivot.oy -= 8` fixed the SCHEDULE of the same block (11 ->
+ *      7) -- it makes VC6 compute the ox difference before committing the
+ *      pivot.oy store, load `p` into edi after it, and store p->local.ox
+ *      through the based address with the `lea` materialised later.  The
+ *      helper reproduces that schedule on its own, so `fx` is not shipped.
+ *      Inert at 7 (all measured, ~35 variants): every cast on the value or
+ *      the address, `long`/`unsigned` fx, an `Offset*` local for &p->local
+ *      (declared early, late, or shared as one web with &p->screen -- the
+ *      latter two also move the oy store onto the pointer, 8), a named
+ *      local for the difference, re-assigning fx before the second block so
+ *      both blocks share one web, `pivot.oy = pivot.oy - 8`, and reading fx
+ *      through `saved->bloke`.  Moving `p = b->person` before the `-= 8`
+ *      (13) or the `-= 8` between the two stores (131) both cost the
+ *      schedule: pivot.oy then lands in ecx instead of borrowing edi. */
+// FUNCTION: LEGOLAND 0x0042b2e0
 void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
 {
@@ -1639,25 +1700,7 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
             for (; saved; saved = saved->next) {
                 if (*(unsigned short*)sq == saved->ride_id
                     && (saved->bloke->flags62 & 0x80)) {
-                    Bloke*    b = saved->bloke;
-                    Person3D* p;
-                    Offset    seat;
-                    Offset    pivot;
-
-                    seat.ox = lay.dx + 0xc;
-                    seat.oy = lay.dy - 6;
-                    pivot.ox = 0x12;
-                    pivot.oy = 0;
-                    AdjustOffsetForViewMode(&pivot);
-                    pivot.oy -= 8;
-                    p = b->person;
-                    p->local.ox = b->f3c - pivot.ox;
-                    p->local.oy = b->f3e - pivot.oy;
-                    AdjustBlokePosition(&p->local);
-                    AdjustOffsetForViewMode(&seat);
-                    p->screen.ox = b->f3c - pivot.ox + seat.ox + screen.ox;
-                    p->screen.oy = b->f3e - pivot.oy + seat.oy + screen.oy;
-                    AdjustBlokePosition(&p->screen);
+                    Balloonz_PlaceRider(saved->bloke, lay.dx, lay.dy, screen);
                     IP_RenderBlokeIn3DNow(saved->bloke);
                 }
             }

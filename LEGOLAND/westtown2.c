@@ -69,6 +69,23 @@
  *    takes the register of the operand that dies at it; with `off.ox +
  *    screen.ox` the add lands in screen's register and the pushes swap
  *    (LegoShop2_DrawOverlay's last 4 mismatches).
+ * 8. THE MOVE GOES INSIDE THE ARMS, THE STATEMENT AFTER THE MOVE DOES NOT.
+ *    A random-waypoint case whose arms all end in the same move is written
+ *    `if (..) { wp; ShopMove(b); } else if (..) { wp; ShopMove(b); }
+ *    else { wp; ShopMove(b); }` with the ONE statement that follows the move
+ *    (`b->action++` in LegoShop2 case 3, `b->dir = 8` in Saloon case 3) after
+ *    the chain. That single placement decides how VC6 cross-jumps the WHOLE
+ *    function: each arm then keeps a PRIVATE five-push block (they get
+ *    different scratch rotations, so they cannot merge) and the identical
+ *    call-and-post-call tails merge into one. Hoisting the move out of the
+ *    arms instead gives them ONE shared push block and regroups every other
+ *    case (Saloon 207, LegoShop2 182); giving each arm its own copy of the
+ *    statement AND a `break` stops the arms sharing anything at all, so each
+ *    gets a private call and a private 13-instruction tail (Saloon 150,
+ *    +14 instructions). The same knob also fixes which member of a
+ *    cross-jump group HOSTS the merged copy -- the original always hosts at
+ *    the group's LAST member -- and, in LegoShop2, an ebp/edi exchange in the
+ *    loop head 30 instructions before the case.
  */
 
 /* ---- shared types (same offsets as westtown.c / ridecb1.c) -------------- */
@@ -434,18 +451,20 @@ void Bank_TickCustomers(ShopElem* elem)
  *   5  step to (x, y) -- the doorway
  *   6  leave: RemoveBlokeFromRide and clear the "inside" flag
  * ========================================================================= */
-/* 169 of 169 instructions and every block byte-for-byte, but ONE cross-jump
- * goes the other way: the original makes case 1's middle arm jump FORWARD
- * into case 5's block (`add ebx,-3 / shl ebx,8 / mov [esi+0x24],ebx /
- * add edi,-2 / jmp 0x43a065`), keeping case 5 as the canonical copy of the
- * shared "store y, push, call" block; ours makes case 5 jump BACKWARD into
- * the arm's copy. Same instructions, mirrored. Measured and rejected: both
- * `ty -= 2` orders and the `(tx - 3) << 8` expression form in the arm, an
- * explicit `goto` into case 5's block, a `ShopGoY(b, ty)` inline that owns
- * the y store, case 0 falling through into case 4 (which is how the original
- * places case 4's entry, but it then merges the arm into case 0 instead:
- * 167 instructions), and swapping the textual order of cases 4 and 5. */
-// WIP-FUNCTION: LEGOLAND 0x00439ef0  (169 of 169 instructions; one cross-jump mirrored -- see above)
+/* CLOSED (88 -> 0) by writing case 1's three arms as GUARDED EARLY BREAKS --
+ * `if (rem == 2) { ...; break; } if (rem == 1) { ...; break; } ...; break;` --
+ * instead of an if / else if / else chain. The emitted arm code is the same
+ * either way; what changes is which copy of the shared "store y, push, call"
+ * tail VC6 keeps. With an else chain the inner then-arm's edge to the loop
+ * latch is re-added by jump threading AFTER case 5's, so the arm becomes the
+ * canonical tail holder and case 5 jumps BACKWARD into it (169/169 but 88
+ * mismatches); with explicit breaks every arm's latch edge is created in
+ * textual order, case 5 stays the last copy and the arm jumps FORWARD into it,
+ * exactly as the original does. Case 3's arms (the world-position writes)
+ * are indifferent to the spelling; they are written the same way for
+ * symmetry. Waypoint spelling (tx -= k vs (tx - k) << 8, locals, ShopStep
+ * arguments, store order: ~800 variants) never moved a single instruction. */
+// FUNCTION: LEGOLAND 0x00439ef0
 void LegoMedia_TickCustomers(ShopElem* elem)
 {
     ShopDef*      def = elem->data;
@@ -480,19 +499,21 @@ void LegoMedia_TickCustomers(ShopElem* elem)
                     b->target.x = tx << 8;
                     b->target.y = ty << 8;
                     ShopGo(b);
-                } else if (rem == 1) {
+                    break;
+                }
+                if (rem == 1) {
                     tx -= 3;
                     b->target.x = tx << 8;
                     ty -= 2;
                     b->target.y = ty << 8;
                     ShopGo(b);
-                } else {
-                    tx -= 4;
-                    ty -= 2;
-                    b->target.x = tx << 8;
-                    b->target.y = ty << 8;
-                    ShopGo(b);
+                    break;
                 }
+                tx -= 4;
+                ty -= 2;
+                b->target.x = tx << 8;
+                b->target.y = ty << 8;
+                ShopGo(b);
                 break;
             case 2:
                 Shop_BrowseAndBuy(r, elem, key, 1);
@@ -504,19 +525,21 @@ void LegoMedia_TickCustomers(ShopElem* elem)
                     b->world.x = tx << 8;
                     b->world.y = ty << 8;
                     b->action++;
-                } else if (rem == 1) {
+                    break;
+                }
+                if (rem == 1) {
                     tx -= 3;
                     ty -= 2;
                     b->world.x = tx << 8;
                     b->world.y = ty << 8;
                     b->action++;
-                } else {
-                    tx -= 4;
-                    ty -= 2;
-                    b->world.x = tx << 8;
-                    b->world.y = ty << 8;
-                    b->action++;
+                    break;
                 }
+                tx -= 4;
+                ty -= 2;
+                b->world.x = tx << 8;
+                b->world.y = ty << 8;
+                b->action++;
                 break;
             case 4:
                 tx -= 2;
@@ -787,19 +810,42 @@ void GeneralStore_TickCustomers(ShopElem* elem)
  *      never reached on its own. Reproduced.
  *  12  leave: RemoveBlokeFromRide and clear the "inside" flag
  * ========================================================================= */
-/* 219 emitted against 218, and every case body is instruction-for-instruction
- * the original's -- but with ebp and edi exchanged (the original keeps the
- * base-relative x in ebp and y in edi; ours the other way round), and with the
- * cross-jumps between the three "store y, push the five arguments" blocks
- * regrouped: the original keeps case 3's arm-0 copy as the canonical one and
- * makes case 0 jump FORWARD into it, ours keeps case 0's and makes the arms
- * jump back, which costs arm 1 one extra `shl` because its jump lands one
- * instruction later. Measured and rejected for the register exchange: every
- * order and split of the two `key + base` sums, both operand orders, five
- * declaration orders, `b` before `key`, storing target.y before target.x in
- * case 0, and expanding the move tail as a macro instead of a static
- * __inline. */
-// WIP-FUNCTION: LEGOLAND 0x00439950  (219 emitted vs 218: ebp/edi exchanged and one cross-jump regrouped -- see above)
+/* CLOSED (182 -> 105 -> 0) by the same lever that closed Saloon: case 3's
+ * three arms each run the MOVE (ShopMove, the tail without the script
+ * advance) and only `b->action++` sits after the if/else chain. Two steps:
+ *   1. Rewriting the arms as guarded early breaks -- the
+ *      LegoMedia_TickCustomers lever -- took 182 to 105 and, as a side
+ *      effect, fixed an ebp/edi exchange in the LOOP HEAD (the original keeps
+ *      the base-relative x in ebp and y in edi). The arm form of a case in
+ *      the middle of the switch decides a register pair in the prologue.
+ *   2. That still left two 11-instruction blocks in the wrong place. The
+ *      shared tail `store target.y / lea path / reload target.x / five
+ *      pushes` is emitted once per walking case and then cross-jumped into
+ *      three surviving copies:
+ *          group 1 (lea eax) = {case 0, case 3 arm 0}
+ *          group 2 (lea edx) = {case 1, case 3 arm 2, case 9}
+ *          group 3 (lea ecx) = {case 2, case 3 arm 1, case 10}
+ *      (a copy's eax/edx/ecx rotation is assigned by its position in the
+ *      FINAL layout, cycling eax, edx, ecx, eax -- an effect of the merge,
+ *      not a cause). The original hosts every merged copy at its group's LAST
+ *      member, so case 0 and case 1 jump FORWARD into arm 0's and case 9's;
+ *      with the move inside each arm and the advance shared, VC6 does exactly
+ *      that. Cases 1 and 9 have identical bodies and merge completely: the
+ *      jump table sends BOTH to the block after case 8.
+ *
+ * Ruled out on the way (all compiled and diffed, none better than 105):
+ * all 9 x 9 arm-chain spellings of cases 3 and 5 that keep the script advance
+ * inside the arms (guarded breaks, else-if chains with per-arm tails, a
+ * shared ShopGo after the chain, a nested switch, inverted nesting, a
+ * goto to a common label); case order in the switch (case 1 after case 9,
+ * `case 1: case 9:` sharing one body, case 0 last, case 3 first -- moving
+ * case 1's body out of source position 1 loses the scratch rotation for every
+ * later case); five waypoint spellings for cases 0, 1, 2, 9, 10 and 11;
+ * `goto` into arm 0's tail from case 0 (it does make case 0 jump, but VC6
+ * re-hosts the merged copy at case 1 and the whole grouping shifts: 182);
+ * the move tail as a macro with a local and as a macro re-reading
+ * b->new_dir; `n`/`m` declaration order and count. */
+// FUNCTION: LEGOLAND 0x00439950
 void LegoShop2_TickCustomers(ShopElem* elem)
 {
     ShopDef*      def = elem->data;
@@ -838,21 +884,26 @@ void LegoShop2_TickCustomers(ShopElem* elem)
                 ShopGo(b);
                 break;
             case 3:
+                /* Each arm runs the move itself and only the script advance
+                 * is shared -- see the note above the function. */
                 n = rand() % 3;
                 if (n == 2) {
                     tx -= 3;
                     b->target.x = tx << 8;
                     b->target.y = ty << 8;
+                    ShopMove(b);
                 } else if (n == 1) {
                     b->target.x = (tx << 8) - 0x100;
                     ty -= 2;
                     b->target.y = ty << 8;
+                    ShopMove(b);
                 } else {
                     tx -= 3;
                     b->target.x = tx << 8;
                     b->target.y = (ty << 8) - 0x280;
+                    ShopMove(b);
                 }
-                ShopGo(b);
+                b->action++;
                 break;
             case 4:
                 Shop_BrowseAndBuy(r, elem, key, 1);
@@ -930,20 +981,33 @@ void LegoShop2_TickCustomers(ShopElem* elem)
  *   8  step to (x, y) -- the doorway
  *   9  leave: RemoveBlokeFromRide and clear the "inside" flag
  * ========================================================================= */
-/* 240 emitted against 249. The prologue, the whole loop head (index-for-index,
- * including the two separate re-reads of the ObjDef from its stack home and the
- * hoisted `mov ebx,7`), the jump table, cases 2, 3 (both arms and the dir=8
- * tail), 4 and 9 are exact. The residual is entirely VC6's cross-jumping
- * between the five "push the five CalcMoveLine arguments" blocks: the original
- * gives cases 0 and 2 their own push blocks that jump to ONE shared call, lets
- * 1, 5 and 8 share a block that RELOADS target.x from memory, and gives 6 and
- * 7 a private call and post-call tail each; ours makes case 1 the canonical
- * copy and folds case 0 into case 7's. Measured and rejected: all 64
- * combinations of target.x-before-target.y vs target.y-before-target.x across
- * cases 0,1,2,5,6,7 (best 245, same first divergence), passing the waypoint
- * through the move helper's parameters instead of storing it first, and
- * assigning the shifted coordinates to locals before storing them. */
-// WIP-FUNCTION: LEGOLAND 0x00438f10  (240 emitted vs 249: the push blocks are cross-jumped differently -- see above)
+/* CLOSED (207 -> 0) by moving `ShopGo(b)` INSIDE both arms of case 3 and
+ * leaving only `b->dir = 8;` after the if/else. Case 3 is the only state that
+ * does something after the move, and where that one store sits decides how
+ * VC6 cross-jumps the whole function:
+ *   - `if (rem) {wp} else {wp} ShopGo(b); b->dir = 8;` (the shared-tail form)
+ *     gives the two arms ONE five-push block, and the knock-on regrouping
+ *     moves every other case's block too: 207 mismatches.
+ *   - `if (rem) {wp; ShopGo(b); b->dir = 8; break;} wp; ShopGo(b);
+ *     b->dir = 8; break;` (a tail per arm) stops the arms sharing anything:
+ *     each arm gets its own call AND its own 13-instruction post-call tail,
+ *     14 instructions too many, 150 mismatches.
+ *   - `if (rem) {wp; ShopGo(b);} else {wp; ShopGo(b);} b->dir = 8; break;`
+ *     is the original: each arm keeps a PRIVATE push block (different scratch
+ *     rotation, so they cannot merge) and the two identical call+tails
+ *     cross-jump into one at 0x43905e, which is also what re-schedules the
+ *     arms' last `push` to AFTER the two b->target stores.
+ * `ShopMove(b)` in the arms with a shared `b->dir = 8; b->action++;` is
+ * byte-identical; setting b->dir before ShopGo, inverting the test, and the
+ * else-chain with per-arm tails are all wrong.
+ *
+ * The rest of the function was already exact: the loop head reads the ObjDef
+ * from its stack home TWICE, hoists `mov ebx,7` for b->state, and keeps the
+ * base-relative x in ebp and y in edi. Cases 0 and 2 get their own push block
+ * and jump to the shared call at 0x43917d; 1, 5 and 8 share a push block that
+ * RELOADS target.x from memory; 6 and 7 get a private call and post-call tail
+ * each. */
+// FUNCTION: LEGOLAND 0x00438f10
 void Saloon_TickCustomers(ShopElem* elem)
 {
     ShopDef*      def = elem->data;
@@ -983,17 +1047,22 @@ void Saloon_TickCustomers(ShopElem* elem)
                 ShopGo(b);
                 break;
             case 3:
+                /* Both arms run the move themselves and only the facing
+                 * direction is shared -- see the note above the function:
+                 * that is what gives each arm its own five-push block and
+                 * ONE shared call. */
                 rem = (char)(rand() % 2);
                 if (rem) {
                     b->target.x = (tx << 8) - 0x380;
                     ty++;
                     b->target.y = ty << 8;
+                    ShopGo(b);
                 } else {
                     b->target.x = (tx << 8) - 0x380;
                     ty -= 2;
                     b->target.y = ty << 8;
+                    ShopGo(b);
                 }
-                ShopGo(b);
                 b->dir = 8;
                 break;
             case 4:

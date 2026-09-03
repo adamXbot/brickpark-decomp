@@ -954,105 +954,64 @@ static __inline void DrawRLEFrame(void* dst, LLSFrame* f)
                      g_sp_top, g_sp_left, g_sp_w, 0, g_sp_mouse_pixel);
 }
 
-/* Residual (measured 2026-09-02): 368/392 instructions, 1174/1174 bytes.
- * Two clusters are left, both in the type-3 "highlight" arm:
- *   (a) 0x465bce..0x465c14, the g_sp_mouse_pixel + row computation.  Same
- *       instructions, but ecx and edi swap roles and the multiply is
- *       written the other way round: the original copies the live pitch
- *       register and multiplies by memory (`mov ecx,edx` / `imul ecx,
- *       [0x813a48]`) and evaluates dst->left before g_sp_left; we load
- *       g_mouse_point.y and multiply by the register, and hoist the
- *       g_sp_left load above the g_sp_mouse_pixel store.  The identical
- *       source text one screen earlier (0x465add, where the pitch is not
- *       yet live in a register) matches exactly, and every re-spelling
- *       tried -- commuting the multiply, a named product temp, a named
- *       pitch local, splitting `dst->left - g_sp_left` into its own
- *       statement or into a `row +=`, swapping the two statements -- is
- *       normalised to the same object.  14 instructions.
- *   (b) 0x465c77..0x465c8f, the argument scheduling of the SECOND
- *       DrawRLEFrame call (the one after the frame walk): the original
- *       interleaves the pushes with the global loads, we compute f->n16
- *       and its `lea ecx,[ecx+ecx+0x10]` first.  8 instructions.
- * (Both `loop` instructions now compare clean: tools/audit.py learned to
- * normalise `loop` branch targets, so the honest target for this function is
- * ZERO mismatches -- the old note claiming it could never print [OK] is
- * obsolete.  audit.py reports mismatch=22 for the two clusters above.)
- * Also ruled out (2026-09-02, all normalised to the same object):
- *   for (a): commuting the multiply BOTH ways, `g_sp_rowlen` instead of
- *   `g_ddsd.lPitch` as the pitch source in either or both statements, a
- *   named `int pitch` local feeding g_sp_rowlen + both statements,
- *   `+ g_mouse_point.x * 2` moved before the product, `n = dst->left -
- *   g_sp_left;` as its own statement, `row +=` as a second statement, and
- *   dropping the parentheses round `dst->left - g_sp_left`.
- *   for (b): expanding the second DrawRLEFrame call textually (byte-for-byte
- *   the same object as the inline), walking with a separate `LLSFrame* g`,
- *   `while (k--)` instead of `while (k-- != 0)`, a do/while walk, and
- *   hoisting `k = lls->frame + 1` above the first call.
- * Ruled out 2026-09-03 (a full 2x2 matrix plus 13 more spellings, EVERY one
- * byte-identical to what we already emit):
- *   * pitch source matrix: {g_ddsd.lPitch, g_sp_rowlen} x {mouse stmt, row
- *     stmt}, and a named `int pitch` local in each of the three combinations.
- *     VC6 forwards the just-stored g_sp_rowlen value out of edx in every one,
- *     so the two spellings are indistinguishable.
- *   * row spellings: `- (g_sp_left - dst->left)`, a three-statement
- *     `row = base; row += dst->left; row -= g_sp_left;`, a `WinRect* d = dst`
- *     block local, the product hoisted into `n` first, `+ dst->left` then
- *     `-= g_sp_left`, and the doubled `(dst->left - g_sp_left)` char* form.
- *   * else-arm loop shapes: `for (; colour != 0; colour--)` (no `n` at all),
- *     `n = colour; while (n != 0) {..; n--;}`, and `while (n-- != 0)`.
- *   * the flag test at a different width: `*(volatile unsigned short*)` and
- *     `*(volatile unsigned int*)` both give the identical object to the
- *     `unsigned char` form (22), so the volatile is not the lever here.
- *   Re-verified 2026-09-03 (every one byte-identical to the current body,
- *   so the note above is accurate -- do not spend time here again):
- *   commuting the mouse-pixel product, a named `int` pitch local feeding
- *   g_sp_rowlen and both products in either operand order, an extra pair of
- *   parentheses round the product+offset, spelling the row product as
- *   `g_ddsd.lPitch * dst->top`, swapping the two statements, and -- the
- *   load-then-accumulate form that IS the lever for RenderCursor's tile
- *   loop -- `n = dst->left; n -= g_sp_left;` (and `n = n - g_sp_left;`) as
- *   separate statements ahead of the row expression.  Hoisting that pair
- *   ABOVE the g_sp_mouse_pixel assignment does change the output, but for
- *   the wrong reason (156 mismatches from index 104, 1170 bytes).
- *   * ALIASING (the DECOMP 'two globals that must may-alias must be ONE
- *     struct' lever): declaring g_sp_mouse_pixel / g_sp_top / g_sp_left /
- *     g_sp_h / g_sp_w as members of ONE padded extern struct at 0x007fe9a8
- *     -- singly, in pairs and all together -- changes nothing.  VC6 SP3 is
- *     field-sensitive here and still hoists the g_sp_left load above the
- *     g_sp_mouse_pixel store.  Do not spend time on this again.
- * WHAT THE TWO CLUSTERS ACTUALLY ARE (read this before trying anything):
- * indices 0..131 are identical instruction-for-instruction and the live set
- * at index 132 is identical too (eax=g_sp_w, ebx=lls, edx=g_ddsd.lPitch,
- * esi=f; ecx and edi both dead).  The divergence is therefore NOT seeded by
- * anything upstream.  Ours is the *shorter-encoding* choice at each point --
- * `mov ecx,[mouse.y] / imul ecx,edx` (6+3) where the original copies the
- * live register and multiplies by memory (2+7), and ours then fills the slot
- * before the g_sp_mouse_pixel store with the g_sp_left load, which is what
- * hands g_sp_left edi and rotates ecx/edi for the next twelve instructions.
- * Both spellings are 9 bytes, so the choice is VC6's operand-canonicalisation
- * of a commutative `imul` with one register and one memory operand, and no
- * source-level spelling of that multiply reaches it.  Cluster (b) is the same
- * kind of coin-flip: the THIRD DrawRLEFrame call site (the else arm, after
- * the frame walk) schedules `f->n16` and its `lea` first, where the first two
- * call sites -- byte-identical source, identical live set -- schedule the
- * g_sp_mouse_pixel load first and match.  The next agent should look for a
- * lever that changes VC6's whole-function allocation order, not the two
- * statements: everything local to them has now been exhausted twice.
- * THREE LEVERS took this from 125/392 to 368/392; all of them matter:
+/* EXACT since 2026-09-04 (audit.py [OK], 392/392 instructions, 1174/1174
+ * bytes).  It sat at 22 mismatches from index 132 for two rounds; five
+ * levers, in the order they were found, took it to zero.  Keep every one of
+ * them -- removing any single one costs 8-12 mismatches (measured).
  *   1. `image = &fake;` BEFORE the four fake.* stores, so the
  *      `lea esi,[ebp-0x30]` is emitted ahead of them.
- *   2. `f = lls->frames` derived IMMEDIATELY after `lls = image->lls`,
- *      not where it is first used.  That early derivation is what makes
- *      VC6 coalesce `image` with `f` (whose two frame-walk loops carry the
- *      loop weight) in esi and `src` with `row` in edi.  Derived late, esi
+ *   2. `f = lls->frames` derived IMMEDIATELY after `lls = image->lls`, not
+ *      where it is first used.  That early derivation is what makes VC6
+ *      coalesce `image` with `f` (whose two frame-walk loops carry the loop
+ *      weight) into esi and `src` with `row` into edi.  Derived late, esi
  *      goes to `src`, edi to `image`+`lls`, `row` is spilled into the dst
- *      argument slot, and the register names change through the whole C
- *      part of the function -- 224 of the 267 mismatches this started at.
+ *      argument slot, and every register in the C part changes name.
  *   3. the two-def frame clamp `colour = frame; if (frame >= nframes)
- *      colour = nframes - 1;` together with the volatile flag-byte read
- *      below.  These two are COUPLED: either one alone shifts every later
- *      index by one and scores far worse (24 -> ~244 mismatches). */
-// WIP-FUNCTION: LEGOLAND 0x00465a40  (94.4%: 370/392 insns, 1174/1174 bytes exact; audit.py mismatch=22 in two clusters, first diverging index 132 -- see the note above)
+ *      colour = nframes - 1;` together with the volatile flag-byte read.
+ *      These two are COUPLED: either alone shifts every later index by one.
+ *   4. (2026-09-04) the FIRST g_sp_mouse_pixel assignment is spelled
+ *      `g_mouse_point.y * g_ddsd.lPitch` and the second, otherwise
+ *      identical one `g_ddsd.lPitch * g_mouse_point.y`.  Written the same
+ *      way round in both, VC6 links them as ONE textual common
+ *      subexpression, and that demotes the pitch at the second site from a
+ *      rank-1 TEMPORARY to a register-candidate SYMBOL -- so the memory
+ *      operand becomes the destination copy (`mov ecx,[mouse.y] /
+ *      imul ecx,edx`) where the original copies the live pitch register and
+ *      folds the memory operand (`mov ecx,edx / imul ecx,[mouse.y]`).  This
+ *      is the residual two agents recorded as "VC6's operand
+ *      canonicalisation of a commutative imul, unreachable from C": it is
+ *      reachable, but only from the OTHER statement.
+ *   5. (2026-09-04) the `dst` PARAMETER is read as volatile at the
+ *      `dst->left` access in the row expression, and only there.  Reads of a
+ *      stack argument are CSE'd function-wide into one root copy; the
+ *      original re-reads the home slot for that access, and the volatile
+ *      read of the parameter (not of the field) is what splits the CSE.
+ *      Worth 8: it fixes the load order dst->left/g_sp_left, keeps the
+ *      g_sp_left load below the g_sp_mouse_pixel store and un-swaps ecx/edi
+ *      through the whole row computation.  The same shim on `dst->top`, or
+ *      on both accesses, is worse; `*(volatile int*)&dst->left` (the FIELD
+ *      volatile) only gets the order right, not the registers.
+ *   6. (2026-09-04) the THIRD DrawRLEFrame site (the else arm) must be
+ *      written out with `f->n16` read into a local.  With the repeated
+ *      `f->n16` of the inline helper the two reads are CSE'd into a compiler
+ *      TEMPORARY, which the scheduler treats as a critical-path root and
+ *      hoists together with its `lea` to the top of the block, ahead of the
+ *      g_sp_mouse_pixel load (8 mismatches).  The other two sites want the
+ *      CSE and keep the helper.
+ * Inert (do not re-derive; all byte-identical): commuting the second
+ * multiply, `g_sp_rowlen` for the pitch in either or both statements, a
+ * named `int pitch`/`int my`/`int mx`/product local anywhere, inline helpers
+ * for the mouse-pixel or row expression in any parameter order, `(long)`/
+ * `(int)`/`(unsigned)` casts on either multiply operand, declaring lPitch
+ * `int` or g_sp_rowlen `long`, splitting g_mouse_point into two plain int
+ * externs, every row-expression re-association, `n = dst->left - g_sp_left;`
+ * as its own statement, a `WinRect* d = dst` block local, the doubled char*
+ * row form, all else-arm loop shapes (`while (n--)`, do/while, for/break,
+ * a separate walker), textual expansion of the other two call sites, a
+ * shared trailing DrawRLEFrame after the if/else (VC6 merges it: 362
+ * instructions) and the same via `goto`, and making any of the g_sp_* stores
+ * or reads volatile other than the two shims above. */
+// FUNCTION: LEGOLAND 0x00465a40
 void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
 {
     SpriteHandle handle;
@@ -1084,7 +1043,17 @@ void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
     src->top += s->src_y;
     src->right += s->src_x;
     src->bottom += s->src_y;
-    g_sp_mouse_pixel = (char*)g_ddsd.lpSurface + g_ddsd.lPitch * g_mouse_point.y + g_mouse_point.x * 2;
+    /* CODEGEN LEVER (2026-09-04): the product is spelled `y * pitch` HERE and
+     * `pitch * y` at the second, identical assignment inside the type-3 arm.
+     * Written the same way round in both, VC6 links the two occurrences as one
+     * textual common subexpression, which demotes the pitch at the second site
+     * from a rank-1 temporary to a register-candidate symbol -- so the memory
+     * operand becomes the destination copy there (`mov ecx,[mouse.y] / imul
+     * ecx,edx`) where the original copies the live pitch register and folds the
+     * memory operand (`mov ecx,edx / imul ecx,[mouse.y]`).  Both orders are the
+     * same value; only this spelling reproduces the original.  Emitted code for
+     * THIS statement is identical either way. */
+    g_sp_mouse_pixel = (char*)g_ddsd.lpSurface + g_mouse_point.y * g_ddsd.lPitch + g_mouse_point.x * 2;
     if (image->type == 2) {
         SoftBlitAnim(image->lls, src, dst);
         return;
@@ -1106,7 +1075,18 @@ void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
             if (frame >= nframes)
                 colour = nframes - 1;
             g_sp_mouse_pixel = (char*)g_ddsd.lpSurface + g_ddsd.lPitch * g_mouse_point.y + g_mouse_point.x * 2;
-            row = (unsigned short*)((char*)g_ddsd.lpSurface + dst->top * g_ddsd.lPitch) + (dst->left - g_sp_left);
+            /* CODEGEN LEVER (2026-09-04): the ORIGINAL re-reads the `dst`
+             * argument from its home slot for the left field
+             * (`mov ecx,[ebp+0x10]` at 0x465bdd and again at 0x465be9), while
+             * every plain spelling lets VC6 CSE the two reads into one root
+             * copy and then rematerialise it -- which swaps ecx/edi through
+             * the whole row computation and hoists the g_sp_left load above
+             * the g_sp_mouse_pixel store (8 mismatches).  Reading the
+             * PARAMETER (not the field) as volatile at the left access only
+             * splits the CSE and reproduces the original exactly; the same
+             * shim on the top access instead, or on both, is worse. */
+            row = (unsigned short*)((char*)g_ddsd.lpSurface + dst->top * g_ddsd.lPitch)
+                  + ((*(WinRect* volatile*)&dst)->left - g_sp_left);
             /* CODEGEN LEVER: the original loads the flag byte into a
              * register first (`mov cl,[ebx+0x14]` / `test cl,1`); every
              * plain spelling -- lls->flags & 1, an unsigned char local, a
@@ -1122,9 +1102,23 @@ void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
                     f = (LLSFrame*)((char*)f + f->size);
                 DrawRLEFrame(row, f);
             } else {
+                /* CODEGEN LEVER (2026-09-04): this third call site must NOT go
+                 * through DrawRLEFrame.  Written with the repeated `f->n16`
+                 * the two reads are CSE'd into a compiler TEMPORARY, which the
+                 * scheduler treats as a critical-path root and hoists (with
+                 * its `lea`) to the top of the block, ahead of the
+                 * g_sp_mouse_pixel load -- 8 mismatches.  Naming the field in
+                 * a local makes it an ordinary symbol whose load stays in
+                 * program order, exactly as the original has it.  The two call
+                 * sites in the other arm want the CSE and must keep the
+                 * inline helper. */
+                int nn;
                 for (n = colour; n != 0; n--)
                     f = (LLSFrame*)((char*)f + f->size);
-                DrawRLEFrame(row, f);
+                nn = f->n16;
+                SoftBlitRLEFrame(row, f->data, f->data + nn * 2,
+                                 f->data + nn * 2 + f->n2, g_sp_h, g_ddsd.lPitch,
+                                 g_sp_top, g_sp_left, g_sp_w, 0, g_sp_mouse_pixel);
             }
         } else {
             SoftBlitRLE(image->lls, src, dst);
@@ -1451,12 +1445,88 @@ static __inline SpriteRec* TileSprite(int id)
  *       case 0, an added empty `case 3:`, `switch (c->kind[i])` unmasked,
  *       either or both case-0 arms calling a third function, and extra
  *       code added before or after the segment loop.
+ *
+ *       ===== 2026-09-04 =====
+ *       THE BLOCKER IS A LENGTH THRESHOLD ON THE SHARED SUFFIX, and the
+ *       mechanism is now reproducible on demand.  Give cases 1 and 2 of the
+ *       FIRST arm ONE extra shared trailing instruction (e.g. a
+ *       `g_sp_rowlen = 0;` after each call) and VC6 immediately emits the
+ *       ORIGINAL'S EXACT SHAPE: `... push 2 / jmp T` and `... push 1` falling
+ *       into `T: lea eax,[esp+0x74] / push eax / call / add esp,0x18 / jmp`.
+ *       Measured twice: in the standalone repro (mergesites 0 -> 1, 140 ->
+ *       137 insns) and in the real function (`Q1_Atail`: 342 -> 320
+ *       mismatches, 523 -> 521 insns).  So our shared suffix is FIVE
+ *       instructions (lea / push eax / call / add esp,0x18 / jmp) and this
+ *       VC6 wants SIX; the original merged at five.
+ *       Not a BYTE threshold: our two case blocks' `jmp`s are both 5-byte
+ *       near jumps (verified in our object at 0x2ce and 0x2e9), so our
+ *       candidate suffix is 4+1+5+3+5 = 18 bytes -- exactly the size of the
+ *       original's shared tail at 0x4601cd -- and it still does not merge.
+ *       The merge runs BEFORE the scheduler: the `lea` can only be inside
+ *       the shared block if it was still after the `push <imm>` when the
+ *       merge ran, and in every UNMERGED block (ours and the original's B
+ *       arm and case 0s) the scheduler hoists that `lea` above the
+ *       `push <imm>`.  So "lea eax,[esp+0x74] after the push" is a
+ *       consequence of the merge, as the older note guessed -- now proved by
+ *       construction, not inferred.
+ *       The threshold is a COUNT, not bytes: a 2-byte `th = 0;` in both case
+ *       bodies triggers it exactly as a 10-byte store does, while any tail
+ *       statement VC6 dead-code-eliminates (`flags = 0;`, `col = 0;`, `x++;`)
+ *       leaves the object byte-identical.  And the threshold DEPENDS ON THE
+ *       ROLE of the block: merging INTO the canonical (the predecessor the
+ *       join falls through from) happens at depth 4 -- repro_merge.c's second
+ *       arm merges `lea / push eax / call / add esp,0x18` -- while merging two
+ *       NON-canonical predecessors with each other, which is what A1/A2 need,
+ *       takes 6.  The canonical for this join is always the ebx-reload block
+ *       that the B arm's case 0 falls into, and no C spelling makes the A arm
+ *       the fall-through predecessor while keeping `je` to the B dispatch.
+ *       => What is needed is a SEMANTICALLY VALID sixth shared instruction
+ *       that disappears again before the final code (a register copy the
+ *       allocator coalesces away, or a split `add esp,0x14 / add esp,4` pair
+ *       that a later peephole recombines -- see the DECOMP note that a call
+ *       result pushed straight into another call splits the `add esp`), or a
+ *       construct that lowers VC6's threshold.  Do NOT keep re-spelling the
+ *       switch: the shape space is exhausted (below).
+ *       Newly ruled out 2026-09-04 (repro + full function, all byte-identical
+ *       to the plain if/else unless noted; the repro is
+ *       scratchpad/bigrender/run2/repro_nomerge.c driven by
+ *       scratchpad/bigrender/s0904/rp.py, ~0.3 s a build):
+ *         * every CFG re-shaping of the two arms -- `goto` past either arm,
+ *           `goto` with the A arm written second, `do { ... break; ... }
+ *           while (0)`, `continue` inside the cases or after the switch, the
+ *           negated condition -- 140 insns / 387 bytes, identical.
+ *         * `case K: f(&vs, kk, ..)` with `kk` the switch value is
+ *           byte-identical to `case K: f(&vs, K, ..)`: VC6 constant-
+ *           propagates the switch value into every arm.  (Useful fact, no
+ *           merge.)
+ *         * no-op IR differences on the OTHER arm's arguments (`(int)th`,
+ *           `(short)th`, `(VS*)&vs`, `(const char*)col`, `(int)x`, on either
+ *           of its cases): byte-identical.  There is no "one group per join"
+ *           effect to exploit.
+ *         * shifting the instruction stream upstream (1..9 volatile stores
+ *           before the loop or inside it, before the if/else) never moves the
+ *           merge or the `lea`: the Pentium-window lever does not apply here.
+ *         * making the OTHER arm's tail one instruction longer merges THAT
+ *           arm, not this one.
+ *         * a fourth `case 3:` sharing the same tail does not help, so the
+ *           threshold is per PAIR, not on the total saving.
+ *         * `static __inline` wrappers round the call, in either parameter
+ *           order.
+ *         * all six case-label permutations in either arm, re-measured on the
+ *           full function: byte-identical (confirms the old note).
+ *       For (a), newly ruled out 2026-09-04: volatile reads of the origin
+ *       FIELDS singly and together (byte-identical), a `Pos* org` block
+ *       local, a cast on `&tb`, `while` forms of either loop or both
+ *       (byte-identical -- loop form is not a lever here), and `t.y` before
+ *       `t.x` in the accumulate pair (worse, 346).  The parameter-volatile
+ *       shim that closed SoftPrint_XBltFast (`(*(Cursor* volatile*)&c)`)
+ *       forces a reload of `c` from its home and costs 140 more (484).
  * LEVER already applied (worth 124 mismatches and the ESCAPES failure):
  * `t.x = c->origin.x; t.y = c->origin.y; t.x += x; t.y += y;` -- the
  * separate load-then-accumulate form.  Written `t.x = c->origin.x + x`,
  * VC6 emits `mov edx,esi / add edx,ebx` (two extra instructions per
  * coordinate) and lays the loop out so a branch escapes the extent. */
-// WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%: 181/454 insns, 1438 vs 1429 bytes, audit.py mismatch=273; first diverging index 48, a 3-cycle rename of the tile loop's four scratch temps (23 mismatches); the other 250 all come from residual (b), the un-cross-jumped DrawCursorSegmentA switch tail at index 204, which shifts every later index.  2026-09-03: (b) is now characterised exactly -- VC6 merges into ONE canonical tail per join, the last predecessor in layout, and our canonical carries the ebx reload that blocks it; the original merges the FIRST arm, which no C shape reaches.  Repro pair in scratchpad/bigrender/run2/.  See the note above)
+// WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%: 181/454 insns, 1438 vs 1429 bytes, audit.py mismatch=273; first diverging index 48, a 3-cycle rename of the tile loop's four scratch temps (23 mismatches, residual (a)); the other 250 all come from residual (b), the un-cross-jumped DrawCursorSegmentA switch tail at index 204 -- 4 instructions and 9 bytes -- which shifts every later index.  2026-09-04: (b) is now REPRODUCIBLE ON DEMAND -- one extra shared trailing instruction in cases 1 and 2 of the first arm makes VC6 emit the original's exact shape, so the blocker is a length threshold on the shared suffix (ours 5 instructions, this VC6 wants 6, the original merged at 5) and the merge provably runs before the scheduler.  Repro: scratchpad/bigrender/run2/repro_nomerge.c driven by scratchpad/bigrender/s0904/rp.py.  See the note above)
 void RenderCursor(Cursor* c)
 {
     WinRect          view;
