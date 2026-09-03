@@ -190,7 +190,7 @@ grep -rhoE '//\s*(WIP-)?FUNCTION: LEGOLAND 0x[0-9a-fA-F]+' LEGOLAND/*.c \
 python3 tools/audit.py LEGOLAND/*.c | grep -E 'REJECT|FAIL|COMPILE FAILED'
 # /W3 clean
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" \
-  "${LEGOLAND_CL:-/Users/systemadmin/Downloads/alpha team/alphateam/tools/wibo-msvc/cl}" \
+  "${LEGOLAND_CL:-../alphateam/tools/wibo-msvc/cl}" \
   /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/x.obj LEGOLAND/<file>.c
 python3 tools/verify.py     # ALONE. nothing else compiling.
 ```
