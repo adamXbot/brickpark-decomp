@@ -35,8 +35,11 @@ the `wibo-msvc/cl` wrapper hard-coded in `tools/match.py`, `tools/audit.py` and
   (254 matches) and now quotes the checkpoint numbers.
 - CI: the only two recorded runs (2026-09-01) pass the report check and fail at
   `actions/configure-pages` because **GitHub Pages is not enabled on the repo**
-  (the Pages API returns 404). Enabling Pages with "GitHub Actions" as the
-  source fixes the deploy; the progress badge in the README is dead until then.
+  (the Pages API returns 404), and the workflow itself is now
+  `disabled_manually` (`gh workflow list --all`), which is why no run fired for
+  any push after that date. Enabling Pages with "GitHub Actions" as the source
+  and re-enabling the workflow fixes the deploy; the progress badge in the
+  README is dead until then.
 - The 62 audit-exact WIPs of §2 can be listed without the binary — 58 of them
   say so on the marker line:
   `grep -h '^// WIP-FUNCTION' LEGOLAND/*.c | grep -iE 'exact|100%' | grep -i audit`.
