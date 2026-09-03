@@ -1,235 +1,197 @@
-# Handoff: continuing the LEGOLAND matching decompilation
+# Handoff — LEGOLAND matching decompilation
 
-Written 2026-09-02 for the next agent (Opus) picking this up. Read this, then
-`docs/DECOMP.md` (the codegen playbook) and `docs/LANE_BRIEF.md` (the exact
-text every matching agent gets). Everything below is verifiable from the repo.
+**Checkpoint: 2026-09-03, 10:55 AEST (Thursday).** Written for the next session
+to pick up cold. Everything below is verifiable from the repo; where a number is
+quoted, the command that produces it is given.
 
-## 1. Goal and where things stand
+Read this, then `docs/DECOMP.md` (the living codegen playbook),
+`docs/LANE_BRIEF.md` (the verbatim text every matching agent gets) and
+`docs/RIDE_CALLBACKS.md` (what each ride callback is for).
 
-Goal: a reccmp-style matching decompilation of `original/legoland.exe` (VC6 SP3,
-`/O2 /Gy /Gd`) — human-written C that compiles to the original machine code
-function-by-function — and, eventually, a browser runtime that plays the game.
-The recovered mechanics and data layouts in the commit messages and file
-headers are the runtime's spec.
+---
 
-State (committed, `main` of `/Users/systemadmin/Downloads/legoland/legoland`):
+## 1. Where the project stands
 
-| | |
-| --- | --- |
-| Functions exact (committed `// FUNCTION:` markers) | 1158 |
-| Code exports exact | 645 of 675 (95.6%) — but see the coverage note below |
-| Recovered internal (unexported) functions | 513 |
-| Exports still to finish | 30, but 15 are already exact and tooling-blocked, so **15 real** — `python3 tools/remaining.py` |
-| **Bytes of game code matched** | **33.2% — `python3 tools/coverage.py`, the honest headline** |
-| Unmatched callees | `python3 tools/callees.py` — moves in BOTH directions, so not a progress measure |
+Goal: human-written C that, compiled with the VC6 SP3 toolchain the game shipped
+with (`/O2 /Gy /Gd`), reproduces `original/legoland.exe` function-by-function —
+and eventually a browser runtime. The recovered mechanics in the file headers
+and commit messages are that runtime's spec.
 
-716 symbols are exported; 41 are data, so the denominator is 675. Beware:
-`tools/audit.py`'s `true_extent` will happily disassemble a data symbol and
-report a plausible instruction count, so a naive "unmatched exports" script
-invents targets. `SPRITE_ClipRect` 0x004bdea0 is the known case — it is the
-full-screen clip RECT `{0, 0, 640, 480}`, declared as data in gpu.c, rin.c,
-bigrender.c and printlist.c. Cross-check any "new" export against the
-disassembly before assigning it to a lane.
+| measure | command | value |
+| --- | --- | --- |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **38.3% exact, 51.3% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1411 |
+| exported functions | `python3 tools/remaining.py` | 645 of 675 (95.6%) |
+| unmatched callees | `python3 tools/callees.py` | 589, ~25,500 instructions |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 169 |
 
-Held as `// WIP-FUNCTION:` in committed files:
+**Quote coverage.py.** The export figure (95.6%) badly overstates completion —
+exports are only the symbols the linker exposed, and 1411 functions are matched
+against just 645 exports. The callee figure moves in *both* directions, because
+each new file declares externs for its own callees; it measures the frontier,
+not progress. Only coverage.py has a fixed denominator (~628 KB of game code,
+excluding ~51 KB of statically-linked CRT above `0x0049e000`).
 
-- Genuine partials: `UpdateControllerFromMouseData` 0x00473b00 (102/109 —
-  the residual is an allocator state; two agents exhausted every C spelling
-  and every `/O2`-compatible option; leave it), `InsertChildIntoList`
-  0x00475630 (78.5%), `LoadPalette` 0x00441f20 (80.6%, RGB565 red term),
-  `InitExitCheckBox` 0x0048f0f0 (92.2%, zero held in ebx).
-- Exact by `tools/audit.py` but held only because the shared `tools/match.py`
-  cannot bound them: eleven void tail-jump wrappers, `RenderFrontEndScreen`,
-  `KillAllSamplesFromSource`. See "Tail-jump functions" in DECOMP.md; the
-  fix is a one-function change to match.py that has NOT been applied because
-  match.py is shared (§3).
+Both gates are green at this checkpoint: `verify.py` 1411/1411, `audit.py` PASS
+on every file, every file compiles clean at `/W3`, tree committed and pushed to
+`origin/main` (`adamXbot/legoland`).
 
-## 1b. Which progress number to quote
+---
 
-Three measures, all true, only one of them a good headline:
+## 2. The single highest-value thing you could do
 
-- `tools/remaining.py` — 645 of 675 EXPORTS (95.6%). Exports are only the
-  symbols the linker exposed. 1158 functions are matched and just 645 are
-  exports, so this badly overstates completion. It was the right FIRST target
-  (exports are the subsystem entry points) and it is nearly finished.
-- `tools/callees.py` — the unmatched frontier. It moves in BOTH directions:
-  batch 24 matched 185 functions and this number ROSE from 631 callees /
-  31,000 instructions to 796 / 41,400, because new files declare externs for
-  their own callees. It measures the frontier, not progress.
-- `tools/coverage.py` — **bytes of matched code against bytes of game code**,
-  excluding the ~51 KB of statically-linked CRT above 0x0049e000. The
-  denominator is fixed, so it only moves by doing work: **33.2% exact**
-  (44.4% including partials) of ~628 KB of game code.
+**62 of the 169 partials are already exact** — zero mismatches under `audit.py`
+— and are held only because the shared `tools/match.py` cannot bound them.
+Fixing that one file promotes 62 functions immediately.
 
-Quote coverage.py. Roughly seventy per cent of the game's code is unexported
-and still ahead.
+    python3 tools/audit.py LEGOLAND/*.c | grep '\[WIP' | grep -c 'mismatch=0$'
 
-## 2. Toolchain and tools
+Three shapes defeat `match.py`, which stops at the first `ret`:
 
-Compile (from the repo root):
+1. **void tail-`jmp` wrappers** — the last statement is a call, so there is no
+   `ret` at all.
+2. **bodies ending in a `noreturn` call** — same, no `ret`.
+3. **recursive functions** — a self-call inside its own COMDAT is not
+   relocated, so it disassembles as a bare numeric target. `audit.py`'s
+   `norm2()` rewrites those; `match.py`'s `norm()` only rewrites `0x`-prefixed
+   ones, so it reports one mismatch (measured: 96.2% and 97.3% on the two Log
+   Flume recursive functions).
 
-```bash
-ALPHATEAM_VC6_ROOT="$PWD/toolchain" "/Users/systemadmin/Downloads/alpha team/alphateam/tools/wibo-msvc/cl" /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/x.obj LEGOLAND/foo.c
-```
+`tools/audit.py` already implements every rule needed; the fix is to port its
+`true_extent` / `end_of_body` / `norm2` logic into `match.py`. **It has not been
+done because `match.py` and `verify.py` are shared with Codex and the standing
+instruction is to coordinate before changing them.** Codex was out of credits
+until 2026-09-08. Get the user's go-ahead, then apply it and re-run `verify.py`
+over the whole tree to confirm nothing regresses.
 
-| Tool | Role |
-| --- | --- |
-| `python3 tools/disasm.py original/legoland.exe <RVA>` | disassemble the original (RVA = VA − 0x400000) |
-| `python3 tools/matchfull.py LEGOLAND/foo.c Name 0xVA --obj /tmp/x.obj` | iteration tool: full-body diff; over- or under-reports at the edges |
-| `python3 tools/audit.py LEGOLAND/foo.c [...]` | **the gate**: true extent by control flow (ret / unconditional jmp nothing jumps past, switch tables followed), compiled body trimmed to it, instruction count + byte length + strict index-for-index + no escaping branch. Prints `[OK]`/`[WIP]`/`[REJECT]`, ends `PASS`/`FAIL`. |
-| `python3 tools/verify.py` | the SHARED gate (stops at the first `ret`); must stay green — `WIP-FUNCTION` markers are ignored by it |
-| `python3 tools/progress.py` | Codex's report generator; reads the WORKING TREE, so run it on a clean checkout |
-| `symbols/legoland.exports.txt` | `name ordinal RVA` |
+---
 
-Markers: `// FUNCTION: LEGOLAND 0x<VA>` on the line immediately above the
-signature (`//` form only; a `/* */` block is silently ignored; the verifier
-looks 1–3 lines ahead). Partial: `// WIP-FUNCTION: LEGOLAND 0x<VA>  (<pct>, <reason>)`.
+## 3. Rules that are not in the code
 
-Counting: always from committed markers —
-`git ls-files 'LEGOLAND/*.c' | xargs grep -h '^// FUNCTION: LEGOLAND' | wc -l`.
-verify.py and progress.py include in-flight lane files.
+- **Never run `verify.py` or `match.py` concurrently with anything that
+  compiles.** They share one fixed object path. Two runs during this session
+  disagreed by 49 functions and flagged four phantom regressions, because a
+  background disassembly was still going. Run it alone; distrust any run that
+  was not.
+- **Count committed markers, not the working tree.** `verify.py` and
+  `progress.py` read on-disk files, which include in-flight lane work.
+- **Extern prototype TYPES are caller-side codegen levers.** `unsigned short`
+  vs `int` parameters decide whether the caller emits a 16-bit load. The
+  original's headers and translation units genuinely disagreed in places
+  (`RemovePathTile`, `LoadSpriteIcon`). Never "align" an extern to its
+  definition without re-auditing every file that declares it — doing so once
+  committed a FAIL.
+- **Always give an `extern` a trailing `/* 0x0044xxxx */` comment.** That
+  comment is what `tools/callees.py` reads to track what is still missing.
+- **Never commit a prologue-only or fabricated-tail body as `// FUNCTION:`.**
+  Use `// WIP-FUNCTION:` while iterating and promote only after `audit.py` says
+  `[OK]`. Rounds killed by API limits have repeatedly left false claims that had
+  to be demoted by hand.
+- **Markers bind 1–3 lines ahead.** A note between the marker and the signature
+  makes the function silently uncounted — one finished function hid that way for
+  a whole round. Explanations go *above* the marker.
+- `original/` and `gamedata/` are gitignored; no game binary is ever committed.
+  Confirmed clean on the remote.
 
-## 3. Constraints that are not in the code
+---
 
-- `tools/match.py` and `tools/verify.py` are shared with Codex (out of credits
-  until 2026-09-08). Do not change them without coordinating. `tools/audit.py`
-  and `tools/matchfull.py` are ours.
-- Do not edit `web/**` (Codex's). The browser runtime work should be
-  coordinated there once the decomp is done.
-- Extern prototype TYPES are caller-side codegen levers (`unsigned short` vs
-  `int` parameters decide a 16-bit load). The original's headers and TUs
-  disagreed in places (`RemovePathTile` in maprestore.c vs pathtile2.c,
-  `LoadSpriteIcon` in saveprof.c vs iconui.c). Never "align" an extern to its
-  definition without re-auditing every file that declares it.
-- Never commit a prologue-only or fabricated-tail body as `// FUNCTION:`.
-  Semantics come first; reproduce original bugs faithfully and comment them.
-- Report matches as "normalized instruction match" (relocations and branch
-  targets are normalised), not byte identity.
-- Commit attribution: use whatever your session's rules say. Commit messages
-  should list the functions per file and the recovered mechanics / layouts
-  (they are the runtime's spec) and the codegen levers learned.
-
-## 4. The per-batch integration checklist
-
-Run this for every lane file before committing it:
+## 4. Per-round integration checklist
 
 ```bash
 cd /Users/systemadmin/Downloads/legoland/legoland
 # duplicate addresses across all files (must print nothing)
-grep -rhoE '//\s*(WIP-)?FUNCTION: LEGOLAND 0x[0-9a-fA-F]+' LEGOLAND/*.c | grep -oE '0x[0-9a-fA-F]+' | tr 'A-F' 'a-f' | sort | uniq -d
-# block-comment markers (must print nothing)
-grep -n '/\*.*FUNCTION: LEGOLAND' LEGOLAND/<file>.c
-# the gate
-python3 tools/audit.py LEGOLAND/<file>.c
+grep -rhoE '//\s*(WIP-)?FUNCTION: LEGOLAND 0x[0-9a-fA-F]+' LEGOLAND/*.c \
+  | grep -oE '0x[0-9a-fA-F]+' | tr 'A-F' 'a-f' | sort | uniq -d
+# honest markers (must print nothing)
+python3 tools/audit.py LEGOLAND/*.c | grep -E 'REJECT|FAIL|COMPILE FAILED'
 # /W3 clean
-ALPHATEAM_VC6_ROOT="$PWD/toolchain" "/Users/systemadmin/Downloads/alpha team/alphateam/tools/wibo-msvc/cl" /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/w3.obj LEGOLAND/<file>.c
-# shared gate still green (read its total line; in-flight files also appear)
-python3 tools/verify.py | tail -1
+ALPHATEAM_VC6_ROOT="$PWD/toolchain" \
+  "/Users/systemadmin/Downloads/alpha team/alphateam/tools/wibo-msvc/cl" \
+  /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/x.obj LEGOLAND/<file>.c
+python3 tools/verify.py     # ALONE. nothing else compiling.
 ```
 
-Then `git add` only the lane files (never `scratchpad/`, never `vc60.pdb`),
-commit, and recount committed markers. Update the status block at the top of
-"## Status" in `docs/DECOMP.md` when the tally moves.
+Then `git add` only the lane files (never `scratchpad/`), commit with the
+recovered mechanics in the message, and update the status block in
+`docs/DECOMP.md`.
 
-## 5. Work in flight, and where the value now is
+---
 
-**Read this before launching another round of export-chasing.** The export
-figure (95.6%) counts only the symbols the linker exposed, about half the game.
-`python3 tools/callees.py` lists 584 addresses the matched files call through an
-`extern` declaration that nobody has matched — roughly 39,300 instructions of
-behaviour the reconstruction names but does not reproduce. By whole functions
-the project is 708 of ~1,292 known (54.8%).
+## 5. What was in flight when this checkpoint was taken
 
-The 15 remaining genuine export partials are deep register-allocation puzzles
-with steeply diminishing returns: two consecutive rounds cost about 4.4M
-subagent tokens between them and yielded one function, though they did leave
-precise measurements in every WIP note. The unexported internals are worth far
-more per token and are what a browser runtime actually needs.
+Workflow `ll-batch27` (7 lanes) was **stopped mid-run** so the tree could be
+committed cleanly. Its finished work is committed; its unfinished work is on
+disk under `// WIP-FUNCTION:` markers, which is safe to build on.
 
-Workflow `ll-batch22` (7 lanes) was running when this was last updated, and it
-is the first round aimed at that work: `savechunks.c` (the Save/LoadBlock and
-Save/LoadScripts writers, which COMPLETE the .sav format), `person3d.c`
-(Draw3DPersonModel, 1023 instructions, the largest unmatched function in the
-game), `joust.c` (the Joust and Temple Slide callback sets, the two rides whose
-GetInterfaces are already matched so every slot's purpose is known),
-`ridecb1.c` and `ridecb2.c` (the 0x42xxxx and 0x43xxxx ride-callback clusters),
-`simcore.c` (RequestRoute, ScanBlokeSurroundings, GetPathNeighbours,
-UpdateMapDrag, TriggerSwitch) and `softblit.c` (the CPU rasterisers).
+One casualty to know about: a lane was interrupted with a `// FUNCTION:` marker
+on an unfinished body, `Coaster_TickLoadingBay` (0x00424c70, `schoolcar.c`, 83
+of 89 instructions). It is demoted to WIP and its note says it is an
+**interrupted draft, not a diagnosed near-miss** — re-derive it from the
+disassembly rather than trusting the shape that is there.
 
-If that session is gone, the lane files are on disk with `// WIP-FUNCTION:` on
-anything unfinished. Audit, commit what is `[OK]`, and relaunch from
-`docs/LANE_BRIEF.md`. Then run `tools/callees.py --by-file` and take the next
-cluster: 221 of the unmatched callees, ~18,800 instructions, are the ride
-callback sets that `SetCustomCallbacks` installs.
+Lanes that had been running, all resumable from `docs/LANE_BRIEF.md`:
+`lfentrance.c`, `waterworks.c`, `catapult.c`, `schoolcar.c`, `ridecb8.c`,
+`ridecb9.c`, and a WIP-backlog lane over `mechrides.c`, `westtown.c`,
+`westtown2.c`, `joust.c`, `person3d.c`, `ridecb1.c`, `simcore.c`.
 
-Note when writing new files: ALWAYS give an `extern` declaration a trailing
-comment with the callee's address (`/* 0x0043ffd0 */`). That comment is what
-`tools/callees.py` reads to track what is still missing.
+---
 
-## 6. What comes after batch 18
+## 6. Where to go next
 
-Exports with no marker anywhere on disk at handoff (size = true extent in
-instructions):
+**A. Port the extent rules into `match.py`** (section 2) — 62 functions, gated
+on the user's go-ahead.
 
-| insns | VA | name | suggested lane |
-| --- | --- | --- | --- |
-| 188 | 0x00489190 | RenderTransSprite | printlist.c's lane missed it; new file `render3.c` |
-| 188 | 0x0045eb30 | BuildObject | with objmap2's placement cluster (new file `objmap3.c`) |
-| 470 | 0x0044e010 | __BMPLoader | bighelp.c (in flight) |
-| 483 | 0x00463870 | InitScreen | `screen.c` with SetCustomCallbacks |
-| 578 | 0x00452c20 | SetCustomCallbacks | `screen.c` — the class-name → callback-set dispatcher (see ridesave.c GetInterfaces) |
-| 903 | 0x0045b180 | RenderView | `renderview.c` — the isometric renderer; recover the draw order |
-| 962 | 0x004724a0 | DrawPopUpInfo | `popup.c` — every field the pop-up shows and its source |
-| 971 | 0x0047e980 | LoadGame | `savegame.c` with SaveGame (do SaveGame first) |
-| 1161 | 0x004567a0 | RenderFullMap | `fullmap.c` — the overview-map draw callback |
-| 1196 | 0x0047d8e0 | SaveGame | `savegame.c` — the whole .sav format; chunk framing is in profiles.c, per-ride sections in ridesave.c |
+**B. The closest genuine partials.** 107 of the 169 WIPs are real partials, and
+each carries a note above its marker recording its measured residual, its first
+diverging instruction index, and what previous agents ruled out. *Read that note
+before touching one.* The closest right now:
 
-(BuildObjInfoList, PopUpInfoSetUp, MakeUpObjectList, RenderBuildObjectIcon
-also show as unmarked; they belong to fpui2.c's in-flight lane.)
+| mismatches | address | function |
+| --- | --- | --- |
+| 1 | 0x0040c4a0 | LFTrack_Update |
+| 1 | 0x00413b50 | Roads_CalcCursor |
+| 1 | 0x0041e4a0 | Route_IsClosed |
+| 1 | 0x004828f0 | sub_4828f0 |
+| 2 | 0x0042d610 | EarthSlide_Tick |
+| 3 | 0x0040aac0 | LFEntrance_Update2 |
+| 3 | 0x00433840 | JcBoat_Animate |
+| 3 | 0x00477bd0 | RequestRoute |
 
-The giant-function lane briefs (`ll-batch16`, never ran: session limit) are in
-the workflow script directory —
-`~/.claude/projects/-Users-systemadmin-Downloads-legoland-legoland/c4caa6e2-7d89-4969-bd0f-50c75064bb23/workflows/scripts/ll-batch16-*.js` —
-with per-function context lists worth reusing. For these, the recovered
-format/algorithm is the deliverable even if the match stalls at 95%.
+Four more report `ESCAPES` (a branch in our body targets past the original's end
+— usually a duplicated tail or a different block layout): `Copters_Activate`,
+`Balloonz_Tick`, `Explorers_TickCustomers`, `SaveEmptySlotInput`.
 
-After the exports: (a) the unexported internals that the runtime needs
-(callees left as `extern` in each file — grep for `unexported`), (b) the
-tail-jump promotion once match.py is fixed, (c) the browser runtime in
-`web/**` (coordinate with Codex).
+Look for **twins**: the game is full of near-identical rides, and a fix on one
+slot usually transfers straight to the same slot on another ride. That has
+turned one fix into four repeatedly.
+
+**C. The remaining frontier**, `python3 tools/callees.py --by-file` — 589
+functions, ~25,500 instructions, now a long tail of 140–250 instruction
+callbacks rather than a few giants. `docs/RIDE_CALLBACKS.md` names most of them
+and says which object-definition slot each fills, so disassemble the relevant
+`*_GetInterfaces` provider first and the cluster arrives pre-named.
+
+**D. One deliberately abandoned function.** `UpdateControllerFromMouseData`
+(0x00473b00, `input.c`) is 102/109. Two agents exhausted it, including checking
+the executable's Rich header to confirm the game's translation units were built
+by the same compiler back-end we use. The residual is an allocator state no C
+construct or `/O2`-compatible option reaches. Its note lists every eliminated
+hypothesis. **Leave it.**
+
+---
 
 ## 7. How the lanes are run
 
-- One lane = one NEW file + a disjoint function list (with sizes and 3–6
-  "matched context" files to read). Never two lanes on one file.
-- Prompt = `docs/LANE_BRIEF.md` verbatim + lane name, file, state, function
-  list, "finish by running audit.py and report whether it ends PASS".
-- Structured report per function: address, name, pct, audit_ok, marker, note
-  (first diverging instruction + hypothesis if not exact), plus mechanics
-  recovered and what remains. Keep that schema; it makes integration cheap.
-- Concurrency: **at most 7 lanes at once.** The account's session limit was
-  hit twice at 10–16 concurrent agents (each hit killed every in-flight lane).
-  Because lanes keep `// WIP-FUNCTION:` until audit passes, an interrupted
-  lane's file is safe to continue from — relaunch with "your file exists,
-  audit first".
-- Single hard functions go to one agent each, iterating in scratch copies
-  under `scratchpad/<name>/`, splicing into the committed file only at a
-  strictly better body. The earlier attempts' logs are there
-  (`scratchpad/ucfm*`, `cstm`, `rbm`, `lbm` for LoadBaseMap).
-- The playbook grows every batch: when a lane reports a new lever, add it to
-  the "VC6 SP3 codegen levers" section of DECOMP.md and to the brief.
+One lane = one new file + a disjoint function list, prompted with
+`docs/LANE_BRIEF.md` verbatim plus the lane's specifics. Never two lanes on one
+file. **Cap concurrency at 7** — the account's session limit was hit twice at
+10–16 concurrent agents, and each hit killed every in-flight lane.
 
-## 8. Things that went wrong before (so they do not again)
+Each lane returns a structured report per function (address, name, instruction
+count, percentage, `audit_ok`, whether promotable, and the first diverging index
+if not exact) plus what it learned about the data structures. Keep that schema;
+it makes integration cheap.
 
-- Counting on-disk markers overstated the tally twice; count committed.
-- A lane brief assembled by text surgery still pointed at a committed file;
-  grep briefs for stale write targets.
-- "Aligning" an extern's parameter type to its definition changed callers'
-  codegen and briefly committed a FAIL; the extern was restored and documented.
-- `matchfull` reported 77% for an exact switch function (it decodes the
-  post-`ret` jump table) and 100% for prologue-only stubs (it truncates to the
-  compiled length). `audit.py` exists because of both.
-- Lanes that marked bodies `// FUNCTION:` while iterating left 18 false
-  claims when the session died. The brief now forbids it.
-- A stray `vc60.pdb` appeared in the repo root from a lane compiling with
-  `/Zi`; the brief now forbids that too.
+When a lane reports a new codegen lever, add it to the "VC6 SP3 codegen levers"
+section of `docs/DECOMP.md` — that playbook is why later rounds land functions
+first try, and it has grown well past the `LANE_BRIEF.md` snapshot.

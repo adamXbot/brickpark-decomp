@@ -63,12 +63,13 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-03: 1158 functions at 100%** — 645 of the 675 code exports
-(95.6%) plus 513 recovered unexported functions, together 33.2% of the game's
-~628 KB of code. `SaveGame` and `LoadGame` are both exact so the whole `.sav`
-format is documented and reproduced; `tri3d.c` reproduces the software 3D
-renderer; `docs/RIDE_CALLBACKS.md` names 265 ride callbacks and which object
-slot each fills.
+**As of 2026-09-03: 1411 functions at 100%** — 645 of the 675 code exports
+(95.6%) plus 766 recovered unexported functions, together **38.3% of the game's
+~628 KB of code** (`python3 tools/coverage.py`; 51.3% including partials).
+`SaveGame` and `LoadGame` are both exact so the whole `.sav` format is
+documented and reproduced; `tri3d.c` reproduces the software 3D renderer;
+`docs/RIDE_CALLBACKS.md` names 265 ride callbacks and which object slot each
+fills. See `docs/HANDOFF.md` for the session checkpoint and what to do next.
 
 32 exports remain. **14 of them are already exact** and are held only because
 the shared `tools/match.py` stops at the first `ret` and cannot bound a void
@@ -84,7 +85,7 @@ Run `python3 tools/remaining.py` for the live list.
 | --- | --- | --- |
 | exported functions matched | `tools/remaining.py` | 645 of 675 (95.6%) |
 | unmatched callees | `tools/callees.py` | moves both ways — the frontier, not progress |
-| **bytes of game code matched** | **`tools/coverage.py`** | **33.2% (44.4% with partials)** |
+| **bytes of game code matched** | **`tools/coverage.py`** | **38.3% (51.3% with partials)** |
 
 The first two are both true and both misleading on their own.
 
