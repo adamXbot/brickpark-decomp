@@ -38,11 +38,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 IMAGE_BASE = 0x400000
 CL = os.path.join(ROOT, "toolchain", "..", "tools", "wibo-msvc", "cl")
-# The symlinked toolchain points into the sibling project; use its cl wrapper.
-# Override with LEGOLAND_CL when the toolchain lives elsewhere.
+# The cl wrapper lives in the sibling adamXbot/alphateam checkout (its
+# tools/setup_toolchain_macos.sh populates our toolchain/). Override with
+# LEGOLAND_CL when it lives elsewhere.
 CL_WRAPPER = os.environ.get(
     "LEGOLAND_CL",
-    "/Users/systemadmin/Downloads/alpha team/alphateam/tools/wibo-msvc/cl")
+    os.path.join(os.path.dirname(ROOT), "alphateam", "tools", "wibo-msvc", "cl"))
 
 md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
 
