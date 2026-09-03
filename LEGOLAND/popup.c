@@ -4,11 +4,10 @@
  * Reconstructed from original/legoland.exe (VC6 SP3, /O2 /Gy /Gd).
  * Struct field OFFSETS are load-bearing; names are ours.
  *
- *   0x0045eb30  BuildObject         188/188 instructions, 504/504 bytes,
- *                                   180 index-for-index (see its note)
+ *   0x0045eb30  BuildObject         100% full-body (188/188)
  *   0x00489190  RenderTransSprite   100% full-body (188/188)
- *   0x004724a0  DrawPopUpInfo       960 vs 962 instructions, 3120/3141 bytes,
- *                                   398 mismatches (was 886, then 705)
+ *   0x004724a0  DrawPopUpInfo       962/962 instructions, 3139/3141 bytes,
+ *                                   53 mismatches (886 -> 705 -> 398 -> 60 -> 53)
  *                                   (see its note)
  *
  * ---------------------------------------------------------------------------
@@ -126,7 +125,10 @@ extern void  GetObjectDoorOffset(ObjDef* d, Pos* out);          /* 0x0045ea40 */
 extern void  UpdateEntranceTile(void);                          /* 0x00482a90 */
 extern void  RefreshEntranceTile(int force);                    /* 0x00482b20 */
 extern Pos*  GetEntranceTile(void);                             /* 0x00482b00 */
-extern void  RequestRoute(int fx, int fy, int tx, int ty);      /* 0x00477bd0 */
+/* Defined (Pos from, Pos to) in simcore.c; declared the same way here because
+ * the by-value copy of *GetEntranceTile() is what schedules the four argument
+ * loads as the original does (see the note above BuildObject). */
+extern void  RequestRoute(Pos from, Pos to);                    /* 0x00477bd0 */
 extern void  CalculateMapRenderOrder(void);                     /* 0x0045a4a0 */
 extern void  SetObjectDoorFlags(ObjElem* obj, Pos* pos);        /* 0x0045e770 */
 extern void  PutObjOnMap(ObjDef* d, ObjElem* obj, Pos* pos);    /* 0x00459ad0 */
@@ -135,92 +137,39 @@ extern void  PutObjOnMap(ObjDef* d, ObjElem* obj, Pos* pos);    /* 0x00459ad0 */
  * 0x0045eb30 -- build one object of class `obj` at map tile `pos`.
  * ------------------------------------------------------------------------- */
 
-/* 180/188 instructions, 188 vs 188, byte lengths equal.  The ONLY residual is
- * the EMISSION ORDER of the four loads that set up the RequestRoute call, which
- * happens twice (indices 100-103 and 168-171).  Both sites push the same four
- * values in the same order and give them the SAME registers; only the order in
- * which the loads are emitted, and where the first push lands among them,
- * differs.  Writing the arguments a1..a4 for RequestRoute(door.x, door.y,
- * ent->x, ent->y):
- *     site 1 (0x0045ec41)  original: a4, PUSH, a1, a3, a2   ours: a4, a3, a2, PUSH, a1
- *     site 2 (0x0045ecfb)  original: a4, a2, PUSH, a1, a3   ours: a4, a3, a2, PUSH, a1
- * Note the original's two sites differ from EACH OTHER while ours are the same,
- * and that in both originals the load of a1 (door.x) is the one that comes
- * straight after the push.  In every version measured, VC6 sinks the push of a4
- * as far as it can (to just before the register it freed is reused for a1) and
- * emits the other three strictly right-to-left; the original interleaves them.
- * This looks like the instruction scheduler, not the code generator: the
- * register allocation is already identical.
- *
- * Ruled out (all measured, all byte-identical output unless noted): Pos-by-value
- * parameters in every 2-, 3- and 4-argument arrangement of RequestRoute;
- * hoisting any subset of ent->x / ent->y / door.x / door.y into named
- * temporaries (in any order); a pointer to the door struct; an int[2] door;
- * reading the entrance through `int*` and `e[0]/e[1]`; an unprototyped callee;
- * a static __inline wrapper taking Pos* (identical) or ints (much worse);
- * swapping the two `door.? += pos->?` statements (regresses to index 83);
- * a `volatile Pos*` over the DOOR reads (8 -> 11 mismatches).
- * NEW (pass 2): the full 16-way VOLATILE MATRIX over the four arguments was
- * measured -- a `*(volatile int*)` cast on any subset of door.x / door.y /
- * ent->x / ent->y.  The best is a cast on ent->x ALONE (or ent->x + ent->y):
- * 7 mismatches, first divergence at 101, because it pins the a4 push
- * immediately after a4's load at BOTH sites, which is what the original does
- * at site 1.  It still cannot pull a1's (door.x) load in front of a3's
- * (ent->x): every volatile arrangement gives a4, PUSH, a3, a2, a1 where the
- * original wants a4, PUSH, a1, a3, a2.  Casts on the DOOR arguments make it
- * worse (9-12).  Not adopted: one instruction is not worth a volatile.
- * Also measured and byte-identical: a `const Pos* dp = &door` alias;
- * `((int*)ent)[0]/[1]`; an unprototyped `RequestRoute()`; a varargs
- * `RequestRoute(int, int, ...)`.  Measured and much worse: replacing the
- * address-taken `door` with two plain int locals `dx`/`dy` computed from
- * `door.? + pos->?` (170 instructions -- VC6 then keeps nothing in the frame,
- * so the address-taken Pos IS required); a `Pos* volatile ent` (194
- * instructions); an inner-scope `ent` re-read per branch (189).
- * A register-pressure replica in scratchpad/popup/micro4.c reproduces VC6's
- * batched form exactly, so the lever is not local register pressure.
- * READ THIS BEFORE TRYING AGAIN: the register ALLOCATION is already identical
- * at both sites (site 1 ecx=a4 then a1, edx=a3, eax=ent then a2; site 2
- * edx=a4 then a1, eax=ent then a3, ecx=a2), the push ORDER is identical, and
- * the two original sites differ from EACH OTHER while every C spelling tried
- * gives the same schedule at both.  The remaining freedom is the emission
- * order of three loads around one push, which looks like the instruction
- * scheduler.  If anything cracks it, it will be a change that alters what is
- * LIVE across the push, not a rephrasing of the call.
- * PASS 3 (2026-09-03, ~80 more measured variants, scratchpad/popup/bo_v1..7.py):
- * still 8.  What the two original sites reduce to: ONE priority order for the
- * four loads -- ent->y, door.y, door.x, ent->x -- with the push of ent->y
- * emitted only where it must free the register the next load wants (site 1:
- * door.y is blocked behind ent->x by the eax WAR, so ent->y, PUSH, door.x,
- * ent->x, door.y; site 2: door.y is free in ecx, so ent->y, door.y, PUSH,
- * door.x, ent->x).  Ours is strict right-to-left with every load hoisted as
- * far as the registers allow.  Ruled out this pass, all byte-identical unless
- * noted: the scheduler-WINDOW lever (k = 1..10 extra global stores at entry
- * and k = 1..8 between the sites shift the count by up to ten tuples and
- * neither site's schedule moves at all, so this is not a window boundary);
- * all 16 int/unsigned prototype combinations plus long / unsigned long;
- * same-width (long)/(unsigned) casts on cost, the flags tests, the door sums,
- * the loading tests, the return; `const Pos*` / `void*` GetEntranceTile;
- * `Pos d = door` / memcpy copies just before the call (forward-substituted);
- * `e = *ent` plus `d = door` (10: site 1 becomes x-first unit loads with the
- * pushes interleaved); `dy = door.y; dx = door.x;` temps; a static __inline
- * helper holding all four calls by pointer (identical) or by value (154: the
- * copy is hoisted above the calls); a two-Pos helper `(door, *ent)` (10).
- * Diagnostics: with constants or `pos->x/y` (esi-based) or globals in place of
- * the door loads, and with `pos` in place of the call-result pointer, VC6
- * still hoists every load above the first push, so neither the call-result
- * pointer nor the escaped-local loads on their own make it hold a load back.
- * No twin exists: GetEntranceTile and RequestRoute are called nowhere else in
- * the binary.  The matched LFTrack_Update2 site (`f(pos->x, pos->y)`) shows a
- * `[eax]` load hoisted above a push, so VC6 does not generally order pointer
- * loads against pushes; whatever held ent->x back here is not reachable by
- * any spelling tried. */
-// WIP-FUNCTION: LEGOLAND 0x0045eb30  (180/188 by audit.py, mismatch=8: the emission order of the four RequestRoute argument loads at both call sites -- same registers, same push order, scheduling only; first diff at index 100)
+/* 188/188, audit [OK] (2026-09-03, pass 4).  CLOSED BY: the entrance tile is
+ * passed to RequestRoute as a BY-VALUE Pos copied straight off the call
+ * result -- `RequestRoute(door, *GetEntranceTile());` with the callee declared
+ * `(Pos from, Pos to)` as simcore.c defines it.  `Pos ent = *GetEntranceTile();
+ * RequestRoute(door, ent);` is byte-identical.  Every form that keeps the
+ * result as a POINTER local (`Pos* ent = GetEntranceTile(); RequestRoute(...,
+ * ent->x, ent->y)` / `(door, *ent)` / `e = *ent` / `e.x = ent->x; e.y = ...`)
+ * sits at 8 mismatches: same registers, same push order, but VC6 hoists the
+ * two `[eax]`/`[eax+4]` loads above the first push at both sites, where the
+ * original interleaves them (site 1: ent->y, PUSH, door.x, ent->x, door.y;
+ * site 2: ent->y, door.y, PUSH, door.x, ent->x).  Copying the struct from the
+ * unnamed call-result pointer makes the two field loads part of a by-value
+ * argument copy instead of two independent CSE'd loads through a named
+ * pointer, and the scheduler then emits them in the original's order.
+ * LEVER, stated for the playbook: when four argument loads through a
+ * call-result pointer come out hoisted above a push, drop the pointer local
+ * and pass `*f()` (or a Pos copied from `*f()`) to a callee declared with a
+ * struct-by-value parameter; the `(int,int,int,int)` / `(Pos,Pos)` prototype
+ * alone is inert (ABI-identical), it is the unnamed-pointer copy that moves
+ * the loads.
+ * History (three earlier passes, ~300 measured variants, all 8 or worse):
+ * Pos-by-value parameters in every 2-/3-/4-argument arrangement with a NAMED
+ * pointer; hoisting any subset of the four values into temps; volatile casts
+ * (best 7); scheduler-window padding (inert); every int/unsigned/long
+ * prototype mix; static __inline wrappers; `Pos d = door` copies; two plain
+ * int locals instead of the address-taken `door` (170 instructions -- the
+ * address-taken Pos IS required, GetObjectDoorOffset takes &door). */
+// FUNCTION: LEGOLAND 0x0045eb30
 int BuildObject(ObjElem* obj, Pos* pos)
 {
     ObjDef* def = obj->def;
     BPos    bp;
     Pos     door;
-    Pos*    ent;
     int     cost;
 
     bp.x = (unsigned char)pos->x;
@@ -250,8 +199,7 @@ int BuildObject(ObjElem* obj, Pos* pos)
         if (def->flags & 0x400000) {
             UpdateEntranceTile();
             RefreshEntranceTile(1);
-            ent = GetEntranceTile();
-            RequestRoute(door.x, door.y, ent->x, ent->y);
+            RequestRoute(door, *GetEntranceTile());
         }
         if (g_map_loading == 0)
             CalculateMapRenderOrder();
@@ -269,8 +217,7 @@ int BuildObject(ObjElem* obj, Pos* pos)
     if (def->flags & 0x400000) {
         UpdateEntranceTile();
         RefreshEntranceTile(1);
-        ent = GetEntranceTile();
-        RequestRoute(door.x, door.y, ent->x, ent->y);
+        RequestRoute(door, *GetEntranceTile());
     }
     SetObjectDoorFlags(obj, pos);
     return 1;
@@ -835,138 +782,102 @@ extern char* strcat(char*, const char*);
  * An Icon is positioned by writing x at +0x0c and y at +0x0e (both SHORT) and
  * cleared of the hidden bit with flags(+0x34) &= ~0x400.
  *
- * MATCH STATE (2026-09-03, second pass): 957 instructions against the
- * original's 962, 3120 bytes against 3141, mismatch = 398 by tools/audit.py
- * (was 705 at the start of this pass, 886 before that).  Every block, call,
- * string id, constant and branch direction is present and in the original's
- * order; what remains is REGISTER/SPILL-SLOT ALLOCATION in the worker-extras
- * block plus two block placements it drags with it.
+ * MATCH STATE (2026-09-03, fourth pass): 962/962 instructions, 3139 vs 3141
+ * bytes, mismatch = 53 by tools/audit.py (886 -> 705 -> 398 -> 60 -> 53).
+ * Every block, call, string id, constant, branch and register is now the
+ * original's; what is left is ONE allocation decision in the kind-0x306
+ * worker head (indices 578-603, 12 instructions) and the SPILL-SLOT ORDER it
+ * drags along (the other 41: has_life/cond/cls, px/show_delete2 and
+ * show_mech/halfw/show_gardener sit in permuted homes, so every reload of
+ * them differs by an offset).  First diverging index: 25 (a zero store to a
+ * permuted home).
  *
- * FIXED THIS PASS (each verified against the disassembly):
+ * HOW IT GOT HERE (each verified against the disassembly; keep them):
+ *   1. The `can_delete` test is written out three times, once per object
+ *      case, NOT through a shared label (705 -> 432): both spellings give the
+ *      same cross-jumped block, but the copies place the post-switch join
+ *      after case 0xa with the one-instruction `xor esi,esi` block the
+ *      original has.
+ *   2. `box.top`/`box.bottom` are re-established in the worker block before
+ *      the midpoint (432 -> 398): as one expression VC6 reassociates
+ *      `2*(py + 10*lines) + 0x86` with one py reload; the original keeps the
+ *      `lea [eax+edx*4+0x63]` and reloads py for the `+ 0x23` term.
+ *   3. (398 -> 60, third pass) the mood/hunger arms take `ty - 0x20` as an
+ *      expression with a named `w = box.right - box.left` (`w / 4` in the
+ *      arms) -- VC6 then keeps `w` in ebx, spills `ty` and tail-merges the
+ *      three `push <sprite>` into one `call PrintSprite` exactly as the
+ *      original; the two ride cases are written out in full (0x10b then
+ *      0x10c, each with its own reopen block; VC6 cross-jumps them into the
+ *      original's layout); the build-progress arm is `if (has_life != 0)
+ *      {...} else {...}` after the slot scan, and the bar's `box.left/top`
+ *      are assigned before the three RenderBlock calls.
+ *   4. (60 -> 53, this pass) the mouse strip's right edge is a NAMED step,
+ *      `box.right = g_popup.icon_close->x + 0x24;` before the test.  Spelled
+ *      inline the three scratch temporaries (strip left, right edge, mouse
+ *      x) rotate one register (ecx/edx/eax where the original has
+ *      edx/eax/ecx).  Every other strip spelling measured -- `mx` temp,
+ *      ternary, `box.left` as the strip variable, arm order, nested ifs,
+ *      `>` instead of `<`, a `short` left, a `Pos pt` copy -- is 60-141.
  *
- *   1. THE `can_delete` TEST IS WRITTEN OUT THREE TIMES, once at the end of
- *      each object case (0x103, 0x14, 0xa), NOT routed through a shared
- *      `goto object_common:` label.  This was worth 705 -> 432 on its own and
- *      is the biggest lever found for this function.
- *        Both spellings produce the same single three-predecessor block (VC6
- *      cross-jumps the copies), but they place the POST-SWITCH JOIN
- *      differently.  With the goto, the join's only fall-through predecessor
- *      is the LAST case block (0x10b), so VC6 puts the join after it, and the
- *      shared `xor esi,esi` -- esi is this function's zero register and the
- *      inlined strcat's rep movsd clobbers it -- has to be duplicated into
- *      case 0x103, shifting every instruction from index 221 on by one.  With
- *      the three copies, the cross-jumped block falls out of case 0xa and the
- *      join follows it, exactly as the original has it: object_common falls
- *      into a one-instruction `xor esi,esi` block, and the cases that do NOT
- *      clobber esi jump one instruction past it (0x476 vs 0x478).
+ * WHAT IS LEFT, precisely.  Original worker head after the two bloke calls:
+ *      mov eax,[py]; mov ebx,edi; sub ebx,ebp        ; w
+ *      lea ecx,[eax+edx*4+0x63]                       ; bottom (NEW register)
+ *      mov eax,ebx; cdq; sub eax,edx; sar eax,1       ; halfw = w/2 FIRST
+ *      mov [esp+halfw],eax                            ; stored AT THE DEF
+ *      mov edx,[py]; lea eax,[ecx+edx+0x23]           ; bottom + top
+ *      mov ecx,[esp+halfw]                            ; halfw RELOADED
+ *      cdq; sub; sar; mov [esp+ty],eax; add eax,0x22  ; ty, ty+0x22
+ * i.e. halfw is computed before the midpoint and is memory-resident between
+ * its def and its push (spilled everywhere), the midpoint takes eax over it,
+ * and `bottom` keeps ecx.  Ours (`ty` then `halfw` in the source) computes
+ * the midpoint first with `bottom` in place, then halfw in eax straight into
+ * its push and a sunk home store.  With `halfw = w / 2` textually BEFORE
+ * `ty = ...` (any of the 84 valid orderings of the seven head statements,
+ * all measured) VC6 emits the first six instructions exactly as the original
+ * and then makes the OTHER choice: it keeps halfw's pre-`sar` partial in
+ * ecx, defers the `sar` to the push and spills `bottom` to a NEW frame slot
+ * (frame 0x444, 421 mismatches).  Whichever of {halfw, bottom} loses the
+ * register also decides the global spill-home order: the two probes that
+ * take halfw out of the register race -- `volatile int halfw` (A3) and
+ * computing halfw between the two bloke calls (Vi, halfw then crosses
+ * GetBlokeAgeGroup and is spilled at its def) -- both give the ORIGINAL's
+ * order for has_life/cond/cls, px/show_delete2 and show_mech/show_gardener,
+ * with only halfw/ty/mood themselves placed elsewhere; neither is a
+ * candidate (964 instructions / calls moved).  So the lever wanted is
+ * whatever lowers halfw's priority below the `bottom` temporary's without
+ * moving code.  Measured and INERT (byte-identical to the current text):
+ * renaming any local; `w / 2` written textually in both calls; a named
+ * `ty2 = ty + 0x22`; a named `mid`; `ty` as two/three statements; block-
+ * scoping any of mood/cond/halfw/ty/w; `unsigned`/`long` halfw, ty or w and
+ * `(long)` casts (same-width conversion is NOT a barrier here); one-element
+ * arrays and one-member structs (promoted); `int* p = &halfw; *p = ...`,
+ * `static __inline` helpers taking `int* out` or with their own address-
+ * taken local (all un-escaped); a dead `halfw = 0` / `ty = 0` at the top.
+ * Measured and WORSE: every halfw-before-ty ordering (374-570); the same
+ * with `volatile` (73, +2 instructions); degenerate `if (c) halfw = w/2;
+ * else halfw = w/2;` on mood/cond/lines/w/has_life (398-771, VC6 does not
+ * merge them here); `box.bottom += box.top` / `box.top += box.bottom` sum
+ * reuse (527); `bottom`/`top` inline in the midpoint (387/770); halfw from
+ * `lines` (535); `ty -= 0x20` inside the arms (385); `unsigned w` (371).
+ * Slot facts for whoever continues: spill homes are handed out in priority
+ * order low-to-high with first-fit reuse of a dead home (ty shares 0x10 with
+ * frac, the int-to-float staging temps reuse cond's and cls's homes once
+ * they die), so a single allocation flip in the worker head re-sorts the
+ * whole frame; declaration order and names are irrelevant under /O2.
+ * Tooling: scratchpad/popup/vb.py (patch-batch runner, -v keeps the
+ * listings), slotmap.py (prints the frame-home map of a listing), dp_v16..29
+ * are this pass's variant sets.
  *
- *   2. `box.top` and `box.bottom` are RE-ESTABLISHED in the worker block
- *      before the mid-point is taken (`ty = (box.bottom + box.top) / 2`).
- *      Spelled as one expression, `((py + lines*20 + 0x63) + (py + 0x23)) / 2`
- *      is reassociated by VC6 into `2*(py + 10*lines) + 0x86` with a single
- *      reload of py; the original computes `py + lines*20 + 0x63` with an
- *      `lea [eax+edx*4+0x63]` and reloads py again for the `+ 0x23` term.
- *      Worth 432 -> 398.  (Assigning the two fields the other way round, or
- *      moving `halfw` between them, is 1-2 instructions worse; measured.)
- *
- * BLOCK ORDER IS NOT SOURCE ORDER -- a lever that does NOT exist here.  VC6
- * emits the case blocks of a switch in DESCENDING CASE VALUE within each
- * dispatch group: the low group tests 0xa, 0x14, 0x103 ascending and emits
- * 0x103, 0x14, 0xa; the pivot 0x104 follows; then the `jg` chain tests
- * 0x10b, 0x10c, 0x306 and emits 0x306, 0x10c, 0x10b.  Every permutation of
- * the seven cases in the source compiles BYTE-IDENTICALLY (three orderings
- * measured), as does adding an empty `default: break;` anywhere, as does
- * moving the whole tail of the function inside the switch after
- * object_common with the other cases jumping to it.  Do not reorder cases.
- *
- * WHAT IS LEFT, precisely (the first divergence is at index 25):
- *
- *   1. SPILL-SLOT COLOURING.  Both frames are 0x434 with the same thirteen
- *      scalar slots 0x10..0x40 (plus info@0x44, name@0x144, line@0x244).
- *      `can_delete`@0x14 and `worker`/`mood`@0x24 now agree; the rest is a
- *      permutation:
- *          slot   original          ours
- *          0x10   ty + frac         (right-left) + frac
- *          0x14   can_delete        can_delete        <- agrees
- *          0x18   has_life          cond
- *          0x1c   cond              has_life
- *          0x20   cls               py
- *          0x24   worker / mood     worker / mood     <- agrees
- *          0x28   py                show_delete2
- *          0x2c   px                halfw
- *          0x30   show_delete2      px
- *          0x34   show_mech         cls
- *          0x38   halfw             show_gardener
- *          0x3c   show_gardener     show_mech
- *      Declaration order is NOT the lever: the whole local block reordered
- *      into the original's slot order compiles byte-identically, as do all
- *      120 permutations of the five flag initialisers (measured twice now).
- *      Splitting the icon section's reuse of `halfw` into its own variable is
- *      byte-identical too.  This is downstream of item 2.
- *
- *   2. THE FIVE MISSING INSTRUCTIONS ARE ALL IN THE WORKER-EXTRAS BLOCK
- *      (kind 0x306), and they come from ONE allocation decision.  Six values
- *      are live across the two PrintCachedText calls -- `lines`, `box.left`,
- *      `box.right`, `w = box.right - box.left`, `halfw` and `ty` -- for four
- *      callee-saved registers, so two must be spilled.  Both spill `halfw`;
- *      the original then spills `ty` and keeps `w` in ebx (ebp = box.left,
- *      edi = box.right), while VC6 gives us edi = ty and spills `w`
- *      (ebx = box.left, ebp = box.right).  A spilled `ty` costs a
- *      load/add/store in each of the three mood arms where a spilled `w`
- *      costs only a load -- exactly the five instructions we are short -- and
- *      it is also why the original tail-merges the three `push <sprite>` with
- *      the shared `call PrintSprite` (all three arms hold the sprite in eax)
- *      while ours cannot (eax/edx/ecx).  Everything between indices 570 and
- *      720 follows from this one choice.  Measured and byte-identical, so NOT
- *      the lever: a named `int w` local; `halfw / 2` in the arms;
- *      `switch (mood)` instead of the if/else chain; carrying `ty` or `halfw`
- *      in a `box` field; block-scoping mood/cond/halfw/ty; every permutation
- *      of the assignments at the head of the block (only the
- *      box.top/box.bottom pair matters -- see FIXED 2).  Hoisting
- *      `ty -= 0x20` out of the three arms loses instructions (936).
- *      PROOF, and the NEXT STEP.  Declaring `volatile int ty;` (a diagnostic
- *      probe, not a candidate) forces exactly the original's shape in the
- *      three mood arms -- `mov reg,[esp+0x10] / sub reg,0x20 /
- *      mov [esp+0x10],reg`, `w` back in ebx, and index 664
- *      (`lea edx,[ebx+ebp-0x20]`) matching instruction for instruction -- so
- *      the diagnosis is certain.  It overshoots by four instructions (966 vs
- *      962) because `volatile` also re-reads `ty` for each use of `ty + 0x22`
- *      instead of spilling that sum once, and the earlier code is perturbed
- *      (mismatch 472).  The lever wanted is therefore whatever makes VC6
- *      spill an ORDINARY `ty`: most likely a use of `w` (or of
- *      `box.right - box.left`) that this reconstruction spells as something
- *      else, or a seventh value live across the two PrintCachedText calls.
- *
- *   3. The `reopen_build` block (PopUpInfoSetUp(0x104)) sits between case
- *      0x10c's guard and its BODY in the original (0x10c falls into it, 0x10b
- *      jumps back to it); VC6 puts ours between case 0x10b's guard and its
- *      body.  Worth ~30 mismatches.  Measured and byte-identical: the label
- *      in either case, either guard inverted, the guard rewritten as
- *      `if (!cond) goto body;` so the reopen arm is the fall-through, and the
- *      block written out twice (VC6 cross-jumps the copies straight back to
- *      the same place -- unlike the `can_delete` duplication above, which
- *      moved the merged block).
- *
- *   4. The build-progress arm of `if (has_life == 0) ... else ...` is exiled
- *      by the original to between the two colour-push blocks of the bar and
- *      re-entered by a backward branch, while its `else` arm falls straight
- *      into the bar code; ours keeps the build arm inline.  Worth ~78
- *      mismatches.  Measured and byte-identical: rewriting it as
- *      `if (has_life == 0) { ... goto found; ... return; }` +
- *      `frac = cell->life / cls->life;` + a `bar:` label with the `found:`
- *      block moved textually after the bar code and a `goto bar` back.
- *      Inverting the `if` outright is much worse (938 instructions).
- *
- * Still true from earlier passes, kept so it is not re-derived: the two ride
- * cases share one tail -- the original cross-jumps case 0x10c into case 0x10b
- * at the `call GetString`, and ours does the same.  `top` is computed before
- * `right` in the icon section, which removes a reload of g_popup.pos.y.
- * PopUpInfoSetUp's first three arguments are ONE 12-byte record (see above);
- * writing them as three scalars costs six instructions and frees ebp early
- * enough that VC6 hoists constants into it.
+ * Still true from earlier passes: the two ride cases share one tail (VC6
+ * cross-jumps case 0x10c into case 0x10b at the `call GetString`); `top` is
+ * computed before `right` in the icon section, which removes a reload of
+ * g_popup.pos.y; PopUpInfoSetUp's first three arguments are ONE 12-byte
+ * record (see above); the seven switch cases compile byte-identically in
+ * any order (VC6 emits each dispatch group in descending case value), as
+ * does an empty `default:`.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3138 vs 3141 bytes, mismatch=886->705->398->60 by audit.py; every block is now placed as the original has it -- what is left is the spill-slot colouring, the halfw/ty spill order in the kind-0x306 worker head and one scratch-register rotation in the mouse-strip test; first diff at index 25)
+// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3139 vs 3141 bytes, mismatch=886->705->398->60->53 by audit.py; one allocation choice in the kind-0x306 worker head -- halfw is spilled at its def before the midpoint in the original, kept in eax after it in ours -- and the spill-home order it drags along; first diff at index 25)
 void DrawPopUpInfo(void)
 {
     char    name[256] = {0};
@@ -1257,7 +1168,12 @@ icons:
         halfw = g_popup.icon_close->x;
     else
         halfw = g_popup.icon_corner->x;
-    if (g_popup.icon_close->x + 0x24 < g_input.point.x || g_input.point.x < halfw)
+    /* The strip's right edge is a named step: spelled inline in the test the
+     * three scratch temporaries (strip left, right edge, mouse x) rotate one
+     * register (ecx/edx/eax instead of edx/eax/ecx); as `box.right` the
+     * original's allocation comes out exactly. */
+    box.right = g_popup.icon_close->x + 0x24;
+    if (box.right < g_input.point.x || g_input.point.x < halfw)
         ClosePopUpIcons();
     if (box.bottom < g_input.point.y || g_input.point.y < box.top)
         ClosePopUpIcons();

@@ -22,7 +22,7 @@
  *   addr        class              slot   what it really does        state
  *   0x0042aa90  BALLOONZ           cb_a8  per-rider state machine    documented
  *   0x0042b2e0  BALLOONZ           cb_b0  depth-sorted overlay draw  WIP (333)
- *   0x0042bcf0  CAROUSEL           cb_b0  depth-sorted overlay draw  WIP (24)
+ *   0x0042bcf0  CAROUSEL           cb_b0  depth-sorted overlay draw  100%
  *   0x0042c820  CAROUSEL           cb_a8  per-rider state machine    documented
  *   0x0042d610  EARTH SLIDE RIDE   cb_a8  per-rider state machine    100%
  *   0x0042d9c0  ENTRANCE 1         cb_b0  depth-sorted overlay draw  100%
@@ -341,16 +341,11 @@ extern void   IP_RenderBlokeIn3DNow(Bloke* b);                       /* 0x004400
  * Restaurant1_Tick and Entrance1_Draw are unaffected (still exact). */
 static __inline void DrawBand(Bloke** here, char n, int code)
 {
-    int i;
+    char i;
 
-    if (n > 0) {
-        i = n;
-        do {
-            if ((*here)->action == code)
-                IP_RenderBlokeIn3DNow(*here);
-            ++here;
-        } while (--i);
-    }
+    for (i = 0; i < n; i++)
+        if (here[i]->action == code)
+            IP_RenderBlokeIn3DNow(here[i]);
 }
 
 extern void   LLSSetFrame(void* lls, int frame);                     /* 0x0047d5a0 */
@@ -1248,7 +1243,26 @@ extern SpriteObj* g_carousel_zspr;    /* 0x006160b8  z_Carousel.lls */
  * int trip count gives a byte counter in a new slot (289).  The original
  * has the preheader lea AND per-band guards AND no CSE; the construct that
  * yields that combination was not found (~45 variants this round). */
-// WIP-FUNCTION: LEGOLAND 0x0042bcf0  (412 of 412 instructions, audit mismatch 24; four per-band lea/jle transpositions -- see note)
+/* CLOSED (2026-09-03, 24 -> 12 -> 0), three changes, all measured:
+ *  (1) THE CHAR LOOP INDEX in DrawBand (`char i; for (i = 0; i < n; i++)
+ *      here[i]`, the westtown.c/joust.c lever): the guard becomes the byte
+ *      `test bl,bl / jle`, the queue `lea` lands in the preheader AFTER the
+ *      jle, the four `movsx edi,bl` are created late per band and never
+ *      CSE'd, and the failed guards thread to the block after band 4.  All
+ *      four lea/jle transpositions gone in one step (24 -> 12, 1308 bytes).
+ *  (2) THE OFFSET VARIABLE CHOICE is a frame lever, not an allocator one.
+ *      Address-taken Offsets get one home each for the whole function, so
+ *      which VARIABLE a site uses is visible in its [esp+N]: the original
+ *      homes offA at B+0x0c and offB at B+0x14 (B = esp after the sub), and
+ *      the final Matte1 site (occupied path) reads B+0x14 while the empty
+ *      path's middle site reads B+0x0c.  So the layer-1 offset always goes
+ *      through offB on the occupied path (Matte2 AND Matte1) and the empty
+ *      path uses offA for all three of its sites.  Worth 10.
+ *  (3) `p = b->person` is read AFTER the two pivot stores into `o`, not at
+ *      its declaration: with the eager read VC6 loads [esi+4] before the
+ *      g_carousel_pivot_x global; the lazy read gives the original's order.
+ *      Worth the last 2. */
+// FUNCTION: LEGOLAND 0x0042bcf0
 void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
 {
@@ -1319,10 +1333,11 @@ void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                     Bloke* b = r->bloke;
                     if (b->flags62 & 0x80) {
                         Offset     o;
-                        Person3D*  p = b->person;
+                        Person3D*  p;
 
                         o.ox = g_carousel_pivot_x;
                         o.oy = g_carousel_pivot_y;
+                        p = b->person;
                         p->local.ox = b->f3c;
                         p->local.oy = b->f3e;
                         AdjustBlokePosition(&p->local);
@@ -1335,10 +1350,10 @@ void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                 }
             }
 
-            offA = GetRenderOffsetForLayer(g_carousel_layers, 1);
-            AdjustOffsetForViewMode(&offA);
-            PrintSprite(g_carousel_matte1, screen.ox + offA.ox,
-                        screen.oy + offA.oy, mode, 0);
+            offB = GetRenderOffsetForLayer(g_carousel_layers, 1);
+            AdjustOffsetForViewMode(&offB);
+            PrintSprite(g_carousel_matte1, screen.ox + offB.ox,
+                        screen.oy + offB.oy, mode, 0);
             return;
         }
     }
@@ -1349,10 +1364,10 @@ void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
     PrintSprite(GetSpriteForLayer(g_carousel_layers, 0),
                 screen.ox + offA.ox, screen.oy + offA.oy, mode, &ctx);
 
-    offB = GetRenderOffsetForLayer(g_carousel_layers, 1);
-    AdjustOffsetForViewMode(&offB);
+    offA = GetRenderOffsetForLayer(g_carousel_layers, 1);
+    AdjustOffsetForViewMode(&offA);
     PrintSprite(GetSpriteForLayer(g_carousel_layers, 1),
-                screen.ox + offB.ox, screen.oy + offB.oy, mode, &ctx);
+                screen.ox + offA.ox, screen.oy + offA.oy, mode, &ctx);
 
     LLSSetFrame(GetLLSForLayer(g_carousel_layers, 2), rec->frame);
     offA = GetRenderOffsetForLayer(g_carousel_layers, 2);
@@ -1621,10 +1636,10 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                 }
             }
 
-            for (r = saved; r; r = r->next) {
-                if (*(unsigned short*)sq == r->ride_id
-                    && (r->bloke->flags62 & 0x80)) {
-                    Bloke*    b = r->bloke;
+            for (; saved; saved = saved->next) {
+                if (*(unsigned short*)sq == saved->ride_id
+                    && (saved->bloke->flags62 & 0x80)) {
+                    Bloke*    b = saved->bloke;
                     Person3D* p;
                     Offset    seat;
                     Offset    pivot;
@@ -1643,7 +1658,7 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                     p->screen.ox = b->f3c - pivot.ox + seat.ox + screen.ox;
                     p->screen.oy = b->f3e - pivot.oy + seat.oy + screen.oy;
                     AdjustBlokePosition(&p->screen);
-                    IP_RenderBlokeIn3DNow(r->bloke);
+                    IP_RenderBlokeIn3DNow(saved->bloke);
                 }
             }
             goto banner;

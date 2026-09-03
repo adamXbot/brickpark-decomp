@@ -67,16 +67,16 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-03 (late evening): 1519 functions at 100%** — 662 of the 675
-code exports (98.1%) plus 857 recovered unexported functions, together
-**41.4% of the game's ~628 KB of code** (`python3 tools/coverage.py`; 51.3%
-including partials).
+**As of 2026-09-04 (early): 1529 functions at 100%** — 663 of the 675 code
+exports (98.2%) plus 866 recovered unexported functions, together **42.4% of
+the game's ~628 KB of code** (`python3 tools/coverage.py`; 51.3% including
+partials).
 `SaveGame` and `LoadGame` are both exact so the whole `.sav` format is
 documented and reproduced; `tri3d.c` reproduces the software 3D renderer;
 `docs/RIDE_CALLBACKS.md` names 265 ride callbacks and which object slot each
 fills. See `docs/HANDOFF.md` for the session checkpoint and what to do next.
 
-13 exports remain, every one a genuine partial carrying its measured residual
+12 exports remain, every one a genuine partial carrying its measured residual
 and first diverging instruction index in a note above its marker. (Until
 2026-09-03 another 14 exact exports — and 48 exact internal functions — were
 held at `// WIP-FUNCTION:` only because `tools/match.py` stopped at the first
@@ -89,15 +89,15 @@ for the live list.
 
 | measure | tool | value |
 | --- | --- | --- |
-| exported functions matched | `tools/remaining.py` | 662 of 675 (98.1%) |
+| exported functions matched | `tools/remaining.py` | 663 of 675 (98.2%) |
 | unmatched callees | `tools/callees.py` | moves both ways — the frontier, not progress |
-| **bytes of game code matched** | **`tools/coverage.py`** | **41.4% (51.3% with partials)** |
+| **bytes of game code matched** | **`tools/coverage.py`** | **42.4% (51.3% with partials)** |
 
 The first two are both true and both misleading on their own.
 
 **Exports are a fraction of the game.** They are only the symbols the linker
-exposed; 1519 functions are matched but just 662 of them are exports. Quoting
-98.1% as "the project is nearly done" is wrong by a wide margin.
+exposed; 1529 functions are matched but just 663 of them are exports. Quoting
+98.2% as "the project is nearly done" is wrong by a wide margin.
 
 **The unmatched-callee number moves in both directions.** Every newly matched
 file declares `extern`s for its own callees, so a productive round can RAISE
@@ -852,6 +852,61 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 - **The unreferenced frame slot before a `Pos` local is the 8-byte alignment
   hole VC6 leaves between a 4-byte slot and the aggregate, not a variable**
   (`LFEntrance_Add` entry-0x14; also `SpaceTower_Activate`'s "phantom").
+
+- **Per-band `movsx` of a char count without CSE = a `char` loop index
+  (`GeneralStore/Saloon/LegoMedia_DrawOverlay`, 27/22/16 -> 0).** `char i;
+  for (i = 0; i < n; i++) list[i]` on a `char n` gives, per band, `test bl,bl
+  / jle next / lea esi, queue / movsx edi, bl / loop`. With an `int` index the
+  sign-extension is one CSE-able expression (hoisted once, spilled, guards
+  threaded); with a `char` index the compare is byte-wide, the dword trip
+  count is created late per loop and never CSE'd, and the guard is the
+  inverted loop test with the `lea` AFTER the `jle`. `short`/`unsigned char`
+  indexes, `!=`, and every pointer-walking `do/while` are wrong. This is the
+  residual recorded in westtown2.c (`LegoShop2_DrawOverlay`,
+  `JailCell_DrawOverlay`), ridecb1.c (`Carousel_Draw`, `Balloonz_Draw`) and
+  mechrides.c's residual (b).
+- **A pointer local to a packed key struct flips which operand a commutative
+  `add` coalesces with (`Explorers_TickCustomers`, 115 -> 0).** For
+  `def->base_x + <key byte>`: written `r->ride_id.b.x` the zero-extended byte
+  is the destination; written through `ShopTile* key = &r->ride_id;
+  key->b.x` the dword field load is. Identical loads, only the destination
+  changes, and that decides the x/y register pair and which cases cross-jump.
+  ~60 inert variants (operand orders, field widths, casts, volatile, inline
+  helpers, all 24 declaration orders).
+- **The inline 2-byte `memcmp(&rec->tile, tile, 2)` materialises the first
+  operand's address (`lea edx, [eax+4]`) before the folded word load** — the
+  "dead lea" in the `_FindRec`/`_FindRecord` list searches whose key is at
+  +4 (`JailCell_FindRecord`, `Carousel_FindRec`, `Balloonz_FindRec`).
+
+- **Scratch-register allocation order in a call-free loop function
+  (`WW_AnyBlokeInRect`, ~110 measured variants):** a web coalesced with the
+  return value first (it takes eax even when live across the whole loop), then
+  loop-local temporaries in def order, then loop-carried values, then hoisted
+  invariants. So a loop-carried pointer cursor lands in ecx behind a
+  loop-local temp in eax unless its web flows into `return`. `return (int)p`
+  after `while (p)` is folded to 0 only at a single-predecessor exit; at the
+  inverted loop's merged exit VC6 keeps it unfolded (cursor coalesces with
+  eax, no zeroing emitted). Phantom uses (`p ^ p`, `p & 0`, `p ? 0 : 0`) fold
+  at the front end; `(int)p >> 31` survives. Compare operand order survives
+  to codegen: `r->left <= x` gives `cmp esi, eax / jg`, `x >= r->left` gives
+  `cmp eax, esi / jl`.
+
+- **A struct-by-value copy from an UNNAMED call-result pointer schedules
+  argument loads differently from a named pointer local (`BuildObject`,
+  8 -> 0 after ~300 variants).** `f(door, *g())` with `f(Pos, Pos)`
+  interleaves the `[eax]`/`[eax+4]` loads with the pushes; `Pos* p = g();
+  f(door, *p)` (or the four-int form) hoists both loads above the first push.
+  The prototype alone is inert (ABI-identical); the unnamed-pointer copy is
+  the lever. `RequestRoute` is therefore `(Pos from, Pos to)` from both sides.
+- **A compare operand spelled as a named step rotates the scratch registers
+  (`DrawPopUpInfo` strip):** `r = a->x + 0x24; if (r < m || m < l)` gives
+  edx/eax/ecx where the inline form gives ecx/edx/eax. **Spill homes are
+  handed out low-to-high in priority order with first-fit reuse of dead
+  homes**, so a single allocation flip in one block re-sorts the whole
+  frame; under /O2 names and declaration order are irrelevant. **VC6
+  un-escapes local pointers completely:** `int* p = &x; *p = ..`, inline
+  helpers with `int* out`, and helper-born address-taken scalars are all
+  byte-identical to the plain scalar.
 
 Recorded so they are not re-derived; several cost hundreds of measured variants:
 

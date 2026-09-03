@@ -59,10 +59,16 @@
  *    cross-jumps them and the block shrinks; moving ONE store to the end of
  *    one arm (JAIL CELL: `taken = 1` after the waypoint, `dir = 7` after the
  *    waypoint) keeps both copies, which is what the original has.
- * 6. THE BAND LOOP. See the note above ShopDrawBand: `if (n > 0) { k = n;
- *    do { ... } while (--k); }` over the PARAMETER as its own cursor is what
- *    rematerialises the count's sign extension per band; `for (i = 0; i < n;
- *    i++)` hoists one and re-registers the whole function.
+ * 6. THE BAND LOOP. See the note above ShopDrawBand: a CHAR loop index,
+ *    `char i; for (i = 0; i < n; i++) list[i]`, is the only spelling that
+ *    rematerialises the count's sign extension per band with the queue `lea`
+ *    AFTER the `jle`; an `int` index hoists one movsx and re-registers the
+ *    whole function, and a do/while over the parameter puts the lea before
+ *    the jle.
+ * 7. PrintSprite(spr, screen.ox + off.ox, ...) -- SCREEN FIRST. The sum
+ *    takes the register of the operand that dies at it; with `off.ox +
+ *    screen.ox` the add lands in screen's register and the pushes swap
+ *    (LegoShop2_DrawOverlay's last 4 mismatches).
  */
 
 /* ---- shared types (same offsets as westtown.c / ridecb1.c) -------------- */
@@ -1235,14 +1241,13 @@ void JailCell_TickCustomers(ShopElem* elem)
  * the object's screen position and the layer's own render offset are added
  * together, so the building's upper storey lands above the customers.
  *
- * THE BAND-LOOP SPELLING IS A LEVER, and this file is where it was found --
- * see the note above ShopDrawBand: an explicit `if (n > 0)` guard around a
- * `do { } while (--k)` over the parameter used as its own cursor makes VC6
- * rematerialise `movsx edi,bl` inside every band, which is what the original
- * does; a plain `for (i = 0; i < n; i++)` hoists ONE sign-extension for the
- * whole function and re-registers everything downstream. Applying it to
- * westtown.c's three banded draws took them from 196/161/96 mismatches to
- * 27/22/16.
+ * THE BAND-LOOP SPELLING IS A LEVER -- see the note above ShopDrawBand. A
+ * `char` loop index is what makes VC6 rematerialise `movsx edi,bl` inside
+ * every band AFTER the `jle`, which is what the original does; an `int`
+ * index hoists ONE sign-extension for the whole function and re-registers
+ * everything downstream (196/161/96 mismatches on westtown.c's three), and
+ * a `do { } while (--k)` over the parameter keeps the per-band movsx but
+ * speculates the queue `lea` above the `jle` (27/22/16 there, 24/19 here).
  * ========================================================================== */
 
 typedef struct Offset { int ox; int oy; } Offset;
@@ -1266,39 +1271,36 @@ extern void*  g_jail_sprite;                                           /* 0x0062
 extern void*  g_jail_matte;                                            /* 0x0081cb0c  "JailCellMask.LLS" */
 extern void*  g_legoshop2_matte;                                       /* 0x0081cb20  "Lego Shop 2 Matte.LLS" */
 
-/* Draw every collected customer whose action byte is `band`. The `if (n > 0)`
- * guard plus the do/while over the PARAMETER (no named cursor local -- a
- * named one costs a register and spills the count to the frame) is what makes
- * VC6 emit the original's per-band `test bl,bl / jle / lea esi,queue /
- * movsx edi,bl` instead of hoisting one sign-extension. */
+/* Draw every collected customer whose action byte is `band`. The CHAR loop
+ * index is the lever (closed both draws below on 2026-09-03, transferred
+ * from westtown.c): `i < n` is then a byte compare with no widening in the
+ * IR, so the dword trip count `movsx edi,bl` is created late by the loop
+ * optimiser, per loop, never CSE'd, and the guard is the inverted loop test
+ * `test bl,bl / jle` with `lea esi,queue / movsx edi,bl` AFTER it. An `int`
+ * index hoists one movsx for the whole function; `if (n > 0) { k = n; do ..
+ * while (--k); }` over the parameter keeps the per-band movsx but puts the
+ * `lea` BEFORE the `jle` (one transposition per band, 24/19 mismatches);
+ * `short`/`unsigned char` indexes, `!=` and pointer-walking do/while forms
+ * are all wrong. */
 static __inline void ShopDrawBand(Bloke** list, char n, int band)
 {
-    int k;
+    char i;
 
-    if (n > 0) {
-        k = n;
-        do {
-            if ((*list)->action == band)
-                IP_RenderBlokeIn3DNow(*list);
-            list++;
-        } while (--k);
-    }
+    for (i = 0; i < n; i++)
+        if (list[i]->action == band)
+            IP_RenderBlokeIn3DNow(list[i]);
 }
 
-/* THE ONE RESIDUAL IN BOTH DRAWS BELOW, measured precisely: a two-instruction
- * TRANSPOSITION repeated once per band. The original emits
- *     test bl,bl / jle <next band> / lea esi,queue / movsx edi,bl
- * and ours emits
- *     test bl,bl / lea esi,queue / jle <next band> / movsx edi,bl
- * -- VC6 speculates the queue-address `lea` up into the slot between the
- * compare and its branch. The instruction count, the byte length of every
- * block, the band order, the frame layout and both sprite paths are exact;
- * only that one pair is swapped, 9-10 times per function. Measured and
- * rejected: a named cursor local assigned inside the guard (spills the count
- * to the frame, 219 mismatches), the same as a macro, the guard moved to the
- * call site, `while (n--)` and `while (k > 0)` loop forms, a pointer-pair
- * (`p != end`) loop, an early `return` guard, `int k = n` before the guard,
- * and a void* parameter cast inside the guard.
+/* Both draws below are exact (2026-09-03). The residual they carried -- a
+ * `lea esi,queue` / `jle` transposition once per band -- was the do/while
+ * band loop; the char index above closed JailCell_DrawOverlay outright and
+ * left LegoShop2_DrawOverlay with 4, which were the matte's coordinate sums
+ * written `off + screen`: the add takes the register of the operand that
+ * dies at it, so `screen.ox + off.ox` (as JailCell already had it) puts the
+ * sum in off's register and the pushes come out in the original's order.
+ * Rejected before that: a named cursor local in the guard (219), a macro,
+ * the guard at the call site, `while (n--)`, `while (k > 0)`, a pointer-pair
+ * loop, an early `return` guard, `int k = n` before the guard.
  * ========================================================================== */
 
 /* =========================================================================
@@ -1310,7 +1312,7 @@ static __inline void ShopDrawBand(Bloke** list, char n, int band)
  * own sprite -- which is why this draw is not one of westtown.c's simple
  * ones.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00439760  (180 of 180 instructions; one lea/jle transposition per band -- see above)
+// FUNCTION: LEGOLAND 0x00439760
 void LegoShop2_DrawOverlay(ShopElem* elem, int x, int y, MapSquare* sq,
                            void* clip, int mode)
 {
@@ -1337,7 +1339,7 @@ void LegoShop2_DrawOverlay(ShopElem* elem, int x, int y, MapSquare* sq,
     off = GetRenderOffsetForLayer(def->sprite, 0);
     screen = GetScreenCoordsForObject(sq, def);
     AdjustOffsetForViewMode(&off);
-    PrintSprite(g_legoshop2_matte, off.ox + screen.ox, off.oy + screen.oy, mode, 0);
+    PrintSprite(g_legoshop2_matte, screen.ox + off.ox, screen.oy + off.oy, mode, 0);
     ShopDrawBand(queue, n, 1);
     ShopDrawBand(queue, n, 12);
     }
@@ -1360,7 +1362,7 @@ void LegoShop2_DrawOverlay(ShopElem* elem, int x, int y, MapSquare* sq,
  * With no customers on the square the whole thing collapses to just the
  * door draw -- the same block, tail-duplicated by VC6.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00438150  (256 of 256 instructions; one lea/jle transposition per band -- see above)
+// FUNCTION: LEGOLAND 0x00438150
 void JailCell_DrawOverlay(ShopElem* elem, int x, int y, MapSquare* sq,
                           void* clip, int mode)
 {

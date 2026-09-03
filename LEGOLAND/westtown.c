@@ -61,9 +61,8 @@
  *             base offset (ObjDef +0x0c/+0x10) -- e.g. GENERAL STORE case 0
  *             is (x<<8)-0x80, (y<<8)-0x100 -- writes it to Bloke +0x24/+0x28,
  *             and falls into one shared tail:
- *                 d = CalcMoveLine(Bloke->wx (+0x68), Bloke->wy (+0x6c),
- *                                  Bloke->tx (+0x24), Bloke->ty (+0x28),
- *                                  &Bloke->path (+0x98));
+ *                 d = CalcMoveLine(Bloke->world (+0x68), Bloke->target (+0x24),
+ *                                  Bloke->path (+0x98));
  *                 Bloke->+0x0e = 7;                  // busy for 7 ticks
  *                 Bloke->+0x73 = (unsigned char)(d + 0x10);
  *                 NewDirForAction(Bloke, ((d + 0x10) >> 5) + 3);
@@ -212,12 +211,16 @@ void Shop_Remove(void* obj, unsigned int tile, void* ctx)
 /* A visitor. +0x60 is the ACTION byte the overlay draws sort on: it doubles as
  * the depth band inside a building, so a shop's draw renders the queue in
  * action order and blits its mattes between the groups. */
+/* An {x,y} pair in 24.8 world units. CalcMoveLine takes two of them BY VALUE
+ * (four dword pushes): that prototype is a codegen lever -- see the note above
+ * Explorers_TickCustomers. */
+typedef struct Pos { int x; int y; } Pos;
+
 typedef struct Bloke {
     unsigned char  pad00[0x0e];
     unsigned short busy;         /* +0x0e  move countdown; non-zero = still walking */
     unsigned char  pad10[0x24 - 0x10];
-    int            tx;           /* +0x24  target world x, 24.8 */
-    int            ty;           /* +0x28  target world y, 24.8 */
+    Pos            target;       /* +0x24  target world {x,y}, 24.8 */
     unsigned char  pad2c[0x58 - 0x2c];
     int            timer;        /* +0x58  per-state wait counter */
     unsigned char  pad5c[0x60 - 0x5c];
@@ -225,12 +228,11 @@ typedef struct Bloke {
     unsigned char  pad61;
     unsigned short flags62;      /* +0x62  bit 8 = inside a building */
     unsigned char  pad64[0x68 - 0x64];
-    int            wx;           /* +0x68  world x, 24.8 */
-    int            wy;           /* +0x6c  world y, 24.8 */
+    Pos            world;        /* +0x68  world {x,y}, 24.8 */
     unsigned char  pad70[0x73 - 0x70];
     unsigned char  f73;          /* +0x73  the move's raw direction byte */
     unsigned char  pad74[0x98 - 0x74];
-    int            path;         /* +0x98  the move-line scratch block */
+    unsigned char  path[0x14];   /* +0x98  the move-line scratch block */
 } Bloke;
 
 struct RiderNode {
@@ -524,7 +526,6 @@ void Explorers_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
  * unpaving calls RemoveRollerCoasterPath, which is the full path removal.
  * ========================================================================== */
 
-typedef struct Pos { int x; int y; } Pos;
 
 extern void  AddPathTileGFX(Pos* pos, unsigned short tile);     /* 0x0045d350 */
 extern void  RemoveRollerCoasterPath(Pos* pos);                 /* 0x0045dcd0 */
@@ -785,6 +786,8 @@ extern void  StopLayerPlaying(Spr* sprite, int layer);          /* 0x00441f00 */
 extern void* GetLLSForLayer(Spr* sprite, int layer);            /* 0x00441ea0 */
 extern void  LLSSetFrame(void* lls, int frame);                 /* 0x0047d5a0 */
 void* memset(void*, int, unsigned int);
+/* CRT; the 2-byte memcmp is expanded inline by /O2 (see JailCell_FindRecord). */
+extern int memcmp(const void* a, const void* b, unsigned int n);   /* CRT intrinsic */
 
 /* Same "rep stosd is not a kill" pattern as Joust_AddRecord: the record is
  * memset whole and then the five tail ints are stored again from the
@@ -808,34 +811,22 @@ void JailCell_AddRecord(ShopTile* tile)
     }
 }
 
-/* Unlike Joust_FindRecord (0x00407a20, still a WIP in joust.c because VC6
- * hoists the loop-invariant tile key), this one keeps the RECORD key in dx
- * and re-reads the tile key as the compare's memory operand -- and it does so
- * because the record's key is at +0x04, so taking its address costs a real
- * `lea` that VC6 leaves in as a dead instruction before the 16-bit load. The
- * address-of is the lever: comparing through a pointer to the field defeats
- * the invariant hoist. Worth re-trying on joust.c's two WIP FindRecords. */
-static __inline int SameTile(ShopTile* a, ShopTile* b)
-{
-    return ((volatile ShopTile*)a)->key == ((volatile ShopTile*)b)->key;
-}
-
-/* 16 of the original's 18 instructions; the two missing are the DEAD
- * 'lea edx,[eax+4]' VC6 leaves in front of each 'mov dx,[eax+4]'. The
- * both-volatile compare is what stops the loop-invariant tile-key hoist and
- * puts the RECORD key in dx with the tile key as the compare's memory operand
- * -- exactly the shape joust.c's Joust_FindRecord WIP (0x00407a20) could not
- * reach, so that WIP is worth re-trying with this spelling. Every spelling of
- * the address-of that might re-create the ghost lea (a pointer local, char* /
- * void* / unsigned short* helper params, an array-typed key field, (char*)rec
- * + 4) is folded away by VC6. */
-// WIP-FUNCTION: LEGOLAND 0x00437f90  (16 of 18 instructions; two dead 'lea' ghosts missing -- see above)
+/* CLOSED (2026-09-03) by the intrinsic-memcmp form the ridecb3 lane found for
+ * Carousel_FindRec / Balloonz_FindRec: `memcmp(&rec->tile, tile, 2)`. VC6
+ * expands the 2-byte memcmp late (after loop-invariant hoisting), which is
+ * why the CALLER's key is re-read as the compare's memory operand on every
+ * iteration, and the intrinsic materialises the first operand's ADDRESS
+ * (`lea edx,[rec+4]`) before the folded word load -- the "dead lea" that
+ * the earlier both-volatile SameTile helper (16 of 18) could not reproduce.
+ * A key at offset 0 (Joust/Catapult) shows no lea because the address is the
+ * record pointer itself. No volatile needed. */
+// FUNCTION: LEGOLAND 0x00437f90
 JailCellRec* JailCell_FindRecord(ShopTile* tile)
 {
     JailCellRec* rec = g_jailcells_head;
 
     if (rec != 0) {
-        while (!SameTile(&rec->tile, tile)) {
+        while (memcmp(&rec->tile, tile, 2) != 0) {
             rec = rec->next;
             if (rec == 0)
                 return 0;
@@ -965,72 +956,47 @@ void JailCell_SelectForPlacement(void)
  * ========================================================================== */
 
 /* Draw every collected customer whose action byte is `band`. Inlined at every
- * call site; the count is re-sign-extended per call, which is why the
+ * call site; the count is re-sign-extended per band, which is why the
  * original re-tests and re-`movsx`es the char for every band.
  *
- * THE SPELLING IS THE LEVER (found while writing westtown2.c's
- * LegoShop2_DrawOverlay). Written as `for (i = 0; i < n; i++) list[i]`, VC6
- * hoists ONE `movsx reg,bl` for the whole function and copies it into the
- * counter per band, which frees bl and re-registers everything downstream --
- * that spelling cost GENERAL STORE 196 mismatches. Written as an EXPLICIT
- * `if (n > 0)` guard around a `do { ... } while (--k)` over the parameter
- * used as its own cursor, VC6 rematerialises `movsx edi,bl` inside every
- * band, exactly as the original does, and the residual drops to the one
- * scheduling transposition noted above each of the three banded draws. */
+ * THE SPELLING IS THE LEVER, and it took two rounds to find:
+ *  - `for (i = 0; i < n; i++)` with an INT index promotes `n` in the IR, so
+ *    the sign-extension is one CSE-able expression: VC6 hoists ONE `movsx`
+ *    for the whole function, spills it, and re-registers everything
+ *    downstream (that spelling cost GENERAL STORE 196 mismatches).
+ *  - `if (n > 0) { k = n; do { .. } while (--k); }` walking the parameter
+ *    keeps the per-band `movsx edi,bl`, but only because the queue-address
+ *    `lea` lands in the guard block, BEFORE the `jle`; the original has it
+ *    after (27/22/16 mismatches, one lea/jle transposition per band).
+ *  - CLOSED (2026-09-03) by a CHAR index: `char i; for (i = 0; i < n; i++)
+ *    list[i]`. The compare `i < n` is then a byte compare with no widening
+ *    in the IR, so the dword trip count `movsx edi,bl` is created late by
+ *    the loop optimiser, per loop, and is never CSE'd; the guard is the
+ *    inverted loop test (`test bl,bl / jle`), the preheader is `lea esi,
+ *    queue / movsx edi,bl` in that order, and the char index itself dies
+ *    into the strength-reduced cursor. Exact on all three banded draws in
+ *    this file; the same change should close westtown2.c's two, ridecb1.c's
+ *    Carousel_Draw/Balloonz_Draw and mechrides.c's residual (b). `short`,
+ *    `unsigned char`, `i != n`, `while (i < n)` and a `Bloke* b` temp were
+ *    also measured: only `char` with `<` (or the equivalent while) is exact. */
 static __inline void ShopDrawBand(Bloke** list, char n, int band)
 {
-    int k;
+    char i;
 
-    if (n > 0) {
-        k = n;
-        do {
-            if ((*list)->action == band)
-                IP_RenderBlokeIn3DNow(*list);
-            list++;
-        } while (--k);
-    }
+    for (i = 0; i < n; i++)
+        if (list[i]->action == band)
+            IP_RenderBlokeIn3DNow(list[i]);
 }
 
 /* GENERAL STORE: actions 4,5,6 stand behind the shelves (Matte2), everything
  * else in front of them and behind the shop front (Matte). */
-/* THE ONE RESIDUAL IN ALL THREE BANDED DRAWS BELOW, measured precisely.
- *
- * Everything matches -- frame layout, the 10-entry queue's {0} init (one
- * explicit store plus 'rep stosd' for the other nine), the signed-char count,
- * the collect loop, the band order, the sprites and the two PrintSprite calls
- * -- and, since ShopDrawBand was respelled (see the note on it), so does the
- * per-band 'test bl,bl / jle / lea esi,queue / movsx edi,bl' preamble. What
- * is left is a two-instruction TRANSPOSITION repeated once per band: the
- * original emits
- *     test bl,bl / jle <next band> / lea esi,queue / movsx edi,bl
- * and ours emits
- *     test bl,bl / lea esi,queue / jle <next band> / movsx edi,bl
- * -- VC6 speculates the queue-address 'lea' up into the slot between the
- * compare and its branch. Instruction counts are exact in all three
- * (224/224, 193/193, 155/155); the mismatch is 27, 22 and 16 respectively,
- * which is two per band.
- *
- * Measured and rejected for the transposition: a named cursor local assigned
- * inside the guard (that costs a register and spills the count to the frame),
- * the same shape as a macro, the 'if (n > 0)' guard moved out to the call
- * site, 'while (n--)', 'while (k > 0)', a pointer-pair 'p != end' loop, an
- * early-'return' guard, and 'int k = n' before the guard.
- *
- * Measured and rejected EARLIER, for the hoisted sign-extension that the new
- * spelling fixed (kept so it is not re-derived): the band loop as an __inline
- * taking int / char / short / const char* / a pointer-pair, as a #define, and
- * written out inline with a shared or per-band index; 'for (i=0;i<n;i++)',
- * 'while (i<n)', 'k=n; while(k){..k--;}', 'i<(int)n', 'n>i'; an explicit
- * 'if (n>0)' guard AROUND THE WHOLE RUN (that one goes the other way -- VC6
- * then PROVES the later guards and deletes them, 209 instructions); a second
- * coalesced count local; '&n' passed to the inline helper; 'char* pn'
- * indirection; the count decremented in the helper's own parameter copy;
- * routing 'mode' through a named local; a live queue base pointer; and every
- * declaration order of def/n/r/queue/o. The prologue and collect loop are
- * index-for-index exact in all three once the declarations are ordered
- * def, n, r, queue, o.
- */
-// WIP-FUNCTION: LEGOLAND 0x00437670  (224 of 224 instructions; 27 mismatches = one lea/jle transposition per band -- see above)
+/* All three banded draws below were CLOSED on 2026-09-03 by the char loop
+ * index in ShopDrawBand (see the note on it). Everything else -- frame
+ * layout, the 10-entry queue's {0} init (one explicit store plus 'rep stosd'
+ * for the other nine), the signed-char count, the collect loop, the band
+ * order, the sprites and the PrintSprite calls -- was already exact with the
+ * declarations ordered def, n, r, queue, o. */
+// FUNCTION: LEGOLAND 0x00437670
 void GeneralStore_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
                               void* clip, int mode)
 {
@@ -1066,7 +1032,7 @@ void GeneralStore_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
 
 /* SALOON: actions 4,5,6 are at the bar (behind SaloonMatte2), 2,3,7,8 in the
  * middle of the room (behind SaloonMatte1), 0,1,9 in front of everything. */
-// WIP-FUNCTION: LEGOLAND 0x00438d00  (193 of 193 instructions; 22 mismatches = one lea/jle transposition per band -- see the block above GeneralStore_DrawOverlay)
+// FUNCTION: LEGOLAND 0x00438d00
 void Saloon_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
                         void* clip, int mode)
 {
@@ -1100,7 +1066,7 @@ void Saloon_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
 
 /* LEGO MEDIA SHOP: actions 2..5 are inside (behind Mask2), 0,1,6 in front
  * of the shelving (behind Mask1). */
-// WIP-FUNCTION: LEGOLAND 0x00439d40  (155 of 155 instructions; 16 mismatches = one lea/jle transposition per band -- see the block above GeneralStore_DrawOverlay)
+// FUNCTION: LEGOLAND 0x00439d40
 void LegoMedia_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
                            void* clip, int mode)
 {
@@ -1177,7 +1143,7 @@ void LegoMedia_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
  *   5  leave: RemoveBlokeFromRide and clear the "inside" flag
  * ========================================================================== */
 
-extern int  CalcMoveLine(int fx, int fy, int tx, int ty, void* path);  /* 0x00480740 */
+extern int  CalcMoveLine(Pos from, Pos to, void* path);              /* 0x00480740 */
 extern int  NewDirForAction(Bloke* b, unsigned char dir);              /* 0x004833d0 */
 extern void RemoveBlokeFromRide(ShopDef* def, RiderNode* r);           /* 0x0048a100 */
 extern int  rand(void);                                                /* 0x0049e4b2 (CRT) */
@@ -1189,57 +1155,68 @@ static __inline void ShopStepToTarget(Bloke* b)
 {
     unsigned char d;
 
-    d = (unsigned char)(CalcMoveLine(b->wx, b->wy, b->tx, b->ty, &b->path) + 0x10);
+    d = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
     b->busy = 7;
     b->f73 = d;
     NewDirForAction(b, (unsigned char)((d >> 5) + 3));
     b->action++;
 }
 
-/* Exact for the first 26 instructions (prologue, list walk, busy guard, the
- * movzx-by-'mov ecx,edx / and ecx,0xff' switch, the /Gy jump table and all of
- * case 0's coordinate maths) and semantically exact throughout; audit.py puts
- * it at 144 of 144 instructions with 118 mismatches.
+/* CLOSED 2026-09-03 (was 144/144 with 118 mismatches and an escaping branch)
+ * by two levers, both borrowed from the exact scripts in westtown2.c:
  *
- * The whole residual is ONE tail-merge. The original ends up with cases 3 and
- * 4 sharing a single "store target.y + push the five arguments" block (at
- * 0x0043a314, entered with target.x already stored and y in ecx), case 0
- * carrying its own copy of that block and jumping straight to the shared
- * 'call', and case 1 carrying the whole thing because of the rand() that
- * follows it -- TWO copies of the post-call tail. Ours merges case 0 with
- * case 3 instead (their bodies are literally identical apart from the flags
- * store, since both walk to key.y + 1) and leaves case 4 with a third full
- * copy, which is the +17. The original avoids that merge only because it
- * happens to allocate x/y to ecx/edx in case 0 and to edx/ecx in case 3 --
- * a register swap no source spelling reproduced.
+ *  1. CalcMoveLine takes `Pos` BY VALUE (world, target, path) -- the same
+ *     prototype westtown2.c declares. With four int arguments VC6 loaded
+ *     b->world.y EARLY, before the `inc/shl` of the target y, which forced
+ *     the y value into a fresh register (`mov eax,ecx / inc eax`) in every
+ *     case and made case 0 and case 3 cross-jump into one push block; with
+ *     the struct arguments each pair is loaded as a unit between the pushes
+ *     and y is computed in place (`inc ecx / shl ecx,8`), so case 3 shares
+ *     case 4's "lea path / store y / push five" block and case 0 (whose x/y
+ *     land in ecx/edx rather than edx/ecx) keeps its own and jumps to the
+ *     shared `call`. 118 -> 115, but the layout is then the original's.
+ *  2. The placement square is read through `ShopTile* key = &r->ride_id`
+ *     (westtown2.c's `key = &r->square`) rather than `r->ride_id.b.x`.
+ *     The generated loads are the same `[eax+0xc]`/`[eax+0xd]`, but the
+ *     sum `def->base_x + key->b.x` in case 4 then takes base_x's register
+ *     (`add edx,ecx`) where the direct field read makes the zero-extended
+ *     byte the destination (`add ecx,edx`); that one coalescing choice flips
+ *     x/y into edx/ecx and lets case 3 merge into case 4's tail. 115 -> 0.
+ *     Declaration order of def/r/next/b/key is irrelevant (28 permutations).
  *
- * Measured and rejected: both store orders in case 0 and in case 3, both
- * operand orders of 'def->base + key' on each axis in case 4 (all sixteen
- * combinations), computing case 0's coordinates into locals before storing
- * them (the Bank/JAIL CELL lever -- 167 and 186 here), and moving case 0's
- * flags store before/after the two coordinate stores. */
-// WIP-FUNCTION: LEGOLAND 0x0043a1e0  (144 of 144 instructions, 118 mismatches: a third copy of the move tail -- see above)
+ * Measured inert for the case-4 sum before the key pointer was tried: both
+ * operand orders on both axes, `long`/`unsigned`/`short` base fields and
+ * casts, `int`/`unsigned`/`unsigned char` locals for the key bytes (int
+ * ones are folded away; `unsigned char` ones spill through a byte slot;
+ * `char` ones sign-extend but come within 9), `volatile` on either operand,
+ * a `ShopTileCentre(base, k)` inline in both parameter orders and both
+ * parameter types, and a `ShopStep(b, tx, ty)` inline (that one hoists the
+ * loop-invariant base reads into callee-saved registers and moves the
+ * prologue). */
+// FUNCTION: LEGOLAND 0x0043a1e0
 void Explorers_TickCustomers(ShopElem* elem)
 {
     ShopDef*   def = elem->data;
     RiderNode* r = def->riders;
     RiderNode* next;
     Bloke*     b;
+    ShopTile*  key;
 
     while (r) {
         b = r->bloke;
         next = r->next;
+        key = &r->ride_id;
         if (b->busy == 0) {
             switch (b->action) {
             case 0:
                 b->flags62 |= 8;
-                b->tx = r->ride_id.b.x << 8;
-                b->ty = (r->ride_id.b.y + 1) << 8;
+                b->target.x = key->b.x << 8;
+                b->target.y = (key->b.y + 1) << 8;
                 ShopStepToTarget(b);
                 break;
             case 1:
-                b->tx = r->ride_id.b.x << 8;
-                b->ty = (r->ride_id.b.y + 2) << 8;
+                b->target.x = key->b.x << 8;
+                b->target.y = (key->b.y + 2) << 8;
                 ShopStepToTarget(b);
                 b->timer = rand() % 70 + 20;
                 break;
@@ -1249,13 +1226,13 @@ void Explorers_TickCustomers(ShopElem* elem)
                 b->timer--;
                 break;
             case 3:
-                b->tx = r->ride_id.b.x << 8;
-                b->ty = (r->ride_id.b.y + 1) << 8;
+                b->target.x = key->b.x << 8;
+                b->target.y = (key->b.y + 1) << 8;
                 ShopStepToTarget(b);
                 break;
             case 4:
-                b->tx = ((def->base_x + r->ride_id.b.x) << 8) + 0x80;
-                b->ty = ((def->base_y + r->ride_id.b.y) << 8) + 0x80;
+                b->target.x = ((def->base_x + key->b.x) << 8) + 0x80;
+                b->target.y = ((def->base_y + key->b.y) << 8) + 0x80;
                 ShopStepToTarget(b);
                 break;
             case 5:

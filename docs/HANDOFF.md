@@ -84,18 +84,20 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **41.4% exact, 51.3% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1519 |
-| exported functions | `python3 tools/remaining.py` | 662 of 675 (98.1%) |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **42.4% exact, 51.3% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1529 |
+| exported functions | `python3 tools/remaining.py` | 663 of 675 (98.2%) |
 | unmatched callees | `python3 tools/callees.py` | 589, ~25,500 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 62 |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 52 |
 
-(Row values refreshed ~22:30 AEST after the 62 promotions of §2 and two
-section-B waves: wave one closed 30 partials plus one new twin (1504/1504),
-wave two closed 15 more (1519/1519); nine files are now fully exact
-(schoolcar, screens3, castleobj, bnvmove, tri3d, bigscreens, softblit, plus
-the two FindRec twins' file ridecb3 is not). The second session-limit hit
-came at FOUR concurrent Fable lanes, so the working cap is 3. Every single-mismatch function in §6B's table is now exact;
+(Row values refreshed 2026-09-04 ~00:30 AEST after the 62 promotions of §2
+and three section-B waves: wave one closed 30 partials plus one new twin
+(1504/1504), wave two 15 more (1519/1519), wave three 10 more (1529/1529).
+Fully exact files now: schoolcar, screens3, castleobj, bnvmove, tri3d,
+bigscreens, softblit, westtown. The second session-limit hit came at FOUR
+concurrent Fable lanes, so the working cap is 3; late on 2026-09-03 the API
+itself returned 529 overloads for a stretch and killed lanes at launch — back
+off ten minutes rather than retrying in a loop. Every single-mismatch function in §6B's table is now exact;
 RequestRoute and JcBoat_Animate stay at 3 with notes arguing the residual is
 a compiler temporary no C spelling reaches. Seven Fable lanes plus this
 session tripped the account session limit mid-wave — every lane was killed at

@@ -2219,39 +2219,39 @@ extern ZSprite* g_spider_zspr_obj;                           /* 0x0082c668 */
 extern int      g_spider_swing_x;                            /* 0x004b4e20 */
 extern int      g_spider_swing_y;                            /* 0x004b4e24 */
 
-/* STATE (this round: 249 -> 3, 289/289, frame 0x60 exact, every register and
- * every displacement exact). What closed the bulk, in order:
- *   1. `Bloke* found[16] = { 0 };` -- the original's `mov dword [esp+0x30],0`
- *      + 15-dword `rep stosd` is VC6's aggregate-initialiser lowering (first
- *      element immediate, the rest from the zero register), NOT a 15-array
- *      plus a separately zeroed int as the earlier note assumed; that shape
- *      cost 4 frame bytes and 36 instructions.
- *   2. The array (and `n`) live in an INNER SCOPE opened after
- *      `r = item->riders;` (Carousel_Draw's scope lever): a function-level
- *      initialiser is filled before every other statement, and the original
- *      loads `r` into ebp BEFORE the fill, which is also what gives the cursor
- *      ebp and the record edi.
- *   3. The walk is `if (n > 0) { Bloke** q = found; int i = n; do..while(--i) }`
- *      with the guard on the CHAR (test al / je / jle) and a copied cursor
- *      (the lea then sits after the jle; MechDrawBand walks the parameter and
- *      hoists it into the guard block, which is the Plane's shape, not this
- *      one). The counter colours onto n's home in the dead `elem` slot.
- *   4. `a` and `swing` are BLOCK locals of the rider loop (they pool onto the
- *      dead `key` temp and `item` spill homes at 0x10/0x18; function-level
- *      copies cost 8 bytes). `swing` zeroed by ONE chained assignment
- *      `swing.ox = swing.oy = 0;` (two scalar stores let VC6 hoist the a.oy
- *      store above them and split the b35 compare into mov al / cmp al, +1
- *      instruction), `p` assigned AFTER it, then a's two stores.
- * WHAT IS LEFT (3): the original issues the `mov esi,[edi+4]` (p) load between
- * the `xor eax,eax` and the two swing stores; ours issues it after the zframe
- * load, and the chained form stores oy before ox. Pure scheduler tie. Measured
- * inert: all 24 orders of the four scalar stores (three families: a-first 8,
- * swing-first 17, both-swing-first 154), p first/last/between every pair,
- * `Offset swing = {0,0}` / `{0}` / memset, a as a whole-struct copy of the
- * 0x82c660/64 pair, a as an aggregate initialiser, zstate/zframe scalar temps,
- * a+swing as one struct or Offset[2] (costs a function-level home, +8 frame),
- * `1 == b35`, p via r->bloke, bl assigned late. */
-// WIP-FUNCTION: LEGOLAND 0x00415ae0  (289/289 instructions, frame, block layout and every register; 3 scheduling mismatches at index 138-141, see above)
+/* CLOSED (289/289). History: 249 -> 3 by (1) `Bloke* found[16] = { 0 };`
+ * (the original's `mov dword [esp+0x30],0` + 15-dword `rep stosd` is VC6's
+ * aggregate-initialiser lowering, not a 15-array plus an int), (2) the array
+ * and `n` in an INNER SCOPE opened after `r = item->riders;` (a function-level
+ * initialiser is filled before every other statement; the original loads `r`
+ * into ebp before the fill), (3) the walk as `if (n > 0) { Bloke** q = found;
+ * int i = n; do..while(--i) }` (guard on the char: test al / je / jle, lea
+ * after the jle), (4) `a` and `swing` as BLOCK locals of the rider loop
+ * (pooled onto the dead key/item homes at 0x10/0x18).
+ * THE LAST 3 (a scheduling tie in the rider prelude: the original issues the
+ * `mov esi,[edi+4]` p load between the `xor eax,eax` and the two swing zero
+ * stores, and keeps the a.oy store above the `cmp byte [edi+0x35],1`) closed
+ * with ONE lever, found after ~250 measured variants: WHICH POINTER SPELLING
+ * A DEREF GOES THROUGH DECIDES ITS ALIAS ORDERING AGAINST STORES TO ESCAPED
+ * LOCALS. A load through a NAMED pointer local (`bl`, assigned inside the
+ * condition: `((bl = r->bloke)->flags & 0x80)`) is NOT ordered against the
+ * a/swing stores, so `p = bl->person` floats above the swing zero stores; a
+ * load through the textual CSE temp (`r->bloke->b35`, the second textual
+ * `r->bloke`) IS ordered, so the a.oy store stays above the byte compare
+ * instead of sinking past it (which also splits the compare into
+ * mov al / cmp al). With `Bloke* bl = r->bloke;` declared in the if-body
+ * (bl is then the CSE temp of the condition's `r->bloke->flags`) every deref
+ * pins both ways and the p load lands after the zframe load (the old 3);
+ * with bl named and used for the b35 test too nothing pins and the a.oy
+ * store sinks (3 the other way); the same split via a `static __inline`
+ * PlaceRider helper (the Plane's lever) also leaves the a.oy sink. The zero
+ * is `swing.oy = swing.ox = 0;` (ox stored first); p before or after it is
+ * inert once the pins are right. Casts, tuple-count probes, aggregate
+ * initialisers, struct copies of the 0x82c660 pair, b35 through a local,
+ * and the bl-at-loop-top form (`Bloke* bl = r->bloke; if (.. && bl->flags..)`,
+ * 4 off: p load pinned) were all measured and are recorded in
+ * scratchpad/mechrides/siv1..17.py. */
+// FUNCTION: LEGOLAND 0x00415ae0
 void SpiderRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                          void* clip, int mode)
 {
@@ -2297,17 +2297,23 @@ void SpiderRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                             off.oy + screen.oy, mode, 0);
                 **g_spider_zspr_obj->pframe = (unsigned short)rec->frame;
                 for (r = item->riders; r; r = r->next) {
-                    if (sq->key == r->ride_id && (r->bloke->flags & 0x80)) {
-                        Bloke*    bl = r->bloke;
+                    Bloke* bl;
+                    if (sq->key == r->ride_id
+                        && ((bl = r->bloke)->flags & 0x80)) {
                         Person3D* p;
                         Offset    a;
                         Offset    swing;
 
-                        swing.ox = swing.oy = 0;
+                        swing.oy = swing.ox = 0;
                         p = bl->person;
                         a.ox = g_spider_zframe;
                         a.oy = g_spider_zstate;
-                        if (bl->b35 == 1) {
+                        /* r->bloke, not bl: a deref through the textual
+                         * CSE temp is alias-ordered against the a/swing
+                         * stores (pins a.oy before the byte load); a deref
+                         * through the NAMED bl is not (frees the p load to
+                         * float above the swing stores). See the note. */
+                        if (r->bloke->b35 == 1) {
                             swing.ox = g_spider_swing_x;
                             swing.oy = g_spider_swing_y;
                             AdjustOffsetForViewMode(&swing);
@@ -3258,6 +3264,26 @@ void PlaneRide_Activate(RideElem* elem)
 
 extern ZSprite* g_sbarrel_zspr_obj;                          /* 0x0062fe00 */
 
+/* Position one riding bloke (the Plane's lever: a static __inline helper so
+ * `piv` is an inline-expansion temporary outside the caller's alias class,
+ * which lets the scheduler interleave the p load and the pivot stores the
+ * way the original does). */
+static __inline void SpinningBarrels_PlaceRider(Bloke* b, Offset* screen)
+{
+    Person3D* p = b->person;
+    Offset    piv;
+
+    piv.oy = g_sbarrel_pivot_y;
+    piv.ox = g_sbarrel_pivot_x;
+    p->local.ox = b->ride_dx;
+    p->local.oy = b->ride_dy;
+    AdjustBlokePosition(&p->local);
+    AdjustOffsetForViewMode(&piv);
+    p->screen.ox = b->ride_dx + piv.ox + screen->ox;
+    p->screen.oy = b->ride_dy + piv.oy + screen->oy;
+    AdjustBlokePosition(&p->screen);
+}
+
 /* STATE: all 373 instructions and the whole block layout (both arms, the five
  * array passes, the shared final blit) are reproduced; the semantics are
  * certain. Residual is frame/register allocation of the same class as the
@@ -3285,23 +3311,24 @@ void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
 {
     RideDef*    item = elem->data;
     LayerOut    lay;
-    Bloke*      found[15];
     Offset      off;
     Offset      screen;
     RiderNode*  r;
     SBarrelRec* rec;
-    char        n;
-    int         i;
+    char        i;
 
     r = item->riders;
-    n = 0;
-    memset(found, 0, sizeof(found));
+    {
+    char        n = 0;
+    Bloke*      found[16] = { 0 };
+
     rec = SpinningBarrels_FindRecord(sq);
     if (rec == 0)
         return;
     screen = GetScreenCoordsForObject(sq, item);
     GetLayer(item->sprite, &lay, 3);
-    lay.dy = 0;
+    lay.f10 = 0;                 /* +0x10, not dy: lay sits at 0x38 and the
+                                  * store goes to [esp+0x48] */
     if (r) {
         while (r) {
             if (sq->key == r->ride_id)
@@ -3314,22 +3341,11 @@ void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
             AdjustOffsetForViewMode(&off);
             PrintSprite(GetSpriteForLayer(g_sbarrel_layers, 3),
                         screen.ox + off.ox, screen.oy + off.oy, 0, 0);
+            r = item->riders;
             **g_sbarrel_zspr_obj->pframe = (unsigned short)rec->frame3;
-            for (r = item->riders; r; r = r->next) {
+            for (; r; r = r->next) {
                 if (sq->key == r->ride_id && (r->bloke->flags & 0x80)) {
-                    Bloke*    bl = r->bloke;
-                    Person3D* p = bl->person;
-                    Offset    piv;
-
-                    piv.oy = g_sbarrel_pivot_y;
-                    piv.ox = g_sbarrel_pivot_x;
-                    p->local.ox = bl->ride_dx;
-                    p->local.oy = bl->ride_dy;
-                    AdjustBlokePosition(&p->local);
-                    AdjustOffsetForViewMode(&piv);
-                    p->screen.ox = bl->ride_dx + piv.ox + screen.ox;
-                    p->screen.oy = bl->ride_dy + piv.oy + screen.oy;
-                    AdjustBlokePosition(&p->screen);
+                    SpinningBarrels_PlaceRider(r->bloke, &screen);
                     IP_RenderBlokeIn3DNow(r->bloke);
                 }
             }
@@ -3379,4 +3395,5 @@ void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
     AdjustOffsetForViewMode(&off);
     PrintSprite(GetSpriteForLayer(g_sbarrel_layers, 2),
                 screen.ox + off.ox, screen.oy + off.oy, 0, 0);
+    }
 }
