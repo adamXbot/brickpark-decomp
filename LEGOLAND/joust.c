@@ -1306,16 +1306,14 @@ extern Offset GetRenderOffsetForLayer(Spr* sprite, int layer);/* 0x00441ee0 */
 /* Draw every collected person whose long-term action equals `code`. */
 static __inline void Joust_DrawBand(Bloke** here, char n, int code)
 {
-    Bloke** p;
     int     i;
 
     if (n > 0) {
-        p = here;
         i = n;
         do {
-            if ((*p)->action == code)
-                IP_RenderBlokeIn3DNow(*p);
-            ++p;
+            if ((*here)->action == code)
+                IP_RenderBlokeIn3DNow(*here);
+            ++here;
         } while (--i);
     }
 }
@@ -1401,7 +1399,43 @@ static __inline void Joust_DrawBand(Bloke** here, char n, int code)
  * rematerialises the parameter from `[esp+0x70]` at each call whatever the
  * source says, so the only way to free ebp for `mode` is to stop the count
  * hoist, not to make `mode` look more valuable. */
-// WIP-FUNCTION: LEGOLAND 0x00408580  (542 of 552 instructions under audit.py, mismatch 476; frame exact, per-band count re-test still folded -- see above)
+/* THIS ROUND the movsx hoist WAS killed, and with it every one of the 24
+ * dropped guards: `Joust_DrawBand` must use its own `Bloke** here` PARAMETER
+ * as the walk cursor (`++here`) instead of copying it into a local `p` inside
+ * the guard.  Copying it inside the guard leaves the guard block empty, so the
+ * `movsx` of the count becomes the block's only loop-invariant value, VC6
+ * hoists it into ebp, bl falls free, loop-invariant motion then parks the band
+ * CONSTANT in bl (`mov bl,0x18`), `n` is destroyed and the later `test bl,bl`
+ * guards go with it.  Walking the parameter puts the queue-address `lea` in
+ * the guard block, which blocks the hoist: the count is re-derived per band
+ * with `movsx edi,bl`, the band code stays an immediate
+ * (`cmp byte ptr [eax+0x60],0x18`) and all 24 guards come back.
+ * 528 -> 552 instructions (the original's exact count), mismatch 476 -> 97.
+ * This is the SAME helper shape westtown.c's ShopDrawBand already uses, and
+ * the residual it leaves is the same one those five banded draws carry.
+ *
+ * WHAT IS LEFT, 97 of 552, in two groups:
+ *  (a) ONE lea/jle TRANSPOSITION PER BAND (24 of them, 2 mismatches each).
+ *      The original emits `test bl,bl / jle <group end> / lea esi,here /
+ *      movsx edi,bl`; we emit `test bl,bl / lea esi,here / jle / movsx edi,bl`
+ *      -- the queue-address lea is the inlined parameter copy, so it lives in
+ *      the GUARD block and VC6's pairing scheduler slots it between the test
+ *      and its branch (some bands come out `lea / test / jle`, which is the
+ *      same fact).  Because our guard blocks are not empty, our `jle`s also
+ *      target the next band instead of being threaded to the group end.
+ *      Moving the lea into the loop preheader is exactly the `p = here;`
+ *      spelling above, which costs the guards -- the two are mutually
+ *      exclusive under every spelling measured (see the probe sweep in
+ *      scratchpad/finish/probe: 30+ helper shapes, including a pointer-pair
+ *      loop, `while (k--)`, `k = n - 1`, an unsigned count, an index cursor,
+ *      a nested two-level inline, a macro, a hoisted `B** q = queue` base, and
+ *      a dead pre-guard copy -- dead code is deleted BEFORE the fold, so it
+ *      cannot be used to keep a guard block non-empty).
+ *  (b) TWO PrintSprite ARGUMENT BLOCKS (indices 123-130 and 198-205) where the
+ *      original interleaves `push 0` before the coordinate add and holds the
+ *      sprite global in the other register: a schedule/rotation, not a
+ *      structural difference. */
+// WIP-FUNCTION: LEGOLAND 0x00408580  (552 of 552 instructions, mismatch 97; per-band guards recovered, lea/jle transposition remains -- see above)
 void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode)
 {
     RideDef*   def = elem->data;

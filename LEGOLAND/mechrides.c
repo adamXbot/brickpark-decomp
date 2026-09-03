@@ -1655,6 +1655,21 @@ typedef struct AnimRef {
 } AnimRef;
 
 extern void  IP_RenderBlokeIn3DNow(Bloke* b);                /* 0x00440010 */
+
+static __inline void MechDrawBand(Bloke** found, char n, int code)
+{
+    int i;
+
+    if (n > 0) {
+        i = n;
+        do {
+            if ((*found)->action == code)
+                IP_RenderBlokeIn3DNow(*found);
+            ++found;
+        } while (--i);
+    }
+}
+
 extern void  SpaceTower_DrawCar(TowerRec* rec, int car, int mode); /* 0x0043aee0 */
 
 extern AnimRef g_bloke_anim_ref[];                           /* 0x004b775c */
@@ -2001,29 +2016,56 @@ extern ZSprite* g_plane_zspr_obj;                            /* 0x0081cae0 */
  * `item = elem->data` below the zero stores proves the other constraint:
  * `elem` must be DEAD before the first zero store, or n loses its home in the
  * dead elem argument slot and the frame grows from 0x24 to 0x28. */
-// WIP-FUNCTION: LEGOLAND 0x0043da60  (275/275 instructions, frame and block layout; zero-register and loop-counter allocation differ)
+/* THIS ROUND the two band loops were moved to the shared MechDrawBand helper
+ * (declared next to IP_RenderBlokeIn3DNow above): walking the PARAMETER rather
+ * than a copied local cursor keeps the queue-address `lea` in the guard block,
+ * which stops VC6 hoisting the count's `movsx` out of the bands and parking the
+ * band CONSTANT in the count's register.  277 -> 275 instructions (the
+ * original's exact count) and mismatch 237 -> 94.
+ * WHAT IS LEFT, in three groups:
+ *  (a) THE ZERO REGISTER, indices 5-16.  The original hoists a zero into ecx
+ *      and stores it into four of the `found[]`/screen slots while leaving two
+ *      of them as immediates (`mov byte ptr [esp+N],0`, `mov dword ptr
+ *      [esp+N],0`); we hoist into eax and use it for ALL six.  See person3d.c's
+ *      LoadAnim3D for the shape that fixed the same class there (a memset of
+ *      the whole aggregate rather than field-by-field stores).
+ *  (b) the lea/jle transposition, one per band, shared with every other banded
+ *      draw in the project.
+ *  (c) one schedule/rotation difference around index 71 in the
+ *      GetRenderOffsetForLayer / PrintSprite argument block. */
+/* AND THE ZERO REGISTER FELL OUT TOO (mismatch 94 -> 60, first divergence
+ * index 5 -> 45).  The five explicit stores
+ *     found[0] = 0; found[1] = 0; n = 0; found[2] = 0; found[3] = 0;
+ * were an attempt to reproduce the original's interleave by hand.  The real
+ * shape is `Bloke* found[4] = { 0 };` -- VC6's array-initialiser lowering emits
+ * the FIRST element as an immediate store and the other three out of a hoisted
+ * zero register, which is exactly what the original has
+ * (`xor ecx,ecx` ... `mov [E-0x0c],ecx / mov [E-0x08],ecx /
+ * mov byte [E+4],0 / mov [E-0x10],0 / mov [E-0x04],ecx`).  `char n = 0;` must
+ * then be declared BEFORE the array for its immediate byte store to land
+ * between the register stores and the array's own immediate; declared after it
+ * (or written as a separate statement) the store comes out `mov byte
+ * [esp+0x3c],cl` at the end of the run instead (63).
+ * WHAT IS LEFT, 60 of 275: the two per-band lea/jle transpositions and five
+ * one-instruction schedule swaps in the PrintSprite argument blocks (the
+ * original loads the screen offset one slot earlier and pushes in the other
+ * register order). */
+// WIP-FUNCTION: LEGOLAND 0x0043da60  (275 of 275 instructions, mismatch 60; per-band guards and the zero register recovered -- see above)
 void PlaneRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                         void* clip, int mode)
 {
     RideDef*   item = elem->data;
     Offset     off;
     Offset     screen;
-    Bloke*     found[4];
+    char       n = 0;
+    Bloke*     found[4] = { 0 };
     RiderNode* r;
     PlaneRec*  rec;
-    char       n;
     unsigned short key;
 
-    found[0] = 0;
-    found[1] = 0;
-    n = 0;
-    found[2] = 0;
-    found[3] = 0;
     r = item->riders;
     rec = PlaneRide_FindRecord(sq);
     if (rec) {
-        int i;
-
         screen = GetScreenCoordsForObject(sq, item);
         if (r) {
             key = sq->key;
@@ -2033,14 +2075,8 @@ void PlaneRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
                 r = r->next;
             }
             if (n) {
-                for (i = 0; i < n; i++) {
-                    if (found[i]->action == 13)
-                        IP_RenderBlokeIn3DNow(found[i]);
-                }
-                for (i = 0; i < n; i++) {
-                    if (found[i]->action == 14)
-                        IP_RenderBlokeIn3DNow(found[i]);
-                }
+                MechDrawBand(found, n, 13);
+                MechDrawBand(found, n, 14);
                 LLSSetFrame(GetLLSForLayer(g_plane_layers, 1), rec->frame1);
                 off = GetRenderOffsetForLayer(item->sprite, 1);
                 AdjustOffsetForViewMode(&off);
@@ -3094,7 +3130,24 @@ extern ZSprite* g_sbarrel_zspr_obj;                          /* 0x0062fe00 */
  * array passes, the shared final blit) are reproduced; the semantics are
  * certain. Residual is frame/register allocation of the same class as the
  * other two array-collecting draws. */
-// WIP-FUNCTION: LEGOLAND 0x0043be70  (373/373 instructions and block layout; frame and register allocation differ)
+/* Also measured this round and REJECTED for this function: `Bloke* found[15]
+ * = { 0 };` in place of the memset (361, worse -- with fifteen entries the
+ * original really does use a bare `rep stosd`, i.e. a memset, not an
+ * initialiser; the immediate-plus-register-stores form only appears for the
+ * FOUR-entry array in PlaneRide_Interact).
+ * THIS ROUND: the five band loops here are the SAME shape that took
+ * PlaneRide_Interact from 237 mismatches to 94 and Balloonz_Draw from 507 to
+ * 341 -- rewriting them as `MechDrawBand(found, n, code)` recovers every
+ * per-band `test cl,cl / movsx` guard and cuts the difflib alignment against
+ * the original from 414 diff lines to 305.  It is NOT shipped here because the
+ * strict index gate gets slightly worse (344 -> 350) and the count goes from
+ * 374 to 371 against the original's 373: this function ALSO diverges at index
+ * 0, in the prologue, where the original schedules `mov ebp,[eax+N]` and
+ * `mov esi,[ebp+N]` one slot later and initialises the `found[]` array with an
+ * immediate store plus `rep stosd` where we push first.  Fix the prologue
+ * first, then re-apply the band helper -- the two are independent and the
+ * helper is the right structural answer. */
+// WIP-FUNCTION: LEGOLAND 0x0043be70  (373/373 instructions and block layout; frame and register allocation differ -- band helper pending, see above)
 void SpinningBarrels_Interact(RideElem* elem, int x, int y, RideTile* sq,
                               void* clip, int mode)
 {

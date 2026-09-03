@@ -322,6 +322,37 @@ typedef struct RestRec {
 extern Offset GetScreenCoordsForObject(MapSquare* inst, RideObject* item); /* 0x00442cc0 */
 extern void   AdjustOffsetForViewMode(Offset* o);                    /* 0x00442d30 */
 extern void   IP_RenderBlokeIn3DNow(Bloke* b);                       /* 0x00440010 */
+
+/* THE BAND WALK, shared by every collect-and-draw callback in this file.
+ *
+ * THE SPELLING IS THE LEVER (the same one westtown.c's ShopDrawBand and
+ * joust.c's Joust_DrawBand carry).  Written out at the call site as
+ * `for (i = 0; i < n; i++) if (here[i]->action == K) IP_RenderBlokeIn3DNow(...)`,
+ * or as an __inline that copies its list parameter into a local cursor inside
+ * the guard, the per-band guard block is EMPTY, so the sign-extension of the
+ * count is the block's only loop-invariant value: VC6 hoists ONE `movsx` of it
+ * into a callee-saved register, bl falls free, loop-invariant motion then parks
+ * the band CONSTANT in bl (`mov bl,6` + `cmp [eax+0x60],bl`), the count in bl is
+ * destroyed and every later `test bl,bl` guard goes with it.  Walking the
+ * PARAMETER (`++here`) puts the queue-address `lea` in the guard block, which
+ * blocks the hoist: the count is re-derived per band with `movsx edi,bl`, the
+ * band code stays an immediate, and all the guards come back.  Worth 166
+ * mismatches on Balloonz_Draw and 61 on Carousel_Draw; Restaurant1_Draw,
+ * Restaurant1_Tick and Entrance1_Draw are unaffected (still exact). */
+static __inline void DrawBand(Bloke** here, char n, int code)
+{
+    int i;
+
+    if (n > 0) {
+        i = n;
+        do {
+            if ((*here)->action == code)
+                IP_RenderBlokeIn3DNow(*here);
+            ++here;
+        } while (--i);
+    }
+}
+
 extern void   LLSSetFrame(void* lls, int frame);                     /* 0x0047d5a0 */
 extern int    PrintSprite(void* s, int x, int y, int mode, void* ctx);/* 0x004853a0 */
 extern void*  GetLLSForLayer(RenderObj* obj, int layer);             /* 0x00441ea0 */
@@ -743,6 +774,14 @@ extern void*       g_slide_anim;   /* 0x006160e4  its 3D rider animation */
  * exactly indices 62 and 64: the original issues `mov eax,[esp+0x38]` (spot.y)
  * before the x store and sinks `lea ecx,[esi+0x98]` between the two stores; we
  * emit the lea first and the y load between them. */
+/* THIS ROUND, five more shapes measured on the case-0 pair, all rejected:
+ * `int sy = spot.y;` read before the x store (208 -- the temp takes a frame
+ * home), the mirror `int sx = spot.x;` (65), an __inline setter taking
+ * `(Bloke*, const Pos*)` with the body in x-then-y order (identical to the
+ * committed body, 2) and in y-then-x order (215), and `b->target = spot;`
+ * with `spot` declared BEFORE `exit` (10, and still the same 62/64 swap --
+ * declaration order does not move the two pooled Pos homes, confirming the
+ * earlier finding).  The residual is unchanged: indices 62 and 64. */
 // WIP-FUNCTION: LEGOLAND 0x0042d610  (99.3%, one two-instruction schedule swap in case 0)
 void EarthSlide_Tick(RideElem* elem)
 {
@@ -1189,7 +1228,16 @@ extern SpriteObj* g_carousel_zspr;    /* 0x006160b8  z_Carousel.lls */
  * `mov esi,item->riders` in the prologue region, BEFORE `xor eax,eax`; every
  * source-level knob tried so far leaves it after the `rep stosd`, where edi is
  * the warm register and the esi/edi roles invert for the whole body. */
-// WIP-FUNCTION: LEGOLAND 0x0042bcf0  (32.8%, esi/edi allocation tie-break renames two thirds of the body)
+/* THIS ROUND: the band loops were moved to the shared DrawBand helper above
+ * (walk the PARAMETER, do not copy it into a local cursor).  That kills the
+ * one hoisted `movsx` of the count and brings back every per-band
+ * `test bl,bl / movsx` guard, so the body is now 412 of 412 instructions with
+ * mismatch 216 (was 414 instructions / 277).  What is left is the same
+ * lea/jle transposition the banded draws in westtown.c and joust.c carry --
+ * the queue-address `lea` is the inlined parameter copy, so it lives in the
+ * GUARD block and VC6's pairing scheduler slots it between the test and its
+ * branch -- plus an esi/edi rename that follows from it. */
+// WIP-FUNCTION: LEGOLAND 0x0042bcf0  (412 of 412 instructions, mismatch 216; per-band guards recovered, lea/jle transposition remains)
 void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
 {
@@ -1204,7 +1252,6 @@ void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
     RiderNode*   r;
     CarouselRec* rec;
     char         n;
-    int          i;
 
     r = item->riders;
     n = 0;
@@ -1247,18 +1294,10 @@ void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
             PrintSprite(GetSpriteForLayer(g_carousel_layers, 2),
                         screen.ox + offA.ox, screen.oy + offA.oy, mode, &ctx);
 
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 0)
-                    IP_RenderBlokeIn3DNow(here[i]);
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 1)
-                    IP_RenderBlokeIn3DNow(here[i]);
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 0x0d)
-                    IP_RenderBlokeIn3DNow(here[i]);
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 0x0e)
-                    IP_RenderBlokeIn3DNow(here[i]);
+            DrawBand(here, n, 0);
+            DrawBand(here, n, 1);
+            DrawBand(here, n, 0x0d);
+            DrawBand(here, n, 0x0e);
 
             *(short*)*(g_carousel_zspr->lls_holder) = rec->frame;
 
@@ -1412,7 +1451,26 @@ extern void*      g_bz_car_blue; /* 0x0061605c  BZBlueCarM1.lls */
  * to `wheel` and spills `n` to the parameter slot.  All 24 permutations of the
  * four char declarations emit byte-identical code, so declaration order is not
  * the lever here either. */
-// WIP-FUNCTION: LEGOLAND 0x0042b2e0  (12%, one frame slot short -- see the frame analysis above)
+/* THIS ROUND THE WHOLE FRAME QUESTION ABOVE DISSOLVED, and the answer was not
+ * a frame lever at all: moving the ten band loops to the shared DrawBand
+ * helper above (walk the PARAMETER) stops the hoisted `movsx` of the count,
+ * which stops VC6 parking the band CONSTANT in bl, which is what had been
+ * destroying `n` -- and with `n` alive in bl for the whole body VC6 spills it
+ * to the dead `elem` argument slot (`mov byte ptr [esp+0x74],bl`) exactly as
+ * the original does, packs `flag`/`wheel` as adjacent BYTES at E-0x59/E-0x58,
+ * and emits `sub esp,0x5c`.  The frame is now byte-for-byte the original's
+ * except `car`, which we home at E-0x54 where the original has E-0x4c.
+ * 584 -> 576 instructions (the original's exact count), mismatch 507 -> 341.
+ * (A `struct { char flag; char wheel; }` DOES also produce `sub esp,0x5c` on
+ * its own -- that was how the packing was first reproduced -- but it is
+ * unnecessary once the band shape is right, and it scores slightly worse
+ * (346), so it is not shipped.)
+ * WHAT IS LEFT: the same lea/jle transposition as the other banded draws (one
+ * per band), an edi/ebp rename that follows from it, `car`'s home, and one
+ * schedule difference in the `off = GetRenderOffsetForLayer(...)` /
+ * AdjustOffsetForViewMode pair at indices 61-71 (the original stores off.oy,
+ * then takes &off and pushes it, then stores off.ox; we store ox first). */
+// WIP-FUNCTION: LEGOLAND 0x0042b2e0  (576 of 576 instructions, mismatch 341; frame now the original's except `car` -- see above)
 void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                    void* clip, int mode)
 {
@@ -1428,7 +1486,6 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
     Offset       off;
     Offset       screen;
     LayerOut     lay;
-    int          i;
 
     r = item->riders;
     n = 0;
@@ -1458,42 +1515,22 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
             off = GetRenderOffsetForLayer(g_bz_layers, 0);
             AdjustOffsetForViewMode(&off);
 
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 6)
-                    IP_RenderBlokeIn3DNow(here[i]);
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 5)
-                    IP_RenderBlokeIn3DNow(here[i]);
+            DrawBand(here, n, 6);
+            DrawBand(here, n, 5);
             PrintSprite(g_bz_base1, off.ox + screen.ox, off.oy + screen.oy, mode, 0);
 
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 4)
-                    IP_RenderBlokeIn3DNow(here[i]);
+            DrawBand(here, n, 4);
             PrintSprite(g_bz_base2, off.ox + screen.ox, off.oy + screen.oy, mode, 0);
 
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 0)
-                    IP_RenderBlokeIn3DNow(here[i]);
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 1)
-                    IP_RenderBlokeIn3DNow(here[i]);
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 2)
-                    IP_RenderBlokeIn3DNow(here[i]);
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 3)
-                    IP_RenderBlokeIn3DNow(here[i]);
+            DrawBand(here, n, 0);
+            DrawBand(here, n, 1);
+            DrawBand(here, n, 2);
+            DrawBand(here, n, 3);
             PrintSprite(g_bz_base3, off.ox + screen.ox, off.oy + screen.oy, mode, 0);
 
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 7)
-                    IP_RenderBlokeIn3DNow(here[i]);
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 0x0e)
-                    IP_RenderBlokeIn3DNow(here[i]);
-            for (i = 0; i < n; i++)
-                if (here[i]->action == 0x0f)
-                    IP_RenderBlokeIn3DNow(here[i]);
+            DrawBand(here, n, 7);
+            DrawBand(here, n, 0x0e);
+            DrawBand(here, n, 0x0f);
 
             LLSSetFrame(GetLLSForLayer(g_bz_layers, 1), wheel);
             off = GetRenderOffsetForLayer(g_bz_layers, 1);
@@ -1506,18 +1543,10 @@ void Balloonz_Draw(RideElem* elem, int x, int y, MapSquare* sq,
                 off = GetRenderOffsetForLayer(g_bz_layers, 1);
                 AdjustOffsetForViewMode(&off);
 
-                for (i = 0; i < n; i++)
-                    if (here[i]->action == 8)
-                        IP_RenderBlokeIn3DNow(here[i]);
-                for (i = 0; i < n; i++)
-                    if (here[i]->action == 9)
-                        IP_RenderBlokeIn3DNow(here[i]);
-                for (i = 0; i < n; i++)
-                    if (here[i]->action == 0x0d)
-                        IP_RenderBlokeIn3DNow(here[i]);
-                for (i = 0; i < n; i++)
-                    if (here[i]->action == 0x0e)
-                        IP_RenderBlokeIn3DNow(here[i]);
+                DrawBand(here, n, 8);
+                DrawBand(here, n, 9);
+                DrawBand(here, n, 0x0d);
+                DrawBand(here, n, 0x0e);
 
                 switch (Balloonz_CarSprite(wheel, car)) {
                 case 0:

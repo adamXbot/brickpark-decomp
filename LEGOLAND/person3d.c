@@ -326,12 +326,35 @@ void ComputeVertexBounds(Frame3D* f, Frame3D* out)
  * has the caller's texture base added to its texture id.  The three corner
  * UVs are clamped into [0,1].
  */
-/* Residual at 83.6%: pure VC6 spill-home colouring.  k65536/set/i rotate between
- * the homes -0x10/-0x14/-0x18; the frame stores come out [edi+ecx+N] where the
- * original has [ecx+edi+N]; and the three RGB byte loads pick al/dl/cl instead of
- * cl/dl/al, which clobbers the CSE'd &face and forces three reloads.  Frame size,
- * every spill home count, the instruction schedule and all control flow match. */
-// WIP-FUNCTION: LEGOLAND 0x0043fa80  (83.6%, 266/318 insns)
+/* EXACT (316/316, audit [OK]).  Three levers took this from 83.6% to 100%, all
+ * of them "the same statement, spelled the way VC6 wants it":
+ *   1. THE FACESET INIT IS A memset, NOT THREE FIELD STORES.  Three separate
+ *      `set->field = 0;` assignments emit three `mov [reg+N],0` immediates;
+ *      `memset(set, 0, sizeof(FaceSet))` emits `xor ecx,ecx` plus three stores
+ *      OF THAT ZERO REGISTER, which is what the original has -- and because the
+ *      register form is two instructions shorter, VC6 then interleaves them
+ *      with the RES_ReadFile argument pushes exactly as the original does.
+ *      This one lever was worth 202 of the 239 mismatches; it also re-colours
+ *      the spill homes so k65536 lands at ebp-0x10 (not ebp-0x18) and the
+ *      frame stores come out `[ecx+edi+N]` instead of `[edi+ecx+N]`.
+ *   2. THE NORMALISE LOOP'S BYTE OFFSET IS A STRENGTH-REDUCED IV, NOT A SECOND
+ *      COUNTER.  `for (k = 0, j = 0; k < n; k++, j += 12)` initialises BOTH
+ *      counters before the loop guard; the original stores k's zero before the
+ *      `jle` and j's zero AFTER it, i.e. in the loop PREHEADER, which is where
+ *      VC6 puts an induction variable IT created.  Writing the body's offset as
+ *      `k * 12` and dropping j reproduces that placement exactly.
+ *   3. THE THREE RGB BYTES ARE READ THROUGH A `unsigned char*`.  Read as
+ *      `anim->faces[i].rgb[n]`, VC6 allocates the byte destinations al/dl/cl in
+ *      that order, so the FIRST load kills the CSE'd `lea eax,[edi+edx]` face
+ *      address and the next two have to rematerialise `[esi+8]` (two extra
+ *      instructions).  Hoisting `unsigned char* s = anim->faces[i].rgb;` and
+ *      reading s[2]/s[1]/s[0] flips the allocation to cl/dl/al -- the pointer
+ *      survives in eax until the last load -- and keeps the load/store
+ *      interleave.  Measured and rejected on the way: byte or int temporaries
+ *      for any subset of the three (VC6 copy-propagates them away unless ALL
+ *      the loads precede ALL the stores, which then groups the loads), a
+ *      `Face3D* f` for the whole loop body, and reversing the assignment order. */
+// FUNCTION: LEGOLAND 0x0043fa80
 Anim3D* LoadAnim3D(const char* file, const char* dir, int texbase)
 {
     char          path[0x100];
@@ -354,9 +377,7 @@ Anim3D* LoadAnim3D(const char* file, const char* dir, int texbase)
         anim = (Anim3D*)MemAlloc(sizeof(Anim3D));
         memset(anim, 0, sizeof(Anim3D));
         set = (FaceSet*)MemAlloc(sizeof(FaceSet));
-        set->n_faces = 0;
-        set->n_gouraud = 0;
-        set->tris = 0;
+        memset(set, 0, sizeof(FaceSet));
         RES_ReadFile(fp, &n, 4);
         anim->n_frames = n;
         anim->frames = (Frame3D*)MemAlloc(n * sizeof(Frame3D));
@@ -384,8 +405,8 @@ Anim3D* LoadAnim3D(const char* file, const char* dir, int texbase)
             anim->frames[i].normals = (int*)MemAlloc(nn.n * 12);
             np = anim->frames[i].normals;
             RES_ReadFile(fp, anim->frames[i].normals, nn.n * 12);
-            for (k = 0, j = 0; k < nn.n; k++, j += 12)
-                NormaliseVector((float*)((char*)anim->frames[i].normals + j));
+            for (k = 0; k < nn.n; k++)
+                NormaliseVector((float*)((char*)anim->frames[i].normals + k * 12));
             for (k = 0; k < nn.n; k++)
                 ((float*)anim->frames[i].normals)[k * 3 + 1] =
                     -((float*)anim->frames[i].normals)[k * 3 + 1];
@@ -412,9 +433,10 @@ Anim3D* LoadAnim3D(const char* file, const char* dir, int texbase)
         if (anim) {
             for (i = 0; i < n; i++) {
                 if (anim->faces[i].flags & 0x2000) {
-                    nn.rgb[2] = anim->faces[i].rgb[2];
-                    nn.rgb[1] = anim->faces[i].rgb[1];
-                    nn.rgb[0] = anim->faces[i].rgb[0];
+                    unsigned char* s = anim->faces[i].rgb;
+                    nn.rgb[2] = s[2];
+                    nn.rgb[1] = s[1];
+                    nn.rgb[0] = s[0];
                     anim->faces[i].tex = MakeShadedColour(0x40, nn.rgb);
                 } else {
                     anim->faces[i].tex += texbase;
