@@ -270,25 +270,70 @@ Lanes that had been running, all resumable from `docs/LANE_BRIEF.md`:
 **A. Done (2026-09-03 afternoon):** the 62 audit-exact WIPs are promoted and
 `verify.py` is green at 1473/1473. Start at B.
 
-**B. The closest genuine partials.** 107 of the 169 WIPs are real partials, and
-each carries a note above its marker recording its measured residual, its first
+**B. The closest genuine partials — refreshed 2026-09-05 from a full sweep.**
+Each carries a note above its marker recording its measured residual, its first
 diverging instruction index, and what previous agents ruled out. *Read that note
-before touching one.* The closest right now:
+before touching one.* All 37 partials, by mismatch:
 
-| mismatches | address | function |
-| --- | --- | --- |
-| 1 | 0x0040c4a0 | LFTrack_Update |
-| 1 | 0x00413b50 | Roads_CalcCursor |
-| 1 | 0x0041e4a0 | Route_IsClosed |
-| 1 | 0x004828f0 | sub_4828f0 |
-| 2 | 0x0042d610 | EarthSlide_Tick |
-| 3 | 0x0040aac0 | LFEntrance_Update2 |
-| 3 | 0x00433840 | JcBoat_Animate |
-| 3 | 0x00477bd0 | RequestRoute |
+| mismatch | insns | address | function | file |
+| --- | --- | --- | --- | --- |
+| 3 | 43 | 0x004718c0 | ClampPopUpToScreen | misc3.c |
+| 3 | 330 | 0x00433840 | JcBoat_Animate | roads.c |
+| 3 | 482 | 0x00477bd0 | RequestRoute | simcore.c |
+| 5 | 205 | 0x0045f810 | ValidateCursor | objmap2.c — **EXHAUSTED, leave** |
+| 5 | 637 | 0x0042aa90 | Balloonz_Tick | ridecb3.c |
+| 8 | 218 | 0x0041a040 | BoatingSchool_Add | ridecb5.c — **EXHAUSTED, leave** |
+| 10 | 222 | 0x0040bf70 | LFEntrance_Activate | lfentrance.c |
+| 11 | 102 | 0x0040abf0 | LFEntrance_Remove | logflume.c |
+| 12 | 31 | 0x00417e70 | WW_AnyBlokeInRect | waterworks.c |
+| 13 | 109 | 0x00473b00 | UpdateControllerFromMouseData | input.c — **EXHAUSTED** |
+| 13 | 962 | 0x004724a0 | DrawPopUpInfo | popup.c |
+| 15 | 141 | 0x00434f90 | JungleCruise_Add | ridecb9.c |
+| 15 | 376 | 0x00416330 | SpiderRide_Activate | mechrides.c |
+| 19 | 362 | 0x0043c950 | SpinningBarrels_Activate | mechrides.c |
+| 19 | 387 | 0x0043e410 | PlaneRide_Activate | mechrides.c |
+| 20 | 191 | 0x0048a3e0 | GetObjectUID | objmap2.c |
+| 22 | 68 | 0x00475630 | InsertChildIntoList | fpui.c |
+| 22 | 347 | 0x00417430 | TempleSlide_Update | joust.c |
+| 27 | 64 | 0x00413450 | Road_FindDiagonals | ridecb5.c |
+| 27 | 116 | 0x00436dc0 | JungleCruise_UpdateRiverTile | junglecruise.c |
+| 29 | 378 | 0x0042c820 | Carousel_Tick | ridecb3.c |
+| 30 | 212 | 0x00418fe0 | BoatingSchool_DrawBoats | anim2.c |
+| 45 | 111 | 0x00410180 | LFDrop_Place | logflume2.c |
+| 47 | 358 | 0x0041a720 | BoatingSchool_Tick | ridecb5.c |
+| 82 | 184 | 0x00470620 | CheckWorkerOnMouseStatus | workers2.c |
+| 112 | 422 | 0x00432d00 | JungleCruise_UpdateRiverAnim | junglecruise.c |
+| 118 | 119 | 0x0048f0f0 | InitExitCheckBox | screens2.c |
+| 132 | 402 | 0x00415220 | SafariRide_Activate | mechrides.c |
+| 138 | 222 | 0x0043bac0 | SpaceTower_Activate | mechrides.c |
+| 182 | 331 | 0x00442040 | AnimApplyPart | anim2.c |
+| 206 | 256 | 0x0040a600 | LFEntrance_Add | lfentrance.c |
+| 208 | 354 | 0x00435750 | JungleCruise_Tick | ridecb2.c |
+| 273 | 454 | 0x0045ff00 | RenderCursor | bigrender.c |
+| 319 | 351 | 0x00402780 | StepSchoolCar | goldrush.c |
+| 377 | 1023 | 0x00440a30 | Draw3DPersonModel | person3d.c — **EXHAUSTED, leave** |
+| 381 | 903 | 0x0045b180 | RenderView | renderview.c |
+| 844 | 1161 | 0x004567a0 | RenderFullMap | renderview.c |
 
-Four more report `ESCAPES` (a branch in our body targets past the original's end
-— usually a duplicated tail or a different block layout): `Copters_Activate`,
-`Balloonz_Tick`, `Explorers_TickCustomers`, `SaveEmptySlotInput`.
+**Target from the TOP of this table, and re-sweep before each wave.** Waves five
+to ten repeatedly sent lanes at `RenderFullMap`, `RenderView`,
+`Draw3DPersonModel` and `StepSchoolCar` — the four worst rows — and closed
+nothing in six waves, while `ClampPopUpToScreen` (43 instructions, mismatch 3)
+and `WW_AnyBlokeInRect` (31 instructions) sat untouched. Two heuristics that
+the sweep makes obvious:
+
+- **Small bodies close far more often.** The whole function fits in one reading,
+  the residual cannot hide behind a frame permutation, and one construct usually
+  explains all of it. A high mismatch FRACTION on a tiny body means one wrong
+  construct, not many problems.
+- **Exact byte length narrows the search sharply.** Every encoding is the right
+  size, so the residual is ordering, allocation or operand order — not a wrong
+  type, immediate or addressing form. Do not spend variants on arithmetic
+  spellings there.
+
+Regenerate this table with
+`python3 tools/audit.py LEGOLAND/*.c | grep '\[WIP'` (needs a quiet tree —
+never run it alongside anything that compiles).
 
 Look for **twins**: the game is full of near-identical rides, and a fix on one
 slot usually transfers straight to the same slot on another ride. That has
