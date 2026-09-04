@@ -1812,6 +1812,73 @@ extern CarRow  g_tower_car[4];                               /* 0x004b77a8 */
  * if a future pass finds a way to keep `tiley` in edx (i.e. a SECOND `def`
  * reload at index 23 without a volatile), the two changes go in together
  * and this function should fall a long way. */
+/* PASS w10rides (2026-09-05).  NO CHANGE (138 strict / 136 real /
+ * register-blind 14).  The open task from w9 -- a NON-VOLATILE second `def`
+ * reload at index 23 -- was attacked from three new directions and all three
+ * fail; one of them also DISPROVES the mechanism the w9 note attributed the
+ * eax/edx tie-break to.
+ *
+ *  (1) THE SECOND RELOAD IS NOT SUFFICIENT.  `a27_volboth`
+ *      (`(*(RideDef* volatile*)&def)->base_x` AND `...->base_y`) emits the
+ *      two reloads and lets EDX die at `mov ebp,[edx+0xc]` exactly as the
+ *      original does -- and STILL puts the rematerialised `tile` in EDX and
+ *      `tiley` in EAX (136/138).  So "edx dies at 26 and is therefore free
+ *      for tiley" is not the tie-break; the free set at the `lea` is
+ *      {eax, edx} in the original and {eax, ecx, edx} in ours, and what
+ *      differs is that in the original ECX IS STILL BUSY holding `base_y`,
+ *      because the original evaluates `def->base_y` BEFORE the `tile->b.y`
+ *      byte load.
+ *
+ *  (2) BUT THAT ORDER IS NOT SPELLABLE.  Twelve head spellings that put the
+ *      `base_y` read ahead of the `tiley` read -- `base[1] = def->base_y;`
+ *      then `base[1] += tiley;`, a named `by` local, `by` before `tx`, `by`
+ *      first of all, both operand orders, each crossed with the volatile and
+ *      with case 3's spelling -- are BYTE-IDENTICAL to the plain form in
+ *      every non-volatile cell (159/163).  VC6 normalises the head back to
+ *      one shape before it allocates.
+ *
+ *  (3) THE `tiley` LOCAL MAY NOT EXIST IN THE ORIGINAL, BUT SPELLING IT AWAY
+ *      IS WORSE.  Read off the disassembly: the original keeps `tile` (the
+ *      `lea eax,[ebx+0xc]` at index 30) live in EAX across the jump table --
+ *      case 0 pushes it at 43, case 3 RE-READS the byte through it at 98
+ *      (`xor edx,edx / mov dl,[eax+1]`) because case 3 has just clobbered
+ *      edx for its x computation -- while the head's byte load stays in EDX
+ *      and case 8 consumes it there (`add ecx,edx`, index 170).  That is
+ *      exactly the signature of ONE CSE of `tile->b.y` with no local at all.
+ *      Measured: the full {head, case 3, case 8} x {`tilex`/`tiley` local,
+ *      `tile->b.x`/`tile->b.y`, `RIDE_TILE(r)->..`, the volatile `tilex`} =
+ *      70 cells.  Every cell in which case 3 reads `tile->b.y` ESCAPES the
+ *      extent (207-214 at 704-711 bytes against 698) -- VC6 tail-duplicates
+ *      the NewDirForAction tail -- and dropping the `tiley` local entirely is
+ *      207+.  The committed pair (`tiley` in the head and case 8, the
+ *      volatile `def` read) is still the only combination that holds both
+ *      `sub esp,0x10` and 698 bytes.
+ *
+ *  (4) THE INDEX-30 TIE-BREAK IS REACHABLE AFTER ALL, AND THE OPEN TASK IS
+ *      NOW A DIFFERENT ONE.  Evaluating `def->base_y` into a NAMED local
+ *      BEFORE the `tile->b.y` read, with the volatile second reload on that
+ *      read, puts the `lea eax,[ebx+0xc]` at index 30 and `tiley` in EDX --
+ *      the original's assignment, and the first time any spelling has done
+ *      it:
+ *          by = (*(RideDef* volatile*)&def)->base_y;   (at any of the three
+ *          head seams)                                  ... 145/146
+ *          base[1] = (*(RideDef* volatile*)&def)->base_y;
+ *          base[1] += tiley;                            ... 151
+ *      What it costs is a FIFTH frame slot: `sub esp,0x14` against 0x10, 705
+ *      bytes against 698.  VC6 loads `base_y` into EDX (not the free ECX the
+ *      original uses) and then has to spill it at index 31 to make room for
+ *      the `xor edx,edx` of the byte load -- so the intermediate always
+ *      acquires a home, whether it is a named `by`, `base[1]` accumulated in
+ *      two statements, or a separately hoisted `d2` pointer (nine cells
+ *      measured, 145-170; every non-volatile one collapses back to 163).
+ *      SO THE OPEN TASK IS NO LONGER "a non-volatile second `def` reload":
+ *      it is "get `def->base_y` into ECX rather than EDX at index 27".  With
+ *      that, the head's twelve instructions and the whole eax/edx cascade
+ *      through cases 0, 3 and 8 come with it.
+ *
+ *  Also re-confirmed inert: `(void)&def;` and `if (&def) { }` (VC6 folds them
+ *  away, so neither makes `def` address-taken), `def = def;`, and a
+ *  `((RideDef*)((char*)def))` cast -- all 163, i.e. one reload. */
 // WIP-FUNCTION: LEGOLAND 0x0043bac0  (38%, 138/222; frame, block layout, the ebx/ebp cursor split and everything to index 22 exact -- see above)
 void SpaceTower_Activate(RideElem* elem)
 {
@@ -2896,6 +2963,42 @@ extern const int g_safari_end_off[8];                        /* 0x004b4ce4 */
  * both pos stores is 227 in the folded form as it is in the statement form.
  * Doing the same to the X chain as well (`sx2` used for the product and the
  * spill) is 382 and moves the prologue. */
+/* PASS w10rides (2026-09-05).  NO CHANGE (132 strict, 132 real under the
+ * IDENTITY permutation, register-blind 15) -- but THE 132 IS NOW KNOWN TO BE
+ * ONE REGISTER CHOICE, not 132 problems, and the whole tail was read against
+ * the original instruction by instruction to prove it.
+ *
+ * THE SEED: `p = b->person;` is allocated ECX here and EDX in the original.
+ * The original loads it at index 103, in the family Y slot
+ * (`mov edx,[esi+4]` between `sub eax,edx` and `sar eax,1`); we load it at
+ * 91, as early as the `g_map_cfg` pointer frees ECX at 90.  From index 113
+ * (`mov [ecx+0x2c],edx` against the original's `mov [edx+0x2c],eax`) to the
+ * end of the case the two bodies are the SAME INSTRUCTIONS WITH THE SAME
+ * OPERANDS in a three-way eax/ecx/edx rotation -- 145/146, 149/151, 159/161,
+ * 167/169, 179/181/182, 184/186, 191/192/193 and so on are all
+ * `mov <scratch>,[esi+0x54]` / `push <scratch>` pairs that differ only in
+ * which scratch register they name.  That is what register-blind 15 against
+ * strict 132 is measuring, and it is why this body scores so much worse than
+ * its four siblings while being no further from the original structurally.
+ *
+ * ALSO READ OFF THE DISASSEMBLY THIS PASS (and not reproducible): the
+ * original stores `pos.x` at index 106, BEFORE the y chain finishes, and
+ * then reloads `screen.oy` into EDI -- the register `sx2` has just vacated
+ * at `shl edi,1` / `mov [esp+0x48],edi`.  We hoist `screen.oy` into EBP at
+ * index 86 instead and keep both pos stores together at 111/112.  The
+ * obvious source for the original's shape, the per-axis tail
+ * (`sx2 -= ..; sx2 -= ..; pos.x = sx2 * 2;` then the y triple), is
+ * BYTE-IDENTICAL to the committed body -- measured this pass in six tail
+ * spellings x three y-chain shapes (18 cells): every two-web cell with the
+ * cache is exactly 132 (the per-axis one with `p` between the two axes is
+ * 132 with rb 13 instead of 15), the no-cache cells are 227, and the
+ * one-web cells are 138 (no cache) or 249 (cache).  So the interleave is a
+ * scheduler consequence of the EDI allocation, not a statement order.
+ *
+ * The family cause is the same as everywhere else: see the PASS w10rides
+ * paragraph in SpinningBarrels_Activate.  The `p` cache must stay -- without
+ * it the load sinks below the two escaped `pos` stores and the body is
+ * 227. */
 // WIP-FUNCTION: LEGOLAND 0x00415220  (67%, 132/402; frame, byte length and the head exact, a tail register rotation remains -- see above)
 void SafariRide_Activate(RideElem* elem)
 {
@@ -3599,6 +3702,74 @@ extern char g_sbarrel_pathname[];                            /* 0x004b78b4 "BoxB
  * property of that one load, not of which halving comes first.  (That
  * variant scores strict 26 against 29 but real 11 against 8 and reverses
  * the two seed stores: a compensating error, not committed.) */
+/* PASS w10rides (2026-09-05).  NO CHANGE (19 strict, 19 real under the
+ * IDENTITY permutation, register-blind 6) -- but THE FAMILY SLOT NOW HAS A
+ * SINGLE NAMED CAUSE, established causally rather than by correlation, and
+ * the "one instruction slot" framing of the w9 paragraph above is wrong.
+ *
+ * DELETE THE `p = b->person;` CACHE AND THE ENTIRE WINDOW COMES RIGHT.
+ * With `b->person->zsprite = g_sbarrel_spr2;` spelled out (no cache) this
+ * body measures strict 25 / real 24 but REGISTER-BLIND 3, and read against
+ * the original its indices 120-137 are the original's 121-138 with NOTHING
+ * else changed -- a pure one-slot shift whose only content is the missing
+ * `mov ecx,[esi+4]`:
+ *      orig 123 sar eax,1        <- X SLOT EMPTY
+ *           125 mov eax,[esp+0x44]   screen.ox SERIAL IN EAX
+ *           130 mov edx,[0x62fe04]   <- Y SLOT = the zsprite load
+ *           114/120 the two GetUnitDepth pushes
+ *      nop  122 sar eax,1        <- X SLOT EMPTY   (was `mov edx,[scr.ox]`)
+ *           124 mov eax,[esp+0x44]   screen.ox SERIAL IN EAX
+ *           129 mov edx,[zspr]       <- Y SLOT, same
+ *           118/121 the two pushes   (committed body: 126/132)
+ * So the X-slot fill, the twelve-slot sink of the two float-constant pushes
+ * and the Y slot are ALL DOWNSTREAM OF ONE THING: which register the
+ * `screen.ox` temp is allocated.  The original gives it EAX -- reusing the
+ * register the halving chain has just freed -- so the load cannot move above
+ * `sub edi,eax`, nothing is ready for the X slot, and the pushes float up
+ * past it.  We give it EDX (free between the two `cdq`s), so it hoists into
+ * the X slot and the pushes have to wait.  The `p` cache is what changes
+ * that allocation: with `p` occupying ECX the screen temp takes EDX; with no
+ * cache at all it takes EAX here (and ECX on Carousel_Tick, which is why
+ * dropping the cache is a LOSS there -- 8 -> 17).
+ *
+ * THE CACHE IS STILL RIGHT AND STILL HAS TO STAY.  The original's
+ * `mov ecx,[esi+4]` at index 118 is ABOVE the two `pos` stores, and a load
+ * through `b` cannot climb past a store to the escaped `pos` on its own:
+ * without the cache VC6 emits it at 137, immediately before its use.  So the
+ * two halves of the original -- p hoisted to 118 AND screen.ox serial in eax
+ * -- are not simultaneously reachable, and the committed body buys the first
+ * (19) rather than the second (24/25).
+ *
+ * WHAT THE ORIGINAL IS DOING THAT WE CANNOT: IT LEAVES ECX IDLE.  On every
+ * one of the five bodies the `g_map_cfg` pointer dies in ECX at the
+ * `mov ?x,[ecx+0x22]` that reads `oy`, and from there to the `mov ecx,[esi+4]`
+ * that reloads `b->person` for the f30 store the original NEVER USES ECX
+ * AGAIN -- one whole scratch register left idle across the arithmetic.  Ours
+ * always fills it (with `p`, or with a screen field).  Nothing in the source
+ * raises or lowers local pressure enough to change that; see the invariance
+ * results below.
+ *
+ * MEASURED THIS PASS (all on this function unless said otherwise, and all
+ * BYTE-IDENTICAL to the committed body at 19/19/6):
+ *   - all 10 orderings of the four subtractions that keep `sx2 -= half`
+ *     before `sx2 -= screen.ox`, and the 5 that reverse it, crossed with
+ *     {cache, no cache, cache after the pos stores} = 30 cells.  Every
+ *     no-cache cell is exactly 24/25/3 and every cache cell exactly 19/19/6:
+ *     the subtraction order is irrelevant, the cache is everything.
+ *   - y-chain shape x cache: two-web (committed) / `sy2 = sy + (oy - scroll)`
+ *     / `sy2 = sy; sy2 += oy - scroll;` / with and without the empty `if`,
+ *     crossed with the three cache placements = 15 cells.  One-web is
+ *     17/25/27 with no cache and 105-113 with it (the callee-saved rotation).
+ *   - 15 further cache-placement and tail-folding spellings: folded stores,
+ *     cache first / between the axes / between the two pos stores, named
+ *     `ox`/`oy` locals, a `zs` cache, a three-term x tail, y-axis first, a
+ *     `(Person3D*)` cast plus `if (p) { }`, `p->f30 = 1` promoted.  All 19.
+ *   - empty-`if` block splits at all five seams of the four subtractions,
+ *     with three different guard values, plus `do { } while (0)` = 16 cells.
+ *     Seam 0 is byte-identical; seams 1-4 REASSOCIATE (a `neg eax` appears)
+ *     and cost 227-242.  So the empty `if` is a reassociation barrier only
+ *     where it already sits; it does not give the arithmetic its own basic
+ *     block. */
 // WIP-FUNCTION: LEGOLAND 0x0043c950  (95%, 19/362; frame, byte length and the whole y block exact -- see above)
 void SpinningBarrels_Activate(RideElem* elem)
 {
@@ -4032,6 +4203,32 @@ extern const int g_spider_end_off[8];                        /* 0x004b4ddc */
  *      comma operators, nested scopes, reversed temp declaration order and
  *      `short` temps (152).  So 195/196/198 stays unreachable, but for a
  *      different and now correctly stated reason. */
+/* PASS w10rides (2026-09-05).  NO CHANGE (15 strict, 15 real under the
+ * IDENTITY permutation, register-blind 6).  Two results, both negative but
+ * both narrowing.
+ *
+ *  (1) THE Y SLOT IS THE `p` CACHE AND IT OVERSHOOTS HERE.  See the PASS
+ *      w10rides paragraph in SpinningBarrels_Activate for the family
+ *      statement.  Adding `p = b->person;` above the two `pos` stores (with
+ *      `p->zsprite = g_spider_tab3;` below them) DOES lift the load above the
+ *      stores -- but VC6 schedules it at index 75, thirteen slots above the
+ *      original's 88, and the register it frees then drags `screen.oy` into
+ *      EDX and into the Y slot at 88.  Measured: cache alone 138 (1231 B
+ *      against 1228), cache + the flag store above the stores 347, cache with
+ *      the flag store between the two pos stores 288, the folded-store form
+ *      of the pair 292 (ESCAPES), the flag store alone 345.  So on this body
+ *      the cache is worse than no cache -- the opposite of the Barrels and
+ *      the Safari; the load simply does not stop where the original stops it.
+ *      What the original wants at 87/88 is the flag store AND the p load in
+ *      that order, and every spelling that puts either above the pos stores
+ *      floats it to the top of the region instead.
+ *
+ *  (2) Nothing new on case 7.  The sixteen-cell grid recorded in
+ *      Carousel_Tick (ridecb3.c) -- {declaration order} x {which temp carries
+ *      the `* 2`} x {store order} -- settles the movsx pair for all three
+ *      twins: in EVERY cell the two loads come out in the REVERSE of the two
+ *      stores' order, and the original has x stored first AND +0x3c loaded
+ *      first, which no cell reaches. */
 // WIP-FUNCTION: LEGOLAND 0x00416330  (96%, 15/376; frame, byte length, the y chain, case 7's movsx pair and case 13 exact -- see above)
 void SpiderRide_Activate(RideElem* elem)
 {
@@ -4377,6 +4574,27 @@ extern void* g_plane_tab2;                                   /* 0x0062fe8c */
  * 1254 vs 1253, so fixing the load order would fix the byte length too --
  * but the corrected target {ascending loads, x-store first} is unreachable;
  * see the twelve further spellings listed in SpiderRide_Activate. */
+/* PASS w10rides (2026-09-05).  NO CHANGE (19 strict, 19 real under the
+ * IDENTITY permutation, register-blind 8, still 1254/1253).  This body is
+ * still the Spider's twin in both windows and inherits both of that
+ * function's PASS w10rides results:
+ *   - indices 86-96 are the family Y slot, and the family cause is now named
+ *     (the `p = b->person;` cache; see the PASS w10rides paragraph in
+ *     SpinningBarrels_Activate).  The Spider's measurement applies: adding
+ *     the cache lifts the load above the two `pos` stores but overshoots to
+ *     the top of the region and drags a screen field into EDX behind it.
+ *   - indices 198/199/201 are the movsx twin, settled by the sixteen-cell
+ *     grid in Carousel_Tick (ridecb3.c): the two loads are ALWAYS emitted in
+ *     the reverse of the two stores' order, so {ascending loads, x-store
+ *     first} is not reachable from any of the sixteen source shapes.  The
+ *     one cell that produces BOTH `shl` (so the 3-byte `lea edx,[eax+eax]`
+ *     and with it the 1254/1253 disappears) is `int rdy = <y> * 2;` with the
+ *     x store first -- but it emits the two component pairs in the opposite
+ *     order, i.e. exactly the original with its halves interchanged, and
+ *     costs 45+ elsewhere on the Carousel.
+ *   - indices 212-215 (the `or byte [esi+0x62],0x80` after
+ *     UnAdjustBlokePosition) is a 2-slot displacement of the same flag store
+ *     the Spider has at 87, unchanged. */
 // WIP-FUNCTION: LEGOLAND 0x0043e410  (95%, 19/387; frame, head and y chain exact; byte length 1254 vs 1253 -- see above)
 void PlaneRide_Activate(RideElem* elem)
 {

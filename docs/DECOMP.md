@@ -424,6 +424,127 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **Triage a reconstruction error before "fixing" it: is it OBSERVABLE, and
+  does it cost strict?** The two questions are independent and both matter.
+  `RenderView` stores `g_sort_count = 0` unconditionally where the original
+  stores it inside `if (cell->obj != 0)` — proved from the disassembly (the
+  store sits past the `je`, with `edx` untouched since its `xor`, and the
+  original materialises TWO zero registers for six zero stores precisely so one
+  survives the branch). But a scan of the whole `.text` section finds all 13
+  references to that global inside `RenderView` itself, every read in the same
+  arm as the store, so the difference is NOT observable and the correct call is
+  to record it and leave the body alone — the best of eight placements costs 5
+  strict. Contrast the `cr2` bug, which was observable and had to be fixed at
+  once. **Scan `.text` for the global's address before deciding**; a
+  four-byte little-endian search of the section takes seconds and answers it.
+
+- **The block-exile rule, now stated as an IFF.** An else arm is exiled past the
+  fall-through trace **iff the arm itself ends in an unconditional jump** — not
+  because of its size, its source position, or which arm is "unlikely". Three
+  proofs in-tree: `ScanBlokeSurroundings` (0x450530), where five guard
+  conditionals all target ONE two-instruction block `inc dword [esp+0x14] /
+  jmp <latch>` parked at index 355 past the epilogue; `KillAllSamplesFromSource`,
+  where VC6 tail-DUPLICATES a 4-instruction tail into both arms so both end in
+  `jmp`, then exiles the second (53..57) while the first stays inline (28..32);
+  and a local confirmation on `RenderFullMap` — duplicating the tail through an
+  arm that ends in `continue` exiles the fill and lands the join on the
+  original's index exactly, whereas duplicating only the null tests (arm still
+  ends in `je`) does not move it at all.
+- **A partial cross-jump merge is impossible — this closes routes by argument
+  instead of by exhaustion.** A merged suffix's fall-through successor must also
+  be shared, so a merge cannot stop part-way; it is the whole tail or nothing.
+  Where a "just merge these few instructions" idea would need to stop before the
+  common successor, it is not a spelling problem — it cannot exist.
+- **A two-term sum's destination register is decided by the destination SYMBOL
+  alone.** Association, explicit delta locals in both operand orders, a
+  copy-then-accumulate `sy2 = py; sy2 += d;`, and swapping the two operands'
+  declaration order are all byte-identical; only `py += ...`, where `py` IS the
+  destination symbol, emits the original's `add ebx,ecx`. The resulting web
+  cannot then be split — four ways of ending it early are one object. **Retires**
+  "make the operand a temporary without lengthening the destination's web": in
+  VC6 those are the same thing.
+- **x87 stack DEPTH is a codegen lever, not just a spill order.** VC6's x87
+  allocator spills by furthest next use, but the ceiling matters too: `fsub
+  st(n)` cannot name deeper than `st(7)`, so a value that must stay live across
+  a full stack forces its *siblings* to become memory operands. In
+  `AnimApplyPart` the original's stack is exactly full at the second
+  interpolation — one kept conversion plus five more plus working — which is
+  precisely WHY four sibling values are read from memory there. If the original
+  reads operands from memory where the reconstruction has them on the stack,
+  count the depth before hunting for a source spelling.
+- **Extract the frame map by push-depth, and pair homes by register-blind
+  text.** `scratchpad/w10joust/fm2.py` prints `orig-home -> our-home` directly,
+  tracking `push`/`pop`/`add esp` depth through both bodies so `[esp+N]` is
+  resolved against a common origin. This is the cheapest instrument in the tree
+  for catching a whole error class, and it immediately falsified a headline note
+  claiming `StepSchoolCar`'s frame layout WAS the original's — only 5 of 15
+  homes actually agree. Caveat: the older `laneG/fm.py` silently mis-analyses
+  `RenderFullMap` (reports 0 frame slots / 66 arg slots); use
+  `w9renderview/slots.py` there.
+
+- **A pointer cache is a REGISTER CONSUMER, not a neutral schedule barrier.**
+  `p = b->person;` placed above an escaped-struct store does lift the load as
+  intended — but it occupies ECX, which pushes the next scratch temp into EDX,
+  where it becomes hoistable and drags a whole window with it. The five ride
+  `_Activate` functions spent three waves being described as a scheduling
+  problem when the residual was this one allocation. **Before adding a cache,
+  ask what register the NEXT temp then gets**, and check whether the original
+  leaves that register conspicuously idle — in these functions it leaves ECX
+  free across ~20 indices and nothing in source raises pressure enough to
+  reproduce that.
+- **`(void)&x;` and `if (&x) { }` do NOT make a local address-taken.** VC6 folds
+  both away completely, so neither is usable as a cheap way to force a spill
+  home or defeat enregistration. What does work as a reload forcer is a
+  volatile-qualified read through the pointer's own type,
+  `(*(T* volatile*)&x)`, which emits a genuine second load at each site.
+- **An empty `if` is a reassociation barrier only where it already sits.**
+  Inserted at the seam it was measured at, an empty `if` inside a four-
+  subtraction accumulator chain is inert; moved to any of the other four seams
+  it CAUSES the reassociation it was meant to prevent (a `neg eax` appears) and
+  costs 227-242. Barrier constructs are position-specific — re-measure one at
+  every seam before treating it as a general instrument.
+
+- **An offset-blind mismatch can hide an operand-order difference — build the
+  bijection.** `[ebp+8]` and `[ebp-0x10]` both normalise to `ebp?`, so a pair
+  that is really two operands the wrong way round is silently bucketed as
+  "frame offset" and excluded from the search. The instrument: take EVERY
+  index-aligned pair whose offset-blind text agrees, and read the frame map off
+  those — matching lines pin the mapping, after which a mismatching line can
+  *contradict* it. Window it, or VC6's slot reuse across disjoint live ranges
+  raises false alarms. `scratchpad/w10p3d/bij.py`, `bij2.py`. This reclassified
+  2 of `Draw3DPersonModel`'s "367 frame offsets" as a real operand order, and
+  is worth running on any function whose residual is mostly `[ebp-N]`.
+- **Three-term flat sums are canonicalised too — the "keeps source order" half
+  of the four/three-term rule was a mis-summary, now corrected below.** The two
+  claims were in the corpus simultaneously and contradicted each other. Three
+  independent measurements agree that once a three-term sum is FLAT, all six
+  textual orders and every parenthesisation compile identically: the ~200
+  variant study, the 24/6 canonicalisation caveat on the add tie-break, and now
+  `Draw3DPersonModel` 508/509, where all six orders of `(p->tint << 24) + t +
+  yy`, both parenthesisations, a `+=` accumulate form, a tint temporary, local
+  renaming and declaration order are **byte-identical** and the emitted order
+  does not move under five frame perturbations. What the `StepSchoolCar` error
+  actually established is narrower and still holds: do not apply the partial-sum
+  aggregate BARRIER to a three-term sum — that is about whether the sum is flat
+  at all, not about the order of a flat one. **Consequence: an operand order you
+  cannot move by rewriting the sum is not evidence the sum is wrong** — look
+  upstream at what is perturbing the canonical order.
+- **Canonical operand order for a sum of two struct fields is HIGHER
+  DISPLACEMENT FIRST.** Proved on a standalone synthetic: `-(fr->bmax.x +
+  fr->bmin.x) >> 1` alone emits `[eax+12]` before `[eax]`, and swapping the
+  source is byte-identical. Useful as a *diagnostic*: where the original obeys
+  it and the reconstruction does not, the difference is not the sum — something
+  upstream is perturbing it. In `Draw3DPersonModel` the perturbation is an
+  intervening call, and ~40 spellings, placements and statement splits all cost
+  25-600.
+- **A frame-weight model can be falsified from the other end, by size.** Rather
+  than only counting references, grow one array and watch what it overtakes:
+  `mt[9]->mt[12]` (36B->48B) drops `mt` below an 84B array, which forces any
+  linear key `size - k*refs` into k in (0.667, 0.89) — and in that whole range a
+  96B/27-ref object can never outrank an 84B/64-ref one. That is an independent
+  second proof of an unreachable frame order, obtained without another thousand
+  source variants.
+
 - **Stashed u16 fields are not always u16 locals.** A `u16` field saved into a
   local and restored later may well be an `int` local: check the width of the
   STORE. `xor ecx,ecx / mov cx,[map+0x20] / mov DWORD [esp+N],ecx` is a
@@ -2202,11 +2323,37 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   evaluates the LAST store's operand first, so an x-store-first source forces
   the +0x3e load first — but the target is `{ascending loads, x-store first}`,
   and three functions had been aimed at the wrong shape. Final registers and
-  both stores already agree; only the two loads are swapped, and `add eax,eax`
-  versus `shl` follows from which loads first (this also owns one function's
-  extra byte, a 3-byte `lea` against a 2-byte `shl`). 20 further spellings
-  measured against the corrected target — still unreachable.
-- **THE COLLECTIVE TARGET, now RESOLVED TO ONE INSTRUCTION SLOT.** The five
+  both stores already agree; only the two loads are swapped. 20 further
+  spellings measured against the corrected target — still unreachable.
+  **Settled 2026-09-05 by a complete 16-cell grid** {declaration order} x
+  {which temp carries the `* 2`} x {store order}: the two loads are ALWAYS
+  emitted in the reverse of the two stores' order; **declaration order is
+  completely inert** (every cell byte-identical to its twin); and — correcting
+  this entry's earlier clause — `shl r,1` versus `add r,r` / `lea r,[r+r]` is
+  decided NOT by which operand loads first but by **which temp carries the
+  `* 2`**. With the y temp carrying it, both doublings become `shl` and the
+  Plane's extra byte (a 3-byte `lea` against a 2-byte `shl`) disappears, but
+  the two component pairs then come out interchanged.
+  `*(volatile int*)&pos2.x = ...` is the only spelling that produces the
+  original's ascending loads, and it pins the store.
+- **THE COLLECTIVE TARGET — the "one instruction slot" framing below is
+  SUPERSEDED (2026-09-05): it is one REGISTER CHOICE, and its cause is named.**
+  Deleting the `p = b->person;` cache from `SpinningBarrels_Activate` brings the
+  whole window right at once — strict 25 but **register-blind 3**, with indices
+  120-137 becoming the original's 121-138 under a pure one-slot shift whose only
+  content is the missing `mov ecx,[esi+4]`. So the empty X slot, the twelve-slot
+  sink of the two float-constant pushes and the Y-slot fill are all DOWNSTREAM
+  of one allocation: the `screen.ox` temp takes EAX in the original (reusing
+  what the halving chain just freed, so it cannot hoist) and EDX in ours,
+  because `p` is sitting in ECX. The cache still cannot simply go — without it
+  the load sinks below the escaped `pos` stores — so `p` at 118 and a serial
+  `screen.ox` are not simultaneously reachable by any spelling yet found. The
+  underlying fact to attack: **the original leaves ECX idle** from the
+  `cfg->oy` read right through to the `b->person` reload, and we always fill it.
+  `SafariRide_Activate`'s 132 is likewise ONE register (`p` is ECX for us, EDX
+  in the original, loaded at 103) — from index 113 to the end of the case both
+  bodies are the same instructions in a three-way eax/ecx/edx rotation, which is
+  exactly what rb 15 against strict 132 measures. Original framing follows. The five
   "windows" are one idiom appearing twice per function, once per axis:
   `mov eax,[rider offset] / cdq / sub eax,edx / <<<SLOT>>> / sar eax,1 /
   sub <acc>,eax / mov eax,[esp+screen.o?] / sub <acc>,eax`. **The entire
@@ -2299,12 +2446,15 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   is now 4 bytes over, because the previous exact frame size was the correct
   shape minus three things that do not exist.**
 
-- **VC6 fully REASSOCIATES a FOUR-term flat sum but leaves a THREE-term one
-  in SOURCE ORDER.** All 24 source orders of a four-term sum are
-  byte-identical, sorted by descending definition point; a three-term sum
-  keeps what you wrote. **This is why the partial-sum aggregate barrier is
-  right in one function and wrong in its sibling** — apply it only to
-  four-term sums. Getting this wrong was a committed error in `StepSchoolCar`
+- **VC6 fully REASSOCIATES a FOUR-term flat sum, and the partial-sum barrier
+  applies only to four-term sums.** All 24 source orders of a four-term sum are
+  byte-identical, sorted by descending definition point. **This is why the
+  partial-sum aggregate barrier is right in one function and wrong in its
+  sibling** — apply it only to four-term sums. *Corrected 2026-09-05: this
+  entry used to add "a three-term sum keeps what you wrote", which was a
+  mis-summary of the evidence below and contradicted two other entries. A flat
+  three-term sum is canonicalised as well; what fails on three terms is
+  BREAKING it into partial sums, not reordering it.* Getting this wrong was a committed error in `StepSchoolCar`
   (the barrier emitted `lea ecx,[edx+edi] / add ecx,eax` where the original
   has the flat `xor ecx,ecx / mov cx,[..] / add ecx,eax / add ecx,edi`), and
   it was exactly where the whole-function scratch phase parted company.
@@ -2467,10 +2617,16 @@ Recorded so they are not re-derived; several cost hundreds of measured variants:
   byte-identical object. Slots are assigned by first use in the optimised IR.
 - **Unions on an enregistered scalar are a trap** — they make it address-taken,
   so VC6 stops enregistering it (unioning one hot local cost 27 points).
-- **Aggregate pinning is the real lever.** Two locals contending for a slot are
-  ordered by VC6; putting them in one `struct` fixes their relative offsets in C
-  and removes them from that decision. Merging the four frame buffers into one
-  aggregate was what finally placed `pos34`/`F_tsm` as the original has them.
+- **Aggregate pinning is the real lever — but ONLY if the address escapes
+  (qualified 2026-09-05).** Two locals contending for a slot are ordered by VC6;
+  putting them in one `struct` fixes their relative offsets in C and removes
+  them from that decision. Merging the four frame buffers into one aggregate was
+  what finally placed `pos34`/`F_tsm` as the original has them. **The
+  qualifier:** VC6 FLATTENS an aggregate whose address is never taken, so the
+  pinning silently does nothing — a `CarPos` wrapping `swx`/`swy` and `tx`/`ty`,
+  and a `Pos` wrapping `ox`/`oy` in both `DrawBoats` attractors, are all
+  byte-identical to the unwrapped source. Check that something actually takes
+  the aggregate's address before crediting a struct with a layout change.
 - **Inline-expansion temporaries** share the lifetime-coloured pool with register
   spill homes, so an address-taken temp born inside a `static __inline` helper
   can occupy a slot a *named* local never can. This reproduced the original's

@@ -2003,7 +2003,60 @@ extern void*      g_car_pal_c;       /* 0x0082c6bc  livery 1 */
  * bytes over.  The two functions' projections are the SAME shape read from
  * opposite ends, and this one has no statement in front of the reads that can
  * be moved. */
-// WIP-FUNCTION: LEGOLAND 0x00402780  (351 insns by audit's extent, 1153 vs 1147 bytes, 319 mismatches, 317 surviving the best callee-saved permutation, register-blind LCS 326/351 with 42 original indices in a differing region; the projection emission order at index 19 and the flag's frame home)
+/* ROUND OF 2026-09-05 (fourth pass).  UNCHANGED AT 319 / real 317 / robl 326 /
+ * bad 42 / 1153B, and ONE RECONSTRUCTION ERROR FOUND -- in the note above,
+ * not in the code.
+ *
+ * *** RECONSTRUCTION ERROR: THE FRAME LAYOUT IS NOT THE ORIGINAL'S.  The
+ * headline note at the top of this function ("the frame layout is the
+ * original's exactly ... tw2/th2 at -0x34 and -0x30, swx/swy at -0x2c/-0x28,
+ * off at -0x24/-0x20, saved at -0x1c/-0x18, tx/ty at -0x14/-0x10") is FALSE
+ * for this build, and every later round's slot reasoning -- including
+ * "fourteen frame slots are otherwise all accounted for" -- rests on it.
+ * Measured by tracking push depth through both bodies (scratchpad/w10joust/
+ * fm.py, fm2.py), with E = esp after `sub esp,0x38`:
+ *      original   th/flag 0x00 | tw2 0x04 | th2 0x08 | swx 0x0c | swy 0x10 |
+ *                 off 0x14/0x18 | saved 0x1c/0x20 | tx 0x24 | ty 0x28 |
+ *                 ctx 0x2c/0x30/0x34 | tw/depth 0x3c (dead arg slot)
+ *      ours       th/flag 0x00 | tx 0x04 | swx 0x08 | swy 0x0c | ty 0x10 |
+ *                 tw2 0x14 | th2 0x18 | off 0x1c/0x20 | saved 0x24/0x28 |
+ *                 ctx 0x2c/0x30/0x34 | tw/depth 0x3c
+ * Evidence, both with six pushes live: the original's `mov [esp+0x24],eax`
+ * at 0x004027e2 is swx at E+0x0c, ours is `mov [esp+0x20],eax` at E+0x08;
+ * the original's `lea eax,[esp+0x24]` at 0x00402822 is &tw2 at E+0x04, ours
+ * is `lea ecx,[esp+0x34]` at E+0x14.  Only th, the three ctx words and tw's
+ * dead-argument home are right.  So the frame SIZE matches and nothing else
+ * in the middle does, and half of the strict count is these displaced
+ * offsets rather than displaced instructions.
+ * *** IT IS NOT A DECLARATION LEVER.  Reversing the entire local block, moving
+ * tx/ty to the front, and putting ctx first are ALL BYTE-IDENTICAL (LoadBaseMap's
+ * "declaration order is irrelevant" holds here).  The shape of ours is
+ * [th][the four scalars VC6 spills: tx, swx, swy, ty][the address-taken and
+ * aggregate locals in declaration order: tw2, th2, off, saved, ctx]; the
+ * original's is one ascending declaration-order run with the SAME four
+ * scalars sitting between the aggregates.  So in the original those four are
+ * plain memory locals and in ours they are spill homes, which is downstream
+ * of the index-19 allocation -- the frame is a SYMPTOM of the projection
+ * emission order, not an independent lever.  That also retires the
+ * flag/depth line of attack in the round above: the fifteenth slot was never
+ * the problem.
+ * *** ALSO MEASURED AND NOT A HANDLE: swx/swy and/or tx/ty as `CarPos`
+ * aggregates are byte-identical (VC6 flattens an aggregate whose address is
+ * never taken); the unused `CarSave` 4-int carrier for saved+tx+ty is
+ * 322/first divergence 13 in all three spellings; block scopes around BOTH
+ * GetTileDimensions pairs with separate `flag`/`depth` locals give
+ * 322/robl 321/1150B with `&th` moved to E+0x10 (first divergence 5), and
+ * the second pair alone is 321.
+ * *** AND A STANDING-TEST FLAG ON THE COMMITTED DEAD STORE.  Removing
+ * `*(volatile int*)&tx = sx;` gives 322 strict but robl 329 / bad 37 / 1155B
+ * -- i.e. the dead store buys three strict indices while making BOTH
+ * register-blind metrics worse, which is the compensating-error signature.
+ * The store itself is real (0x004027f3), so what the signature is saying is
+ * that its POSITION relative to the swx/swy/saved run is wrong, or that it
+ * only lands because the frame is displaced.  Left in place -- it is an
+ * instruction of the original -- but it should be re-tested the moment index
+ * 19 moves. */
+// WIP-FUNCTION: LEGOLAND 0x00402780  (351 insns by audit's extent, 1153 vs 1147 bytes, 319 mismatches, 317 surviving the best callee-saved permutation, register-blind LCS 326/351 with 42 original indices in a differing region; the projection emission order at index 19, and the frame layout -- the size is the original's 0x38 but only th, ctx and tw are in the original's homes)
 void StepSchoolCar(SchoolCar* c)
 {
     /* `tw` doubles as the render depth key and `th` as the "this car did

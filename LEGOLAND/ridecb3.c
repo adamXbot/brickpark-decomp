@@ -720,7 +720,49 @@ void Carousel_TickInstances(void)
  *
  *  STILL RECOMMENDED FOR RETIREMENT: 8 real mismatches in 378 instructions,
  *  in two clusters, both now shown invariant under everything source can
- *  express and both now correctly described. */
+ *  express and both now correctly described.
+ *
+ *  PASS w10rides (2026-09-05).  NO CHANGE (8 real / 29 strict / rb 3).  Both
+ *  clusters were re-attacked and each now has a rule stated exactly.
+ *
+ *  CLUSTER 123-127 (the family X slot).  The cause is the `p = b->person;`
+ *  cache -- see the PASS w10rides paragraph in mechrides.c's
+ *  SpinningBarrels_Activate, where dropping it makes the whole window exact
+ *  modulo one slot.  HERE dropping it is a LOSS: with `b->person->zsprite`
+ *  spelled out, ECX falls free and VC6 puts `screen.ox` in it and hoists it
+ *  to index 119 -- even earlier than the EDX it uses with the cache -- and
+ *  the body measures 17.  `p` after the pos stores is the same 17 (the load
+ *  sinks to 138), `p` between the two pos stores is 16, and `p->zsprite`
+ *  written before them is 254.  So on this ride the cache is right and the
+ *  residual is purely which scratch register the `screen.ox` temp gets:
+ *  EAX in the original (serial, reusing the register the halving chain just
+ *  freed), EDX here.  The original leaves ECX idle from the
+ *  `mov dx,[eax+0x22]` that reads `cfg->oy` all the way to the
+ *  `mov eax,[esi+4]` reload at 140; we always fill it.
+ *
+ *  CLUSTER 228-231 (the movsx pair).  THE COMPLETE 16-CELL GRID was run:
+ *  {rdx declared first / rdy first} x {the `* 2` carried by the x temp / the
+ *  y temp / both / neither} x {pos2.x stored first / pos2.y first}.  It
+ *  yields one clean rule and no cell on target:
+ *    - THE TWO LOADS ARE ALWAYS EMITTED IN THE REVERSE OF THE TWO STORES'
+ *      ORDER.  x-store-first => +0x3e loaded first in all 8 cells;
+ *      y-store-first => +0x3c first in all 8.  Declaration order is
+ *      completely inert (every d-x cell equals its d-y twin, byte for byte).
+ *    - Whether the doubling is `shl` or `add r,r` is decided by WHICH TEMP
+ *      CARRIES THE `* 2`: with neither or with the x temp carrying it the
+ *      second doubling is `add eax,eax`; with the y temp or with both, BOTH
+ *      doublings are `shl`, the byte length drops to 1224, and the two
+ *      component pairs come out in the opposite order -- i.e. exactly the
+ *      original's four instructions with its two halves interchanged
+ *      (`int rdy = b->ride_dy * 2;` with the x store first, 65 real).
+ *    - `*(volatile int*)&pos2.x = rdx * 2;` is the ONE spelling that gives
+ *      the original's ASCENDING loads and its `shl edx,1` (indices 228-230
+ *      exact) -- but the volatile pins the x store above `push esi`, so it
+ *      is 8 real with a different bad set, and it is a shim, not a
+ *      reconstruction.
+ *  So the original's combination -- x stored first AND +0x3c loaded first --
+ *  is outside the 16-cell space, and the residual is a property of the
+ *  compiler's evaluation order, not of any spelling. */
 // WIP-FUNCTION: LEGOLAND 0x0042c820  (378/378 instructions, 1225/1225 bytes and the whole frame map, audit mismatch 29/378 but only 8 modulo a renaming of the three callee-saved registers; first diff at index 86: the merged Y web takes the LAST callee-saved register instead of ebx -- the same wall as mechrides.c's four _Activate callbacks)
 void Carousel_Tick(RideElem* elem)
 {

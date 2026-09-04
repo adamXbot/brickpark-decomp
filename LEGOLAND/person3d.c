@@ -552,22 +552,29 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
     __asm { mov  ecx, eax } __asm { add  ecx, 0x3333 } \
     __asm { lea  edx, v[vo] } __asm { mov  [edx+20], ecx }
 
-/* Residual 63.3% (matchfull 648/1023; audit strict mismatch 377).  ONE
- * reconstruction error was found this round and it closed the whole 24..37 head
- * clump; the frame permutation is now 97% of what is left.
- *     metric (index-for-index / LCS over the 1023)   before   ->   after
- *     mnemonic only                               1008/1019  ->  1016/1021
- *     ebp-offset-blind                             944/ 956  ->   957/ 962
- *     register+offset-blind                        947/ 958  ->   957/ 963
- *     strict                                       582/ 588  ->   590/ 592
- *     audit strict mismatch                             386  ->        377
+/* Residual 63.3% (matchfull 648/1023; audit strict mismatch 377).  The w10p3d
+ * round found NO new reconstruction error and did not move the number; what it
+ * DID find is that the residual was mis-CLASSIFIED, and it closed three more
+ * hypotheses (see FOUND THIS ROUND and RULED OUT, w10p3d).
+ *     metric (index-for-index / LCS over the 1023)   w8    ->  w9  ->  w10
+ *     mnemonic only                              1008/1019 -> 1016/1021 (same)
+ *     ebp-offset-blind                            944/ 956 ->  957/ 962 (same)
+ *     register+offset-blind                       947/ 958 ->  957/ 963 (same)
+ *     strict                                      582/ 588 ->  590/ 592 (same)
+ *     audit strict mismatch                            386 ->       377 (same)
  * Instruction count is 1023, the original's, and 3511 bytes against 3523 (the
- * 12 are disp8/disp32 encodings of the wrong frame offsets).  With registers,
- * [ebp-N] offsets and immediates ALL blinded only SEVEN of the 1023 differ (was
- * 21); the alignment is exact from 0 to 88 and from 139 to the end -- one
- * unbroken 884-instruction run -- with a single 2-slot window at 131..138.
- * Classifying the 377 index-for-index mismatches: 367 differ ONLY in their
- * [ebp-N] (the frame permutation), 10 are the two clumps under WHAT IS LEFT.
+ * 12 are disp8/disp32 encodings of the wrong frame offsets; exactly FIFTEEN
+ * instructions differ in encoded length, all of them frame displacements).
+ * With registers, [ebp-N] offsets and immediates ALL blinded only SEVEN of the
+ * 1023 differ; the alignment is exact from 0 to 88 and from 139 to the end --
+ * one unbroken 884-instruction run -- with a single 2-slot window at 131..138.
+ * CORRECTED CLASSIFICATION of the 377 (was "367 frame + 10 scheduling"):
+ *     365  differ ONLY in their [ebp-N]           -- the frame permutation
+ *       2  508/509, the vertex-key sum's operand order (NOT a frame offset:
+ *          the offset-blind normaliser hides it, see FOUND THIS ROUND)
+ *      10  the two scheduling clumps under WHAT IS LEFT
+ * The whole body is otherwise instruction-, register- and immediate-identical:
+ * there is no mnemonic, no field offset and no store width left to get wrong.
  * Tools: scratchpad/w9person3d/{t9,ofs3,cls2,syn9,sw1..sw10,e1..e16}.py --
  * t9.py applies source substitutions and reports 5 metrics, the audit mismatch
  * (relocation-only differences excluded) and the frame array order; syn9.py +
@@ -577,7 +584,7 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  * Also scratchpad/w8person3d/{dump,mreg,cls,drift}.py and
  * scratchpad/w7person3d/{ofs,ofs2}.py.
  *
- * FIXED THIS ROUND (one reconstruction error, with the disassembly evidence):
+ * FIXED IN ROUND w9 (one reconstruction error, with the disassembly evidence):
  *  1. `nverts = fr->n_verts;` IS READ BETWEEN `ngour = set->n_gouraud;` AND
  *     `tris = set->tris;` -- not after all three FaceSet fields.  Evidence, the
  *     original at 24..43: it issues `fld [edi+0x38]` (p->ydepth) at 24, BEFORE
@@ -593,11 +600,37 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  *     with it (mnemonic +8, offset-blind +13, register-blind +10), so it is an
  *     honest fix and not a compensating one.
  *
- * WHAT IS LEFT.  Two things, and one of them is 97% of it.
- *  1. THE FRAME PERMUTATION -- 367 of the 377.  Every one of those instructions
+ * FOUND THIS ROUND (w10p3d) -- a MIS-CLASSIFICATION, not a fixable error, but
+ * it corrects the residual's composition and retires a recorded lever:
+ *  1. INDICES 508/509 ARE NOT A FRAME OFFSET.  They were counted among the
+ *     "367 frame-only" because `[ebp + 8]` and `[ebp - 0x10]` both normalise to
+ *     `ebp?`.  The instrument that finds this class is a bijection check built
+ *     from EVERY index-aligned pair whose offset-blind text agrees (matching
+ *     lines pin the map; only then does a mismatch contradict it) --
+ *     scratchpad/w10p3d/bij.py and bij2.py (windowed, so VC6's slot reuse
+ *     across live ranges does not raise false alarms).  Evidence, the original:
+ *         507 mov edx,[ebx+0x34]      ; p->tint
+ *         508 mov ecx,[ebp+8]         ; t   -- the DEPTH term
+ *         509 mov eax,[ebp-0x20]      ; yy  -- the Y term
+ *         510 shl edx,0x18 / 511 add edx,ecx / 512 add edx,eax
+ *     Ours loads yy into ecx and t into eax, i.e. we add the Y term FIRST.
+ *     `t` is provably [ebp+8] in both (it is what gets multiplied by zscale at
+ *     488) and `yy` is provably the other one (multiplied by ydep at 503).
+ *     RETIRES A LEVER: "a THREE-term flat sum keeps source order" is FALSE
+ *     here.  All six orders of `(p->tint << 24) + t + yy`, both
+ *     parenthesisations, `((tint<<24)+t)+yy`, a `+=` accumulate form (381,
+ *     worse), a tint temporary, renaming `yy`, and moving its declaration are
+ *     ALL byte-identical: the three-term sum canonicalises, and ours comes out
+ *     in DESCENDING definition point (tint 507, yy 506, t 499) where the
+ *     original is ascending.  It is also not a frame artefact -- the order is
+ *     unchanged in five variants that move yy's slot (-0x10 -> -0xc).
+ *
+ * WHAT IS LEFT.  Three things, and one of them is 97% of it.
+ *  1. THE FRAME PERMUTATION -- 365 of the 377.  Every one of those instructions
  *     agrees with the original in mnemonic, registers and immediates and differs
  *     ONLY in its [ebp-N].  See THE FRAME below.
- *  2. Two scheduling clumps, 10 instructions:
+ *  2. The vertex-key sum's operand order, 508/509 -- see FOUND THIS ROUND.
+ *  3. Two scheduling clumps, 10 instructions:
  *      - 88..89 (2): the original loads `fr->bmax.x` into edi and then
  *        `fr->bmin.x` into ebx for the cx sum; we load them the other way round.
  *        Same registers, same `add edi,ebx`, same `neg edi` -- purely which
@@ -608,6 +641,26 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  *        split `cx = a+b; cx = -cx>>1;`, a fully split negate-then-shift, `(0 -
  *        ...)`, a `t = fr->bmax.x` temp, and five placements of the cz statement
  *        are identical or much worse.  The two-operand sum canonicalises.
+ *        w10p3d, MECHANISM NAMED: the canonical operand order for a sum of two
+ *        struct fields is HIGHER DISPLACEMENT FIRST.  Proved on a standalone
+ *        synthetic: a bare `cx = -(fr->bmax.x + fr->bmin.x) >> 1;` emits
+ *        `mov ecx,[eax+12]` BEFORE `mov edx,[eax]`, and writing the operands
+ *        the other way round is byte-identical.  The ORIGINAL obeys that rule
+ *        for BOTH sums (88 loads bmax.x, 90 loads bmax.z); WE obey it for cz
+ *        and violate it for cx alone.  The perturbation is the
+ *        RenderZBufferObject CALL: deleting it flips our cx to bmax-first (and
+ *        wrecks everything else, 930).  Ruled out this round with a probe that
+ *        reads the load order straight out of our object
+ *        (scratchpad/w10p3d/r2.py): `(-a - b)` in both orders (VC6
+ *        reassociates it back to add+neg), a two-def `cx = a; cx += b;` in both
+ *        orders, a separate `cx >>= 1`, routing both operands through named
+ *        locals (copy-propagated), all seven placements of the cx/cz pair and
+ *        of cx alone in the prologue (402 to 1005), all five permutations of
+ *        the box field-assignment order (389 to 396), deleting box[0] /
+ *        box[1..5] / the whole box init, and replacing fr->bmin.x or
+ *        fr->bmax.x in the box run with a temp.  The two loads target edi and
+ *        ebx in BOTH bodies and the `add edi,ebx` that follows is identical,
+ *        so nothing but the tie-break differs.
  *      - 131..138 (8): the original sinks `neg ebx / sar edi,1 / sar ebx,1` INTO
  *        the box-init run -- after box[5].z's LOAD at 130 but BEFORE its store
  *        at 134 -- and issues `push 1` at 136; we emit the same four
@@ -616,6 +669,24 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  *        `TransformVectorsL(light, light, mt, 1)` (before cx, before box[0],
  *        mid-box, swapped with the box call) lose 30 to 599; five placements of
  *        the cz statement lose 19 to 31; box[0] moved above cx/cz loses 36.
+ *        w10p3d, STATED EXACTLY: the four fillers are inserted into the box
+ *        load/store run ONE PAIR LATER in ours.  Counting box stores before
+ *        `neg ebx`, the original has 15 and we have 16 -- every time
+ *        (scratchpad/w10p3d/r3.py).  The original's run is
+ *        `S(box[5].y) / L(box[5].z) / neg ebx / sar edi,1 / sar ebx,1 /
+ *        S(box[5].z) / L(box[6].x) / push 1 / S(box[6].x) / L(box[6].y)`; ours
+ *        puts the trio after S(box[5].z)+L(box[6].x) and the push after
+ *        L(box[6].y).  NEW NEGATIVE, and it kills the most attractive
+ *        mechanism: it is NOT the frame's disp8/disp32 encoding lengths.
+ *        sc[2], sc[6], sc[12], sc[18], sc[30], sc[36], v[1], v[2], v[5], v[8],
+ *        mt[3] and box[16] all leave the count at exactly 16 while moving
+ *        every displacement in the run.  It is also not source-movable:
+ *        `cx = a+b; ... cx = -cx>>1;` split in place is folded back
+ *        byte-identically, and moving the negate/shift tail to any of the
+ *        eight corner boundaries costs ~500 and five instructions.  Eight more
+ *        placements of the light transform call were re-run: one (before
+ *        corner 6) does reach 15 stores, but it drags `push 1` to index 93 and
+ *        scores 407.
  *
  * ===========================================================================
  * THE FRAME.  Target map, re-confirmed instruction by instruction (every
@@ -718,7 +789,7 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  *      sort with weight as a tie-break, and `v` cannot be pushed down by being
  *      "really" a bigger object.
  *
- * RULED OUT ON THE REAL FILE THIS ROUND (all measured, do not re-derive):
+ * RULED OUT ON THE REAL FILE IN ROUND w9 (all measured, do not re-derive):
  *  - Declaration order of the four arrays: 4 permutations, byte-identical.
  *  - Array TYPES: `Vec3i sc[8]` for `int sc[24]`, and `int box[24]` with
  *    `*(Vec3i*)&box[0] = fr->bmin;` for `Vec3i box[8]` -- both byte-identical.
@@ -746,6 +817,57 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  *    `fr->faces->...` three times is byte-identical; moving `set` before `ydep`
  *    or `k65536` later is byte-identical; `fy` early, `face` last and
  *    nverts/nrm before the trio are 62 to 70 worse.
+ *
+ * RULED OUT ON THE REAL FILE IN ROUND w10p3d (all measured, do not re-derive):
+ *  - *** v AND sc AS ONE 180-BYTE AGGREGATE -- REFUTED. ***  This was the most
+ *    attractive untried frame hypothesis, because in the original `v` (84B at
+ *    -0x1a4) ends EXACTLY where `sc` (96B at -0x150) begins, and 84 + 96 = 180
+ *    would be the largest object, which lands last under the ascending-size
+ *    rule -- reproducing v-then-sc-then-box in one stroke.  Implemented as
+ *    `struct Scratch3D { Vertex2D v[3]; int sc[24]; }` at function level, with
+ *    the FMULA/SHADE macros naming `S.sc` and `S.v[vo]` (VC6's inline
+ *    assembler accepts `struct.member[expr]`).  It compiles to the right 1023
+ *    instructions but the aggregate lands at -0x1b4, the very BOTTOM, with box
+ *    at -0x100 -- not the original's -0x1a4 / -0xd8.  THE REASON IS DECISIVE
+ *    AND GENERAL: the original keeps FOUR SCALARS BELOW its bottom array
+ *    (fr, nfaces, tris, ngour at -0x1b4..-0x1a8) and no variant of ours ever
+ *    puts a scalar below the bottom array.  Score 408 (offsets 365, but 18 NEW
+ *    scheduling mismatches at 678-682 / 764-776 / 938-942 / 985-997, i.e.
+ *    exactly the four sites note 5 predicts when `v` leaves the loop body).
+ *  - DECLARATION ORDER, EXHAUSTIVELY: all 24 permutations of the sc/box/mt/
+ *    light declaration block are byte-identical (the previous round had tested
+ *    four).  Renaming a local (`yy` -> `ay`/`zyy`/`a1`) is inert too, so the
+ *    frame order is not a symbol-table order.
+ *  - `Vertex2D v[3]` as THREE SEPARATE 28-byte objects (`Vertex2D v0,v1,v2;`
+ *    with SHADE taking the object name): 392, array order unchanged, and
+ *    reversing their declaration order changes nothing.
+ *  - One block holding BOTH box and sc over their exact live range: 996 and
+ *    only 1005 instructions -- block-scoping `box` collapses the FMULA
+ *    codegen, which is what the previous round's "1001" was.  `sc` alone in
+ *    that block is 390 and gives light,mt,v,sc,box.
+ *  - A SECOND, INDEPENDENT CONFIRMATION OF THE FRAME PROOF, from the rank
+ *    function rather than from reference counting.  Diagnostic size probes:
+ *    light[4] (16B) stays first; mt[9] -> mt[12] (36B -> 48B) drops mt BELOW
+ *    v, even though 48 < 84.  So the key is not size, and fitting a linear
+ *    key `size - k * refs` to our five objects forces k into (0.667, 0.89) --
+ *    and in that whole range box (96B, ~27 refs) can NEVER outrank v (84B, 64
+ *    refs).  Reaching the original's order therefore requires different
+ *    reference counts, and those are proven identical.  Two independent proofs
+ *    now agree.
+ *  - MASM RESERVED-WORD SWEEP RE-RUN LOOSELY on the /FAcs listing (the class
+ *    that produced the `cr2` bug): the only `cr2` tokens in the listing are
+ *    inside the explanatory source comment; of the 1023 emitted code lines
+ *    none contains a control-, debug- or segment-register operand and none
+ *    encodes 0f 20/21/22/23.  Also swept: the whole body has no sub-dword
+ *    load or store at all (only `fnstsw ax` and the three `test ah,0x20/0x40`
+ *    byte-narrowed flag tests), so there is no u16-in-an-int-local class here.
+ *  - EVERY COMMITTED SHIM RE-TESTED on the current baseline, per the standing
+ *    rule: reversing the screen-x operand order at all six sites is 636 worse;
+ *    the transpose through `mp` is 976 worse; `light` initialised after the
+ *    transpose keeps the same strict count but drops offset-blind 957 -> 951;
+ *    `vptr` walked instead of recomputed is 731 worse; field-wise corner
+ *    copies are 659 worse; all five box field-order permutations are 389-396.
+ *    Nothing beat 377, so nothing was committed.
  *
  * FIXED IN EARLIER ROUNDS -- the shapes below are established, do not undo them:
  *  1. `cr2` IS A MASM CONTROL REGISTER.  `FMUL(cr2, dx2, dy1)` expanded to
@@ -796,13 +918,56 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  * mismatch differs outside its [ebp-N], so there is no wrong struct field
  * offset hiding inside the frame residual.
  *
+ * ===========================================================================
+ * FINAL ASSESSMENT (w10p3d) -- THIS FUNCTION IS AT ITS FLOOR.  Five rounds have
+ * taken it 988 -> 981 -> 687 -> 386 -> 377, every step by a reconstruction
+ * error read off the disassembly.  This round found none, and the reason is
+ * structural rather than a lack of effort: the body is already
+ * instruction-for-instruction, register-for-register and immediate-for-
+ * immediate identical to the original at all 1023 positions -- with registers,
+ * frame offsets and immediates blinded, SEVEN differ -- so there is no
+ * mnemonic, no struct field offset, no store width, no branch direction and no
+ * block layout left that could be wrong.  Anything still to find must be
+ * invisible in the instruction stream, which leaves only the frame.
+ *   - THE FRAME IS 365 OF THE 377 (97%), AND IT IS UNREACHABLE.  Two
+ *     independent proofs now agree: (i) frame weight is the surviving-IR
+ *     reference count and our profile equals the original's slot for slot
+ *     (384 = 384 references, 79 = 79 slots), with alias pointers and dead
+ *     reads both byte-identical, so no spelling can change a weight; (ii) the
+ *     rank function itself, probed by size, admits no parameter under which
+ *     box (96B) outranks v (84B) at these reference counts.  Declaration
+ *     order is inert across all 24 permutations, every scope subset has been
+ *     enumerated, the array-vs-struct and three-separate-objects shapes are
+ *     measured, and the one aggregate that would have explained the layout
+ *     geometrically (v+sc as one 180-byte object) is refuted by the four
+ *     scalars the original parks BELOW its bottom array.
+ *   - THE 10 SCHEDULING MISMATCHES ARE NOT REACHABLE EITHER, and each is now
+ *     named rather than merely observed.  88/89 is a canonical-operand-order
+ *     tie-break that the original wins and we lose only for cx, perturbed by
+ *     the RenderZBufferObject call; ~40 spellings, placements and splits move
+ *     it only at a cost of 25 to 600.  131..138 is one load/store pair of
+ *     filler-insertion drift in the box run, proved NOT to be a frame-encoding
+ *     effect (twelve array-size probes leave it identical) and not
+ *     source-movable (the split statement is folded back byte-identically).
+ *   - THE 2 REMAINING (508/509) are a commutative-sum canonicalisation that is
+ *     invariant under all six source orders, both parenthesisations, renaming,
+ *     declaration order and five frame perturbations.
+ * WOULD I SEND ANOTHER LANE HERE?  No.  The three residual classes are all
+ * compiler tie-breaks downstream of decisions no C construct in this function
+ * reaches, and the measured cost of the only construct that reaches the
+ * original's frame order (24 live C reads of `box` interleaved with the FMULA
+ * run) is 24 extra instructions, which would destroy the exact 1023.  The
+ * honest state is 63.3% with a body that is correct in every respect a
+ * decompilation can express.  Retire it, like the other seven.
+ *
  * NOT ASSEMBLY.  Checked, per the standing question: the ebp frame and the
  * unconditional ebx/esi/edi save come from the `__asm` macros above, the pushes
  * are at the top of the prologue (not inside the stream), there is no `xchg`
  * against memory anywhere in the 1023 instructions, and the body is ordinary
  * scheduled C around them.  This is mixed C + inline asm, not a naked routine. */
-// WIP-FUNCTION: LEGOLAND 0x00440a30  (63.3%, 648/1023 insns; audit mismatch 377,
-//                                    of which 367 are frame offsets alone)
+// WIP-FUNCTION: LEGOLAND 0x00440a30  (63.3%, 648/1023 insns; audit mismatch 377
+//                                    = 365 frame offsets + 2 sum-operand-order
+//                                    + 10 scheduling; AT ITS FLOOR, see above)
 void Draw3DPersonModel(Person3D* p)
 {
     int      sc[24];

@@ -20,21 +20,28 @@ jobs:
           python-version: "3.12"
       - name: Check generated progress report
         run: python3 tools/progress.py --check
-      - uses: actions/configure-pages@v5
-        if: github.event_name == 'push'
-      - uses: actions/upload-pages-artifact@v3
-        if: github.event_name == 'push'
-        with:
-          path: docs
 
-  deploy:
-    if: github.event_name == 'push' && github.repository == 'adamxbot/legoland'
+  # GitHub Pages is unavailable on a private repository outside Enterprise Cloud,
+  # so the publish path is gated on the repo actually being public. Until then the
+  # badge is served from docs/LEGOLANDPROGRESS.SVG in-tree and this job is skipped.
+  pages:
     needs: report
+    if: >-
+      github.event_name == 'push'
+      && github.repository == 'adamxbot/legoland'
+      && github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

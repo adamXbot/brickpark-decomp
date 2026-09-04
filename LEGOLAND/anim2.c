@@ -431,6 +431,50 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * one-step phase -- caching a REAL value (an indexed global) in a local --
  * cannot be applied here because every instruction before 82 already matches,
  * so any real load would be an extra instruction. */
+/* ROUND OF 2026-09-05 (eighth pass).  UNCHANGED AT 30, and the search for
+ * "what makes VC6 skip the flat-sum reassociation" is narrowed by ELIMINATION:
+ * all three ranks of the imul/add RANK rule are now ruled out as the
+ * explanation for the addend order, each by a direct experiment.
+ *   RANK 2 (a memory reference outranks a register-candidate symbol) is OUT.
+ *     `volatile int ox, oy;` forces both into memory and the flat sum then
+ *     emits origin_x, ofs.x, ox, scr.x -- ox moves to the MIDDLE, not the
+ *     front (177 strict, 741B, first divergence 0).  So the sort key is not
+ *     memory-vs-register.
+ *   RANK 1 (a compiler temporary is ranked first) is OUT.  Giving ox/oy a
+ *     SINGLE use -- the rider block's `ofs.x = origin_x + ox + scr.x` sum
+ *     recomputing `((wx-wy)*tw2)>>9` inline -- does not make ox a forwarded
+ *     temporary: VC6 does NOT CSE the recomputation (757 bytes against 744)
+ *     and the build is 178 / ESCAPES.  The aggregate form of the same is 176.
+ *   RANK 3 (declaration order) never applied: ox/oy are declared before the
+ *     inner `ofs` and after `scr`, i.e. already between the two operands whose
+ *     relative order is right.
+ * ALSO NEW AND INERT: ox/oy as a `Pos` aggregate is byte-identical in the
+ * FLAT attractor too (111), not just in the shipped one -- VC6 flattens an
+ * aggregate whose address is never taken, so aggregation is not a handle on
+ * either side.  Splitting the wobble shift so ox/oy are DEFINED after the
+ * AdjustOffsetForViewMode call was re-run in the flat form at three
+ * placements (just after the call, just above the sums, and the whole ox/oy
+ * assignment moved): 174-182, first divergence 0 -- it rewrites the prologue
+ * exactly as it does in the aggregate form, so the direct attack on a
+ * definition-point sort is closed from the source side as well.  Accumulating
+ * the flat sum through a local with `+=` is 125.
+ * THE CONSUMER IS NOT IT EITHER, and the evidence was already on the page:
+ * the first sum's consumer is `b->sx` (a field of the loop's walking pointer)
+ * and the second sum's is `ofs.x` (an address-taken local), and BOTH come out
+ * with ox last, so the store's destination cannot be what ranks the addends.
+ * The frame is also confirmed exact -- every one of the eleven homes pairs at
+ * the same offset in both builds (scratchpad/w10joust/fm2.py) -- so nothing
+ * here is a slot problem.
+ * WHAT THE THREE EXPERIMENTS ABOVE DO SAY, positively: the two addends that
+ * keep their source order (ofs.x, scr.x) are AGGREGATE FIELDS and the one
+ * that is displaced (ox) is a plain scalar, and forcing ox into memory with
+ * `volatile` moves it from LAST to THIRD -- so the ranking has at least three
+ * classes and what is wanted is whatever makes a scalar rank ABOVE an
+ * aggregate field.  An aggregate whose address is never taken does not do it
+ * (VC6 flattens it); the next round should look for a zero-cost way to make
+ * ox/oy genuinely memory-resident -- most plausibly a source in which they
+ * are fields of `scr` or of some other struct that is already passed by
+ * address -- rather than for another barrier. */
 // WIP-FUNCTION: LEGOLAND 0x00418fe0  (212/212 insns, 744/744 bytes, 30 mismatches, 27 surviving the best callee-saved permutation, 9 of 212 original indices structurally different; one eax/ecx/edx rotation at index 82)
 void BoatingSchool_DrawBoats(int mode)
 {
@@ -1429,7 +1473,38 @@ extern TexSize g_texsize[];         /* 0x0081c0c0 */
  * struct carrier, the p->tex store in all 23 positions) costs either the frame
  * or the subtract form.  Whoever takes this next should attack the promotion
  * rule itself, not the source. */
-// WIP-FUNCTION: LEGOLAND 0x00442040  (321 real insns of the original's 331 -- audit pads to 331 with alignment nops -- 182 mismatches, and 182 under the best callee-saved permutation too, so the integer allocation is already exact; the x87 spill group is mirrored)
+/* ROUND OF 2026-09-05 (seventh pass).  UNCHANGED AT 182, and the residual is
+ * RE-DIAGNOSED: it is not "the spill group is mirrored", it is that OUR BUILD
+ * HOISTS THE FOUR Y CONVERSIONS ABOVE u0.  Read off the two listings:
+ *      original  226 fild srcx (kept) | 229/233, 234/238, 239/243, 244/246
+ *                srcw, dstw, dstx, (float)tw each converted and IMMEDIATELY
+ *                fstp'd to a float home | 247-252 u0 computed with FOUR
+ *                MEMORY operands (`fsub st(1)` for srcx, then fdiv/fmul/fadd/
+ *                fdiv on [esp]) | 253-264 srcy, srch, dsth, dsty, (float)th
+ *                all KEPT | 265-270 v0 as fsub st(5)/fdiv st(4)/fmul st(3)/
+ *                fadd st(2)/fdiv st(1)
+ *      ours      226-237 srcx, srcw, dstw, dstx KEPT | 244-259 the four Y
+ *                values converted and each immediately fstp'd | 260 (float)tw
+ *                | 261-267 u0 computed with FIVE STACK operands and stored
+ *                straight out as `fstp [edx]` | 268/269 (float)th spilled |
+ *                270+ v0 from memory
+ * WHY THE ORIGINAL HAD NO CHOICE, and the number that proves it: at v0 the
+ * original's x87 stack is EXACTLY FULL -- srcx, u0, srcy, srch, dsth, dsty,
+ * (float)th plus the working slot = 8, with srcx sitting at st(7), the
+ * deepest slot `fsub st(n)` can name.  There is no room for the other four X
+ * values, so they HAD to become memory operands.  Ours never exceeds six
+ * because u0 is stored the instant it is computed, which is only possible
+ * because it is on top of the stack.  The lever wanted is therefore one that
+ * keeps u0 ON the stack across the Y conversions (equivalently: one that
+ * stops the Y conversions being hoisted above it) -- not one that reorders
+ * the source, which the fifth and sixth passes already closed.
+ * NEW AND INERT (all exactly 182/robl 289/bad 73, byte-identical): u0's
+ * expression split into two statements and into three; the `p->tex` store
+ * moved to sit BETWEEN u0 and the Y group (the alias-barrier idea, re-run
+ * loosely as the standing rule requires -- still inert); u0's result assigned
+ * to a fresh float local so u0 itself stays live.  NEW AND WORSE: the
+ * `p->tex` store between the Y group and v0 (183 / robl 281 / bad 88). */
+// WIP-FUNCTION: LEGOLAND 0x00442040  (321 real insns of the original's 331 -- audit pads to 331 with alignment nops -- 182 mismatches, and 182 under the best callee-saved permutation too, so the integer allocation is already exact; indices 22-216 are identical under a constant +4 frame shift, and the whole residual is that this build hoists the four Y int->float conversions ABOVE u0, so the X group stays on the x87 stack where the original spills it)
 void AnimApplyPart(ModelCtx* ctx, int from, int to, AnimPart* parts, int n)
 {
     OutfitRect* a = &ctx->rects[from];

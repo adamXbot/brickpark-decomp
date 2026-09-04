@@ -33,13 +33,20 @@ the `wibo-msvc/cl` wrapper hard-coded in `tools/match.py`, `tools/audit.py` and
   after `a8d4533`), so `tools/progress.py --check` — the CI gate — failed; it
   is regenerated. The README status paragraph was two months stale
   (254 matches) and now quotes the checkpoint numbers.
-- CI: the only two recorded runs (2026-09-01) pass the report check and fail at
-  `actions/configure-pages` because **GitHub Pages is not enabled on the repo**
-  (the Pages API returns 404), and the workflow itself is now
-  `disabled_manually` (`gh workflow list --all`), which is why no run fired for
-  any push after that date. Enabling Pages with "GitHub Actions" as the source
-  and re-enabling the workflow fixes the deploy; the progress badge in the
-  README is dead until then.
+- CI: the two recorded runs (2026-09-01) pass `tools/progress.py --check` and
+  fail only at `actions/configure-pages`, and the workflow was then
+  `disabled_manually`, which is why no run fired for any push after that date.
+  **Root cause, established 2026-09-05: the repository is private**
+  (`gh repo view --json visibility`), and GitHub Pages is unavailable on a
+  private repository outside Enterprise Cloud — so the Pages API 404 is not a
+  missing setting, it cannot be enabled at all while the repo stays private.
+  Fixed here by splitting the workflow: `report` (the real gate, pure) and
+  `pages`, which is skipped unless `github.event.repository.visibility ==
+  'public'` and carries `enablement: true` so Pages self-configures the day the
+  repo is made public. The README badge and report link now point at the
+  in-tree `docs/LEGOLANDPROGRESS.SVG` / `.HTML`, which GitHub renders for a
+  private repo. **The one remaining human step is `gh workflow enable
+  "Decompilation progress"`** — a repo settings change, left to the user.
 - The 62 audit-exact WIPs of §2 can be listed without the binary — 58 of them
   say so on the marker line:
   `grep -h '^// WIP-FUNCTION' LEGOLAND/*.c | grep -iE 'exact|100%' | grep -i audit`.
@@ -90,25 +97,58 @@ and commit messages are that runtime's spec.
 | unmatched callees | `python3 tools/callees.py` | 589, ~25,500 instructions |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 37 |
 
-(Row values refreshed 2026-09-04 after four section-B waves: 30 partials plus
-one new twin (1504/1504), then 15 (1519), 10 (1529) and 11 (1540). Fully
-exact files now: schoolcar, screens3, castleobj, bnvmove, tri3d, bigscreens,
-softblit, westtown, westtown2, ridecb1. **Wave four ran on Opus 5** — the
-Fable quota was exhausted mid-wave; both models work, lanes are
-model-agnostic. Operational limits: the account session limit hit at seven and
-again at four concurrent Fable lanes, so the working cap is 3; the API also
-returned 529 overloads for a stretch and killed lanes at launch — back off ten
-minutes rather than retrying in a loop. Every kill left the files compiling
-clean with honest markers, and two closes were recovered from disk after the
-lane that made them died before reporting. ~140 levers were added to
-`docs/DECOMP.md` across these waves; the prose below predates all of this.)
+(Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
+30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
+(1540); waves five to seven added 4 more (1544) for roughly twenty lanes and
+several thousand measured variants, and waves eight, nine and ten closed
+nothing at all. Fully exact files: schoolcar, screens3, castleobj, bnvmove,
+tri3d, bigscreens, softblit, westtown, westtown2, ridecb1.
+
+**The strategy change at wave eight is the thing to carry forward.** With the
+close rate collapsing, every lane was redirected from variant search to hunting
+RECONSTRUCTION ERRORS — reading the original instruction by instruction and
+asking "what C statement produces exactly this?". Waves eight and nine returned
+twenty-six such errors including a live one (a local named `cr2` passed to a
+fixed-point macro expanded to `__asm { mov cr2, eax }`; MASM resolved it to the
+CONTROL REGISTER and emitted a privileged `0f 22 d0`, so the shipped body would
+have faulted at ring 3, and the following compare read an uninitialised slot).
+Wave ten returned four more plus a formal retirement. **A wave that closes no
+function is not a wasted wave** — it is where the mechanisms get named, and
+where wrong entries in `docs/DECOMP.md` get caught: roughly twenty recorded
+rules have now been corrected or withdrawn by the lane that measured them, most
+of them summaries rather than measurements.
+
+**Wave ten ran four Opus 5 lanes concurrently with no kills.** Both models
+work and lanes are model-agnostic; wave four ran on Opus 5 because the Fable
+quota was exhausted mid-wave. Operational limits: the account session limit hit
+at seven and again at four concurrent Fable lanes, so the working cap there is
+3, while four Opus lanes ran clean; the API also returned 529 overloads for a
+stretch and killed lanes at launch — back off ten minutes rather than retrying
+in a loop. Every kill left the files compiling clean with honest markers, and
+two closes were recovered from disk after the lane that made them died before
+reporting. ~200 levers were added to `docs/DECOMP.md` across these waves; the
+prose below predates all of this.)
 
 **Functions now formally EXHAUSTED — do not re-grind** (each note records the
 proof): `UpdateControllerFromMouseData` (102/109, an allocator state no C
 construct reaches), `ValidateCursor` (5; the store its residual needs was
 displaced by the scheduler, so no source ordering reaches it), and
 `BoatingSchool_Add` (8; the full 36-body cross-product of take-position x
-link-order is a unique minimum).
+link-order is a unique minimum), and — added 2026-09-05 — **`Draw3DPersonModel`
+(0x00440a30, 377 of 1023)**, retired after five waves on two independent
+proofs. The body is instruction-, register- AND immediate-identical to the
+original at all 1023 positions (only 7 of 1023 differ under full blinding; the
+instruction count is exactly the original's 1023; mnemonic LCS 1016/1021), so
+no mnemonic, field offset, store width, branch direction or block layout can
+still be wrong. 365 of the 377 are one frame permutation, unreachable because
+(a) our surviving-IR reference profile equals the original's slot for slot
+(384 = 384 references over 79 = 79 slots), so no spelling can change the
+weights, and (b) probing the rank function by SIZE — growing `mt` from 36B to
+48B — forces any linear key into a range in which the two contended objects
+cannot swap. 10 are scheduling tie-breaks with named mechanisms, each measured
+at 25-600 to disturb; the last 2 are a commutative-sum canonicalisation
+invariant under every spelling tried. The only construct known to reach the
+original's frame order costs 24 extra instructions, destroying the exact 1023.
 
 **Quote coverage.py.** The export figure (95.6%) badly overstates completion —
 exports are only the symbols the linker exposed, and 1411 functions are matched

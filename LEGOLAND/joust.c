@@ -1637,6 +1637,73 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  *     original has ebx busy with sy2, so only ebp is free, it takes the
  *     LAST-used field (oy) and ox is loaded into eax immediately before use.
  *     Nothing here is independent of 153. */
+/* ROUND OF 2026-09-05 (tenth pass).  UNCHANGED AT 22 / real 22 / robl 340 /
+ * bad 13 / 1122 bytes.  The index-153 tie-break is now MECHANICALLY PROVEN
+ * rather than inferred, and the reason it cannot be spent is proven with it.
+ *
+ * *** WHAT DECIDES THE Y SUM'S DESTINATION.  The original is `add ebx,ecx`
+ * (dest = py's register, which is what frees ecx for the `g_ts_zspr` load at
+ * 162 and the `b->person` load at 166, i.e. the whole 161-172 tail); we emit
+ * `add ecx,ebx`.  VC6 coalesces the destination with the sum's FIRST IR
+ * operand, and the IR operand order is NOT reachable from source association:
+ * `sy2 = py + (g_map_cfg->oy - Get_YScroll())`, `sy2 = py + g_map_cfg->oy -
+ * Get_YScroll()`, `sy2 = -Get_YScroll() + g_map_cfg->oy + py`, explicit
+ * `dx`/`dy` delta locals in BOTH operand orders, `sy2 = py; sy2 += delta;`
+ * (copy-then-accumulate) and swapping the DECLARATION order of px/py are all
+ * BYTE-IDENTICAL to this build.  VC6 canonicalises a two-term sum and
+ * copy-propagates the copy, so the only construct that puts py first is one
+ * where py IS the destination symbol -- `py += g_map_cfg->oy - Get_YScroll();`.
+ * VERIFIED IN THAT BUILD'S OWN LISTING: it emits `add edi,ecx` with edi = py,
+ * exactly the original's shape.  It is still the 327 family (first divergence
+ * 16, 1113 bytes): py's web then runs to the end of case 3 and flips the LOOP
+ * HEAD (`sq` ebp->ebx, `def->base_x` ebx->ebp) and the projection with it.
+ * *** AND THE WEB CANNOT BE SPLIT.  Four ways of ending py's web early after
+ * the accumulate -- a fresh `sy2 = py - g_ts_rider_dy/2`, a fresh `sy2 = py -
+ * screen.oy`, the doubling alone through sy2, and the x adjustments moved
+ * below -- are ONE OBJECT at 327: copy propagation merges the fresh name back
+ * into py.  So "make py a temporary WITHOUT lengthening the sy2 web", which
+ * the ninth pass set as the next attempt, is CLOSED: in VC6 the two are the
+ * same thing.
+ * *** THE TWO ACCUMULATORS ARE NOT SYMMETRIC, which is a new fact: `px +=` on
+ * the X side KEEPS the loop head (227/228, first divergence 116) where
+ * `py +=` breaks it.  Both accumulating is 227 and reorders the projection to
+ * `lea ebp,[ecx+ebx]` with an extra spill; X only is 228.
+ *
+ * *** THE ORIGINAL'S DEAD STORE AT INDEX 135 IS IDENTIFIED: `mov [esp+0x20],
+ * ebp` at 0x004175d2 has EIGHT pushes live (four callee-saved + two for
+ * GetScreenCoordsForObject + two for GetTileDimensions), so it writes frame
+ * E+0x00 -- and E+0x00 is `r`'s OWN home (the loop tail's `mov [esp+0x10],eax`
+ * at 0x00417880 and case 6's `mov eax,[esp+0x18]` at 0x00417862 are the same
+ * slot).  px is never reloaded from it and `r` is dead through case 3, so this
+ * is a temp lifetime-coloured onto a named local's home, not a pressure spill:
+ * at 135 only b/px/py are live and all three are already in callee-saved
+ * registers.  The `SpillPair spill` + volatile write reproduces the slot
+ * exactly; what it does not explain is what source line VC6 saw.
+ *
+ * NEW AND INERT (all 22 / robl 340 / bad 13, byte-identical): the screen
+ * offsets folded into the doubling (`pos.x = (sx2 - screen.ox) * 2`, in two
+ * arrangements); `sx2 + sx2` for the doubling; the y adjustments before the x
+ * ones; `screen.ox`/`oy` cached into the (otherwise case-5) `sx`/`sy` ints.
+ * NEW AND WORSE: a `static __inline TS_Scroll(base, scroll, proj)` helper for
+ * the y statement (66) or both (70) -- the joust seat-helper lever does not
+ * fire here because a plain memory reference passed as an inline argument is
+ * forward-substituted; `sy2 = g_map_cfg->oy; sy2 -= Get_YScroll(); sy2 += py;`
+ * (209).
+ * MEASURED BETTER ON THE BLIND METRICS AND REJECTED: `pos.y` stored BEFORE
+ * `pos.x` is 22 strict with robl 341 and bad 11 -- the best register-blind
+ * numbers this function has ever shown -- but the original stores pos.x first
+ * (171 `mov [esp+0x4c],edi`, 172 `mov [esp+0x50],ebx`), so it is a
+ * compensating shuffle of the whole x/y adjustment block, not the source.
+ * RE-RUN ON THE HONEST SOURCE: reads-after-the-call crossed with five loop
+ * head shapes (b before sq, next read last, ty before tx, the two sums
+ * reversed, plain) is 327-334 in every case, and crossed with four case-3
+ * shapes (wx/wy in their own block scope, tw/th in their own block scope, the
+ * volatile spill moved above the projection, the volatile spill of py) is
+ * EXACTLY 327 in all four -- the reads-after family is a single hard
+ * attractor and the 116-120 price is not bought back from either end.  So the
+ * two residuals are one problem after all, and the only thing that has ever
+ * moved either of them is the pair {reads placement, destination symbol},
+ * which cannot be set independently. */
 // WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1122/1122 bytes -- the original's length to the byte, audit mismatch 22/347, 22 surviving the best callee-saved permutation, 13 of 347 original indices in a structurally differing region; first divergence 116)
 void TempleSlide_Update(RideElem* elem)
 {

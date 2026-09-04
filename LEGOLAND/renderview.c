@@ -407,6 +407,90 @@ static __inline void EmitObjectSprite(SpriteDesc* desc, Pos at, int key,
  * audit.py mismatch = 381.
  *
  * ===========================================================================
+ * ROUND w10: NOTHING COMMITTED (still 381).  One RECONSTRUCTION ERROR found
+ * and left uncommitted with its cost stated, and one new, sharper statement
+ * of what the frame problem actually is -- it is NOT an ordering problem, it
+ * is a REFERENCE-COUNT problem.
+ * ===========================================================================
+ *
+ * *** RECONSTRUCTION ERROR: `g_sort_count = 0;` BELONGS INSIDE
+ * `if (cell->obj != 0)`, NOT BEFORE IT. ***  The original stores the zero
+ * exactly ONCE, at index 391, and 391 is PAST the `je` at 388:
+ *      383 mov eax, dword ptr [esi]            cell->obj
+ *      384 and word ptr [esi+0xc], 0xfbff      cell->flags &= ~0x400
+ *      385 cmp eax, ecx                        (ecx = 0)
+ *      386 mov dword ptr [esp+0x78], ecx       the last two sd zero stores
+ *      387 mov dword ptr [esp+0x84], edx       (edx = 0)
+ *      388 je  <skip>
+ *      389 mov edi, dword ptr [eax+0xc]        def
+ *      390 mov cx,  word ptr [esi+4]           cell->base
+ *      391 mov dword ptr [0x801b24], edx       *** g_sort_count = 0 ***
+ *      392 mov dl,  byte ptr [esi+4]           cell->base.x
+ * edx is set by `xor edx,edx` at 376 and is not redefined in between, so 391
+ * really is the constant store; the whole rest of the function only ever
+ * READS 0x801b24 or writes back an incremented value (509/517, 538/546,
+ * 575/584, 602/610, 726, 748, 812, 834).  VC6 does not sink a partially dead
+ * store (proved twice on `RenderFullMap`'s sd fill), and our body duly emits
+ * it at 377 with the sd zero fill, OUTSIDE the branch -- so the committed
+ * source is wrong.  A corroborating signature: the original materialises TWO
+ * zero registers (`xor edx,edx` 376 and `xor ecx,ecx` 378) for six identical
+ * zero stores, precisely because one of them has to stay live across the
+ * branch to feed 391; ours materialises one.
+ * COST, STATED HONESTLY, WHICH IS WHY IT IS NOT COMMITTED: the best of eight
+ * placements (`base = cell->base; g_sort_count = 0; tile.x = ...`) scores
+ * strict 386 (from 381), register-blind 207 (from 206), offset-blind 223
+ * (from 228), both-blind 57 (unchanged), mnemonic 47 (from 45), region total
+ * 101 (from 99), 2894B (from 2893, original 2880).  The residual is local and
+ * visible: with the store moved, our `je` lands at 387 instead of 388 and the
+ * `base` word store lands at 390 where the original delays it to 396 (after
+ * the byte load and the `add`).  Eight positions for the store and four for
+ * `base` were swept, plus both orders of the sd fill against
+ * `cell->flags &= ~0x400` (inert): none is a net win.  THIS FIX AND WHATEVER
+ * DELAYS THE `base` STORE GO IN TOGETHER.  The variant is saved as
+ * scratchpad/w10rv/p2_sortcount.c (split prologue intact: esi@5 edi@7
+ * ebx@58 ebp@60).  The runner that produced every number in this round is
+ * scratchpad/w10rv/t.py -- `t.run(name, [(old_text, new_text), ...])` prints
+ * strict, all four blind measures, the region total, the big-displacement
+ * total and the sd/join/track layout signature on one line, in ~2 s.
+ *
+ * *** THE LOW FRAME CARRIES FOUR MORE SURVIVING REFERENCES THAN THE
+ * ORIGINAL'S, AND FRAME WEIGHT IS THE SURVIVING-IR REFERENCE COUNT. ***
+ * Measured with scratchpad/laneG/fm.py (which works on this function; it
+ * does NOT work on RenderFullMap -- use w9renderview/slots.py there).  From
+ * +0x034 up, ours and the original agree slot for slot.  The low thirteen,
+ * as (reference count) multisets:
+ *      ORIGINAL  19 18 12 9 9 7 7 7 7 6 6 6 4   = 117 references
+ *      OURS      19 15 12 11 9 9 7 7 7 7 7 6 5  = 121
+ *      s2_geoJ   19 15 12 11 9 9 7 7 7 7 6 6 5  = 120
+ * Since routing uses through an alias pointer is byte-identical and dead
+ * reads are eliminated before the count (the `Draw3DPersonModel` proof), the
+ * slot ORDER cannot be permuted into place while those four extra references
+ * exist.  Find and remove them first; the permutation should then fall out.
+ *
+ * *** SLOT IDENTITIES, so the next round does not have to re-derive them. ***
+ * The original's +0x000 is COLOUR-SHARED between `th` and `mode`, and it is
+ * the 18-reference slot:
+ *      th    77 store from edi, 88 reload into ebx, 173, 340
+ *      mode  491, 502, 524, 553, 568, 663, 725 (=0xff00), 734, 756, 767,
+ *            801 (=0xff0000), 811 (=0xffff), 820, 842
+ * +0x004 (7 refs) is `rx`: 90 store, 97 reload, 184, 508, 510, 539, 577.
+ * OURS SPLITS THEM: our +0x000 (15 refs) is `mode` ALONE plus seven refs the
+ * original does not have in that slot (110, 185, 429, 529, 550, 559, 706),
+ * and `th` is in our +0x00c (11 refs, first@72).  So the thing to look for is
+ * whatever keeps our `th` web alive past the point where the original's dies
+ * and lets `mode` take the same home.
+ *
+ * Also re-confirmed this round: `s1_ylate.c` and `s2_geoJ.c` (the two honest
+ * uncommitted bodies in scratchpad/w9renderview/) BOTH KEEP the split
+ * prologue -- push esi@5 edi@7 ebx@58 ebp@60, exactly the original's -- and
+ * are better than the committed body on every structural measure (region
+ * total 86/89 vs 99, register+offset-blind 49/51 vs 57, register-blind
+ * 198/199 vs 206, offset-blind 187/225 vs 228, mnemonic 38/39 vs 45).  Their
+ * strict count is 814/817 only because the low frame renumbers.  THEY ARE
+ * THE RIGHT BODIES; they become committable the moment the four extra
+ * low-frame references above are found.
+ *
+ * ===========================================================================
  * ROUND w8: NOTHING CHANGED HERE.  The body is unchanged from round w7 and
  * still mismatches 381 with the split prologue intact.  What this round adds
  * is (a) the exact mechanism of the split-prologue bit, which round w7 also
@@ -829,7 +913,7 @@ static __inline void EmitObjectSprite(SpriteDesc* desc, Pos at, int key,
  * geo.py (topological search over the geometry block), try_.py (textual
  * variant runner).
  * ------------------------------------------------------------------------- */
-// WIP-FUNCTION: LEGOLAND 0x0045b180  (903/903 insns, mismatch=381; propped up by a known compensating error -- xlimit/ylimit belong after the quadrant switch, and moving them breaks the split prologue; see the note)
+// WIP-FUNCTION: LEGOLAND 0x0045b180  (903/903 insns, mismatch=381; propped up by TWO known errors -- xlimit/ylimit belong after the quadrant switch, and `g_sort_count = 0` belongs inside `if (cell->obj != 0)`; both are uncommitted because each costs strict on its own, see the note)
 void RenderView(void)
 {
     Cell*       visible[3000];
@@ -1601,6 +1685,140 @@ static __inline int FullMapY(TileBounds* t, int scale_y)
  * 0x004567a0 -- the overview-map draw callback (see the write-up above).
  *
  * ===========================================================================
+ * ROUND w10.  NO SCORE CHANGE (844, region total 465, big 303).  The round
+ * was spent on the layout bit, and it produced two hard NEGATIVES that
+ * retire standing hypotheses, one sharpened RULE with a sixth in-tree proof,
+ * and a set of register facts read off the original.  READ THE NEGATIVES
+ * BEFORE SPENDING ANOTHER ROUND ON THIS.
+ * ===========================================================================
+ *
+ * 1. *** WITHDRAWN: "the layout bit and `desc`'s register are ONE problem". ***
+ *    Direct diagnostic: make `scale_x` and/or `scale_y` `volatile` so they
+ *    cannot hold ebx/ebp (not committable -- it also kills the CSE the
+ *    original keeps -- but it is a clean instrument for "what if those two
+ *    registers were free").  All three variants free the registers and
+ *    reallocate `desc`, and the layout does not move a millimetre:
+ *        both volatile   strict 1044  sd=682 join=695
+ *        scale_x only    strict  892  sd=677 join=690
+ *        scale_y only    strict 1056  sd=678 join=691
+ *    (`sd` = index of the sd fill, `join` = index of `test ch,0x80`; the
+ *    original is sd=707 AFTER join=686, ours is sd=674 BEFORE join=688.)
+ *    So the bit is not a register-allocation consequence.  Round w9's
+ *    "get `desc` into ebx and the one-statement duplication should merge" is
+ *    hereby retracted.
+ *
+ * 2. *** THE EXILE RULE, STATED EXACTLY, WITH A SIXTH PROOF AND A LOCAL
+ *    EXPERIMENT THAT CONFIRMS IT ON THIS VERY FUNCTION. ***
+ *        An `else` arm is exiled past the fall-through trace IF AND ONLY IF
+ *        THE ARM ITSELF ENDS IN AN UNCONDITIONAL JUMP.  An arm that falls
+ *        into the join is laid out in place, always.
+ *    Sixth proof, and the closest analogue in the tree to our own shape:
+ *    `ScanBlokeSurroundings` 0x450530 -- FIVE guard conditionals (29, 34, 36,
+ *    40, 46, exactly like our five track compares at 660..668) all target ONE
+ *    two-instruction block `inc dword [esp+0x14]` / `jmp <latch>` which sits
+ *    at index 355, past the epilogue, 300+ instructions away.  It is exiled
+ *    because it ends in the `continue`.  `KillAllSamplesFromSource` 0x496b80
+ *    shows the other half: VC6 TAIL-DUPLICATES a four-instruction tail
+ *    (`FreePlayableSample(s); continue;`) into BOTH arms of `if (prev) ...
+ *    else ...`, so both arms end in `jmp <latch>`, and then exiles the second
+ *    one past the epilogue (53..57) while the first stays inline (28..32).
+ *    Confirmed on THIS function by experiment: duplicating the tail down to
+ *    and including the single-sprite block (whose copy ends in `continue`)
+ *    DOES exile the sd fill and lands the join on the original's index
+ *    exactly -- sd=759, join=686 -- while duplicating only the two null tests
+ *    (so the arm still ends in a `je`) does not: sd=676, join=691.
+ *
+ * 3. *** THE CONSEQUENCE, AND WHY THE ROUTE IS CLOSED FROM BOTH ENDS. ***
+ *    The original's join at 680 is a genuinely SHARED block: 682 is
+ *    `mov eax,[ebx]`, a RELOAD of `desc->sprite` through desc's register, and
+ *    the sd arm at 707..712 does not keep the stored sprite in any register
+ *    (eax is reused at 710 for `def->dy`).  A plain if/else with a shared
+ *    join therefore cannot put the else arm anywhere but immediately before
+ *    the join -- and cross-jumping cannot rescue it, because a merged block's
+ *    FALL-THROUGH SUCCESSOR must be shared too, so the merge cannot stop
+ *    part-way: the merged suffix would have to be the whole remainder of the
+ *    loop body.  Measured again at this round's baseline: with the whole tail
+ *    textually in both arms the sd copy diverges immediately --
+ *        cb copy   680 test edi,edi / 681 je / 682 mov eax,[edi] /
+ *                  683 test eax,eax / 685 mov ecx,[eax+0x10] / 686 test ch,0x80
+ *        sd copy   873 lea eax,[esp+0xcc] / 876 test eax,eax   (rematerialised
+ *                  address, NOT desc's register) / 880 test esi,esi  (the
+ *                  just-stored sd.sprite FORWARDED, no reload) /
+ *                  882 mov eax,[esi+0x10] / 883 test ah,0x80
+ *    -- three separate reasons the two copies are not the same machine code.
+ *    Four spellings of the sd arm's assignment+test (`desc = &sd; if (desc ==
+ *    0)`, `if (!desc)`, `if ((desc = &sd) == 0)`, and via a second pointer
+ *    local) are byte-identical to one another: VC6 always rematerialises the
+ *    `lea` for the test.
+ *
+ * 4. *** THE FRONT END NORMALISES EVERY `goto` FORM, INCLUDING THE ONE SHAPE
+ *    THAT WOULD HAVE WORKED. *** Four more spellings, ALL byte-identical to
+ *    the committed file (same 4205 bytes, same 844, same sd=674/join=688):
+ *      - `if (flags & 0x400) { cb...; goto have_desc; }` with the sd fill as
+ *        the source fall-through and `have_desc:` before the tail (braced and
+ *        unbraced) -- this is the LoadObjectLibrary shape with the goto on
+ *        the OTHER arm from the one round w9 tried;
+ *      - if/else with `goto have_desc;` as the last statement of the else;
+ *      - *** the whole tail written INSIDE the then arm with `have_desc:` in
+ *        its middle and the else arm's only exit a `goto` into it. ***  This
+ *        is the exact CFG the original has -- one shared tail, an else arm
+ *        that can only reach it by a jump -- and VC6's front end flattens it
+ *        back into the plain if/else.  Same again with the sd fill after the
+ *        closing brace instead of in an else.
+ *    And inverting the CONDITION with the bodies swapped
+ *    (`if (!(def->flags & 0x400)) { sd } else { cb }`, plus `== 0` and an
+ *    unsigned spelling) gives the MIRROR, sd=664 before join=687: VC6 does
+ *    not invert a test to reorder arms.
+ *    NET: no C source shape reachable from here expresses the original's
+ *    block order with a shared tail.  Either VC6 SP3's block-ordering pass
+ *    keys on something not yet identified (it is NOT registers -- see 1), or
+ *    the shipped source contained something structurally different in the
+ *    loop body that we have not reconstructed.  DO NOT SPEND ANOTHER ROUND
+ *    ON RESPELLING THE SELECTION; the eleven w8 spellings, w9's five and
+ *    these nine are all the same answer.
+ *
+ * 5. REGISTER FACTS READ OFF THE ORIGINAL (useful whatever the layout does):
+ *    - `scale_x` is NOT one enregistered web.  It is a spilled local at
+ *      frame +0x38 (stored at 112; `scale_y` at +0x14, stored at 118) that
+ *      VC6 caches PER REGION: pass 2 reads memory (231/240); pass 3 puts
+ *      scale_x in EDI and scale_y in EBX (455/468) -- different registers,
+ *      which is the proof that these are separate webs; the pass-4 loop
+ *      loads scale_x into EBX at the LOOP HEADER on BOTH entry paths
+ *      (517 in the preheader, 519 at the latch) because ebx is clobbered
+ *      inside the body on every path; and every later use reads memory again
+ *      (570 mark block, 641 roads, 826/923 track, 988 single sprite,
+ *      1092/1099 ILF).  Ours enregisters scale_x in ebx and scale_y in ebp
+ *      as ONE web each, live from index 457 (pass 3) to the end of the
+ *      pass-4 loop.
+ *    - The original SPILLS `def` (580 `mov [esp+0x50],ecx`, reloaded 831) and
+ *      keeps it in ecx, a scratch register; ours keeps it in esi for the
+ *      whole loop body.  That is where our fourth callee-saved register goes.
+ *    - The original hoists `bpos` (the packed dword at frame +0x3c) into EDI
+ *      at 669, BEFORE the flags test, and both arms use it; ours has no free
+ *      register there and emits the load TWICE, once inside each arm
+ *      (667 and 677).  A visible symptom of the same pressure difference.
+ *    - `chain` lives in EAX with a spill home at +0x44: the preheader loads
+ *      only ebx and jumps INTO the loop header past the redundant
+ *      `mov eax,[esp+0x44]` (517/518 vs 519/520), and the body needs
+ *      `mov esi,eax` (522) to feed the `rep movsd`.  Ours loads chain
+ *      straight into esi at the header (517) and needs no copy -- one
+ *      instruction fewer and no peeled preheader.  A `while` loop instead of
+ *      the `for` was measured: strict 843 but region total 475 and
+ *      offset-blind 404 (from 369), i.e. worse; NOT applied.
+ *    - The original does NOT cache the `LineTo` import: `call dword ptr
+ *      [0x4ab0c0]` at BOTH 884 and 933.  Ours has a spare callee-saved
+ *      register in the track arm and emits `mov esi,[__imp_LineTo]` +
+ *      `call esi` twice.  Another symptom, not a source difference.
+ *    - The ILF loop carries `desc->sprite + 8` as an ADDRESS (1007
+ *      `add eax,8`; 1017 `mov eax,[eax]` at the body top; recomputed
+ *      1110..1112 at the latch) and so loads `*(sprite+8)` TWICE per
+ *      iteration -- once for the `while` condition (1114) and once at the
+ *      body top (1017).  Ours CSEs the two into one and carries `ilf` itself
+ *      (760 and latch 865, both `mov eax,[eax+8]`), one instruction fewer per
+ *      iteration.  No spelling found that keeps the address without the
+ *      value; recorded as the next thing to try.
+ *
+ * ===========================================================================
  * ROUND w9 (strict 847 -> 844, and every structural measure with it: region
  * total 498 -> 465, register-blind 451 -> 407, offset-blind 403 -> 369,
  * register+offset-blind 266 -> 245, mnemonic-only 236 -> 222; frame 0xfc ->
@@ -2315,7 +2533,7 @@ static __inline int FullMapY(TileBounds* t, int scale_y)
  *              graph -- this is what found RenderView's ordering.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004567a0  (1161/1161 insns, mismatch=844; 303 of 465 structural slots are still the ONE layout bit -- the 0x400 else arm must end in a jmp to be exiled, which needs `desc` in ebx; see the note)
+// WIP-FUNCTION: LEGOLAND 0x004567a0  (1161/1161 insns, mismatch=844; 303 of 465 structural slots are still the ONE layout bit -- the 0x400 else arm has to END IN A JMP to be exiled, and no source spelling produces that with a shared tail; registers are ruled out, see the note)
 void RenderFullMap(void)
 {
     Elem*       e_track;
