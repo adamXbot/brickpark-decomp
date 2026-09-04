@@ -512,33 +512,63 @@ int WW_HasEntrance(void)
  * ========================================================================== */
 
 /* RESIDUAL (6 of 31, first diverging index 24): everything but the literal
- * `xor eax,eax` of the fall-through exit.  The original keeps the list cursor
- * in EAX and the `>> 8` tile temp in ECX; VC6 allocates a loop-local temp
- * BEFORE a loop-carried pointer (order measured: return-coalesced web, then
- * loop-local temps by def order, then loop-carried values, then hoisted
- * invariants -- `and4`/`S1` in scratchpad/waterworks/sweep_ar*.py), so the
- * natural `return 0` spelling comes out as a pure eax<->ecx swap (12
- * mismatches, 31/31 instructions, every block and branch right).  The ONLY
- * thing that moves the cursor into eax is its web flowing into the return:
- * `return (int)b;` after the loop (b is NULL there, so it IS `return 0`)
- * coalesces b with the return register and every loop instruction matches --
- * but VC6 then knows nothing about b's value at the two-predecessor exit
- * (`je` from the entry test + fall-through of the bottom test) and emits no
- * `xor`, so the exit block is one instruction short.  Measured and ruled out
- * (~110 variants): every loop form (while/for/do/for(;;)/goto/label/while(1)),
- * cursor copies (local, register, volatile arg read, link-slot Bloke**, char*,
- * unsigned), rect access forms (int*, locals, textual repeats, operand order),
- * temp types/spellings (int/long/short/char/unsigned, Pos, Pos*, wx>>8 twice,
- * one shared t, and4), inline helpers (rect by value/ref, point test, walker,
- * finder returning Bloke* consumed by !=0 / if / ?:), result flags (int,
- * pointer, break/goto/late-zero), phantom tail uses of b (degenerate branch,
- * ternaries, b^b, b-b, b&0, b*0 -- all folded at the front end), threaded-away
- * `if (b) return (int)b` arms (removed before allocation), single-predecessor
- * `return (int)b` (value-substituted to 0 early, so no coalescing: G/K forms),
- * `b = (Bloke*)1; goto done; ... b = 0; done: return (int)b` (split webs).
- * `return (int)b >> 31` gives `sar` in place of the xor (2 mismatches) and is
- * NOT `return 0`.  Whatever the original wrote, it made the cursor the return
- * web while keeping a literal zero at the merged exit; no C found does both. */
+ * `xor eax,eax` of the fall-through exit.  The state of this function is a
+ * clean, fully characterised DICHOTOMY, and both halves are one step away:
+ *
+ *   (a) `return (int)b;` (this body): 30 of 31 instructions, indices 0-23
+ *       exact.  b's web flows into the return, so the list cursor is
+ *       return-coalesced and takes EAX with the `>> 8` tile temp in ECX, as
+ *       the original has them -- but VC6 then knows nothing about b's value
+ *       at the two-predecessor exit (the entry `je` plus the fall-through of
+ *       the bottom test) and materialises nothing, so the exit block is one
+ *       instruction short and the success block's `mov eax,1` schedules
+ *       before `pop edi` instead of between the two pops.
+ *
+ *   (b) ANY literal zero (`return 0;`): 31/31 instructions, 68/68 bytes, the
+ *       same blocks, the same branch offsets, the same
+ *       `pop edi / xor eax,eax / pop esi / ret` and
+ *       `pop edi / mov eax,1 / pop esi / ret` exits -- 12 mismatches that
+ *       are ALL a pure EAX<->ECX swap.  With no return web, VC6 gives EAX to
+ *       the first loop-local temp (the tile) and ECX to the loop-carried
+ *       cursor.  Allocation order measured earlier: return-coalesced web,
+ *       then loop-local temps by def order, then loop-carried values, then
+ *       hoisted invariants (`and4`/`S1` in scratchpad/waterworks/sweep_ar*.py).
+ *
+ * So the whole residual is: make the cursor take EAX while the function
+ * still returns a LITERAL zero.  Ruled out (~150 variants over three passes;
+ * this pass's are scratchpad/waterworks/sw1.py .. sw4.py, run with
+ * scratchpad/sweep1/varx.py):
+ *  - form (b) is immune to everything tried: a cursor copy inside the loop,
+ *    at function scope, or as a `for` init; an `unsigned` cursor with casts;
+ *    one shared tile variable (function-scope or loop-scope, so the tile is
+ *    one web with a longer live range); a `wx` temp before the shift; the
+ *    rect edges hoisted into locals (24, worse); the loop rotated as
+ *    `for (;;) { if (!b) return 0; ... }`; a `next` temp read first (32
+ *    insns); a `found` result variable; `b = 0;` before `return (int)b`
+ *    (constant-propagated, so it IS form (b)).
+ *  - an explicit entry guard does not split the exits: `if (!b) return 0;`
+ *    before the `while` is threaded into the loop test and lands on form (b);
+ *    with a `do/while` it is NOT threaded and costs a `je`+`jmp` pair
+ *    (32 insns, 22).
+ *  - phantom tail uses of b (degenerate branch, ternaries, b^b, b-b, b&0,
+ *    b*0, b - (Bloke*)0) are folded at the front end; `return (int)b >> 31`
+ *    puts a `sar` in the missing instruction's slot (2 mismatches) but is not
+ *    `return 0`; `r == 0 ? (int)b : 1` costs 2 instructions.
+ *  - earlier passes: every loop form (while/for/do/for(;;)/goto/label/
+ *    while(1)), cursor copies (local, register, volatile arg read, link-slot
+ *    Bloke**, char*, unsigned), rect access forms (int*, locals, textual
+ *    repeats, operand order), temp types/spellings, inline helpers (rect by
+ *    value/ref, point test, walker, finder), result flags, threaded-away
+ *    `if (b) return (int)b` arms, single-predecessor `return (int)b`
+ *    (value-substituted to 0 early, so no coalescing), and
+ *    `b = (Bloke*)1; goto done; ... b = 0; done: return (int)b` (split webs).
+ *
+ * The one lever class NOT yet found is anything that lowers the tile temp's
+ * allocation priority below the loop-carried cursor's while a literal zero is
+ * returned -- i.e. a use of the tile that makes it live out of the loop
+ * without emitting code, or a use of the cursor that pulls it into EAX
+ * (there is no eax-only instruction in this function: no mul, div or cdq).
+ * Keep form (a): 6 beats 12. */
 // WIP-FUNCTION: LEGOLAND 0x00417e70  (30/31 instructions, 6 mismatches from index 24: the fall-through exit lacks the literal `xor eax,eax`; registers, blocks and branches all match)
 int WW_AnyBlokeInRect(Bloke* b, WinRect* r)
 {

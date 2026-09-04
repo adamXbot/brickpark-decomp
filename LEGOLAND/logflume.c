@@ -2380,35 +2380,95 @@ extern void RemoveAllBlokesFromRide(RideDef* def, BPosW sq);     /* 0x0048a2e0 *
 /* RESIDUAL (11 of 102 instructions, first divergence at index 39): 102/102
  * instructions and 343/343 bytes; the whole body is exact except the
  * SCHEDULE of the 15 instructions that build the cursor's origin and copy
- * the footprint (orig 39-53).  The original issues the g_lf_footprint.v[2]
- * load FIRST (into ecx, right after the two footprint decrements), then the
- * x chain, then the y byte, hoists `lea edi,&cur.footprint` above the y add,
- * SINKS the cur.x store to just after the g_lftr_def reload (before the
- * `mov dx,[p->sq]` and the rep movsd), and hoists that dx load above the
- * copy.  VC6 here loads the x byte first, stores cur.x as soon as it is
- * ready and loads dx after the copy.  Register allocation is identical.
- * Measured (~110 variants, all 11 or worse unless noted):
- *  - statement order (x/y/copy in every permutation) and operand order in
- *    both sums: canonicalised, 11 (y-first 12, copy-first 31-34);
- *  - global-load temporaries (v0, v2, a `const int*` into the footprint,
- *    separate globals), a `RideDef* def` local anywhere, a Footprint* to the
- *    source, memcpy/#pragma intrinsic, a dst pointer: 11;
- *  - static __inline helpers (origin only / origin+copy / scalar x,y args
- *    in either order, with or without the copy): 11-41;
- *  - two-def forms (`cur.x = byte; cur.x += v0`): 71+, cur is address-taken
- *    so both stores survive; a Pos aggregate or BPosW local: 36-78;
- *  - byte temporaries: `y = p->sq.b.y` BEFORE the x statement makes 39-45
- *    EXACT (v[2] load first, x chain, y byte late, lea edi hoisted) but the
- *    y sum then lands in ecx (`add ecx,eax`) where the original keeps eax
- *    (`add eax,ecx`), and everything after follows that register: 24.  No
- *    spelling of that temp (int/unsigned/uchar, declaration order, comma
- *    expression, v2 temp as well, sum temp, x temp too, y store before or
- *    after the copy, memcpy) moves the destination register.
- * Best hypothesis: the y coordinate is read through a temporary that VC6
- * treats as an expression temp (so the sum coalesces into the byte's
- * register) yet is defined before the x statement -- an inlined helper or
- * a macro shape not yet found.  The bug note above (v[2] for the y offset)
- * is confirmed by the address the original loads (0x4b4730). */
+ * the footprint (orig 39-53).  The instruction MULTISET is identical --
+ * same opcodes, same registers, same operands -- only the order differs:
+ *
+ *   ORIGINAL                       OURS
+ *   39 mov ecx,[v2]                39 mov dl,[p->sq.b.x]
+ *   40 mov dl,[p->sq.b.x]          40 mov esi,[v0]
+ *   41 mov esi,[v0]                41 mov ecx,[v2]
+ *   42 xor eax,eax                 42 add edx,esi
+ *   43 add edx,esi                 43 xor eax,eax
+ *   44 mov al,[p->sq.b.y]          44 mov [cur.x],edx
+ *   45 lea edi,&cur.footprint      45 mov al,[p->sq.b.y]
+ *   46 add eax,ecx                 46 add eax,ecx
+ *   47 mov ecx,5                   47 mov ecx,5
+ *   48 mov [cur.y],eax             48 mov [cur.y],eax
+ *   49 mov eax,[g_lftr_def]        49 mov eax,[g_lftr_def]
+ *   50 mov [cur.x],edx             50 lea edi,&cur.footprint
+ *   51 mov dx,[p->sq]              51 lea esi,[eax+0x3c]
+ *   52 lea esi,[eax+0x3c]          52 rep movsd
+ *   53 rep movsd                   53 mov dx,[p->sq]
+ *
+ * i.e. three dependency-free ROOTS (the v2 load, `lea edi`, the p->sq word
+ * load) that the original hoists to the top of their scheduling window stay
+ * put in ours, and the cur.x store that the original sinks past the
+ * g_lftr_def reload is emitted as soon as its value is ready.
+ *
+ * TWO FAMILIES, BOTH REPRODUCIBLE, NEITHER EXACT (~140 measured variants
+ * over three passes):
+ *
+ *  (a) PLAIN STATEMENTS (this body, 11 mismatches).  Both sums are right --
+ *      `add edx,esi` and `add eax,ecx`, destination = the widened byte in
+ *      each -- and only the schedule above is wrong.
+ *
+ *  (b) A TWO-ARGUMENT INLINE ORIGIN HELPER (24 mismatches, first divergence
+ *      at 46).  With
+ *          static __inline void SetOrigin(EditCursorRec* c, int x, int y)
+ *          { c->x = x + g_lf_footprint.v[0];
+ *            c->y = y + g_lf_footprint.v[2]; }
+ *          SetOrigin(&cur, p->sq.b.x, p->sq.b.y);
+ *      indices 39-45 are EXACT -- the v2 load leads, `lea edi` is hoisted
+ *      above the y sum, the y byte lands late -- because the helper's two
+ *      arguments become expression temporaries evaluated before the body
+ *      runs.  What then breaks is index 46: the y sum comes out
+ *      `add ecx,eax` (destination = the GLOBAL's register) where the
+ *      original has `add eax,ecx` (destination = the byte), and every
+ *      instruction after it follows that one register.
+ *
+ * NEW RULE MEASURED THIS PASS (it is what blocks family (b)): in an inlined
+ * helper body, the FIRST `param + global` sum takes the parameter temp's
+ * register as its destination and the SECOND takes the GLOBAL's.  Proved
+ * both ways: with the body written y-then-x (M1) the y sum becomes
+ * `add edx,esi` (byte) and the x sum `add ecx,eax` (global) -- the mirror
+ * image.  The original needs BOTH sums to keep the byte, so the original is
+ * NOT two `param + global` statements in one inline body.  Immune to:
+ * reading either global into a local inside the helper (one, the other or
+ * both), operand order in either sum, a nested one-argument SetY helper for
+ * the second statement, passing v0/v2 as further arguments, `unsigned char`
+ * parameters (+2 insns), a `const BPos*` parameter (falls back to family
+ * (a)), passing the cursor last, and putting the footprint copy inside the
+ * helper before or after the stores.
+ *
+ * Also ruled out this pass, all still 11 (family (a)): the footprint copy
+ * through a `static __inline` helper taking both Footprint*s, taking only
+ * the destination, or taking the cursor and the RideDef -- none of which
+ * frees `lea edi` to hoist; and every spelling of the two footprint
+ * decrements above the block (`--`, `-= 1`, postfix, `+ -1`, swapped) plus
+ * moving `next = p->next` after the copy, tried on the theory that the
+ * Pentium scheduler's window boundary is counted in IR tuples from the
+ * function start and one more tuple earlier would hoist the roots.  (The
+ * decrement spellings are inert; moving `next` costs 7-18.)
+ *
+ * Earlier passes (unchanged, ~110 variants): statement order in every
+ * permutation and operand order in both sums canonicalise to 11 (y-first
+ * 12, copy-first 31-34); global-load temporaries, a `RideDef* def` local, a
+ * Footprint* to the source, memcpy/#pragma intrinsic, a dst pointer: 11;
+ * two-def forms (`cur.x = byte; cur.x += v0`): 71+, because cur is
+ * address-taken so both stores survive; a Pos aggregate or BPosW local:
+ * 36-78; a named `int y = p->sq.b.y` before the x statement gives family
+ * (b)'s 39-45 with the same flipped add (24), and no spelling of that temp
+ * moves it.
+ *
+ * WHERE TO GO NEXT.  The two families are one instruction apart in opposite
+ * directions, so the answer is a source form that gets family (b)'s
+ * argument-temp schedule while keeping family (a)'s forward-substituted
+ * sums -- i.e. something that makes the y byte's temp live only across its
+ * own statement while still being defined before the x statement.  A macro,
+ * or a helper that takes the two bytes and returns the two sums rather than
+ * storing them, are the untried shapes.  The bug note above (v[2] used for
+ * the y offset) is confirmed by the address the original loads (0x4b4730).
+ * Variants: scratchpad/logflume/sw1.py .. sw4.py (run with var.py). */
 // WIP-FUNCTION: LEGOLAND 0x0040abf0  (89%, schedule of the origin/copy block, see note)
 void LFEntrance_Remove(RideElem* elem, BPosW sq, void* c)
 {

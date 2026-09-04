@@ -413,137 +413,42 @@ BNVBin* LoadBinV(const char* fname)
     return 0;
 }
 
-/* WIP -- 101/101 instructions, 275 B vs 273 B, 32 mismatches by audit.py
- * (was 52 before this pass).  First divergence: index 49, the RGB565 arm.
+/* MATCHED 2026-09-04: 101/101 instructions, 273/273 bytes, index for index.
  *
- * ORIGINAL 565 arm (15 insns):
- *     movzx dx,byte[r] / mov al,[g] / and edx,0FFFFFFF8h / and al,0FCh /
- *     xor cx,cx / shl edx,5 / mov cl,al / mov al,[b] / or edx,ecx /
- *     xor cx,cx / shr al,3 / shl edx,3 / mov cl,al / or edx,ecx /
- *     mov [edi],dx
- * OURS:
- *     movzx ax,byte[r] / mov dl,[g] / xor cx,cx / and dl,0FCh /
- *     and eax,0FFF8h  / mov cl,dl / mov dl,[b] / shl eax,5 / or ecx,eax /
- *     xor ax,ax / shr dl,3 / shl ecx,3 / mov al,dl / or ecx,eax /
- *     mov [edi],cx
+ * This is the same 565/555 palette-packing idiom as __BMPLoader (screen.c,
+ * 0x44e352 / 0x44e496), and the C that matches there transfers verbatim:
+ * red is an `unsigned short` local, green and blue are `unsigned char` locals
+ * masked/shifted at their declarations, and the pack is spelled with
+ * MULTIPLIES -- `(((r & ~7) * 32) | g) * 8 | b`.  The multiply is what widens
+ * the byte before masking; the `<< 5` spelling masks the byte instead
+ * (`and dl,0F8h`) and loses the original's `movzx dx, byte ptr [..]`.
  *
- * SOLVED this pass: the widen-before-mask order.  `movzx r16,byte[mem]` is
- * VC6's u8 -> unsigned short conversion, and it only survives when the
- * converted value has a SECOND CONSUMER; with one consumer VC6 sinks the mask
- * into the byte load (`mov dl,[r] / and dl,0F8h`) and widens afterwards, which
- * is what every earlier spelling produced.  The ghost `if (t != r)` supplies
- * that consumer and is then deleted (t is a u16 copy of an unsigned char, so
- * the test is always false).  All ghost forms that VC6 can fold - `t != r`,
- * `t != (unsigned short)r`, `t != r` before or after the store, storing
- * through *p, `p = pal`, calling RES_CloseFile - produce byte-identical code;
- * ghosts VC6 CANNOT fold (`t & 0x8000`, `t > 0xff`, `t >> 8`, `(t^r) != 0`,
- * `(unsigned char)t != r`) leave their compare in and score worse.
+ * WHAT CLOSED THE LAST MISMATCH (index 51, worth 3 bytes): THE 16-BIT
+ * DESTINATION IS SIGNED.  `p` is a `short*`, not an `unsigned short*`.  With
+ * an unsigned destination VC6's narrowing pass takes the red channel's `& ~7`
+ * down to the 16-bit operand width (`and edx,0FFF8h`, 6 B); with a signed one
+ * it leaves the mask 32-bit and unclean (`and edx,-8`, 3 B) on top of the same
+ * 16-bit movzx.  The rule was already recorded in screen.c's header for
+ * __BMPLoader -- the mask width is decided by the SIGNEDNESS OF THE STORE, not
+ * by any spelling of the mask itself.  Every K in `t & K` (0xf8, ~7, 0xfff8,
+ * 0xfffffff8, -8, (t>>3)<<3, ...) canonicalises to one node before the
+ * narrowing pass runs, which is why ~75 red spellings across two earlier
+ * passes never moved it; nor do `int` / `unsigned` temp types.  The earlier
+ * `unsigned short t = r; if (t != r) ...` ghost is no longer needed: with the
+ * signed store the u16 local keeps its movzx on its own.
  *
- * REMAINING (two symptoms, one cause): the original's red value is UNCLEAN in
- * bits 16-31 - `and edx,0FFFFFFF8h` (83 E2 F8, 3 B) leaves the movzx's garbage
- * upper half alone, because only dx is ever stored.  Ours is CLEAN: VC6 folds
- * the u16->int zero-extension into the mask (`and eax,0FFF8h`, 81 E0 F8 FF, 6 B
- * = the +3 B) and, being a clean standalone value, red is then OR'ed INTO
- * green's register instead of being the accumulator - which also rotates the
- * registers of the (otherwise correct) 555 arm.
- *
- * Ruled out for the mask, all byte-identical to `t & ~7`: 0xfff8, 0xfffffff8,
- * -8, ~7u, (unsigned short)(t & ~7), (t>>3)<<3, (t>>3)*8, (t/8)*8, t^(t&7),
- * (t|7)&~7, (t^7)&~7, (t&0xfff8)&~7, (t|0x10000)&~7, (t|0xffff0000)&~7,
- * (t+0x10000)&~7, (t&0xffff)&~7, (t*1)&~7, (t+0)&~7;  temp types int /
- * unsigned int / short / unsigned long (int types also move r out of the dead
- * fname slot and cost ~45 more); u16-domain chains (t &= 0xfff8; t <<= 5; ...);
- * a `static __inline int` component reader called twice (its compare survives,
- * n=113); `if ((r & ~7) != (r & 0xf8))` (survives, n=108); green spelled
- * ((unsigned short)g & 0xfc) / (g & 0xfc) / (unsigned short)((unsigned char)(g
- * & 0xfc)) and blue with/without & 0x1f - all identical.
- *
- * THE LEAD.  Spelling red `((t | 7) ^ 7)` - the same value, but two ops, so no
- * single `and` is formed and the result stays UNCLEAN - drops the residual to
- * 15 mismatches: red becomes the accumulator (`shl eax,5 / or eax,ecx /
- * shl eax,3`) and the ENTIRE 555 arm then matches instruction for instruction
- * (indices 65-81), which it does not in any clean-value variant.  That is the
- * proof that "unclean red" is the missing property; it just costs `or al,7 /
- * xor eax,7` where the original has one `and`, and the two arms then share one
- * `mov [edi],ax`.  What is still wanted is a SINGLE unclean mask instruction.
- * A fuzz of ~75 red spellings x 3 ghost forms never produced `and r32,-8`
- * after a movzx; note the only four `and r32,0FFFFFFF8h` sites in the whole
- * binary are here, twice in __BMPLoader (0x44e359 / 0x44e496 - the same
- * 565/555 palette idiom, same asymmetry, so this is a shared construct) and
- * once in RenderFullMap (0x456f6c), where the operand is an INT already
- * cleaned by a separate `and edi,0FFh` and has a second use (`shr edi,3`) -
- * i.e. an int-typed byte value with two consumers.  Getting that shape here
- * without disturbing r's home in the dead fname argument slot is the next
- * thing to try.
- *
- * ---------------------------------------------------------------------------
- * PASS N+1 (no change to the count; the mechanism is now pinned down).
- *
- * THE MASK WIDTH IS NOT RANGE-DRIVEN.  Micro-probes (scratchpad/threefiles/
- * micro.c, m3.c) feed `v & ~7` to VC6 with v an unsigned short of PROVABLY
- * UNKNOWN range - a u16 function return, a u16 global, a u16 read through a
- * pointer - and every one still emits `and eax,0FFF8h`.  So the 0xFFF8 is not
- * VC6 narrowing -8 with range knowledge about r; it is VC6 FOLDING THE u16 ->
- * int ZERO-EXTENSION INTO THE MASK.  Hiding r's byte range therefore cannot
- * help, and every K in `t & K` (0xf8, 0xf8u, (unsigned char)0xf8, ~7, 0xfff8,
- * 0xfffffff8u) canonicalises to the same `and eax,0FFF8h`.
- *
- * WHAT DECIDES IT IS THE OR-CHAIN SPINE.  `and r32,-8` is the SHORTER encoding
- * (83 /4 ib, 3 B) and VC6 picks it only in "upper 16 bits are dead" mode.  It
- * enters that mode for the value that sits on the accumulator SPINE - the one
- * register that runs unbroken from the operand into the final 16-bit store.
- * Original: `and edx,-8 / shl edx,5 / or edx,ecx / shl edx,3 / or edx,ecx /
- * mov [edi],dx` - one register, red is the spine, upper half left as garbage.
- * Ours: `... / shl eax,5 / or ecx,eax / shl ecx,3 / or ecx,eax / mov [edi],cx`
- * - GREEN is the spine and red is only a source operand, so red is cleaned.
- * The `(t|7)^7` lead is the proof in the other direction: there red IS the
- * spine and VC6 happily writes `or al,7` (a byte op that leaves bits 16-31
- * garbage) with no cleanup at all.  Both symptoms in the note above are this
- * one fact.
- *
- * AND THE SPINE CHOICE IS DECIDED BY THE eax SHORT FORM.  The only encodings
- * in this arm that prefer eax are `and eax,imm32` (25 xx, 5 B vs 6) and
- * `and al,0FCh` (24 FC, 2 B vs 3) - i.e. red's mask and green's mask both want
- * eax.  When red's mask needs an imm32 red takes eax first, green is pushed to
- * dl/cx, and VC6 makes GREEN the OR destination.  In the original red's mask
- * is an imm8 (`and edx,-8`), which has no accumulator short form, so eax goes
- * to green's `and al,0FCh`, red stays in edx and red is the spine.  The whole
- * residual is that circle: imm32 mask -> red in eax -> green is the spine ->
- * red must be clean -> imm32 mask.  Breaking it anywhere breaks it everywhere.
- *
- * ALSO RULED OUT this pass (all 32 mismatches, first at index 49, unless
- * noted): u16 compound-assignment chains WITH the ghost (`t &= ~7; t <<= 5;
- * t |= gg; t <<= 3; t |= bb; *p = t;`) - byte-identical to the expression
- * form, so the earlier note's "u16-domain chains" entry holds with the ghost
- * too; every operand permutation of the two `|`s (green first, blue first,
- * the unfactored `(t&~7)<<8 | (g&0xfc)<<3 | (b>>3)`); `(t>>3)<<11`,
- * `(t>>3)<<8`, `(t/8)*8`, `t*32`, `((t>>3)<<3)<<5`; named u16 temps for red,
- * for green, and for both; a second ghost; the ghost after the store; green
- * without its cast and as `(unsigned short)g & 0xfc`; `static __inline`
- * widen/mask helpers (`unsigned short W(unsigned char)`, `unsigned short
- * M(unsigned short)`) - the helper with its own ghost is identical to the
- * inline ghost, the one without is 52; ghosts `if (t!=r) *p = t;`,
- * `if (t!=r) p = pal;`, `t != (unsigned short)(unsigned char)r`;
- * `(unsigned char)t != r` (55, first at 46); sharing one `unsigned short t`
- * between BOTH arms (52 - VC6 re-narrows in the 555 arm and loses the movzx);
- * and writing the depth test as `if (g_screen_depth != 2) {555} else {565}`
- * (34, first at 48).
- *
- * NEXT STEP.  Do not look for another red spelling - look for a way to stop
- * red claiming eax.  Anything that makes green's `and al,0FCh` take eax first
- * should flip the spine and, with red on the spine, the mask should collapse
- * to the imm8 form on its own.  Candidates not yet tried: a green term with a
- * SECOND eax-preferring byte op (so its Sethi-Ullman cost beats red's), a blue
- * term that keeps eax busy across the red mask, and forcing red's mask to the
- * 16-bit `and dx,0FFF8h` encoding (66 81 E2 F8 FF) which has no accumulator
- * short form for edx.  Confirming the spine theory on __BMPLoader's copy of
- * the same idiom (0x44e352, where green widens with `movzx di,bl` instead of
- * `xor cx,cx / mov cl,al`) would be a cheap cross-check. */
-// WIP-FUNCTION: LEGOLAND 0x00441f20  (68.3%, 101/101 insns; 565 red value is clean where the original leaves it unclean)
+ * The function returns `unsigned short*`, so `p` is `(short*)pal`.  The buffer
+ * is 0x200 bytes = 256 entries, zeroed with an intrinsic memset (a bare
+ * rep stosd), then filled a byte at a time from the open file -- r, g and b
+ * are three separate one-byte RES_ReadFile calls into address-taken byte
+ * locals, and `r` is homed in the dead `fname` argument slot.  The 8-byte
+ * header read at the top is discarded. */
+// FUNCTION: LEGOLAND 0x00441f20
 unsigned short* LoadPalette(const char* fname)
 {
     unsigned short* pal;
-    unsigned short* p;
+    short*          p;        /* SIGNED: see the note above -- it decides the
+                               * width of the 565 red mask. */
     void*           f;
     char            hdr[8];
     int             i;
@@ -557,31 +462,23 @@ unsigned short* LoadPalette(const char* fname)
             unsigned char g;
             unsigned char b;
             RES_ReadFile(f, hdr, 8);
-            p = pal;
+            p = (short*)pal;
             for (i = 0; i < 256; i++) {
                 RES_ReadFile(f, &r, 1);
                 RES_ReadFile(f, &g, 1);
                 RES_ReadFile(f, &b, 1);
                 if (g_screen_depth == 2) {
-                    /* The 565 red term is the one place the original WIDENS r
-                     * before masking (`movzx dx,byte[r]` / `and edx,-8`); every
-                     * other component - and the 555 arm's red - masks the byte
-                     * first.  VC6 only leaves the widen unfused when the u16
-                     * conversion has a second consumer, so the compare below is
-                     * a GHOST: t is a u16 copy of an unsigned char, so `t != r`
-                     * is always false and VC6 deletes the whole `if`, but it is
-                     * still present when the narrowing decision is made.  See
-                     * the WIP note above for what is left. */
-                    unsigned short t = r;
-                    if (t != r)
-                        g_screen_depth = 1;
-                    *p = (unsigned short)((((t & ~7) << 5)
-                                           | (unsigned short)(g & 0xfc)) << 3)
-                       | (unsigned short)(b >> 3);
+                    unsigned short rr = r;
+                    unsigned char  gg = (unsigned char)(g & 0xfc);
+                    unsigned char  bb = (unsigned char)(b >> 3);
+                    *p = (short)((((rr & ~7) * 32) | gg) * 8 | bb);
                 } else {
-                    *p = (unsigned short)((((unsigned short)(r & 0xf8) << 5)
-                                           | (unsigned short)(g & 0xf8)) << 2)
-                       | (unsigned short)(b >> 3);
+                    unsigned char  r5 = (unsigned char)(r & 0xf8);
+                    unsigned char  g5 = (unsigned char)(g & 0xf8);
+                    unsigned char  b5 = (unsigned char)(b >> 3);
+                    *p = (short)((((unsigned short)r5 << 5
+                                 | (unsigned short)g5) << 2)
+                                | (unsigned short)b5);
                 }
                 p++;
             }

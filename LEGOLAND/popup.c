@@ -6,8 +6,9 @@
  *
  *   0x0045eb30  BuildObject         100% full-body (188/188)
  *   0x00489190  RenderTransSprite   100% full-body (188/188)
- *   0x004724a0  DrawPopUpInfo       962/962 instructions, 3139/3141 bytes,
- *                                   53 mismatches (886 -> 705 -> 398 -> 60 -> 53)
+ *   0x004724a0  DrawPopUpInfo       962/962 instructions, 3141/3141 bytes,
+ *                                   13 mismatches
+ *                                   (886 -> 705 -> 398 -> 60 -> 53 -> 13)
  *                                   (see its note)
  *
  * ---------------------------------------------------------------------------
@@ -819,54 +820,65 @@ extern char* strcat(char*, const char*);
  *      ternary, `box.left` as the strip variable, arm order, nested ifs,
  *      `>` instead of `<`, a `short` left, a `Pos pt` copy -- is 60-141.
  *
- * WHAT IS LEFT, precisely.  Original worker head after the two bloke calls:
- *      mov eax,[py]; mov ebx,edi; sub ebx,ebp        ; w
- *      lea ecx,[eax+edx*4+0x63]                       ; bottom (NEW register)
- *      mov eax,ebx; cdq; sub eax,edx; sar eax,1       ; halfw = w/2 FIRST
- *      mov [esp+halfw],eax                            ; stored AT THE DEF
- *      mov edx,[py]; lea eax,[ecx+edx+0x23]           ; bottom + top
- *      mov ecx,[esp+halfw]                            ; halfw RELOADED
- *      cdq; sub; sar; mov [esp+ty],eax; add eax,0x22  ; ty, ty+0x22
- * i.e. halfw is computed before the midpoint and is memory-resident between
- * its def and its push (spilled everywhere), the midpoint takes eax over it,
- * and `bottom` keeps ecx.  Ours (`ty` then `halfw` in the source) computes
- * the midpoint first with `bottom` in place, then halfw in eax straight into
- * its push and a sunk home store.  With `halfw = w / 2` textually BEFORE
- * `ty = ...` (any of the 84 valid orderings of the seven head statements,
- * all measured) VC6 emits the first six instructions exactly as the original
- * and then makes the OTHER choice: it keeps halfw's pre-`sar` partial in
- * ecx, defers the `sar` to the push and spills `bottom` to a NEW frame slot
- * (frame 0x444, 421 mismatches).  Whichever of {halfw, bottom} loses the
- * register also decides the global spill-home order: the two probes that
- * take halfw out of the register race -- `volatile int halfw` (A3) and
- * computing halfw between the two bloke calls (Vi, halfw then crosses
- * GetBlokeAgeGroup and is spilled at its def) -- both give the ORIGINAL's
- * order for has_life/cond/cls, px/show_delete2 and show_mech/show_gardener,
- * with only halfw/ty/mood themselves placed elsewhere; neither is a
- * candidate (964 instructions / calls moved).  So the lever wanted is
- * whatever lowers halfw's priority below the `bottom` temporary's without
- * moving code.  Measured and INERT (byte-identical to the current text):
- * renaming any local; `w / 2` written textually in both calls; a named
- * `ty2 = ty + 0x22`; a named `mid`; `ty` as two/three statements; block-
- * scoping any of mood/cond/halfw/ty/w; `unsigned`/`long` halfw, ty or w and
- * `(long)` casts (same-width conversion is NOT a barrier here); one-element
- * arrays and one-member structs (promoted); `int* p = &halfw; *p = ...`,
- * `static __inline` helpers taking `int* out` or with their own address-
- * taken local (all un-escaped); a dead `halfw = 0` / `ty = 0` at the top.
- * Measured and WORSE: every halfw-before-ty ordering (374-570); the same
- * with `volatile` (73, +2 instructions); degenerate `if (c) halfw = w/2;
- * else halfw = w/2;` on mood/cond/lines/w/has_life (398-771, VC6 does not
- * merge them here); `box.bottom += box.top` / `box.top += box.bottom` sum
- * reuse (527); `bottom`/`top` inline in the midpoint (387/770); halfw from
- * `lines` (535); `ty -= 0x20` inside the arms (385); `unsigned w` (371).
- * Slot facts for whoever continues: spill homes are handed out in priority
- * order low-to-high with first-fit reuse of a dead home (ty shares 0x10 with
- * frac, the int-to-float staging temps reuse cond's and cls's homes once
- * they die), so a single allocation flip in the worker head re-sorts the
- * whole frame; declaration order and names are irrelevant under /O2.
- * Tooling: scratchpad/popup/vb.py (patch-batch runner, -v keeps the
- * listings), slotmap.py (prints the frame-home map of a listing), dp_v16..29
- * are this pass's variant sets.
+ * WHAT IS LEFT, precisely (53 -> 13, this pass).  The 962-instruction body
+ * is now byte-identical for indices 0..589 and 604..961; the whole residual
+ * is the 14-instruction window 590..603, the argument block of the first
+ * kind-0x306 PrintCachedText.
+ *
+ * WHAT CLOSED 40 OF THEM.  Two changes together, and only together:
+ *   (a) `halfw = w / 2;` written BEFORE `ty = (box.bottom + box.top) / 2;`
+ *       (the H1 ordering earlier passes measured at 374-570 on its own), and
+ *   (b) a `volatile` READ of halfw at its FIRST use site --
+ *       `PrintCachedText(..., *(volatile int*)&halfw, 0x14, ...)`.
+ * (b) is the LFDrop_Place / BoatingSchool_Tick lever, and it is NOT the same
+ * thing as the `volatile int halfw` declaration an earlier pass measured at
+ * 73: declaring the variable volatile makes the STORE volatile too and adds
+ * instructions, whereas a volatile read at one use leaves the definition an
+ * ordinary store, makes the variable address-taken (VC6 does not un-escape
+ * this one) and therefore memory-resident, and forces the reload.  With it
+ * the original's `mov [esp+0x40], eax` spill AT THE DEF, the `bottom`-in-ecx
+ * allocation, the second call's plain reload at index 608, and the ENTIRE
+ * global spill-home order (has_life/cond/cls, px/show_delete2,
+ * show_mech/show_gardener, ty/frac/mood and the int-to-float staging temps)
+ * all come out exactly right -- the 41 offset-only differences the previous
+ * note described are gone, and the body is now 3141 bytes, matching.
+ *
+ * THE REMAINING 13.  Original:
+ *      590 mov ecx,[esp+0x40]   ; halfw reloaded FIRST, before any push
+ *      591 push 0x11
+ *      592 cdq / 593 sub / 594 push 2 / 595 sar   ; ty
+ *      596 mov [esp+0x20],eax   ; ty stored
+ *      597 add eax,0x22 / 598 push 0x14 / 599 push ecx(halfw)
+ *      600 push eax / 601 push ebp / 602 push 0x8e
+ *      603 mov [esp+0x64],eax   ; ty+0x22 spilled LAST, after every push
+ * Ours computes ty first, spills ty+0x22 before `push 0x14`, and reloads
+ * halfw last, immediately before its push.  Both differences have ONE cause:
+ * VC6 will not hoist a VOLATILE load, so our reload is pinned at the argument
+ * position while the original's is an ordinary load the scheduler lifts to
+ * the top of the block.  So the shim is now the only thing in the way, and
+ * what is wanted is a plain-C construct that makes halfw memory-resident from
+ * its definition with ORDINARY loads at both uses.
+ *
+ * MEASURED AND RULED OUT THIS PASS (all on the new baseline -- the re-run
+ * rule matters here, several of these were inert before (a)+(b)):
+ *   - the volatile read at use 2 only (416), at both uses (21), on `ty`
+ *     (560), on `w` (536);
+ *   - reading the volatile into a named temp before or after the `ty`
+ *     statement (430 / 519, and 964 instructions -- the temp costs two);
+ *   - a DEAD bare `*(volatile int*)&halfw;` statement, before or after the ty
+ *     statement, with plain reads at both uses (574 / 573) -- it emits a real
+ *     load and does not make the uses ordinary;
+ *   - spelling the midpoint inline in one or both argument lists (13, no
+ *     change), a named `ty22` (13), `0x22 + ty` (13), `halfw = w; halfw /= 2`
+ *     (13), `(box.right + box.left) / 2` in call 2 (13);
+ *   - carrying the SUM in `ty` and dividing at every use -- semantics
+ *     preserved -- (13).  NOTE: the same edit WITHOUT fixing the six sprite
+ *     sites scores 9 and gets indices 591..595 exact, but it is semantically
+ *     wrong (it feeds the sprites 2*ty); the 9 is not reachable honestly, and
+ *     the reason it wins is that the division then happens inside argument
+ *     evaluation.  That is the shape to aim for.
+ *   - wrapping either or both PrintCachedText calls in a `static __inline`
+ *     forwarder so its arguments become temporaries (360-567).
  *
  * Still true from earlier passes: the two ride cases share one tail (VC6
  * cross-jumps case 0x10c into case 0x10b at the `call GetString`); `top` is
@@ -877,7 +889,7 @@ extern char* strcat(char*, const char*);
  * does an empty `default:`.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3139 vs 3141 bytes, mismatch=886->705->398->60->53 by audit.py; one allocation choice in the kind-0x306 worker head -- halfw is spilled at its def before the midpoint in the original, kept in eax after it in ours -- and the spill-home order it drags along; first diff at index 25)
+// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3141/3141 bytes, mismatch=886->705->398->60->53->13 by audit.py; exact except indices 590..603, the first kind-0x306 PrintCachedText argument block -- the volatile shim that spills halfw at its def cannot be hoisted, so its reload sits at the push instead of at the top of the block; first diff at index 590)
 void DrawPopUpInfo(void)
 {
     char    name[256] = {0};
@@ -1073,9 +1085,13 @@ void DrawPopUpInfo(void)
         box.top = py + 0x23;
         box.bottom = py + lines * 20 + 0x63;
         w = box.right - box.left;
-        ty = (box.bottom + box.top) / 2;
         halfw = w / 2;
-        PrintCachedText(GetString(0x8e), box.left, ty + 0x22, halfw, 0x14,
+        ty = (box.bottom + box.top) / 2;
+        /* The volatile read is a SHIM (see the residual note above): halfw
+         * must be spilled at its definition and reloaded at each use, which is
+         * what the original does and what no plain-C spelling reached.  It
+         * changes nothing semantically. */
+        PrintCachedText(GetString(0x8e), box.left, ty + 0x22, *(volatile int*)&halfw, 0x14,
                         2, 0x11, 0xff0000, 0xffffff);
         PrintCachedText(GetString(0x8f), (box.left + box.right) / 2, ty + 0x22, halfw, 0x14,
                         2, 0x11, 0xff0000, 0xffffff);

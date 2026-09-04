@@ -67,8 +67,8 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-04: 1540 functions at 100%** — 664 of the 675 code exports
-(98.4%) plus 876 recovered unexported functions, together **44.3% of the
+**As of 2026-09-04: 1542 functions at 100%** — 665 of the 675 code exports
+(98.5%) plus 877 recovered unexported functions, together **44.4% of the
 game's ~628 KB of code** (`python3 tools/coverage.py`; 51.3% including
 partials).
 `SaveGame` and `LoadGame` are both exact so the whole `.sav` format is
@@ -76,7 +76,7 @@ documented and reproduced; `tri3d.c` reproduces the software 3D renderer;
 `docs/RIDE_CALLBACKS.md` names 265 ride callbacks and which object slot each
 fills. See `docs/HANDOFF.md` for the session checkpoint and what to do next.
 
-11 exports remain, every one a genuine partial carrying its measured residual
+10 exports remain, every one a genuine partial carrying its measured residual
 and first diverging instruction index in a note above its marker. (Until
 2026-09-03 another 14 exact exports — and 48 exact internal functions — were
 held at `// WIP-FUNCTION:` only because `tools/match.py` stopped at the first
@@ -89,15 +89,15 @@ for the live list.
 
 | measure | tool | value |
 | --- | --- | --- |
-| exported functions matched | `tools/remaining.py` | 664 of 675 (98.4%) |
+| exported functions matched | `tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `tools/callees.py` | moves both ways — the frontier, not progress |
-| **bytes of game code matched** | **`tools/coverage.py`** | **44.3% (51.3% with partials)** |
+| **bytes of game code matched** | **`tools/coverage.py`** | **44.4% (51.3% with partials)** |
 
 The first two are both true and both misleading on their own.
 
 **Exports are a fraction of the game.** They are only the symbols the linker
-exposed; 1540 functions are matched but just 664 of them are exports. Quoting
-98.4% as "the project is nearly done" is wrong by a wide margin.
+exposed; 1542 functions are matched but just 665 of them are exports. Quoting
+98.5% as "the project is nearly done" is wrong by a wide margin.
 
 **The unmatched-callee number moves in both directions.** Every newly matched
 file declares `extern`s for its own callees, so a productive round can RAISE
@@ -1229,6 +1229,319 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   hoists them together; the shift spelling breaks the grouping and delays the
   high-byte read past an intervening load (what the original does) but lowers
   to `xor r,r / mov r8,[slot+1]`, one instruction too many.
+
+- **METHOD FIRST: before grinding a residual, scan the already-matched corpus
+  for the same instruction shape.** `screen.c`'s `__BMPLoader` carried both
+  the idiom and the lever that closed `LoadPalette` (32 -> 0) in ten minutes,
+  after statement-permutation searches had failed elsewhere. Scanners:
+  `scratchpad/sweep1/scan_argcopy.py` (mines exact bodies for `mov rB,rA /
+  push rB`), `scan_exit.py`, `scratchpad/misc3/scan_const.py`. This is the
+  highest-yield first move on any residual whose shape looks unreachable.
+- **The signedness of a 16-bit STORE decides the width of a mask feeding it**
+  (`LoadPalette`). `unsigned short*` makes VC6's narrowing pass take a
+  channel's `& ~7` down to the 16-bit operand width (`and edx,0FFF8h`);
+  `short*` leaves it 32-bit (`and edx,-8`). No spelling of the mask reaches
+  it — every `K` canonicalises to one node before the narrowing pass runs.
+  **The RGB565/555 pack idiom:** red an `unsigned short` local, green and blue
+  `unsigned char` locals masked at their declarations, and the pack spelled
+  with MULTIPLIES — `(((r & ~7) * 32) | g) * 8 | b`. The multiply widens the
+  byte before masking; `<< 5` masks the byte instead.
+- **In an inlined helper body, the FIRST `param + global` sum takes the
+  parameter temp's register as its destination and the SECOND takes the
+  GLOBAL's** (proved both ways by mirroring the body). **A two-argument inline
+  helper turns both argument expressions into temps evaluated before the body
+  runs**, freeing the scheduler to hoist an independent `lea` and a second
+  global load — that made seven instructions exact where ~110 statement
+  permutations could not.
+- **VC6 routes a compiler TEMP through a register copy before a SPILL but not
+  before a PUSH**; a named local is spilled straight from eax. **A literal-zero
+  return flips scratch allocation in a small list-walk predicate:** with a
+  return-coalesced pointer web the cursor takes eax and the loop-local temp
+  ecx; with any literal zero they swap. Binary, and immune to ~150 spellings.
+
+- **RE-RUN every placement/permutation search after ANY other change.** In
+  `Balloonz_Tick` the same 128-placement zero search and 720-order copy-in
+  search were INERT on the previous baseline and DECISIVE after an unrelated
+  fix (78 -> 5). Each lever moves the landscape; a search that failed once is
+  not evidence it will fail again.
+- **Two loops that copy the same record fields in and out are ONE set of
+  function-level locals, not two block-local sets.** Diagnostic: the same
+  frame home appears in both regions. Hoisting exactly those locals above both
+  blocks made a whole pass byte-identical in one step. Locals whose
+  ALLOCATION differs between regions (one spilled, one enregistered) must stay
+  block-local.
+- **Two or more zero stores visible together always become `xor r,r` plus
+  register stores.** An intervening aliasing store, a surviving branch, a loop
+  and address-taking do NOT split them; only a CALL between them does, and a
+  DEAD zero store to an address-taken aggregate is emitted as an immediate.
+  The usable lever is maximal source separation — first statement of one block
+  and last of another; all 128 placements measured, only the two extremes work.
+- **VC6 hoists every local aggregate initialiser to the prologue**, its
+  template loads sitting BETWEEN the callee-saved pushes; no scope,
+  declaration order or statement placement moves it (10 spellings). So an
+  initialiser-store schedule residual is a scheduler priority, not source
+  order.
+- **`mov byte ptr [esp+N], al` then `movsx eax, al` on a call result means a
+  SIGNED `char` local** — not `int`, and not `unsigned char` (which
+  round-trips through the home). **Frame arithmetic recovers struct sizes:**
+  following control flow THROUGH the .rdata jump table while tracking esp
+  gives an exact slot map — that pinned `Vec3` (the origin `NewBNVPath` takes)
+  at 12 bytes with the third int never written.
+- **A `volatile` shim at the one site where the ORIGINAL reloads from memory
+  can flip an entire callee-saved assignment**, but it takes the local's
+  address and so removes a neighbouring variable's spill home. Valuable as a
+  direction-confirming probe even when it cannot be committed.
+
+- **A committed `volatile` shim can go STALE and become the dominant error.**
+  On the Plane a shim that had been buying a spill was worth -52 once the y
+  chain was right, and removing it also fixed a three-way head rotation and a
+  2-byte deficit. RE-TEST every previously-committed volatile or shim after
+  any structural change — same discipline as re-running permutation searches.
+- **A commutative sum accumulates in the VARIABLE's register only if the
+  first operation on it is in place.** `v2 = v + (M - f())` makes the
+  parenthesised delta a rank-1 temporary, so `v2` coalesces with it and the
+  chain runs in a scratch register; split into `v2 = v - f(); v2 += M;` and
+  the first op is in-place, `v2` coalesces with `v`, and the chain runs in
+  `v`'s callee-saved register. Value identical; ~40 isolated spellings (named
+  delta, `int d[2]`, struct field, `short`, volatile either side, all six
+  textual orders) are inert because VC6 forward-substitutes a named delta back
+  into a temporary first.
+- **The empty `if (v) { }` is also a FLATTEN breaker for a chain of later
+  `-=` on the same variable**, not just for `(X+c1)-c2`; without it VC6
+  re-sorts the later subtractions into the original sum.
+- **Cache a pointer field in a local FOR ONE STORE ONLY.** A store to an
+  escaped local is a schedule barrier for a pointer load, so `p = b->person;`
+  before the escaped stores hoists exactly the one load the original hoists;
+  using `p` for the second store too is much worse, because the original
+  really does reload after a store through the pointer.
+- **An order-independent flag store is a schedule lever whose sign FLIPS with
+  the surrounding shape** — the same `b->flags |= 0x80;` had to sit above the
+  subtractions while the y chain reassociated and below the seed stores once
+  it was right (worth -21 and -8).
+- **Two grouped `movsx` of adjacent short fields: the emitted STORE order
+  always follows source order and the two LOADS always come out in the
+  OPPOSITE order** — every spelling measured gives one or the other, never
+  both. A recorded 2-mismatch residual on three rides. **A four-statement
+  shift block feeding one call is order-sensitive:** only one of the 24 orders
+  reproduces the interleave with the argument pushes (worth 19 and 7).
+- **The stub-each-case diagnostic works on non-switch-phase problems too** —
+  stubbing each case body in turn localised a loop-head rotation to one case
+  in a single run.
+
+- **METHOD, calibrated: for a function with EQUAL instruction counts and a
+  large mismatch, build the frame map FIRST.** It separates "wrong frame" from
+  "wrong code" in one step. Corpus-scan-first (recorded above) closed a
+  function in ten minutes on one shape but a later lane ran it on four
+  functions and it helped on NONE — a scanner for the exact blocking shape
+  found three hits in the whole matched corpus and none was the idiom. Use
+  both, in this order: frame map, then corpus scan, then permutation search.
+  Tools: `scratchpad/sweep2/fm.py` (entry-relative slot map from an sbs
+  listing), `sbs.py` (`--rb` register-blind, `--only-diff`).
+- **A spilled scalar that must sit at the TOP of the frame is the `.y` of an
+  aggregate whose `.x` is never referenced.** A plain `int` local is
+  lifetime-coloured onto whatever pool home just died (an x87 `fild` staging
+  slot, say) and renumbers every `[esp+N]`; making it a member of a
+  function-level 2-int struct puts it in the aggregate pool and leaves the
+  sibling dword as the classic unreferenced frame home. Read-side companion to
+  the `*(volatile int*)&spill.x` trick.
+- **Two address-taken `Pos` locals in disjoint blocks do NOT share a pool home
+  when a third address-taken local declared in an enclosing block is live
+  across them** — the cure is to reuse ONE local for both roles, not to
+  re-scope them.
+- **Where a `goto`-skip label sits relative to a trailing test decides whether
+  a constant-0 register web spans the loop.** Moving a test BELOW the label
+  (so skipped items still run it) made 0 live across the whole loop:
+  `xor edx,edx` in the preheader, a remat where the body clobbers edx, and
+  `cmp r,edx` replacing `test r,r` at eight sites — 30 instructions in one
+  edit. **A `= 1` store is `mov [mem],1` when the constant is not live-out of
+  that block and `mov r,1 / mov [mem],r` when it is**; comparing a flag
+  against the constant keeps the web alive through the join, where degenerate
+  branches, dead stores and named `one` locals are all folded away.
+- **A same-width `unsigned` conversion can re-rank operands of a multi-term
+  sum** (worth 2 once) but was inert on equivalent sums elsewhere — a thing to
+  try, not a rule. **Data:** the original is not uniform about
+  `waypoint + (cell << 8) + K`; X sums put the waypoint first in the closing
+  `lea` and Y sums put the cell first, tracking which value the emitted stream
+  defines first.
+
+- **METHOD, second calibration — the two lanes that tried corpus-scan-first
+  DISAGREED, and the difference is the shape.** It paid nothing on four
+  scheduling/frame residuals, and paid immediately on three
+  register/idiom residuals (recovering `GetObjectUID`'s exact mechanism from
+  matched twins after three passes had only guessed, and DISPROVING the
+  standing liveness explanation for `LFEntrance_Activate`). Rule of thumb:
+  frame map first when instruction counts match but the mismatch is large;
+  corpus scan first when the residual is a register choice or an unexplained
+  instruction shape. Both are cheap. Reusable scanners now exist:
+  `scratchpad/sweep4/scan_pad.py` (one-instruction landing pads — 49 in the
+  corpus), `scan_dupload.py` (duplicated two-arm materialisations — 5),
+  `scan_lea3.py` (three-register `lea` sums — 47), plus sweep1's and misc3's.
+- **The map-pointer landing pad is live-range splitting with EDGE
+  rematerialisation.** A bounds-checked cell probe's `mov r,[g_map]` before
+  the sign test, with some edges jumping past it, is one value whose live
+  range the allocator split; the reload always lands on the EDGE, never at the
+  use. It appears when the load's block dominates the later probes, or the
+  value is loop-invariant, and it cannot be reached when an `if (x >= 0)`
+  guard denies that dominance — a `Map*` local is copy-propagated and VC6
+  remats per use-block instead.
+- **A NON-EMPTY else arm is what makes VC6 duplicate a spill reload into both
+  arms** instead of hoisting it into the dominator; with an empty arm the
+  reload is always hoisted. No zero-code statement keeps such an arm alive:
+  `;`, `n = n`, identities, `(void)x`, dead locals, `while (0)`, `if (v) {}`,
+  empty inline calls, `switch (0) {}`, labels and goto-transcriptions are all
+  folded before layout.
+- **Integer casts create NO IR tuple** — unlike `(float)` on a float product,
+  `(int)`, `(unsigned)` and pointer/int casts are byte-identical no-ops, so
+  they cannot move a scheduler window boundary or advance the scratch
+  rotation. **A named local for ONE of several field arguments at a call is a
+  scheduler lever** (it changes which dependency-free root is hoisted into the
+  preceding stall slot). **A byte-typed loop counter lowers its web's
+  allocation priority enough to flip a callee-saved tie** — useful as a probe
+  even when the widening cost makes it wrong.
+- **`add` vs a three-register `lea` is NOT always a liveness question.** The
+  corpus has 47 three-register `lea`s; the closest analogue genuinely has both
+  operands live past the sum, but in `LFEntrance_Activate` neither is and the
+  `lea` exists only because the addend is in the wrong register. Diagnose the
+  LOAD ORDER before hunting for a use that keeps an operand alive.
+
+- **A `volatile` READ at ONE use (`*(volatile T*)&x`) is a different and far
+  stronger lever than declaring the variable `volatile`.** It leaves the
+  definition an ordinary store, makes the local address-taken in a way VC6
+  does NOT un-escape (unlike `int* p = &x; *p`), and forces spill-at-def plus
+  reload-at-use. Two independent wins in one round (53 -> 13, 82 -> 58).
+  **Its exact cost: VC6 never hoists a volatile load**, so the reload is
+  pinned at its source position. When the ORIGINAL's reload sits at the top of
+  a block (an ordinary load the scheduler lifted), the shim can close the
+  allocation but never the schedule. Diagnostic: if a volatile-read variant is
+  exact everywhere except that one reload's position, STOP looking for a
+  better volatile placement.
+- **`memset` on the LAST group of zero stores splits a constant-zero web's
+  live range** — it creates a destination-address temp, ends the zero web at
+  the final store and frees eax for the next argument load, re-phasing the
+  scratch rotation for the rest of the function (worth 87 of 102 in
+  `JungleCruise_Add`). Applied to an EARLIER group it is worth nothing.
+- **Three closed families, do not re-derive:** VC6 does not coalesce adjacent
+  byte stores (four byte stores emit four instructions, so "buy a byte-class
+  use by splitting a dword store" has a floor of +1); `if (const == 0) { }` is
+  folded at the front end, so the empty-body-if creates a no-code consumer
+  only for a live register temp, never for a compile-time constant; and
+  constant carriers are always propagated away under /O2 (every integer type,
+  initialiser or assignment, any placement, and via an int temp). VC6 also
+  canonicalises `x + (-K)`, `x - K`, `x + ~(K-1)`, `x + (0-K)` and `n -= K` to
+  ONE sub node, so `add reg, -K` is not reachable from C.
+- **An `unsigned char` local loses a two-way callee-saved tie-break to another
+  `unsigned char`** even with strictly more, loop-nested references; retyping
+  the winner `int` flips it. Type, not spelling, is what the allocator ranks.
+- **Corpus-scan calibration, third data point:** decisive on one function
+  (a scan for `mov [esp+N],rA` then `mov rB,[esp+N]` within four instructions
+  returned two twins and reframed the residual as "this variable is
+  memory-resident", which pointed straight at the volatile-read lever), partly
+  useful on one, and NEGATIVELY useful on two — a scan finding no instance in
+  1541 exact bodies is real evidence the shape is rare and the hypothesis
+  wrong. Cheap either way; run it.
+
+- **VC6 sorts a flattened commutative `+` chain in DESCENDING DEFINITION
+  ORDER (latest-defined addend added first), after forward-substituting every
+  scalar temp** — which is why operand permutations, parentheses and casts are
+  all inert against it. **Cure: write the sum's leading pair into a field of a
+  non-address-taken aggregate** (`Pos t; t.x = origin + ox; b->sx = t.x +
+  ofs.x + scr.x;`). Merely holding the OPERANDS in an aggregate is inert; it
+  must be a partial sum. **The protection is contiguity-scoped:** a struct's
+  field assignments are protected only up to the first READ of any of its
+  fields, so one `Pos` cannot carry two sums separated by a store — two
+  two-field aggregates can, and a ONE-field aggregate is completely inert
+  (the second field must carry a real value).
+- **Pinning the ONE shared `return 0` block to the FIRST guard needs both
+  halves** (`SaveScripts`, 130 -> 0): the first guard's failure spelled
+  `goto fail;` (its only goto source, so the label block lands right after it)
+  AND `fail: return 0;` as the LAST statement in the function, because the
+  surviving `xor eax,eax` copy is placed at the last `return 0` statement.
+  Loop failures must stay plain `return 0;`.
+- **A forward `goto` out of an if-arm's last guard buys back an inline
+  epilogue and moves the join after the else arm:** `if (cond) goto joint;
+  return;` in place of `if (!cond) return;` gives `je <joint>` plus a full
+  inline epilogue — worth exactly the six instructions `StepSchoolCar` was
+  short.
+- **Diagnostic: the OFFSET-BLIND distance** (all `[esp+N]` collapsed)
+  separates frame numbering that merely follows from another decision from
+  real structure — it showed ~72 of 182 mismatches were pure numbering
+  downstream of one spill flip.
+- **Data:** the original spills a scalar temp to a later local's home and
+  immediately overwrites it — a dead store, and direct proof VC6
+  lifetime-colours a temp onto a slot a later local takes.
+
+- **The `imul` rank rule's missing half.** The ENTIRE exact corpus contains
+  exactly ONE `mov r,reg / imul r,[mem]` (`SoftPrint_XBltFast`), and its
+  register operand is a value LOADED FROM MEMORY for an earlier product — a
+  rank-1 temporary. So the "spell the twin product commuted" lever only works
+  when the register operand is a loaded value; against an enregistered
+  induction variable operand order is completely inert (16 combinations
+  measured). That is why `JcBoat_Animate` stays at 3.
+- **The constant-web trigger is sharper than first recorded:** the compare's
+  immediate survives exactly when the constant needs NO register in the arm —
+  one register materialisation is enough to form the web, so the earlier "two
+  register uses" threshold is too loose. **Register occupancy breaks the web
+  outright:** hoisting an unrelated computation so eax is busy across the
+  compare keeps the immediate and reaches the original's exact 43
+  instructions / 144 bytes (`ClampPopUpToScreen`, probe).
+- **An aggregate initialiser is never hoisted out of a loop**, and putting the
+  fill inside an `if (r) { .. }` guard moves its template loads out of the
+  callee-saved push run into the preheader. **The empty-`if` no-code tuple
+  creates no SCHEDULER tuple at all** (ten placements byte-identical) — it is
+  a fold/consumer lever only, not a scheduling one.
+- **Two residuals are FAMILY-WIDE, not per-function** (scan evidence, not
+  guesswork): the "copy of a dead, rematerialisable loaded value feeding a
+  store or push" shape occurs exactly twice in the whole repo — `RequestRoute`
+  and `InsertChildIntoList` — and ZERO times in the 1542 exact bodies. Whatever
+  explains one explains both; do not attack them separately.
+
+- **The BNV-ride y chain's SOURCE SHAPE is solved (register assignment is
+  not).** The original is ONE web with a compound assignment:
+  `sy2 = (wx + wy) * th >> 9;` then `sy2 += g_map_cfg->oy - Get_YScroll();`
+  — no separate `sy`. It reproduces the disputed indices exactly and is
+  strictly better register-blind, but costs a three-cycle rotation of the
+  callee-saved registers over the whole block, so it is documented and NOT
+  committed. ~130 variants all score identically: it is not reference counts
+  and not the number of names, but whether the scroll subtraction is itself an
+  in-place op on the long web. Corpus evidence for the shape: a scan for
+  `sub <scratch>,<scratch>` followed within three slots by
+  `add <callee-saved>,<that scratch>` returns exactly two hits in the whole
+  matched corpus, both `param += expr`.
+- **Two adjacent `short` fields doubled into an escaped struct: read BOTH into
+  int temps first and put the doubling at the STORE** (`int px = b->dx; int
+  py = b->dy; pos2.x = px*2; pos2.y = py*2;`). That groups the two `movsx`
+  ahead of the two shifts; per-component spelling interleaves load/shift/store,
+  and PRE-doubled temps tail-duplicate and ESCAPE the extent.
+- **A named `RideTile* tile = RIDE_TILE(r);` local produces an
+  edge-rematerialised `lea`, a CSE that survives across a jump table, and
+  kills a function-wide zero web** — three original signatures from one edit.
+- **The stub-each-case diagnostic can return a NEGATIVE and that is useful:**
+  a loop cursor landing in the same register across all nine stubbed variants
+  rules out "some case's pressure" as the cause of a swap, in one run.
+
+- **A commutative `add` chain's DESTINATION is chosen BEFORE the sort** —
+  this is the generalisation the descending-definition-order rule was missing.
+  VC6 makes the compiler TEMPORARY the destination if the sum contains one,
+  otherwise the EARLIEST-DEFINED symbol; the remaining addends are then added
+  in descending definition order.
+- **The partial-sum aggregate is a TWO-ATTRACTOR lever and the second
+  attractor can be worse.** It reliably restores source addend order, but it
+  also relocates the whole eax/ecx/edx rotation of that block: every flat
+  spelling compiles to one object and every aggregate spelling to another,
+  with ~30 measured into each. On `JungleCruise_UpdateRiverAnim` it fixed the
+  order and lost on every metric (111 -> 306). Measure register-blind AND
+  offset-blind distance before adopting it.
+- **`x = byte << 8` as a STANDALONE assignment gets a two-instruction peephole
+  (`xor r,r / mov rh, byte ptr [mem]`); the same expression as a subexpression
+  of a larger sum gets the three-instruction `xor / mov rl / shl 8`.** So
+  "name the value" and "keep the instruction count" are mutually exclusive for
+  that idiom — the open obstacle on `OctopusCafe_Tick`.
+- **A loop-carried pointer's `++` belongs in the for-increment, not the body's
+  last statement** — it moves the `inc` past the latch's other ALU ops.
+- **RE-RUN STALE SWEEPS, again:** two of one lane's three improvements came
+  from re-running searches a previous lane had recorded as exhausted, whose
+  numbers no longer held on the current baseline. Treat every "measured, all
+  inert" note as valid only for the baseline it was written against.
 
 Recorded so they are not re-derived; several cost hundreds of measured variants:
 

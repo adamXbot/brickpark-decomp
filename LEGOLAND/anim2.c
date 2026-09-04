@@ -9,7 +9,7 @@
  * global addresses are load-bearing, the names are ours.  Types are defined
  * LOCALLY on purpose (legoland.h is owned elsewhere).
  *
- *   0x00418fe0  BoatingSchool_DrawBoats  212/212 insns   [WIP, 111 mismatches]
+ *   0x00418fe0  BoatingSchool_DrawBoats  212/212 insns   [WIP, 32 mismatches]
  *   0x0041bab0  BsWater_Relink           230/230 insns   [OK]
  *   0x00413650  Road_Restitch            284/284 insns   [OK]
  *   0x004334c0  JcBoat_Step              294/294 insns   [OK]
@@ -145,20 +145,53 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * state 0x10 is always drawn when mode != 0.
  * ========================================================================= */
 
-/* 212/212 instructions and 745/744 bytes; the frame layout (0x2c, with the
- * screen-position aggregate at the top and ONE pooled Pos home shared by the
- * sprite offset and the bloke position) is the original's exactly, and the
- * first 88 instructions match index for index.  The whole residual is one
- * reassociation: the original accumulates the two screen coordinates as
- * `origin + ox + ofs + scr` while this emits `origin + ofs + scr + ox` (the
- * wobble offset added last), which then reschedules the interleaved PrintSprite
- * `push 0`s and the argument reloads after it.  Every spelling of the two
- * expressions -- all 4! operand permutations, explicit parentheses, a temp for
- * `origin + ox` -- produces byte-identical code, so the order is decided by
- * where `ox`/`oy` are BORN, not by the statement; moving their definition
- * later reschedules the imuls and is much worse (185).  Behaviour, record
- * layout and paint order are all reconstructed. */
-// WIP-FUNCTION: LEGOLAND 0x00418fe0  (212/212 insns, 111 mismatches; the `+ ox` reassociation at index 88)
+/* 212/212 instructions and 744/744 BYTES, 32 mismatches (was 111), first
+ * diverging index 82.  The frame layout (0x2c, with the screen-position
+ * aggregate at the top and ONE pooled Pos home shared by the sprite offset and
+ * the bloke position) is the original's exactly.
+ *
+ * WHAT CLOSED 79 OF THE 111.  VC6 flattens `origin + ox + ofs.x + scr.x` and
+ * sorts the addends in DESCENDING DEFINITION ORDER (the latest-defined operand
+ * is added first), which put the wobble offset LAST where the original adds it
+ * FIRST; every operand permutation, parenthesisation and cast is inert against
+ * that sort, because it happens after forward substitution has folded every
+ * scalar temp into one flat sum.  The cure is to write the sum's leading pair
+ * into the fields of a NON-ADDRESS-TAKEN aggregate, which defeats the forward
+ * substitution and lets the source order survive (the `IsAdjacentPos` lever,
+ * applied to a PARTIAL SUM rather than to the operands -- merely holding
+ * `ox`/`oy` or `ofs.x`/`ofs.y` in an aggregate is completely inert).
+ *
+ * The protection has a rule of its own, measured here: a struct's fields are
+ * protected only while its assignments are CONTIGUOUS, i.e. only up to the
+ * first READ of any field.  So one `Pos` cannot carry both screen sums --
+ * `t.x = origin_x + ox; b->sx = t.x + ..; t.y = origin_y + oy; b->sy = ..`
+ * scalarises `t.y` again (38), and assigning both fields up front protects
+ * both but then issues ONE `g_map` load for the two coordinates where the
+ * original reloads it after the `b->sx` store (39).  TWO aggregates of two
+ * fields each -- `t.x = origin_x + ox; t.y = ofs.x;` then `u.x = origin_y +
+ * oy; u.y = ofs.y;` -- give both sums the original's addend order AND its two
+ * `g_map` loads: 38 -> 32, and the byte length becomes exact.  A one-field
+ * aggregate is inert, so the second field must carry a real value; `scr.x`
+ * instead of `ofs.x`, a third field for `scr.x`, swapped field names, swapped
+ * t/u roles, and both assignment orders within a pair are all byte-identical.
+ *
+ * RESIDUAL (32 strict, 22 register-blind), three clusters, all downstream of
+ * one eax/ecx/edx rotation at index 82: the original loads `g_map` into edx,
+ * `ofs.x` into eax and accumulates in ecx, where this build uses ecx, edx and
+ * eax; it also loads `ofs.y` at index 87 (before the `b->sx` store) and
+ * RE-LOADS `b->sx` from memory for the hull PrintSprite where we still have it
+ * in a register; and the two bloke-position sums (134-141) still add `ox`/`oy`
+ * last -- the same sort, but the partial-sum aggregate costs an instruction
+ * there (41) because `ofs` is escaped, so it is not applied.
+ * Re-measured on this baseline and inert: naming `ofs.x`/`ofs.y` as int locals
+ * before the sums; hoisting `ofs.y`'s read above the `b->sx` store; locals for
+ * the PrintSprite coordinates or for the sprite pointer; `ox`/`oy` at function
+ * level; a 3-field struct; writing `scr` as two ints (frame shrinks to 0x28,
+ * so `Pos scr` is confirmed).
+ * The twin, junglecruise.c's JungleCruise_UpdateRiverAnim (0x00432d00), was
+ * sitting on exactly the same 111 and the same cause -- the two-aggregate
+ * partial sum should transfer to it. */
+// WIP-FUNCTION: LEGOLAND 0x00418fe0  (212/212 insns, 744/744 bytes, 32 mismatches; an eax/ecx/edx rotation at index 82)
 void BoatingSchool_DrawBoats(int mode)
 {
     Pos     scr;
@@ -203,8 +236,17 @@ draw:
                 ofs.x = g_bs_boat_ilf->dx[b->frame[g_bs_tick] & 0xff] >> 1;
                 ofs.y = g_bs_boat_ilf->dy[b->frame[g_bs_tick] & 0xff] >> 1;
                 AdjustOffsetForViewMode(&ofs);
-                b->sx = g_map->origin_x + ox + ofs.x + scr.x;
-                b->sy = g_map->origin_y + oy + ofs.y + scr.y;
+                {
+                Pos t;
+                Pos u;
+
+                t.x = g_map->origin_x + ox;
+                t.y = ofs.x;
+                b->sx = t.x + t.y + scr.x;
+                u.x = g_map->origin_y + oy;
+                u.y = ofs.y;
+                b->sy = u.x + u.y + scr.y;
+                }
                 PrintSprite(g_bs_boat_ilf->sprites[b->frame[g_bs_tick] & 0xff],
                             b->sx, b->sy, 0, 0);
                 if (b->rider == 0)
@@ -906,6 +948,28 @@ extern TexSize g_texsize[];         /* 0x0081c0c0 */
  * looks like), computing all six u's before the v's, naming (float)tw and
  * (float)th as float locals, and moving the p->tex store -- VC6 reorders all
  * of them back to the same DAG and makes the same allocation.
+ *
+ * MEASURED AGAIN 2026-09-04, all worse or structurally wrong (best = 182 with
+ * the original's 0x30 frame): the Y group assigned before the X group (191,
+ * frame 0x24); all eight assigned before u0 (183); the p->tex store first,
+ * last or between the two groups (183-188); the tw/th reads after the X group
+ * (188); v0 computed before u0 (217); named `ftw`/`fth` float locals for the
+ * two divisors, early (168, frame 0x2c) or in place (165, 321 insns); the six
+ * results into six FRESH locals (identical, 182); the p->uv stores interleaved
+ * one per computation (156 but frame 0x2c -- fewer locals, so not the
+ * original); `p->uv[0][0] = u0;` moved last (195); srcw/dstw/dstx written
+ * inline as `(float)a->w` etc. (176, 1166/1174 bytes with the right frame, but
+ * it spills BOTH groups and reorders every conversion, so it is not the shape
+ * either).  Diagnostic worth recording: the offset-blind distance (all
+ * `[esp+N]` collapsed) is 110 for this build and no variant beat it, so ~72 of
+ * the 182 are pure frame numbering that follows from the spill flip and cannot
+ * be fixed independently.  What VC6 has to be made to do is decide, WHEN IT
+ * CREATES the X group, that ten FP values will be live -- the original spills
+ * four of the first five as it converts them and then keeps the whole second
+ * group, filling the x87 stack exactly (srcx, u0's result, the four Y values
+ * and (float)th = 7 plus one working slot); this build greedily keeps the
+ * first five and is then forced to spill all five of the second group, leaving
+ * two stack slots unused.
  *
  * Two levers that ARE settled and must not be undone: the int->float
  * conversions have to go through named float locals (written inline VC6

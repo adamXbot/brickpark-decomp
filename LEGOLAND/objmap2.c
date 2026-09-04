@@ -1276,7 +1276,49 @@ static __inline int UidHit(Cell* c, ObjDef* def, int x, int y)
  *   Left to try: something that makes rematerialising the global at the right
  *   probe UNATTRACTIVE (the original preferred a live range over a 6-byte
  *   reload), or a shape in which the vertical width/height CSE survives
- *   without the two vertical probes sharing one pointer expression. */
+ *   without the two vertical probes sharing one pointer expression.
+ *
+ * 2026-09 PASS 5.  Still 20 / 477B / 191i, but the residual is now a SINGLE
+ * register-preference decision, not a placement problem.  Tooling:
+ * scratchpad/objmap2/p5 (ut.py = the p4 harness, v1..v5.py = the sweeps).
+ *   THE PLACEMENT IS REACHABLE.  Pinning the horizontal probes' map read with
+ *   a volatile at each probe entry -
+ *       #define VMAP (*(Map* volatile*)&g_map)
+ *       m = VMAP;  c = CellM(m, y, x - 1);  ...
+ *       m = VMAP;  c = CellM(m, y, x + 1);  ...
+ *   - reproduces the original's landing pads EXACTLY: 191/191 instructions,
+ *   477/477 bytes and a REGISTER-BLIND edit distance of ZERO, i.e. the whole
+ *   instruction stream is the original's modulo register names.  It does not
+ *   lower the strict count (still 20) because it flips g_map into edx and the
+ *   width/height zero-extend temp into esi in ALL THREE probe regions - the
+ *   original has g_map in esi and the temp in edx.  One volatile pin (left or
+ *   right alone) is 17 and leaves the other probe unpinned; one pin SHARED by
+ *   both probes is 471B (VC6 keeps the volatile value live, so the second
+ *   reload disappears).  Reusing one variable, two variables, either
+ *   declaration order and pinning the vertical probes too are all 20/edit-0
+ *   or worse.  So: the missing lever is now purely "which of {the map
+ *   pointer, the zero-extend temp} gets esi", and a fix for it should be
+ *   tried WITHOUT the volatile first - in the plain body the ABOVE probe
+ *   already gets esi=g_map right, and only the two horizontal probes are
+ *   wrong.
+ *   CORPUS EVIDENCE for the mechanism (scratchpad/sweep4/scan_pad.py finds
+ *   every one-instruction landing pad in the matched corpus - 49 of them):
+ *     - roads.c Road_SetTile 0x41310d is this function's shape from PLAIN C:
+ *       four consecutive `cell = MapCellAt(pos.x, pos.y); if (cell && (cell->rf
+ *       & 1)) AdjustTileRFFlags(&pos);` statements keep ONE g_map value in edx
+ *       across all four probes, loaded BEFORE the first sign test and
+ *       rematerialised only after each call.  The load's block dominates every
+ *       probe there, which is exactly what this function's `if (x >= 0)` guard
+ *       denies;
+ *     - simcore.c GetPathNeighbours 0x45c4a8 / 0x45c593 and bigsim.c
+ *       Get_Path_Directions have the same pads from a probe MACRO with a
+ *       direct `g_map->width` read, and there the value is shared by probe
+ *       PAIRS (probe 1 loads inside its branch, probe 2 reads the pad);
+ *     - workorder2.c FindBrokenCellNear 0x49b410 gets it from a loop-invariant
+ *       hoist.
+ *   In all three the map pointer is ONE value whose live range the allocator
+ *   splits, and the reload lands on the EDGE, never at the use.  Ours emits
+ *   three loads at first use in each region instead. */
 // WIP-FUNCTION: LEGOLAND 0x0048a3e0  (89.5%, left/right probes reload g_map at its use into edx, the original at the probe entry into esi)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {

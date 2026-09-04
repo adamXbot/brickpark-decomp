@@ -110,7 +110,7 @@
  *   0x0040cc00   LFTrack_DrawNormal           28 insns
  *   0x00409040   LFPiece_LinkBefore           19 insns
  *   0x00409080   LFPiece_LinkAfter            19 insns
- *   0x00410180   LFDrop_Place                111 insns   [82 of 111 differ]
+ *   0x00410180   LFDrop_Place                111 insns   [58 of 111 differ]
  *   0x0040d3b0   LFPiece_TickCommon           22 insns
  *   0x0040cfd0   LFPiece_ScreenPos            67 insns
  *   0x0040d210   LFTrack_FindPieceAt          71 insns   [66 of 71 differ]
@@ -1207,31 +1207,87 @@ void LFPiece_LinkAfter(LFPiece* a, LFPiece* b)
 extern RideDef* g_lftr_def;             /* 0x004cbe30  LOG FLUME TRACK */
 
 /* The sub-piece constructor, as a macro: VC6 expands it three times here
- * with no call, which is how the original reads. */
+ * with no call, which is how the original reads.
+ *
+ * The `volatile` read of X is a SHIM, not the original's spelling -- see the
+ * residual note on LFDrop_Place below.  It costs nothing semantically (a
+ * volatile-qualified read of a plain local); it exists only to keep X out of
+ * the register race so the running Y wins ebx, as the original has it. */
 #define LF_MAKE_SUB(kind_, dir_)                                             \
     sub = LFPiece_Alloc();                                                   \
     if (sub) {                                                               \
         sub->kind  = (kind_);                                                \
         sub->dir   = (dir_);                                                 \
+        sub->sq.b.x = *(volatile unsigned char*)&x;                          \
         sub->run   = parent->run;                                            \
-        sub->f28   = (int)parent;                                            \
-        sub->flags |= 4;                                                     \
         sub->def   = g_lftr_def;                                             \
-        sub->sq.b.x = x;                                                     \
+        sub->flags |= 4;                                                     \
+        sub->f28   = (int)parent;                                            \
         sub->sq.b.y = y;                                                     \
     }
 
-/* RESIDUAL: 111/111 instructions, 348 of 341 bytes.  The original keeps the
- * running Y in bl and SPILLS the constant X into the (dead) parameter slot;
- * this reconstruction does the opposite, which costs a byte in each of the
- * three sub-piece blocks.  Declaration order, the order of the two
- * coordinate computations and hoisting the parent's two bytes into locals
- * all leave the pair the same way round. */
-// WIP-FUNCTION: LEGOLAND 0x00410180  (111/111 instructions; the spilled coordinate is the other one)
+/* RESIDUAL: 111/111 instructions, 344 of 341 bytes, mismatch 82 -> 58 by
+ * audit.py (86 -> 59 by a raw index compare).  First diverging index 1.
+ *
+ * WHAT WAS FOUND THIS ROUND.  The whole residual was ONE two-way allocation
+ * tie-break: the function has seven call-crossing values (parent, sub, prev,
+ * cellh, n, x, y) and only four callee-saved registers, so exactly one of the
+ * two byte coordinates gets ebx and the other is spilled into the DEAD
+ * parameter home at [esp+0x1c].  The original gives ebx to the running Y --
+ * `add bl, byte ptr [esp+0x10]` is the loop's `y += cellh` -- and spills X at
+ * its definition (`mov byte ptr [esp+0x1c], al`), reloading it at the top of
+ * each of the three sub-piece blocks.  Every plain-C spelling measured picks
+ * the OTHER one: X in ebx, Y spilled, which costs three extra instructions at
+ * each of the two `y += cellh` sites.
+ *
+ * Two things move it, and both are recorded because they are cheap to re-test:
+ *   (a) declaring Y an `int` (with `y += cellh`) makes the allocator rank it
+ *       above X and reproduces instructions 0..18 EXACTLY -- including the
+ *       byte load `mov bl,[ecx+0x40]` and the byte `add bl,dl` -- but then
+ *       emits `and ebx,0xff` after the definition and a dword `add ebx,[..]`
+ *       in the loop, so it cannot reach 0.  It is the proof that the type,
+ *       not the spelling, is what the allocator is looking at.
+ *   (b) the `volatile` read of X (committed above) takes X out of the race
+ *       entirely.  With it, `add bl, byte ptr [esp+0x10]`, the whole flags/def
+ *       store group and the frame layout are exact.  Its one visible wart is
+ *       that VC6 will not hoist a volatile load, so the X reload sits at its
+ *       store instead of at the block top where the original puts it -- which
+ *       is also why the remaining store-order search saturates at 59.
+ *
+ * MEASURED AND RULED OUT (all re-run after each change, per the re-run rule):
+ *   - all 12 dependency-legal orders of {cellh, def, px, py, x-calc, y-calc}
+ *     (only `def` first matters, and only once X is out of the race: it was
+ *     worth 72 -> 63);
+ *   - all 720 orders of the six free stores inside LF_MAKE_SUB, twice (best
+ *     without the shim 83, with it 59);
+ *   - x/y as char, unsigned char, short, unsigned short, int, unsigned;
+ *     cellh as unsigned char; four spellings of the increment;
+ *   - making X memory-resident WITHOUT volatile: `unsigned char x[1]`,
+ *     `x[2]`, a one-member struct, and a `volatile` POINTER to x -- VC6
+ *     scalarises every one of them straight back into a register (83);
+ *   - `if (x) {}` / `if (y) {}` empty-body extra-use probes (inert);
+ *   - four loop forms (for / while / do-while / `while (n-- > 0)`);
+ *   - splitting the cellh subtraction so its web is created before def's;
+ *   - ten spellings of the trip count.  NONE of them produces the original's
+ *     `add eax, -2`; VC6 canonicalises `+ (-2)`, `- 2`, `+ ~1`, `+ (0 - 2)`,
+ *     `(24u / (unsigned)cellh) - 2`, a separate `n -= 2;` statement, a
+ *     separate `n = n + (-2);` statement and the `while` loop form to the
+ *     same SUB node.  That single instruction (index 45) is the other
+ *     unexplained residual.
+ *   - the full head-order x trip-spelling cross-product was RE-RUN on the
+ *     committed baseline after the store-order fix (60 more points): still
+ *     59 raw / 58 by audit, `def` first, no movement.
+ *
+ * NEXT: find the plain-C construct that lowers X's allocation priority below
+ * Y's -- then the shim comes out and the reload should hoist to the block top
+ * on its own.  Sibling LFTunnel_Place (0x0040f050, not yet ported) has the
+ * IDENTICAL head shape with `add al, 6` instead of `add al, 2`, so whatever
+ * closes this closes that too. */
+// WIP-FUNCTION: LEGOLAND 0x00410180  (111/111 instructions; X/Y allocation tie-break, volatile shim in place)
 void LFDrop_Place(LFPiece* parent)
 {
-    int           cellh = g_lf_footprint.v[3] - g_lf_footprint.v[1];
-    RideDef*      def = g_lfdr_def;
+    int           cellh;
+    RideDef*      def;
     unsigned char x;
     unsigned char y;
     unsigned char px;
@@ -1240,6 +1296,8 @@ void LFDrop_Place(LFPiece* parent)
     LFPiece*      prev;
     int           n;
 
+    def = g_lfdr_def;
+    cellh = g_lf_footprint.v[3] - g_lf_footprint.v[1];
     px = parent->sq.b.x;
     py = parent->sq.b.y;
     x = (unsigned char)((unsigned char)def->footprint.v[0] + px + 2);

@@ -230,8 +230,92 @@ extern void   BuyItem(RideElem* elem, MapSquare* at, int which);     /* 0x004539
  * pairs with it ahead of nothing -- so the pair can be made (cell, waypoint)
  * by leaving the waypoint inline, but then it is FOLDED (`add r,[mem]`) and
  * the body is four instructions short.  Getting the waypoint both FIRST and
- * in a register is the one thing no spelling reached. */
-// WIP-FUNCTION: LEGOLAND 0x004316f0  (87.4%, 51/404 by audit; cases 6/8/11 pair the sum the other way)
+ * in a register is the one thing no spelling reached.
+ *
+ * 2026-09-04 (sweep lane): 51 -> 49.  Declaring the offset pair `unsigned int
+ * oa[2]` (or casting either offset to `unsigned` inside the three-term sum --
+ * measured identical, and so is `unsigned wa[2]`) is worth two instructions:
+ * the same-width conversion changes the operand ranking enough that case 6's
+ * X and Y sums come out with the original's registers, so 112..123 there now
+ * match index for index even though the ASSOCIATION is still (cell + offset)
+ * rather than (waypoint + cell).  Arithmetic is unchanged modulo 2^32.
+ * Also measured this pass, all worse: a partial-sum spelling with the array
+ * local carrying `waypoint + cell` (`wa[0] = g_cafe_pos[step].x + (key->bx <<
+ * 8); target.x = wa[0] + oa[0] - 0x80;`) -- VC6 folds the waypoint into the
+ * add (`add ecx,[eax*8+g_cafe_pos]`, strict 265-273); `const Pos* wp` /
+ * `const CafeOfs* co` pointer locals (306/314); a `Pos` struct copy of the
+ * waypoint (82); plain `int` locals for the offsets (310); `key->bx * 256`
+ * and `(int)key->bx << 8` (inert); and every textual order and
+ * parenthesisation of the TWO-term sums in cases 12 and 13..16, whose single
+ * residual each (0x38a and 0x422) is the same association shown as a `lea`
+ * operand swap -- `lea ecx,[edx+ecx-0x80]` (waypoint as base) against ours
+ * `lea ecx,[ecx+edx-0x80]`.  Note the original is NOT uniform: the X sums put
+ * the waypoint first and the Y sums put the cell first, which tracks which of
+ * the two values the emitted stream defines first.
+ * The case-8 statement order was re-searched exhaustively (all 840
+ * dependency-valid orders) with the unsigned offsets in place: the order
+ * already in the file (world, row, oa[1], oa[0], seated, step, wa[0]) is the
+ * unique best at 49; the next is 51.  Case 6's 180 valid orders were searched
+ * too -- the order in the file is again the best.
+ * What is left in case 6 is now pure SCHEDULING (indices 88..111): the
+ * original emits the two `b->world` stores, then `row`, then the waypoint,
+ * then stand_x, then stand_y, then the cell shift; ours hoists `row` to the
+ * top and emits stand_y, waypoint, the world stores, stand_x, cell.
+ *
+ * 2026-09-04 (sweep6 lane).  No change to the code -- still 49 -- but the
+ * association question is now REDUCED TO ONE CONCRETE OBSTACLE, and the
+ * newest cross-lane lever was tested here and does not apply.
+ *
+ * 1. THE PARTIAL-SUM AGGREGATE CURE DOES NOT TRANSFER.  anim2.c's
+ *    BoatingSchool_DrawBoats closed 79 mismatches by writing a commutative
+ *    sum's leading pair into the fields of a non-address-taken aggregate
+ *    (`Pos t; t.x = A + B; t.y = C; dst = t.x + t.y + D;`, two such
+ *    aggregates so the field assignments stay contiguous).  Applied here to
+ *    all three cases (`t.x = wa[0] + (key->bx << 8); t.y = oa[0];
+ *    b->target.x = t.x + t.y - 0x80;` and the same for y) it grows the frame
+ *    to 0x10, ESCAPES and scores 293.  Variants measured: the constant folded
+ *    into `t.x`; only `t.x` protected; block-scope instead of function-scope
+ *    aggregates; `oa` back to plain `int`.  All 112..312.  The old note's
+ *    single-field attempt (`wa[0] = wp + cell; target = wa[0] + oa[0]`) was
+ *    not a fair test of that lever -- a one-field aggregate is inert by
+ *    construction -- but the fair two-field test now says no.
+ *
+ * 2. THE RULE THAT DECIDES THE ASSOCIATION IS THE ADD'S *DESTINATION*, and it
+ *    is now characterised.  For the three-term sum both builds add the
+ *    remaining operands in DESCENDING DEFINITION ORDER; they differ only in
+ *    which operand becomes the destination:
+ *      ours     destination = the compiler TEMPORARY (the `<< 8` shift, the
+ *               last value defined), then + oa[0] (defined 2nd),
+ *               then + wa[0] (defined 1st)   -> `add cell,ofs` + `lea +wp`
+ *      original destination = the EARLIEST-DEFINED SYMBOL (the waypoint),
+ *               then + the cell shift, then + the offset
+ *                                            -> `add wp,cell` + `lea +ofs`
+ *    So there is no temp in the original's sum: the cell shift must have been
+ *    a NAMED value there too.
+ *
+ * 3. NAMING THE CELL SHIFT DOES FLIP THE DESTINATION -- and then loses on a
+ *    PEEPHOLE.  With `int ca[2]; ca[0] = key->bx << 8;` written BEFORE
+ *    `wa[0] = g_cafe_pos[step].x;` (definition order offsets, cell, waypoint)
+ *    case 8 comes out as
+ *        mov ebx, [eax*8 + g_cafe_pos] / add ebx, ecx / lea ecx,[ebx+ebp-0x80]
+ *    which is the ORIGINAL, instruction for instruction.  But VC6 then
+ *    compiles the standalone `ca[0] = key->bx << 8;` with its byte-into-the-
+ *    high-half peephole -- `xor ecx,ecx / mov ch, byte ptr [edi]`, TWO
+ *    instructions -- where the original has the three-instruction
+ *    `xor ecx,ecx / mov cl,[edi] / shl ecx,8`.  One instruction short per
+ *    sum, six short overall, everything downstream misaligns: 306.
+ *    So the whole remaining problem is: NAME THE CELL SHIFT WITHOUT LETTING
+ *    VC6 COLLAPSE `byte << 8` INTO `mov ch`.  Measured and rejected:
+ *    `unsigned int ca[2]` (identical); the cell in `wa[]` with the waypoint
+ *    left inline (309 -- the waypoint is still not folded, but the peephole
+ *    still fires); a two-stage `ba[0] = key->bx; ca[0] = ba[0] << 8;`, which
+ *    VC6 folds straight back to the inline form (byte-IDENTICAL to the
+ *    current file, so array locals do NOT defeat forward substitution for
+ *    this value the way they do for the offsets); `key->bx * 256` and
+ *    `(int)key->bx << 8` (inert, as the old note already recorded).
+ *    Per-case application (case 6 only / 8 only / 11 only / 8+11) is worse
+ *    than all-three in every column: 211..313. */
+// WIP-FUNCTION: LEGOLAND 0x004316f0  (404/404 insns, 1288/1288B, 49 by audit; cases 6/8/11 pair the sum the other way)
 void OctopusCafe_Tick(RideElem* elem)
 {
     RideObject*   item = elem->data;
@@ -242,7 +326,7 @@ void OctopusCafe_Tick(RideElem* elem)
     int           seat;
     int           step;
     int           row;
-    int           oa[2];
+    unsigned int  oa[2];
     int           wa[2];
     unsigned char a;
 

@@ -772,16 +772,70 @@ void InitNewSaveGamePOPUP(Icon* popup)
  * at all).  Carrying the `= 1` through the same char variable keeps ebx but
  * turns the big arm's `mov [g],1` into `mov ebx,1 / mov [g],ebx`.
  *
- * NEXT STEP: the char carrier is the most promising lead and is new.  What is
- * wanted is a value that is byte-class enough to demand ebx but int-valued at
- * every store (no movsx) and constant enough to be hoisted before the branch
- * (no sunk xor).  Things to try: a char carrier with a second, int-typed
- * definition; a union of a char and an int member written through the char
- * and read through the int; a char carrier plus a fourth int zero store (so
- * the hoist threshold is met by the int stores and the byte class by the
- * carrier); and a char carrier declared with `= 0` at declaration so its live
- * range starts at the top of the function. */
-// WIP-FUNCTION: LEGOLAND 0x0048f0f0  (116/119 insns; only push ebx / xor ebx,ebx / pop ebx missing - see note)
+ * PASS N+2 (sweep lane, 2026-09-04) -- the two positive results above were
+ * REPRODUCED exactly on today's toolchain, and the "char carrier" lead in the
+ * previous NEXT STEP was CHASED DOWN AND KILLED.  Current state, measured:
+ *   - baseline: 116 instructions, 118 mismatches by a raw index compare (the
+ *     whole body is the original shifted one instruction by the missing
+ *     `push ebx`), 118 by audit.py.
+ *   - `g_7986f0 = 0;` as a fourth DWORD use  -> 120 instructions, `push esi`
+ *     / `xor esi,esi` at index 28, 9 mismatches (esi-for-ebx plus the extra
+ *     store).
+ *   - `*(char*)&g_7986f0 = 0;` as a fourth BYTE use -> 120 instructions,
+ *     `push ebx` / `xor ebx,ebx` at index 28, and indices 0..115 IDENTICAL to
+ *     the original; the only residue is the extra `mov byte ptr [..], bl`.
+ *     4 mismatches.  So the target is unchanged and exact: a byte-class use
+ *     of the zero that emits no instruction.
+ *
+ * CORRECTION to the previous pass's "a char carrier is NOT constant-
+ * propagated": it is.  Every carrier form measured here compiles to the
+ * baseline BYTE FOR BYTE (116 instructions, three `mov dword ptr [..], 0`
+ * immediates, no push):
+ *   - int / char / unsigned char / short / unsigned short / long / unsigned /
+ *     void* carriers, as a declaration initialiser AND as a separate
+ *     assignment statement, placed at the top of the body or immediately
+ *     before `if (g_screen_mode == 5)`;
+ *   - a char carrier copied into an int carrier before the branch and the
+ *     stores made from the int (kills the movsx AND the sink -- and also
+ *     kills the register);
+ *   - the stores written `(int)z`;
+ *   - the two tail stores chained (`g_exit_7cb318 = g_exit_7cb310 = 0;`),
+ *     either way round.
+ * A carrier only survives propagation if it is made memory-resident (an
+ * int carrier with a `*(volatile int*)&z` read at one store gives 119
+ * instructions -- the right count -- but homes z on the stack, so the
+ * function grows `push ecx` / `mov [esp],0` and 46 mismatches).
+ *
+ * NEW NEGATIVES, all costing no instructions and all removed before the
+ * hoist decision is taken (so none of them creates the byte-class use):
+ *   - `if (*(char*)&g_exit_7cb310 == 0) { }` and the same on `g_7986f0`,
+ *     with `(char)` / `(unsigned char)` casts, and against a `char` local --
+ *     the DrawPopUpMock empty-body-if trick does NOT work here, because the
+ *     branch is folded at the front end when the compared value is a known
+ *     constant rather than a live register value;
+ *   - the word-class and dword-class controls of the same shape;
+ *   - a byte store to a location a later dword store kills, in either order.
+ *   - VC6 does NOT coalesce adjacent byte stores: writing one of the three
+ *     dword globals as four `*(char*)&g + k = 0` stores gives `push ebx`
+ *     (the byte class works) but 122 instructions, i.e. all four stores are
+ *     emitted.  This closes the "get the byte class for free by splitting an
+ *     existing store" family: byte+byte+word costs +2, four bytes cost +3,
+ *     a redundant trailing byte store costs +1, and +1 is the floor.
+ *
+ * WHERE THAT LEAVES IT.  Either the byte-class rule is not the real rule (and
+ * something else makes VC6 prefer ebx to esi for a THREE-use zero here), or
+ * the original's fourth use is a byte-class one whose instruction really was
+ * deleted after register allocation -- which VC6 SP3 has no pass to do.  The
+ * next thing worth trying is the OTHER half: find what makes a THREE-use zero
+ * hoist at all (every experiment so far needs four), and scan the corpus for
+ * a matched function whose callee-saved zero has exactly three uses -- if one
+ * exists its source settles this.  A scan for `xor <callee-saved>,<same>` with
+ * 2-5 uses all of which are stores found NO such function in the 1541 exact
+ * bodies, which is itself evidence the shape is rare.
+ *
+ * Tooling added this pass: scratchpad/screens2/vb.py (patch-batch runner over
+ * screens2.c, same shape as scratchpad/popup/vb.py) and ex_v1..ex_v4.py. */
+// WIP-FUNCTION: LEGOLAND 0x0048f0f0  (116/119 insns; only push ebx / xor ebx,ebx / pop ebx missing, so every index is shifted by one - see note)
 void InitExitCheckBox(int x, int y)
 {
     Icon* panel;

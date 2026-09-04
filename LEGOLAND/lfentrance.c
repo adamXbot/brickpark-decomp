@@ -407,7 +407,35 @@ void LFQueue_AddRider(LFQueue* q, RiderNode* r)
  * `n - i == 1`, static, register, a second dead use) all forward-substitute
  * into the loop; only `volatile`, `short` or a use after the loop keep the
  * slot, none with the original's memory-operand `cmp`.  M1-style helpers
- * and `volatile` were rejected as not the original's code. */
+ * and `volatile` were rejected as not the original's code.
+ *
+ * 2026-09-04 (third lane) -- A DECISIVE DIAGNOSTIC, not committable.
+ * Declaring the loop counter `unsigned char i;` and changing NOTHING else
+ * produces the ORIGINAL'S REGISTER ALLOCATION AND FRAME EXACTLY:
+ *     sub esp,0x28 / push ebx / push esi / push edi ... mov ebx,eax (st) ...
+ *     push ebp (deferred) / mov ebp,[...] (the scratch)
+ * i.e. `st` in ebx pushed at entry and the p1/i web in the deferred ebp,
+ * and the `n - 1` spill slot appears on its own (both secondary residuals
+ * (a) and (b) go with it).  220 -> 157, first divergence 13, and indices
+ * 0..12 and 14..34 are exact.  It is NOT the original's type -- the body
+ * comes out 833 bytes against 812 because every use of `i` is widened, and
+ * the original's loop test is the dword `cmp ebp,[esp+18h]` -- so it is left
+ * OUT of the committed body; what it proves is the DIRECTION: the tie is
+ * decided by the weight of the p1/i web against `st`, and making the counter
+ * a byte is enough to tip it.  With the allocation right the only remaining
+ * head differences are two SPILL-SLOT offsets (`def` at [esp+14h] in the
+ * original, [esp+1ch] here; midy at [esp+40h] vs [esp+3ch]), so a frame-slot
+ * lever would be the next thing to look for once the tie is broken legally.
+ * `signed char i` is 187, `char` 187, `short` 205, `unsigned short` 199 --
+ * all flip the frame to 0x28 but only the two `char` forms flip the
+ * registers.  `unsigned`/`long` i, `short`/`unsigned short`/`long` n,
+ * `i != n`, `++i`, a hand-rolled `while` loop, a named `nm1` local, an extra
+ * `st->queue.path` store after the guard or after LFRun_AddPiece, reading
+ * `p1->sq` once through a `BPosW` local (207), `last = p1` hoisted so
+ * LFPiece_LinkAfter takes `last` (219) and `if (last == p1)` in place of
+ * `if (i == 0)` (207) all leave the swap in place; combining the
+ * reference-count reductions with the byte counter is worse (200-201, and
+ * the frame grows to 0x2c). */
 // WIP-FUNCTION: LEGOLAND 0x0040a600  (14% by audit.py, 220/256 index mismatches, body 250 insns; st/p1 in the opposite callee-saved pair, n-1 not hoisted)
 void LFEntrance_Add(RideElem* elem, const Pos* pos)
 {
@@ -598,7 +626,35 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
  * an `add` the register of whichever operand dies at it (`x` lives on into
  * case 2), even when that operand is a separate volatile load; the original
  * had qx and tx as non-coalesced webs.  No C spelling found that keeps qx
- * alive past the sum or pre-assigns tx a third register. */
+ * alive past the sum or pre-assigns tx a third register.
+ *
+ * 2026-09-04 (third lane).  Still 10, but the residual REDUCES TO ONE LOAD
+ * ORDER, which is a smaller target than "the lea":
+ *   original 14..18: movsx edx,[def+24h] (qx) / mov ecx,[r] (next) /
+ *                    lea edi,[r+0ch] (tile) / movsx ebx,[def+25h] (qy) /
+ *                    mov esi,[r+8] (b)          -- ALTERNATING def, r, def, r
+ *   ours     14..18: mov edx,[r] (next) / mov esi,[r+8] (b) /
+ *                    movsx ecx,[def+24h] (qx) / movsx ebx,[def+25h] (qy) /
+ *                    lea edi,[r+0ch]            -- GROUPED by base register
+ * In BOTH bodies the first-emitted scratch load takes edx and the second
+ * ecx.  So qx lands in edx in the original and in ecx here, and the rest is
+ * forced: with qx in edx the sum cannot be in place and VC6 emits
+ * `lea ecx,[edx+eax]` into the register the `next` spill has just freed;
+ * with qx in ecx it emits `add ecx,eax`.  Nothing about the sum's spelling
+ * has to change - the LOAD ORDER does.  The original's alternation looks
+ * like Pentium U/V pairing of two loads off different base registers.
+ * Measured this round and still 10 (byte-identical): a `void*` cast on the
+ * tile lea, `next = *(RiderNode**)r`, a `RideDef* d = def` local, a `qxl`
+ * local read before `b`; `next` moved last is 94, `tx` first 59, `ty`
+ * before `tx` 94, and qx/qy through a `Pos` aggregate 207 (the aggregate
+ * forces an ebp frame).
+ * CORPUS CHECK (scratchpad/sweep4/scan_lea3.py: 47 three-register `lea`s in
+ * the matched corpus): the closest analogue is objmap2.c BuildCursorPtr
+ * 0x0045f7a5, `lea ecx,[esi+edx] / xor edx,edx / mov dx,[ebp]` - the same
+ * "sum into a third register, then immediately recycle one operand's
+ * register" shape - and there BOTH operands (sy and h2) really are read
+ * again in later blocks.  Here qx is not, so the lea is not explained by
+ * liveness at all; it is explained by qx being in the WRONG register. */
 // WIP-FUNCTION: LEGOLAND 0x0040bf70  (95.5%, 222/222 insns; the tx sum is `add` not `lea`, which renames the 10-instruction preamble)
 void LFEntrance_Activate(RideElem* elem)
 {

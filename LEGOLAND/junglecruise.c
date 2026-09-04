@@ -756,20 +756,83 @@ extern unsigned char g_jc_river_tiles[16][25];               /* 0x004b72e4 */
  * map cells still get written through a null Cell*: original.
  * ========================================================================= */
 
-/* 116/116 instructions and 367/367 bytes -- the same shape as the original
- * throughout.  The residual is one register tie-break: the original keeps the
- * row coordinate in EBX (the register it loaded `y` into at entry) and the
- * tile-table cursor in EBP (the register the function-wide zero vacates once
- * `i = 0` is stored), and this reconstruction has them the other way round,
- * so 16 instructions differ only in which of the two they name.  Three
- * spellings were needed to get this far and are load-bearing: `y` must live
- * across the JcWater_FindAt call (hence the key's y byte is stored after it),
- * the inner loop must run over a COUNTER with `cx` derived (`cx = x + j - 2`)
- * so VC6 link-function-test-replaces the guard into `(2 - x) + cx < 5`, and
- * `cy` must be written INLINE at both use sites -- as a named variable VC6
- * strength-reduces `cy * 4` into a fourth induction variable, which costs a
- * frame slot and five instructions. */
-// WIP-FUNCTION: LEGOLAND 0x00436dc0  (116/116 insns, ebx<->ebp tie-break, 16 mismatches)
+/* 2026-09-04 (sweep6 lane): 31 -> 27 by audit, and the BYTE LENGTH IS NOW
+ * EXACT (116/116 instructions, 367/367 bytes).  Two edits did it, both found
+ * by re-running the pre-loop statement sweep from the current baseline (the
+ * old sweep's numbers had gone stale):
+ *   (a) `t = g_jc_river_tiles[mask]` belongs AFTER the `if (owner)` block and
+ *       BEFORE `i = 0` -- not first, where the old note had it (31 -> 30).
+ *       That is what puts the mask*5 `lea` into the original's merge block at
+ *       0x7e with the second `lea` after `g_bg_full_update = 1` at 0x92, and
+ *       it is what makes the byte length exact.  Moving it any LATER (after
+ *       `i = 0` or after `g_bg_full_update = 1`) still costs 67: the zero
+ *       moves to ebx and `push ebp` sinks into a deferred prologue.
+ *   (b) `t++` belongs in the inner for-increment (`for (j = 0; j < 5; j++,
+ *       t++)`), not as the last statement of the body (30 -> 27).  That moves
+ *       the cursor's `inc` to the original's slot, after `add edx,esi` in the
+ *       latch, instead of straight after the `add esp,0xc`.
+ * Only TWO aligned differences are left (register-blind edit distance 6,
+ * register-AND-offset-blind 4).  The residual is ONE register tie-break and
+ * its cascade: the original keeps the row coordinate
+ * in EBX (the register it loaded `y` into at entry) and the tile-table cursor
+ * in EBP (the register the function-wide zero vacates once `i = 0` is
+ * stored); this reconstruction has them the other way round.  The one missing
+ * byte is `mov al, byte ptr [ebp]` (ebp always needs a disp8) vs our
+ * `[ebx]`, which proves the swap is the WHOLE residual.
+ *
+ * MECHANISM (measured, not guessed).  In the original `y`'s parameter web
+ * runs from the entry `mov ebx,[esp+0x14]` all the way to the inner-loop
+ * preheader's `lea ebx,[ebx+eax-2]` (= y + i - 2), where it DIES and `cy`
+ * coalesces into ebx; the loop-carried copy is then rematerialised by the
+ * latch-only block `mov ebx,[esp+0x20]` at 0x9f, which the entry `jmp 0xa7`
+ * skips.  ebx therefore is not free when the zero is created, so the zero
+ * takes ebp, and the tile cursor -- defined AFTER the `i = 0` store, the
+ * zero's last use -- reuses ebp.  Ours defines the cursor before that store,
+ * so it cannot have ebp, takes the (already dead) ebx, and `cy` then finds
+ * ebp free and never coalesces with y.
+ *
+ * The two surviving differences are (i) the key's y byte store, which the
+ * original emits BEFORE the JcWater_FindAt call (0x15) and we emit after it
+ * (same slot, same instruction) and (ii) the ebx<->ebp swap.  They are the
+ * SAME question: both follow from whether VC6 keeps `y` in a callee-saved
+ * register for the whole function.  Writing `key.b.y = (unsigned char)y;`
+ * before the call makes VC6 put y in ECX and sink `push ebx` into the merge
+ * block (a deferred prologue the original does not have) -- 70 by audit --
+ * because y then has no use that spans the call.  With the store after the
+ * call y does span the call in ebx, but VC6 still rematerialises it in the
+ * inner-loop preheader (`mov eax,[esp+0x20]`) instead of keeping it, which
+ * frees ebx for the cursor.
+ *
+ * RULED OUT on the CURRENT baseline, all re-measured this pass:
+ *   - the 36-way sweep {t position x key-store position x cy form}; the
+ *     winner is the shape now in the file.
+ *   - `cy` as a named local in the outer body, the inner body, or at function
+ *     level: all 114, frame 0xc, ESCAPES -- the old note's "byte-identical"
+ *     claim for the inner-body form is stale, it no longer holds.
+ *   - every spelling of the invariant: `y - 2 + i`, `(y - 2) + i`,
+ *     `i + y - 2`, `i + (y - 2)`, `i - 2 + y` (all identical objects).
+ *   - a named `int yy = y;` copy used for the call arg, the key byte, the
+ *     loop, or all three (copy-propagated, identical objects).
+ *   - `unsigned char* t` (non-const), `&g_jc_river_tiles[mask][0]`,
+ *     `g_jc_river_tiles[0] + mask * 25`, and splitting the address as
+ *     `m5 = mask * 5; t = &g_jc_river_tiles[0][m5 * 5]` (all identical).
+ *   - `unsigned i` / `unsigned j` (28); `g_bg_full_update = 1` before
+ *     `i = 0` (32); `cx` in the inner block instead of function level (27,
+ *     identical object).
+ *   - while / do-while forms of both loops (all identical to the for forms).
+ *   - reading the tile byte once into a local (`unsigned v = *t;`) to halve
+ *     the cursor's use count and so its allocation priority: 77 declared with
+ *     an initialiser, 55 assigned late.  `t[0]` instead of `*t` is inert.
+ *   - moving ox-style work across the call is not available here; the only
+ *     motion that reaches the register question is the key-store one above.
+ *   - walking the table by index instead of by pointer
+ *     (`g_jc_river_tiles[mask][k]`, `row[k]`, k in the for-init): 119
+ *     instructions, 47-52 mismatches -- VC6 keeps a separate counter.
+ * There is no matched twin to copy from: the boating school's equivalent,
+ * BsWater_SetTile (0x0041c4c0), has not been decompiled yet.
+ * `cx` must stay a derived counter (`cx = x + j - 2`) so VC6 rewrites the
+ * inner guard as `(2 - x) + cx < 5`; that part is exact. */
+// WIP-FUNCTION: LEGOLAND 0x00436dc0  (116/116 insns, 367/367B, 27 by audit; ebx<->ebp tie-break + one store position)
 void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
 {
     BPosW key;
@@ -791,15 +854,15 @@ void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
         g_jc_water = w;
         JungleCruise_AddValue(*owner, 1);
     }
-    t = g_jc_river_tiles[mask];
     w->pos = key;
     w->links = mask;
     if (owner != 0)
         w->owner = *owner;
+    t = g_jc_river_tiles[mask];
     i = 0;
     g_bg_full_update = 1;
     for (; i < 5; i++) {
-        for (j = 0; j < 5; j++) {
+        for (j = 0; j < 5; j++, t++) {
             Cell* c;
             unsigned short* rec;
 
@@ -812,7 +875,6 @@ void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
             rec = *(unsigned short**)((char*)g_jc_tsm +
                       ((unsigned)(unsigned char)*t >> 8) * 8 + 4);
             SetMapTile(cx, y + i - 2, (unsigned short)(*rec + (unsigned char)*t));
-            t++;
         }
     }
 }
@@ -1093,27 +1155,130 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * hands them back to JungleCruise_Tick's case 3.
  * ========================================================================= */
 
-/* 422 emitted vs 419 original instructions.  Everything from the boat test to
- * the disembark tail matches the original one instruction for one, offset by
- * a single slot, and two things account for the whole residual:
- *   1. the original parks the constant 0 in edx for the whole body (`xor
- *      edx,edx` before the loop and again at 0x00433227) and compares against
- *      it -- `cmp esi,edx`, `cmp dword ptr [esp+0x48],edx` -- where this
- *      reconstruction emits `test`/`mov`+`test`.  That is the missing
- *      instruction at index 8 and the two extra ones in the disembark test.
- *   2. the frame is the right SIZE (0x34) but two pool homes differ: the
- *      original shares ONE 8-byte home (+0x14) between the sprite offset and
- *      the boat position -- disjoint blocks, exactly the rule in DECOMP.md --
- *      and puts `sy` in the top slot (+0x30); here the two Pos objects get
- *      separate homes (+0x24 and +0x2c) and `sy` lands at +0x04, which
- *      renumbers every [esp+N].  Splitting them into disjoint blocks (below)
- *      got the frame size right but not the sharing.
- * The behaviour, the record layout and the paint order are all reconstructed;
- * only the register/slot assignment is still off. */
-// WIP-FUNCTION: LEGOLAND 0x00432d00  (422/419 insns; constant-zero register + two pool homes)
+/* 422/422 instructions, 1457/1466 bytes, 111 mismatches by audit (was 409 on
+ * 2026-09-03).  THREE structural facts were recovered this round and each is
+ * worth remembering:
+ *   1. THE FRAME IS NOW EXACT, slot for slot: tw(-0x34) tw2(-0x30) th2(-0x2c)
+ *      th(-0x28) fild-temp(-0x24) Pos(-0x20) soA(-0x18) soB(-0x10)
+ *      hole(-0x08) sy(-0x04).  Two edits did it.  (a) The sprite offset and
+ *      the bloke position are ONE `Pos` local reused, not two disjoint-block
+ *      locals -- two locals get two homes here because `bp` is live across
+ *      the seat loops that own soA/soB, which is exactly the "enclosing
+ *      block-scope variable interferes with all of them" trap in DECOMP.md.
+ *      (b) `sy` is the `.y` of a FUNCTION-LEVEL `Pos` whose `.x` is never
+ *      referenced: that is what the 4-byte hole at -0x08 is, and it is what
+ *      moves `sy` out of the -0x30 slot it was sharing with the x87 `fild`
+ *      staging temp and up to the top of the frame.  A plain `int sy` is
+ *      lifetime-coloured onto the fild temp's home (their ranges are
+ *      disjoint) and renumbers every [esp+N] in the function.
+ *   2. THE DISEMBARK TEST IS NOT INSIDE THE DRAW BLOCK.  The `goto next`
+ *      edges land at 0x529 -- the `state == 0x10` compare -- not at the
+ *      `b = b->next` at 0x595, so a boat that is skipped for this pass still
+ *      runs the disembark test (harmless: in mode 0 the `mode != 0` term
+ *      fails, and in mode 1 a state-0x10 boat is drawn, not skipped).  The
+ *      label therefore sits ABOVE the test.  That single move is what makes
+ *      VC6 build the function-wide constant-0 web the old note called
+ *      unreachable: with the test on the `next` path, 0 is live across the
+ *      whole loop (`cmp esi,edx` for `b == 0`, `cmp ecx,edx` for `mode`,
+ *      the three seat compares and stores, and the latch `cmp esi,edx`), so
+ *      the def is hoisted into the loop preheader (`xor edx,edx` at 0x19)
+ *      and rematerialised at 0x527 where the draw block clobbered edx.
+ *      409 -> 48 aligned mismatches from those two edits alone.
+ *   3. The bloke-position statements are emitted `bp.y` first (2 more).
+ * REMAINING (77 difflib-aligned, in two clusters, both pure scheduling):
+ *   (a) 111-167: VC6 hoists our `b->sx` load above the `b->sy` store before
+ *       the hull PrintSprite (the original re-loads it after), and the
+ *       `origin + ox + bp.x + sx` chain adds `ox` last where the original
+ *       adds it first.  All six addend orders are byte-identical (VC6
+ *       canonicalises the sum), and naming the two sums as int temps costs
+ *       one instruction.
+ *   (b) 266-294 / 386-404 / 452-454: the overlay PrintSprite.  Both loops
+ *       have the right blocks and the right cross-jump, but the original's
+ *       merged tail begins two instructions earlier -- at `mov edx,[ilf]` /
+ *       `and ecx,0xff`, with the b->sx/b->sy loads interleaved between the
+ *       sprite-table loads -- where ours begins at the b->sy load and defers
+ *       the whole sprite lookup past `push edx`.  `code` is ecx in the
+ *       original and eax here.  Ruled out: hoisting the lookup into a
+ *       `void* spr` local (identical object), `switch (i)` with cases 0,2
+ *       (+2 instructions, no merge), `if (i==0) {..P..} else if (i==2)
+ *       {..P..}` and its transpose (+12: the two calls stop merging), and an
+ *       explicit `goto` out-of-line arm (identical object).
+ * Also inert on both clusters (measured this round): every
+ * parenthesisation and addend order of the two four-term screen sums and the
+ * two three-term bloke sums; `(unsigned)` casts on any subset of
+ * {origin, ox, bp.x, sx} (all 16 -- unlike OctopusCafe_Tick, where the same
+ * cast is worth two instructions); inlining `ox`/`oy` at both use sites
+ * (+8 instructions, the CSE is lost); all 24 orders of the
+ * `ox`/`oy`/`sx`/`scr.y` assignments (the order in the file is the unique
+ * best); `unsigned code`, `(unsigned)code & 0xff` and an `ImageList* ilf`
+ * local for the overlay call.  The one systematic thing left to explain is
+ * that VC6 sorts `origin + ox + bp.x + sx` as ((origin + bp.x) + sx) + ox
+ * for us and ((origin + ox) + bp.x) + sx in the original -- ox/oy are added
+ * FIRST there and LAST here, in the screen sums and in the bloke sums alike,
+ * and no source-level spelling found moves them.
+ *
+ * 2026-09-04 (sweep6 lane): THE PARTIAL-SUM AGGREGATE CURE FROM anim2.c's
+ * BoatingSchool_DrawBoats DOES NOT TRANSFER HERE.  It works exactly as
+ * advertised on the ASSOCIATION -- writing the leading pair into a
+ * non-address-taken aggregate
+ *     Pos t, u;
+ *     t.x = g_map->origin_x + ox;  t.y = bp.x;
+ *     b->sx = t.x + t.y + sx;
+ *     u.x = g_map->origin_y + oy;  u.y = bp.y;
+ *     b->sy = u.x + u.y + scr.y;
+ * makes BOTH screen sums come out in the original's addend order (ox, then
+ * bp.x/bp.y, then sx/scr.y) -- but it costs the register allocation and is a
+ * net LOSS: 111 -> 306 strict, register-blind 80 -> 84, register-and-offset
+ * blind 78 -> 82, bytes 1457 -> 1456.  There are exactly TWO attractors and
+ * nothing in between: every flat spelling compiles to one object (111, first
+ * diverging index 111 = the first `add`), and every aggregate spelling
+ * compiles to another (306, first diverging index 105 = the `g_map` load's
+ * register).  Measured into the aggregate attractor and byte-identical to it:
+ * `Pos` / `int[2]` / a 3-field / a 4-field struct; both field orders; fields
+ * swapped; the pair split as (origin, ox) with a 4-term sum; nested
+ * two-stage aggregates; a `static __inline` helper whose body is
+ * `Pos t; t.x = a; t.y = b; return t.x + t.y;`; a pointer through the
+ * aggregate; block scope vs function scope; `bp.x += g_map->origin_x + ox`.
+ * Measured into the FLAT attractor (i.e. inert): `b->sx = ..; b->sx += ..;`
+ * accumulation into the field or into an int temp; `(A + B) + (C + D)`; a
+ * negation identity; re-reading `b->sx`; naming `ox` through an alias local.
+ * WHY the flat form wins here and lost in DrawBoats: the flat build ALREADY
+ * has the original's register allocation exactly (`mov edx,[g_map]`,
+ * `xor ecx,ecx`, `xor eax,eax`, accumulate x in ecx and y in eax) and only
+ * the three `add`s are permuted; the aggregate build gets the permutation
+ * right but loads `g_map` into ecx, accumulates in eax, needs a closing
+ * `lea ecx,[eax+edi]` and then KEEPS `b->sx` in a register where the original
+ * re-loads it from memory for the hull PrintSprite.
+ * ALSO PROVED FALSE this pass: that the original's order could come from a
+ * different DEFINITION order.  For descending-order sorting to emit
+ * (ox, bp.x, sx) the source would have to define sx first, bp second and ox
+ * LAST -- i.e. compute ox/oy after AdjustOffsetForViewMode.  Doing that makes
+ * `wx`/`wy` live across the call, so VC6 spills them
+ * (`mov [esp+0x1c],edx` / `mov [esp+0x18],eax` in the sprite-offset block)
+ * and the frame shrinks to 0x28 -- 364 mismatches, first diverging index 0.
+ * ox/oy MUST be computed before the call, so their definitions necessarily
+ * precede bp's; the original's ascending order therefore cannot come from
+ * statement order.
+ * ONE MEASURED, STRUCTURALLY TRUER ALTERNATIVE, deliberately NOT adopted:
+ * writing the two bloke-position statements `bp.x` FIRST (the order the
+ * original EMITS them in -- `mov [esp+0x44],ecx` at 0x1c7 before
+ * `mov [esp+0x4c],edx` at 0x1dc) gives 112 strict but register-blind 66 and
+ * shape-blind 68, against 111/80/78 for the `bp.y`-first order in the file.
+ * With `bp.x` first the whole bloke block has the original's shape and only
+ * the addend order and an ecx<->edx naming differ.  It is left as `bp.y`
+ * first ONLY because the strict count the gate reports is one lower; a lane
+ * that closes the addend order should switch it back first.
+ * Also re-measured and inert on the current baseline: `scr.x` instead of the
+ * `int sx` local (byte-identical, so the frame does not depend on it); a
+ * `void* spr` + `int px, py` local trio for both overlay PrintSprite calls;
+ * folding `& 0xff` into each arm's `code`; and laying the `i == 0` overlay
+ * arm out of line with an explicit goto, either after the for loop (which is
+ * where the original puts loop A's copy, 0x391) or inside it (both 114) --
+ * VC6 canonicalises the CFG and picks its own block order. */
+// WIP-FUNCTION: LEGOLAND 0x00432d00  (422/422 insns, 1457/1466B, 111 by audit; the ox/oy addend order and two PrintSprite scheduling clusters)
 void JungleCruise_UpdateRiverAnim(int mode)
 {
-    int     sy;
+    Pos     scr;
     int     tw;
     int     th;
     JcBoat* b;
@@ -1159,23 +1324,20 @@ draw:
             ox = ((wx - wy) * tw2) >> 9;
             oy = ((wx + wy) * th2) >> 9;
             sx = (b->cx - b->cy) * (tw >> 1) - ((tw + 1) >> 1) - (g_scroll_x >> 8);
-            sy = (b->cx + b->cy) * (th >> 1) - (g_scroll_y >> 8);
-            {
-                Pos ofs;
-
-                ofs.x = g_jc_boat_ilf->dx[b->frame[g_jc_anim_tick] & 0xff] >> 1;
-                ofs.y = g_jc_boat_ilf->dy[b->frame[g_jc_anim_tick] & 0xff] >> 1;
-                AdjustOffsetForViewMode(&ofs);
-                b->sx = g_map->origin_x + ox + ofs.x + sx;
-                b->sy = g_map->origin_y + oy + ofs.y + sy;
-                PrintSprite(g_jc_boat_ilf->sprites[b->frame[g_jc_anim_tick] & 0xff],
-                            b->sx, b->sy, 0, 0);
-            }
+            scr.y = (b->cx + b->cy) * (th >> 1) - (g_scroll_y >> 8);
             {
             Pos bp;
 
+            bp.x = g_jc_boat_ilf->dx[b->frame[g_jc_anim_tick] & 0xff] >> 1;
+            bp.y = g_jc_boat_ilf->dy[b->frame[g_jc_anim_tick] & 0xff] >> 1;
+            AdjustOffsetForViewMode(&bp);
+            b->sx = g_map->origin_x + ox + bp.x + sx;
+            b->sy = g_map->origin_y + oy + bp.y + scr.y;
+            PrintSprite(g_jc_boat_ilf->sprites[b->frame[g_jc_anim_tick] & 0xff],
+                        b->sx, b->sy, 0, 0);
+
+            bp.y = g_map->origin_y + oy + scr.y;
             bp.x = g_map->origin_x + ox + sx;
-            bp.y = g_map->origin_y + oy + sy;
             AdjustBlokePosition(&bp);
 
             if (b->frame[g_jc_anim_tick] >= 4 && b->frame[g_jc_anim_tick] < 0xc) {
@@ -1298,21 +1460,21 @@ no_overlay_b:
                 }
             }
             }
-            if (b->state == 0x10 && b->leg == 2 && g_jc_anim_tick == 0x4f && mode != 0
-                && b->riders[0] != 0) {
-                ((Bloke*)b->riders[0])->stage++;
-                b->riders[0] = 0;
-                if (b->riders[1] != 0) {
-                    ((Bloke*)b->riders[1])->stage++;
-                    b->riders[1] = 0;
-                }
-                if (b->riders[2] != 0) {
-                    ((Bloke*)b->riders[2])->stage++;
-                    b->riders[2] = 0;
-                }
-            }
         }
 next:
+        if (b->state == 0x10 && b->leg == 2 && g_jc_anim_tick == 0x4f && mode != 0
+            && b->riders[0] != 0) {
+            ((Bloke*)b->riders[0])->stage++;
+            b->riders[0] = 0;
+            if (b->riders[1] != 0) {
+                ((Bloke*)b->riders[1])->stage++;
+                b->riders[1] = 0;
+            }
+            if (b->riders[2] != 0) {
+                ((Bloke*)b->riders[2])->stage++;
+                b->riders[2] = 0;
+            }
+        }
         b = b->next;
     } while (b);
 }

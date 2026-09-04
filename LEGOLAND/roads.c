@@ -651,7 +651,43 @@ extern int ArcTan256(int x, int y);                            /* 0x004806e0 */
  * products through named int temps (12); holding the x result across the
  * y product (12); do/while, pointer loops, `j++` in the body (13).  The
  * hoisted `fild` pair, the shared [esp+0x1c] spill home and everything
- * else in the loop already match. */
+ * else in the loop already match.
+ *
+ * 2026-09-04, endgame lane -- the CORPUS SCAN the method asks for was run and
+ * it DID produce the one worked example, which is what finally explains why
+ * this is unreachable.  scratchpad/endgame/scan_imul.py classifies every
+ * two-operand `imul` in the 1541 exact bodies by how its destination was
+ * seeded: 12 are `mov r,[mem] / imul r,reg` (rank-2 memory into the
+ * destination, what we emit), 22 are `mov r,reg / imul r,reg`, and exactly
+ * ONE is the shape needed here, `mov r,reg / imul r,[mem]` --
+ * `SoftPrint_XBltFast` (bigrender.c 0x465a40, at 0x465bd6).  Read its note:
+ * there the register operand is `g_ddsd.lPitch`, a value LOADED FROM MEMORY
+ * for an earlier product and still live in edx, i.e. a rank-1 compiler
+ * TEMPORARY, and the lever that closed it was spelling the two otherwise
+ * identical products the OTHER way round so they are not linked as one
+ * textual CSE candidate (linked, the live register is demoted to a
+ * register-candidate SYMBOL and the memory operand becomes the destination).
+ * That mechanism cannot transfer here, and the reason is now measured: our
+ * register operand is `j`, a plain enregistered induction variable, which is
+ * a register-candidate symbol at BOTH sites and can never be demoted or
+ * promoted by spelling.  All 16 combinations of the operand order of the four
+ * `g_jc_step[i].d? * <ctr>` product pairs in this function (the two in the
+ * `to == -1` loop, the two pairs in the `from == to` loop and the straight
+ * run's own) are byte-identical, first divergence 275 in every one -- so the
+ * textual-CSE link has no effect when one operand is a symbol.  Isolated
+ * kernels (scratchpad/endgame/jb1.c) confirm it: with the counter as an int
+ * local, as a GLOBAL, through an `int*`, with both products on the same table
+ * field spelled the same way and commuted, VC6 emits memory-into-destination
+ * every time.  CONCLUSION: the y product's multiplier in the original is a
+ * rank-1 temporary whose materialisation costs no instruction, and no C
+ * expression turns an enregistered IV into one -- every identity is folded
+ * before the ranking runs and every non-identity (`(short)j` reaches 1
+ * mismatch with `movsx ecx,di`, `abs`, `&0xff`, a call, a subtraction) leaves
+ * its own instruction behind.  Treat as exhausted.  (Related but NOT the same
+ * unknown: `RequestRoute` index 38 and `InsertChildIntoList` index 46 both
+ * need an EXTRA register-to-register copy that VC6 coalesced away for us,
+ * whereas here the copy exists in both bodies and only its SOURCE differs --
+ * register in the original, memory for us.  Do not conflate them.) */
 // WIP-FUNCTION: LEGOLAND 0x00433840  (330/330 insns, 3 mismatches; the straight-run y `imul` operand order)
 void JcBoat_Animate(JcBoat* b, int from, int to)
 {

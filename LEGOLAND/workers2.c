@@ -963,8 +963,80 @@ void Mechanic_Build(Bloke* b)
  *    whose predecessor edge is the only one reaching fail from a
  *    register-clobbering path.  Both residuals are one instruction each; fix
  *    (1) alone and audit.py drops from 82 to 1.
+ *
+ *    PASS N+2 (2026-09-04) - 82 -> 13 by audit, and the body is now the
+ *    original's SIZE exactly (184 instructions / 672 bytes).
+ *    THE MECHANISM behind residual (1) is now understood: the constant 1 is a
+ *    REGISTER WEB in ebp whose members are armA's store (0x470765), fail's
+ *    store (0x470895) and the `place` preheader's def (0x4707ca).  armA's
+ *    `mov ebp,1` survives because ebp=1 is LIVE-OUT of armA: its lock-clearing
+ *    exit jumps to 0x4707db, inside place, and place falls through the two
+ *    placement calls (ebp is callee-saved) into fail's `mov [lock],ebp`.  The
+ *    out-of-range arm's def has no such consumer -- the arm threads straight
+ *    into the tail's call and epilogue -- so VC6 folds it to an immediate.
+ *    The original's register form means that at REGISTER-ALLOCATION time the
+ *    arm still fell into the join and the constant was live through it; the
+ *    threading and the tail duplication happened afterwards.
+ *    The one spelling found that reproduces the size and the instruction
+ *    count is comparing the join against the CONSTANT (`if (g_drag_lock == 1)`
+ *    or `>= 1`, both identical objects; `!= 0`, `> 0` and a bare test are all
+ *    the old 183/671).  It keeps the 1 live into the join, so `place` no
+ *    longer needs its own def -- BUT it moves the cost rather than removing
+ *    it: our join becomes `mov eax,[lock] / mov ebp,1 / cmp eax,ebp / je`
+ *    where the original has `cmp [lock],edi / jne`, and the arm still stores
+ *    the immediate.  So THE ORIGINAL'S JOIN IS `!= 0` and this spelling is a
+ *    count-alignment trade, not the answer: it is 6 aligned differences
+ *    against 3 for `!= 0`, but 13 index-for-index against 82.  A future lane
+ *    that finds the real lever for the arm should put the join back to
+ *    `if (g_drag_lock)`.  It is safe: on this path the lock is only ever 0 or
+ *    1 (cleared at the top of the button-2 branch, set only by the two arms;
+ *    the one callee in between, ScreenToMapRef at 0x0045be90, neither
+ *    references 0x00668954 nor calls anything).
+ *    Also ruled out this pass: the arm as a degenerate branch on `found`, `o`,
+ *    `cell.x` or `g_worker_on_mouse_type` (all merged away, 183/671); the arm
+ *    as `g_drag_lock = 1; goto tail;` on top of the `== 1` join (185/678);
+ *    the join moved inside the in-range arm with the else arm carrying its own
+ *    `goto tail` (184 but 677 bytes, 66 mismatches); the height read into an
+ *    `int h` local first (identical object); and re-testing residual (2)'s
+ *    direct call test on top of the new join (193 instructions / 699 bytes).
+ *
+ *    PASS N+3 (2026-09-04, sweep6 lane).  No change to the code; the lever
+ *    for residual (1) is still not found, so the `== 1` join STAYS -- but the
+ *    mechanism is now pinned down, and the note's old figures are corrected.
+ *    CORRECTION: `!= 0` is no longer 183/671.  On the current body audit.py
+ *    reports 184 instructions / 672 bytes for BOTH spellings (the real body
+ *    is 183 instructions ending in `ret`; audit trims the compiled COMDAT to
+ *    the original's 184-instruction extent, which picks up one byte of /Gy
+ *    alignment padding).  So the honest `!= 0` costs nothing in size any
+ *    more: it is 82 index-for-index against 13, but only THREE
+ *    difflib-aligned differences against eight, and those three are exactly
+ *      - `mov ebp,1` + `mov [g_drag_lock],ebp` (original, 0x183) against our
+ *        single `mov dword ptr [g_drag_lock],1`, and
+ *      - `test eax,eax` (original, 0x271) against our `cmp eax,edi`.
+ *    Everything else in the function is byte-for-byte identical under `!= 0`.
+ *    Whoever reads this next: 82 vs 13 is an ALIGNMENT artefact of one
+ *    missing instruction, not 69 wrong instructions.
+ *    WHAT THE ARM'S REGISTER STORE ACTUALLY NEEDS -- proved this pass.  Give
+ *    the out-of-range arm a SECOND LIVE consumer of the constant 1 and VC6
+ *    immediately emits `mov ebp,1 / mov [g_drag_lock],ebp` there: adding
+ *    `g_icon_clicked = 1;` to the arm (a no-op on this path, that global is
+ *    set to 1 at the top of the button-2 branch and nothing between touches
+ *    it) drops the aligned distance from 6 to 4 -- i.e. it fixes residual (1)
+ *    outright -- and costs three bytes for the extra store, so it is not the
+ *    original.  Every DEAD second consumer is eliminated before allocation
+ *    and changes nothing: `g_drag_lock = 1;` twice, `if (g_drag_lock != 1)
+ *    g_drag_lock = 1;`, `found = 1;`, `r = 1;`, a `static __inline void
+ *    LockDrag(void) { g_drag_lock = 1; }` used in the arm alone or in both
+ *    arms, and a degenerate `else if (found) ... else ...`.  So the search is
+ *    narrow and precise: find a consumer of the constant 1 on that path that
+ *    the original ALSO has and that emits no instruction of its own.
+ *    Also re-measured this pass on the `!= 0` baseline: swapping the two arms
+ *    (98); `if (r != 0)` (identical); `unsigned r` (identical); `short r`
+ *    (one instruction short); `char r` / `unsigned char r` (176 -- it forces
+ *    a fourth callee-saved push and renames everything, and it would also be
+ *    a semantic change, the callees' return values are not known to be 0/1).
  */
-// WIP-FUNCTION: LEGOLAND 0x00470620  (181/184 aligned = 98.4%, 672/672 bytes; two difference hunks, at 0x4707a3 and 0x470891, see above; the missing instruction shifts every later index so audit.py counts 82)
+// WIP-FUNCTION: LEGOLAND 0x00470620  (184/184 insns, 672/672 bytes, 13 by audit; the arm's store form at 0x4707a3 and `test eax,eax` at 0x470891)
 void CheckWorkerOnMouseStatus(WorkOrder* o)
 {
     Pos  cell;
@@ -1019,7 +1091,12 @@ void CheckWorkerOnMouseStatus(WorkOrder* o)
              * is VC6 threading the join below through a known-true test. */
             g_drag_lock = 1;
         }
-        if (g_drag_lock)
+        /* `== 1` not `!= 0`: on this path the lock is only ever 0 or 1, and
+         * comparing against the CONSTANT keeps the 1 live into the join, which
+         * is what makes the out-of-range arm above store it from the constant
+         * register (`mov ebp,1 / mov [g_drag_lock],ebp`) instead of folding it
+         * into an immediate.  See the note above this function. */
+        if (g_drag_lock == 1)
             goto tail;
 place:
         if (g_worker_on_mouse_type == 0x307) {

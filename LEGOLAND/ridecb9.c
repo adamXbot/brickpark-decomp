@@ -164,16 +164,48 @@ extern void* HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
  * no north/south row case at all, unlike the monkey fish.
  * ========================================================================= */
 
-/* NOTE: 141/141 instructions and 438 bytes, but the original splits its
- * constant zero across TWO registers -- eax for +0x08..+0x28 and a second
- * `xor ecx,ecx` for the three rider slots at +0x30..+0x38 -- which frees eax
- * for the `o` argument load.  Every source spelling tried (chained
- * assignment, an inlined clearer, a pointer alias, i64/double stores,
- * computed zeros, statement reordering) folds into ONE zero in eax and puts
- * `o` in ecx; only an intrinsic memset splits the value, and that emits a
- * `lea` base instead of the original's [esi+disp] stores.  Held as WIP until
- * that split is reproduced. */
-// WIP-FUNCTION: LEGOLAND 0x00434f90  (141/141 insns, one zero-register split short)
+void* memset(void*, int, unsigned int);
+#pragma intrinsic(memset)
+
+/* RESIDUAL: 141/141 instructions, 438 of 438 bytes, mismatch 102 -> 15 by
+ * audit.py.  Everything from index 54 (the `mov [0x629c3c], esi` that
+ * publishes the new station) to the `ret` is now byte-identical, including
+ * both river-tile calls and the whole tile-paint double loop; the residual is
+ * confined to indices 32..53.
+ *
+ * WHAT CLOSED 87 OF THEM.  The three rider slots are cleared by an INTRINSIC
+ * `memset`, not by three assignments.  With three plain stores VC6 keeps ONE
+ * zero web in eax for all eleven zero stores and is then forced to put the
+ * `o` argument in ecx, loading it 15 instructions early (our old index 32);
+ * with the memset it creates a second scratch temp for the destination, the
+ * zero web dies at the last rider store, and `o` lands in EAX right before
+ * its push -- which is what the original does.  That one change also fixed
+ * the eax/ecx/edx rotation phase of all three SetMapTile arms, 60-odd
+ * instructions later.  (The previous note dismissed memset on the strength of
+ * the `lea` it emits; it is worth 87 anyway.)
+ *
+ * WHAT IS LEFT (15, first diverging index 32).  The original rematerialises
+ * the zero -- `xor ecx,ecx` at index 42, hoisted between the +0x18 and +0x1c
+ * stores -- and writes the riders as `mov [esi+0x30], ecx` / `[esi+0x34]` /
+ * `[esi+0x38]`, with `mov eax,[esp+0x14]` (the `o` load) at 47 and `push eax`
+ * at 49 SCHEDULED BETWEEN two of those stores.  Our memset instead emits
+ * `lea ecx,[esi+0x30]` at 32 and stores `[ecx]`, `[ecx+4]`, `[ecx+8]` with
+ * `o` loaded after all three.  So the original's construct still zeroes the
+ * three slots from a second register while addressing them off esi.
+ *
+ * MEASURED AND RULED OUT: `memset(st->riders,..)`, `memset(&st->riders[0],..)`
+ * and `memset((char*)st+0x30,..)` are byte-identical (the `lea` is not a
+ * spelling artefact); memset with and without the intrinsic pragma likewise;
+ * memset of the blokes instead, or of both, is far worse (102/107); `__int64`
+ * and `double` zero stores over riders[0..1] (106); chained assignment of
+ * either group; per-element volatile stores (125); a zeroed local carrier;
+ * a `for` loop over the riders (96); and the full 2450-point placement search
+ * over {blokes, riders, link, AddBasicObject} x the six scalar seeds, run
+ * twice (once per rider spelling) -- the committed placement is the minimum.
+ *
+ * DATA: the `owner` handed to JungleCruise_UpdateRiverTile really is the
+ * station record itself (its +0x00 IS the packed square). */
+// WIP-FUNCTION: LEGOLAND 0x00434f90  (141/141 insns; riders cleared off esi from a rematerialised zero, we use a lea base)
 void JungleCruise_Add(void* o, Pos* p)
 {
     BPosW      key;
@@ -202,9 +234,7 @@ void JungleCruise_Add(void* o, Pos* p)
         st->blokes[2] = 0;
         st->blokes[3] = 0;
         st->blokes[4] = 0;
-        st->riders[0] = 0;
-        st->riders[1] = 0;
-        st->riders[2] = 0;
+        memset(st->riders, 0, sizeof st->riders);
         st->next = g_jc_stations;
         g_jc_stations = st;
         AddBasicObject(o, p);

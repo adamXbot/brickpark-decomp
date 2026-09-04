@@ -832,41 +832,84 @@ char CheckFocussedIcon(void)
  * (fpui2.c) in the same session: a merged tail is invisible in the instruction stream
  * but NOT invisible to VC6's register allocator.
  *
- * WHAT WAS RULED OUT for the remaining `mov edx,eax` (all under scratchpad/lists/icl,
- * ~120 compiled variants this round, every one landing on `push eax` at index 46):
+ * THE MECHANISM, as far as it is pinned down.  VC6 routes a compiler TEMP
+ * through a register copy before a SPILL but not before a PUSH: with the
+ * compare written inline the first cost is a temp and comes out
+ * `mov edx,eax / push ebx / mov [esp+0x1c],edx` (the copy the original has at
+ * index 49), while with a named `int c1` local it is a symbol and is spilled
+ * straight from eax -- `mov [esp+0x1c],eax` -- one instruction shorter and
+ * with the original's `mov ecx,[esp+0x1c]` reload register.  The original has
+ * BOTH the temp form's result copy AND the symbol form's ecx reload AND a
+ * third copy, `mov edx,eax` for the ARGUMENT of the first call, which no
+ * spelling produces: every variant pushes the CSE'd `p->obj` out of eax
+ * directly.  Reading edx as ONE web with two defs (the argument, then the
+ * result) explains the ecx reload for free, so the shape to look for is a
+ * single value that is both.
+ *
+ * WHAT WAS RULED OUT for the remaining `mov edx,eax` (scratchpad/lists/icl and
+ * scratchpad/sweep1/icl, ~175 compiled variants over two rounds, every one
+ * landing on `push eax` at index 46):
  *  - Naming the first argument: `b = p->obj` at function scope, in the loop, in an
- *    inner block, `register`, assigned before or after the parent test, `b` shared
- *    with the search loop (that one flips the loop-top load order instead), and
- *    `GetObjCost(b = p->obj)`.
+ *    inner block, `register`, assigned before or after the parent test, assigned
+ *    AFTER the inline parent compare (so the assignment is a copy from a live CSE),
+ *    `b` shared with the search loop (that one flips the loop-top load order
+ *    instead), `q = b` through a second pointer, and `GetObjCost(b = p->obj)`.
  *  - Defeating the CSE by re-spelling it: `*&p->obj`, `(0, p->obj)`, `(p)->obj`,
- *    `((ObjNode*)p)->obj`, `*(ObjDef**)((char*)p + 4)`, casts through char*, void*,
- *    unsigned and LLElem*, and the same re-spellings on the parent side.
+ *    `((ObjNode*)p)->obj`, `*(ObjDef**)((char*)p + 4)`, `&b[0]`, `q = &p->obj;
+ *    *q`, `(ObjDef*)(unsigned)b`, an `unsigned b` with casts at both uses, a
+ *    second struct type for the parent load, a distinct `ObjNode2` type for the
+ *    argument load, `p ? b : b`, and casts through char*, void*, unsigned and
+ *    LLElem*.
+ *  - Alias spellings of the same value: `prev->next->obj` for the argument (VC6
+ *    does NOT value-number it to `p->obj`, so it costs a second load chain: 69
+ *    insns) and for the parent compare (68 insns / 171 B / 11 mismatches -- the
+ *    best number seen, but it reloads `p->obj` for the argument instead of
+ *    copying it and swaps prev/a into ebx/ebp); `q = p; q->obj` (copy-propagated).
  *  - Prototype levers on GetObjCost: `void*`, `const ObjDef*`, an unrelated struct
  *    plus casts, `__cdecl`, and an empty parameter list.
- *  - Cost temporaries: one `c1`, `c1`+`c2`, block-scope `int c1 = ...`, the
- *    assignment inside the compare, and both compare polarities (`c2 <= c1`,
- *    `c1 >= c2`, `!(a > b)`). `c1`+`c2` as named locals DOES buy the original's
- *    `mov ecx,[esp+0x1c]` reload register, but loses the `mov edx,eax` that saves
- *    the first result -- 66 instructions, one worse.
- *  - Inline helpers: Cost(x), Id(x), Dearer(x,y), Cheaper(x,y) with and without
- *    internal cost locals, Stop(ObjDef*,ObjDef*), StopN(ObjNode*,ObjNode*) reading
- *    both objects itself, and the whole sorted insert as one __inline.
- *  - Loop shapes: while / do-while / for(;;) with the step first, the found body
- *    inlined in the search loop, the search loop rotated as
- *    `if (p) while (p->obj->elem != d->parent)`, and link-store order swapped.
+ *  - Cost temporaries: one `c1`, `c1`+`c2`, block-scope `int c1 = ...`, `ObjDef* t`
+ *    plus `int c1` (a scratch-local pair, to try to coalesce the two names into
+ *    one register), a `union { ObjDef* o; int c; }` carrying both, the assignment
+ *    inside the compare, and both compare polarities.  All lose the result copy
+ *    (66 insns) rather than gaining the argument copy.
+ *  - Inline helpers: Cost(ObjDef*), CostN(ObjNode*), Cost3 with an internal local,
+ *    Id, Dearer, Cheaper, Both (which evaluates the b-side into a local first),
+ *    Stop(ObjDef*,ObjDef*), StopN(ObjNode*,ObjNode*), and the whole sorted insert
+ *    as one __inline.  The "helper arguments become temporaries before the body
+ *    runs" lever does NOT apply here: every helper form is 66 or 67 insns.
+ *  - Structure: `if (a->parent == b->parent) { cost } else { INS }`; the two
+ *    conditions merged with `||`; a degenerate `if (g) { cost } else { cost }`
+ *    (VC6 hoists the shared `push eax` above the test and duplicates the rest --
+ *    80 insns, and the else arm alone shows the original's ecx reload, which is
+ *    what first suggested the two-web reading above).
+ *  - A THIRD textual use of `p->obj` (a null test, an extra `elem` test, a store
+ *    of it into n->keep) does not turn the CSE into a copied web either: the
+ *    push still reads eax.  So "more uses" is not the trigger.
+ *  - A whole-binary scan of the 1541 exact bodies for `mov rB,rA / push rB`
+ *    (scratchpad/sweep1/scan_argcopy.py) finds only eight sites, and every one
+ *    is either a CALL RESULT parked in a callee-saved register, a value that
+ *    must survive the call, or a phi from a conditional global store
+ *    (RenderAdvisorIcon 0x443e8a: `if (!g_vid_next) g_vid_next = g_vidanim;`
+ *    then `SetVidAnim(g_vid_next)` -- VC6 forwards the store's source register
+ *    into the push).  None is a plain load pushed through a copy, so there is
+ *    no worked example of this shape anywhere in the matched corpus.
  *
  * NEXT STEP. The missing instruction is an un-coalesced copy of a CSE into an
  * argument temp, so the thing to look for is a source form in which `p->obj` is TWO
  * webs that VC6 proves equal but does not coalesce -- not another spelling of one
- * web. Two untried leads: (1) a value that reaches the call site through a
- * tail-merged block, i.e. a phi copy -- the OLL lever applied to the CALL rather
- * than to the link, so look for a shape in which GetObjCost(p->obj) is written at
- * two sites that VC6 merges; (2) the second `mov edx,eax` (the c1 save) and the ecx
- * reload come free with named `c1`/`c2` locals, so a form that has named cost locals
- * AND keeps the argument copy would be exact -- combining those two behaviours is
- * probably one source form away. Variants: scratchpad/lists/icl/ (tools: ../batch.py,
- * which reports insns/bytes/first-divergence plus the recovered n/a/p/prev register
- * map, and ../oll.py for the sibling in fpui2.c). */
+ * web. The best remaining lead is the phi copy: RenderAdvisorIcon's site above is
+ * the only worked example of a load-and-push separated by a copy in the whole
+ * corpus, and there the value is a GLOBAL whose store on one arm of a merge feeds
+ * the push, so the shape to hunt for is one in which the value handed to
+ * GetObjCost arrives at the call through a tail-merged block. The
+ * `prev->next->obj` alias family (68 insns / 171 B / 11 mismatches with the
+ * compare on the alias) is the only variant that reaches the original's
+ * instruction and byte counts and is worth re-opening if a spelling can be found
+ * that keeps ONE load. Variants: scratchpad/sweep1/icl/ and scratchpad/lists/icl/
+ * (tools: scratchpad/sweep1/batch.py, which reports insns/bytes/first-divergence,
+ * whether a copy-then-push appeared (cp=), and the recovered n/a/p/prev register
+ * map; scratchpad/sweep1/scan_argcopy.py mines the exact corpus for the shape;
+ * scratchpad/lists/oll.py for the sibling in fpui2.c). */
 // WIP-FUNCTION: LEGOLAND 0x00475630  (67 of 68 insns, 169B vs 171B; audit.py prints 68i/170B counting a pad byte. First diverging index 46: one missing `mov edx,eax` argument copy, see note)
 void InsertChildIntoList(ObjDef* d)
 {

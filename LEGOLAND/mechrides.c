@@ -1562,7 +1562,57 @@ extern CarRow  g_tower_car[4];                               /* 0x004b77a8 */
  * six orders of the next/b/rec statements, a named `RideTile* tile` local for
  * the FindRecord and TakeSeat calls (identical code) or for every use (231),
  * `int tiley`, `if (b->state == 0)` vs `if (!b->state)`, and splitting the
- * base[1] sum. */
+ * base[1] sum.
+ * ROUND 5 (unchanged at 149).  A second signature was isolated and then
+ * failed to move: ours emits `xor edx,edx / cmp word ptr [esi+0xe], dx`
+ * where the original has the IMMEDIATE `cmp word ptr [esi+0xe], 0`, i.e. we
+ * grow a function-wide zero WEB whose def lands in the loop head and absorbs
+ * the compare, while the original materialises its zero locally in case 1
+ * (`xor eax,eax` right before the two 16-bit stores).  That register-vs-
+ * immediate compare is also part of the 5-byte deficit.  Measured and inert:
+ * `b->f4a`/`b->f38` instead of `r->bloke->`, either store order, a
+ * `unsigned short z = 0;` carrier, an explicit `(unsigned short)0` cast, and
+ * `b->state == 0` vs `!b->state`.  Also re-run in this state and still
+ * inert: all six loop-head statement orders.  The stub-each-case diagnostic
+ * (which cracked PlaneRide_Activate this round -- stub every case body out
+ * in turn and watch which register a head value lands in) has NOT yet been
+ * run on this function and is the obvious next step. */
+/* ROUND 6 (2026-09-04, still 149 committed).  THE HEAD'S SOURCE SHAPE IS NOW
+ * KNOWN and it is a named local:
+ *     RideTile* tile = RIDE_TILE(r);
+ *     rec = SpaceTower_FindRecord(tile);
+ *     ... tilex = tile->b.x; ... base[1] = def->base_y + tile->b.y;
+ * with `tile` used for case 0's SpaceTower_TakeSeat as well.  That ONE change
+ * reproduces THREE independent signatures the expression form cannot:
+ *   - the rematerialised `lea r,[r_cursor+0xc]` at index 25/30 (ours had
+ *     folded the second tile access into `mov al,[r+0xd]`);
+ *   - the CSE of that lea LIVE ACROSS THE JUMP TABLE into case 0, which
+ *     pushes it (ours re-did the `lea` inside case 0);
+ *   - the IMMEDIATE `cmp word ptr [esi+0xe], 0` -- the function-wide zero web
+ *     described in round 5 simply disappears.
+ * Register-blind it is far closer than the committed body (rb 70 -> 42,
+ * shp 64 -> 46) but the STRICT count rises 149 -> 200, because the whole
+ * body is then renamed by the SAME ebx/ebp swap that was already the
+ * residual: the original puts the loop cursor `r` in ebx and tile/tx in ebp,
+ * ours does the opposite.  Not committed for that reason.
+ * The swap is not caused by anything local: the stub-each-case diagnostic
+ * was run (every case body replaced by `break;` in turn) and `r` lands in
+ * ebp in EVERY variant -- ebx never appears -- and it is equally unmoved by
+ * deleting `tx`, deleting `base[1]`, deleting `tilex`, `int base[3]`,
+ * `while (r != 0)`, `for (r = ..; r; r = next)`, all six orders of the
+ * next/b/tile statements, `if (b->state == 0)`, and moving TickMachine.
+ * The original also reloads the spilled `def` TWICE back to back (indices
+ * 22/23) so that the second field load can be in place (`mov ecx,[ecx+0x10]`)
+ * -- a register-pressure symptom we do not have.  `(*(RideDef* volatile*)&def)
+ * ->base_y` buys exactly that second reload and takes the byte length to
+ * 697/698 (from 693) but costs the immediate compare and measures 152.
+ * MEASURED (2026-09-04): tile x {no vol, vol on base_x, on base_y, on both}
+ * x {tx first, base[1] first} = 149/141/152/153/186/192/200/203; separate
+ * `bx`/`by` locals 200; a `tiley` local 200; `unsigned char tilex` 150.
+ * NOTE `base[1] = ...` written BEFORE the tilex/tx pair measures 141, i.e.
+ * 8 BETTER than the committed body -- it is NOT committed because it is a
+ * numeric accident: it loses the case-0 tile CSE and keeps the zero web, so
+ * it is further from the original than what is here. */
 // WIP-FUNCTION: LEGOLAND 0x0043bac0  (33%, 149/222; frame and block layout now exact, the cursor/pointer register swap remains -- see above)
 void SpaceTower_Activate(RideElem* elem)
 {
@@ -2465,12 +2515,65 @@ extern const int g_safari_end_off[8];                        /* 0x004b4ce4 */
  *   2. a FRESH `sy2` for the y chain (with `sy` reused the strict count is
  *      249), keeping the pivot-before-screen.oy order.
  *   3. The BNV seed is a 12-byte `BnvPos` here too.
- * WHAT IS LEFT (143): the divergence starts at index 85 and is the same
- * y-chain residual as the other three -- the original accumulates the y chain
- * in sy's callee-saved register (`xor eax,eax / mov ax,[cfg+0x22] /
- * sub eax,edx / add ebx,eax`) where we build it in the delta's register --
- * followed by a naming cascade through the rest of the body. */
-// WIP-FUNCTION: LEGOLAND 0x00415220  (64%, 143/402; frame exact and the head exact, the y-chain register cascade remains -- see above)
+ * NEXT ROUND (audit 143 -> 137, byte length now 1292 == 1292).  The y chain
+ * is built FROM sy with the empty-`if` flatten breaker and `p = b->person;`
+ * is cached for the z-sprite store (SpinningBarrels_Activate items 9-11).
+ * The two MUST go in together here: the y form ALONE measures 227, because
+ * it re-phases case 2 so that the second `b35=1; action=5; HeapFree; bnvpath
+ * = 0` arm gets cross-jumped into the first (a 3-instruction stub plus an
+ * out-of-line block) where the original keeps a full inline copy ending in
+ * its own `BlokeSetFrame` + `jmp`; the `p` cache restores the phase.  Worth
+ * recording, because the y form alone gets indices 155-183 exact
+ * register-for-register and cuts the head residual from ~45 to 12 -- if the
+ * case-2 layout can be pinned some other way the function should fall a long
+ * way.  Measured against that layout and rejected: a local for the freed
+ * path, statement order inside the arm, `r->bloke->` at both stores, a
+ * volatile read of bnvpath, `&&` instead of the nested `if`, `else { }`, and
+ * duplicating `BlokeSetFrame(b, b->b74); break;` into the arm (that gets the
+ * arm right but merges the two `add esp` cleanups into `add esp,0xc` and
+ * emits a third copy of the tail -> ESCAPES).
+ * Two more statement-order fixes after that (137 -> 132): the case-13 flag
+ * clear moved before the z-sprite store, and case 7's `b->flags |= 0x80;`
+ * moved ABOVE the pos2 block.
+ * WHAT IS LEFT (132): indices 86-124 are the last y-block items the Barrels
+ * also has (the scroll subtraction's position, plus here the pos.x store and
+ * the screen.oy reload); from 132 on it is one register rotation through
+ * case 2, case 5 and case 7 -- the whole tail is register-blind clean
+ * (rb=34 against 132 strict), so it is a single allocator phase step, not a
+ * structural difference.  NOTE the Safari is the ONLY one of the four that
+ * still needs `p = b->person;` (without it the y form regresses to 227 by
+ * re-phasing case 2) and the only one whose head does NOT respond to the
+ * volatile-rec removal -- its SeatOf takes the tile, so there is no rec
+ * argument to spill in the first place.  The remaining rotation is most
+ * likely one scratch temp too many or too few somewhere in case 1; the
+ * `stub each case and watch a head register` diagnostic that cracked the
+ * Plane is the thing to run here next.
+ * ROUND 6 (2026-09-04, unchanged at 132).  Two things were pinned down:
+ *   - THE TAIL ROTATION IS `p = b->person;` LANDING TWELVE SLOTS EARLY.
+ *     Ours emits it at index 91 (into ecx, the register freed by the
+ *     `mov ax,[cfg+0x22]`); the original emits it at 103 (into edx, the
+ *     register the second `cdq` had just freed).  From there the whole tail
+ *     is the map orig ecx -> ours eax, orig edx -> ours ecx, orig eax ->
+ *     ours edx, i.e. we are ONE step behind in the eax/ecx/edx rotation, and
+ *     that alone accounts for indices 132-379.  The load's position is a
+ *     SCHEDULER decision and is completely insensitive to source placement:
+ *     `p` before the pos stores, between them, after them, hoisted above the
+ *     four subtractions, and dropped entirely all give 132 (dropping it or
+ *     using `p` for f30/depth costs 17 instructions' worth of extra
+ *     `[esi+4]` reloads and measures 227-303).  Per the scheduler lever in
+ *     docs/DECOMP.md this wants a no-code IR tuple EARLIER in the function,
+ *     not a different statement order here.
+ *   - The y block's own residual (86-124) is the family-wide scroll
+ *     subtraction; the one-web y chain described in the round-6 paragraph of
+ *     SpinningBarrels_Activate moves this function's two GetUnitDepth pushes
+ *     onto indices 86/89 where the original has them and HALVES the
+ *     register-blind residual (rb 34 -> 18, shp 34 -> 18), but brings the
+ *     same three-cycle callee-saved rotation, so audit goes 132 -> 149.
+ * SHIMS RE-TESTED IN THIS STATE and all still carrying their weight:
+ * removing `*(volatile int*)&spill.x = sx;` costs the frame (0x38 -> 0x34)
+ * and measures 331; `spill.y` 133; spilling `sy` instead 147; reusing `sy`
+ * for the whole y chain 148. */
+// WIP-FUNCTION: LEGOLAND 0x00415220  (67%, 132/402; frame, byte length and the head exact, a tail register rotation remains -- see above)
 void SafariRide_Activate(RideElem* elem)
 {
     RideDef*    def = elem->data;
@@ -2493,6 +2596,7 @@ void SafariRide_Activate(RideElem* elem)
     int         wy;
     int         sx2;
     SpillPair   spill;
+    Person3D*   p;
     int         sy2;
 
 
@@ -2525,14 +2629,21 @@ void SafariRide_Activate(RideElem* elem)
                 sy = (wx + wy) * th >> 9;
                 *(volatile int*)&spill.x = sx;
                 sx2 = g_map_cfg->ox - Get_XScroll() + sx;
-                sy2 = sy + (g_map_cfg->oy - Get_YScroll());
+                /* See SpinningBarrels_Activate: scroll subtracted from sy
+                 * first, origin added back, empty `if` as the flatten breaker;
+                 * `p` cached only for the z-sprite store so its load can be
+                 * hoisted above the two escaped `pos` stores. */
+                sy2 = sy - Get_YScroll();
+                sy2 += g_map_cfg->oy;
+                if (sy2) { }
                 sx2 -= g_safari_ofs2.ox / 2;
                 sx2 -= screen.ox;
                 sy2 -= g_safari_ofs2.oy / 2;
                 sy2 -= screen.oy;
+                p = b->person;
                 pos.x = sx2 * 2;
                 pos.y = sy2 * 2;
-                b->person->zsprite = g_safari_zspr;
+                p->zsprite = g_safari_zspr;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617787.0f, -1618006.0f);
                 r->bloke->b35 = 0;
@@ -2576,13 +2687,13 @@ void SafariRide_Activate(RideElem* elem)
                     SafariRide_SetFull(rec);
                 break;
             case 7:
+                b->flags |= 0x80;
                 {
                     int px = b->ride_dx * 2;
                     int py = b->ride_dy * 2;
                     pos2.x = px;
                     pos2.y = py;
                 }
-                b->flags |= 0x80;
                 BlokeWalkAnim(b);
                 BlokeSetFrame(b, 0);
                 b->person->zsprite = g_safari_zspr;
@@ -2617,8 +2728,9 @@ void SafariRide_Activate(RideElem* elem)
                 BlokeSetFrame(b, b->b74);
                 break;
             case 13:
-                b->person->zsprite = 0;
+                /* the flag clear before the z-sprite store (137 -> 135) */
                 b->flags &= (unsigned short)~0x80u;
+                b->person->zsprite = 0;
                 b->person->f30 = 0;
                 UnAdjustBlokePosition(&b->person->screen);
                 ScreenToMapRef(&b->person->screen, &b->world, 0);
@@ -2743,18 +2855,116 @@ extern char g_sbarrel_pathname[];                            /* 0x004b78b4 "BoxB
  *   8. Of the four subtraction statements only the RELATIVE order of the two
  *      sy2 ones matters (all 24 permutations measured): screen.oy before the
  *      pivot half is what hoists its load above the x pivot.
- * WHAT IS LEFT (25, all in the case-1 scroll stage, indices 110-137, plus the
- * two case-8 pos2 stores): the original accumulates the y chain IN PLACE in
- * sy's register (`add ebx,edx`) where we build it in the delta's register
- * (`add ecx,ebx`), which rotates ecx/edx and the screen.ox/oy load order for
- * the rest of the block.  This is now the ONE residual shared by all four BNV
- * _Activate callbacks.  Ruled out for it: `sy +=` / `sy = sy + ..` in place
- * (51, the whole wx/wy allocation rotates), operand order, a named delta
- * local declared before or after sy, `sy2 = sy; sy2 += ..`, `sy - (yscroll -
- * oy)`, an inline `((wx+wy)*th>>9) + ..` (the imul then sinks below the
- * call), two-def `sy = ..*th; sy >>= 9`, and all four wx/wy and sx/sy
- * statement orders. */
-// WIP-FUNCTION: LEGOLAND 0x0043c950  (93%, 25/362; frame and byte length exact, the case-1 y-chain register remains -- see above)
+ * ROUND 5 (audit 25 -> 19).  THE FAMILY-WIDE Y-CHAIN RESIDUAL IS SOLVED here
+ * and transfers to all four BNV _Activate callbacks; the two levers are:
+ *   9. THE Y CHAIN IS ACCUMULATED FROM sy, NOT FROM THE DELTA.  Spelled
+ *      `sy2 = sy + (cfg->oy - Get_YScroll())` the parenthesised delta is a
+ *      compiler TEMPORARY, so it wins the rank-1 destination copy, sy2
+ *      coalesces with IT and the sum lands in a scratch register (`add
+ *      ecx,ebx`).  Spelled as two statements that start FROM sy --
+ *          sy2 = sy - Get_YScroll();
+ *          sy2 += g_map_cfg->oy;
+ *      -- the first operation is in-place on sy, sy2 coalesces with sy, and
+ *      the whole chain runs in sy's own callee-saved register exactly as the
+ *      original does (`add ebx,edx`, `sub ebx,eax`, `sub ebx,ebp`).  The
+ *      value is identical: (sy - yscroll) + oy == sy + (oy - yscroll).
+ *      A lab of ~40 isolated spellings (named delta local, `int da[2]`, a
+ *      Pos field, `short` delta, volatile on either side, `sy - (yscroll -
+ *      oy)`, all six textual orders) confirms NOTHING ELSE moves that
+ *      destination: VC6 forward-substitutes every named delta back into a
+ *      temporary first.  In-place on `sy` itself also gets the add right but
+ *      merges sy's web with wx's and rotates the whole wx/wy/sx/sy register
+ *      triple (37 here, and it is what the Spider had).
+ *  10. THE EMPTY `if (sy2) { }` IS LOAD-BEARING.  Without it VC6 flattens the
+ *      two later `sy2 -=` statements back into that sum and re-sorts the
+ *      terms (screen.oy gets folded into the oy load, `sub ecx,eax`).  The
+ *      `if` is a second consumer of sy2 evaluated before the subtractions, so
+ *      the reassociation is refused; the branch itself is deleted afterwards
+ *      and costs zero instructions (`if (sy2) ;`, `{ }` and `!= 0` are
+ *      byte-identical).  Same mechanism as DrawPopUpMock's `(X+c1)-c2`.
+ *  11. `p = b->person;` CACHED FOR THE Z-SPRITE STORE ONLY (f30 and depth
+ *      re-read `b->person`) is worth 6 here.  The original hoists that one
+ *      `mov ecx,[esi+4]` twenty instructions, above the two `pos` stores; a
+ *      store to the escaped `pos` is a schedule barrier for a pointer load,
+ *      so the load cannot climb on its own -- naming it does it instead.
+ *      Caching it for f30 as well is much worse (234): the original really
+ *      does reload after the store through the pointer.
+ * WHAT IS LEFT (19): indices 113-132 and the two case-8 pos2 stores.  The
+ * y block is now register-for-register the original's; the one remaining
+ * instruction is the SCROLL SUBTRACTION -- ours is `sub ebx,ecx` (sy minus
+ * yscroll, scheduled at 113 because it is ready as soon as the movsx lands),
+ * the original's is `sub edx,ecx` (oy minus yscroll, at 117, so it waits for
+ * the `mov dx,[cfg+0x22]`).  That one displacement pushes the two
+ * GetUnitDepth `push`es and the screen.ox load one slot each.
+ * ROUND 6 (2026-09-04) -- THE SOURCE SHAPE IS NOW KNOWN, only its register
+ * assignment is not.  Writing the y chain as ONE web
+ *     sy2 = (wx + wy) * th >> 9;          (no separate `sy` at all)
+ *     sy2 += g_map_cfg->oy - Get_YScroll();
+ * reproduces indices 113-119 EXACTLY -- `mov ebp,[esp+0x40]` at 113, the
+ * first GetUnitDepth push at 114, `sub edx,ecx` at 117 and `add r,edx` at
+ * 119 -- and drops the register-blind distance (rb 18 -> 16, shp 18 -> 14).
+ * It is not committed because it costs a THREE-CYCLE rotation of the
+ * callee-saved registers over the whole block (ours ebx->orig ebp for sx,
+ * ours edi->orig ebx for sy2, ours ebp->orig edi for wy/sx2), audit 19 -> 34.
+ * Everything else about that variant is right, so the residual is now
+ * exactly "give the merged sy2 web ebx".  Why the shape is certain:
+ *   - `add edi,ebp` for X (destination = the ox-xscroll TEMP, sx folded) and
+ *     `add ebx,edx` for Y (destination = the sy VARIABLE, delta folded) can
+ *     only both be true if X is `sx2 = <delta> + sx` (fresh variable, so the
+ *     rank-1 temp wins the destination copy) and Y is `sy2 += <delta>`
+ *     (compound assignment on the shift's own web).  A corpus scan over all
+ *     1542 exact bodies for `sub <scratch>,<scratch>` followed within three
+ *     slots by `add <callee-saved>,<that scratch>` returns exactly TWO hits,
+ *     both in PrintSpriteEx (0x4856a0), and both are `param += expr` -- i.e.
+ *     the shape only ever comes from a compound assignment on a variable.
+ *   - the same substitution moves the Safari's two GetUnitDepth pushes onto
+ *     indices 86/89 where the original has them, and halves its
+ *     register-blind residual (rb 34 -> 18), with the identical 3-cycle.
+ * MEASURED AND INERT against the rotation (~90 variants, all exactly 34):
+ * every statement order in the block (2 shift orders x 2 world-read orders x
+ * 3 spill positions x 2 chain orders x the empty `if`), all 24 orders of the
+ * four subtraction statements, all 7 positions of the GetUnitDepth call,
+ * `unsigned`/`short` types for sx/sy2/wy, splitting the shift into 2 or 3
+ * statements, `if (v) {}` consumers on sy2/sx/sx2/wy, `sy2 *= 2` /
+ * `sy2 += sy2` as an extra reference before the pos store, direct
+ * `b->world.x/y` reads, `sy2 = sy2 + (...)` vs `+=` vs
+ * `-= (Get_YScroll() - oy)`, and the x chain written as two statements.
+ * Also inert (second pass): every position of `screen =
+ * GetScreenCoordsForObject(..)` and of `GetTileDimensions(..)`, `unsigned`
+ * and `long` for each of wx/wy/sx/sx2, `*(volatile int*)&spill` instead of
+ * `&spill.x`, a named delta local for the X chain, and commuting either
+ * product's operands (`th * (wx + wy)`, `(wy + wx)`).  ~130 variants in all.
+ * Every attempt to keep TWO names (`sy2 = sy; sy2 += delta;`) is
+ * copy-propagated back into the delta-wins form (106-113 and one byte short),
+ * including with `if (sy) {}`, `sy2 -= 0`, `sy2++/--` and a block-scoped temp
+ * between them.  Splitting the web at any OTHER point (a name for `wx + wy`,
+ * for `(wx+wy)*th` before the `sar`, for the value after the delta add, or
+ * for `sy2 * 2`) is byte-identical to the merged form, so it is not the
+ * number of names that decides the register -- it is whether the yscroll
+ * subtraction is itself an in-place op on the long web.
+ * USEFUL MEASUREMENT for whoever takes this next: with the CURRENT y chain
+ * and `p = b->person;` REMOVED the register-blind residual collapses to
+ * rb=8 / shp=8 (strict 25), i.e. exactly TWO misplaced instructions in the
+ * whole function -- the scroll `sub` (ours 113, original 117) and the
+ * `mov ecx,[esi+4]` (ours 137, original 118).  The `p` cache fixes the
+ * second and the merged y chain fixes the first, but no body has yet been
+ * found that fixes both: merged + no `p` measures 37.  Ref counts are NOT the driver: the two-name form and the
+ * one-name two-statement form have the same reference count on the web and
+ * still get different registers, so what the allocator ranks here is the
+ * number of NAMED webs, not their weight.  Ruled out on top of round 5: every
+ * position of the z-sprite/f30 statements, all 24 orders of the four
+ * subtractions, `unsigned`/`short` types for sx/sy/sx2/sy2 (`unsigned sy`
+ * alone was worth 1 before round 5 and is subsumed), and re-testing every
+ * round-4 hypothesis in the new configuration.
+ * Case 8 (indices 213/214) is a separate 2: the original emits the two
+ * `movsx` loads ASCENDING (+0x3c, +0x3e) AND stores pos2.x before pos2.y;
+ * every spelling measured gives one or the other, never both -- the emitted
+ * store order always follows source order and the two grouped loads always
+ * come out in the OPPOSITE order.  Measured and rejected: temps in both
+ * orders, direct stores, `int pv[2]`, `short` temps, `x+x` instead of `x*2`,
+ * a `static __inline` seed helper with either argument order (only the
+ * helper's STORE order matters), an empty `if` between the stores. */
+// WIP-FUNCTION: LEGOLAND 0x0043c950  (95%, 19/362; frame, byte length and the whole y block exact -- see above)
 void SpinningBarrels_Activate(RideElem* elem)
 {
     RideDef*    def = elem->data;
@@ -2778,6 +2988,7 @@ void SpinningBarrels_Activate(RideElem* elem)
     int         sx2;
     int         sy2;
     SpillPair   spill;
+    Person3D*   p;
 
     r = def->riders;
     while (r) {
@@ -2825,18 +3036,31 @@ void SpinningBarrels_Activate(RideElem* elem)
                  * unknown; this reproduces its object exactly. */
                 *(volatile int*)&spill.x = sx;
                 sx2 = g_map_cfg->ox - Get_XScroll() + sx;
-                sy2 = sy + (g_map_cfg->oy - Get_YScroll());
+                /* The y chain is accumulated IN PLACE from sy (the scroll is
+                 * subtracted from sy first, then the origin added back), which
+                 * is what puts it in sy's own callee-saved register the way the
+                 * original does -- with `sy2 = sy + (oy - yscroll)` the sum
+                 * lands in the delta's scratch register instead and the whole
+                 * wx/wy/sx/sy register triple rotates.  The empty `if` is the
+                 * zero-instruction second consumer that stops VC6 flattening
+                 * the two later subtractions back into this sum (it deletes the
+                 * branch only after the reassociation decision). */
+                sy2 = sy - Get_YScroll();
+                sy2 += g_map_cfg->oy;
+                if (sy2) { }
                 sx2 -= g_sbarrel_pivot_x / 2;
                 sx2 -= screen.ox;
-                /* screen.oy BEFORE the pivot (the sum is the same): only that
-                 * order gets its load hoisted above the x pivot the way the
-                 * original does.  All 24 permutations measured; the relative
-                 * order of the two sy2 statements is the only one that counts. */
                 sy2 -= screen.oy;
                 sy2 -= g_sbarrel_pivot_y / 2;
+                /* `p` is cached ONLY for the z-sprite store: the original
+                 * hoists that one `mov ecx,[esi+4]` above the two pos stores
+                 * (a store to the escaped `pos` is a schedule barrier for a
+                 * pointer load, so the load cannot move on its own), and
+                 * re-reads b->person for f30 and depth. */
+                p = b->person;
                 pos.x = sx2 * 2;
                 pos.y = sy2 * 2;
-                b->person->zsprite = g_sbarrel_spr2;
+                p->zsprite = g_sbarrel_spr2;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617922.25f, -1618065.75f);
                 b->b35 = 0;
@@ -2990,14 +3214,58 @@ extern const int g_spider_end_off[8];                        /* 0x004b4ddc */
  *      `neg/sub/add` (three instructions, wrong registers, +3 length);
  *      above them it keeps the original's two separate `sub edi,eax`.
  *      Worth 321 -> 79 X on its own.  The frame is now 0x3c == 0x3c.
- * WHAT IS LEFT (63): (a) the wx/wy register pair is ebp/edi where the
- * original has edi/ebx -- a naming cascade through the whole MOUNT block
- * (declaration order and assignment order of wx/wy are inert); (b) the same
- * y-chain-in-place residual as the Barrels (indices 75-97); (c) case 7's
- * pos2 pair (the Barrels' temps-and-y-first form measures 280 here, the
- * plain two stores 79); (d) case 13's store ordering around
- * ScreenToMapRef/CalcMoveLine (indices 317-336). */
-// WIP-FUNCTION: LEGOLAND 0x00416330  (83%, 63/376; frame and byte length exact, wx/wy register pair and the y chain remain -- see above)
+ * THIS ROUND (audit 63 -> 42).  Two transfers, both derived on the Barrels:
+ *   6. The y chain is built FROM sy (`sy2 = sy - Get_YScroll(); sy2 +=
+ *      g_map_cfg->oy;`) with the empty `if (sy2) { }` flatten breaker -- see
+ *      SpinningBarrels_Activate items 9 and 10.  That fixed BOTH the add's
+ *      destination register AND the wx/wy pair the old note blamed
+ *      separately: `sy` in place merged sy's web with wx's and was what
+ *      rotated ebp/edi/ebx; a fresh `sy2` that coalesces with sy does not.
+ *      First divergence 44 -> 73 on this alone.
+ *   7. `b->flags |= 0x80;` moved BELOW the two `pos` stores (63 -> 42).  It
+ *      is order-independent, and that is where the original schedules the
+ *      `or byte ptr [esi+0x62],0x80` -- between the two pivot divisions.
+ *      NOTE this reverses round 5's finding that the flag store had to sit
+ *      ABOVE the sx2 subtractions: that was only true while `sy` was in
+ *      place, because it was the store that broke the `neg/sub/add`
+ *      reassociation.  With the round-6 y chain the reassociation is gone.
+ *   8. The VOLATILE READ of `rec` at the SeatOf call (round 5 item 2) is now
+ *      HARMFUL and has been removed: 42 -> 36.  It was only ever a way of
+ *      buying the rec spill while the y chain was wrong; with the round-6 y
+ *      chain VC6 spills rec by itself and the volatile read costs a reload.
+ *      (The same removal is worth 87 -> 35 on the Plane.)
+ *   9. Case 13 (ALIGHT): the flag clear before the z-sprite store, and the
+ *      four shift statements ordered world.y, target.y, world.x, target.x --
+ *      the only one of the 48 measured head/shift orders that reproduces the
+ *      original's interleave of the shifts with the CalcMoveLine argument
+ *      pushes and the early `mov [esi+0x28],ebp`.  36 -> 17.
+ * ROUND 6 (2026-09-04, audit 17 -> 15).  Case 7's pos2 pair: BOTH short
+ * fields are read into int temps FIRST and the doubling happens at the
+ * STORE --
+ *     { int px = b->ride_dx; int py = b->ride_dy;
+ *       pos2.x = px * 2; pos2.y = py * 2; }
+ * -- which groups the two `movsx` ahead of the two `shl` exactly as the
+ * original does.  `pos2.x = b->ride_dx * 2;` interleaves load/shift/store per
+ * component (the old body); pre-doubled temps (`int px = b->ride_dx * 2;
+ * pos2.x = px;`) tail-duplicate and ESCAPE the extent (224).  All 18
+ * combinations of {declaration order} x {`* 2`, `+`, `<< 1`} for each
+ * component measure the same 15, as do assignment-order and `unsigned`
+ * variants; `int pv[2]` is 17 and storing y first is 17.
+ * WHAT IS LEFT (15): (a) indices 73/75 and 87-97 -- the same two items the
+ * Barrels has, the position of the scroll subtraction (ours `sub ebx,edx`
+ * scheduled as soon as the movsx lands, the original's `sub eax,edx` on the
+ * oy temp four slots later) and the `b->person` load the original hoists
+ * above the pos stores; the Barrels' `p = b->person;` cache is INERT here
+ * (17 either way) and harmful before the subtractions.  See the round-6
+ * paragraph in SpinningBarrels_Activate: the y chain's SOURCE shape is now
+ * known (one web, `sy2 = (wx + wy) * th >> 9; sy2 += oy - Get_YScroll();`)
+ * and reproduces those indices, but costs the same three-cycle rotation of
+ * the callee-saved registers here too (15 -> 42 when applied).
+ * (b) indices 195/196/198: the two `movsx` are now grouped but come out
+ * DESCENDING (+0x3e first) where the original is ascending, and the second
+ * doubling is `add eax,eax` where the original has `shl eax,1`.  Floor for
+ * this shape. */
+// WIP-FUNCTION: LEGOLAND 0x00416330  (96%, 15/376; frame, byte length, the y chain, case 7's movsx pair and case 13 exact -- see above)
 void SpiderRide_Activate(RideElem* elem)
 {
     RideDef*    def = elem->data;
@@ -3020,6 +3288,7 @@ void SpiderRide_Activate(RideElem* elem)
     int         wx;
     int         wy;
     int         sx2;
+    int         sy2;
 
 
     r = def->riders;
@@ -3045,20 +3314,27 @@ void SpiderRide_Activate(RideElem* elem)
                 sy = (wx + wy) * th >> 9;
                 *(volatile int*)&spill.x = sx;
                 sx2 = g_map_cfg->ox - Get_XScroll() + sx;
-                sy = sy + (g_map_cfg->oy - Get_YScroll());
-                b->flags |= 0x80;
+                /* See SpinningBarrels_Activate: scroll subtracted from sy
+                 * first, origin added back, empty `if` as the flatten breaker. */
+                sy2 = sy - Get_YScroll();
+                sy2 += g_map_cfg->oy;
+                if (sy2) { }
                 sx2 -= g_spider_zframe / 2;
                 sx2 -= screen.ox;
-                sy -= g_spider_zstate / 2;
-                sy -= screen.oy;
+                sy2 -= g_spider_zstate / 2;
+                sy2 -= screen.oy;
                 pos.x = sx2 * 2;
-                pos.y = sy * 2;
+                pos.y = sy2 * 2;
+                /* the flag store is order-independent; below the seed stores
+                 * is where the original schedules it (63 -> 42 on this alone
+                 * once the y chain was in sy's register) */
+                b->flags |= 0x80;
                 b->person->zsprite = g_spider_tab3;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617787.75f, -1618096.5f);
                 b->b35 = 0;
                 sprintf_w(&g_spider_pathname[6], "%02d",
-                          SpiderRide_SeatOf(r, *(SpiderRec* volatile*)&rec,
+                          SpiderRide_SeatOf(r, rec,
                                             (char)g_spider_def->capacity));
                 b->bnvpath = NewBNVPath(g_spider_tab1, 1, g_spider_pathname,
                                         -1617787.75f, -1618096.5f, &pos);
@@ -3098,8 +3374,19 @@ void SpiderRide_Activate(RideElem* elem)
                     SpiderRide_SetFull(rec);
                 break;
             case 7:
-                pos2.x = b->ride_dx * 2;
-                pos2.y = b->ride_dy * 2;
+                /* Both short fields are read into int temps FIRST: that is
+                 * what groups the two `movsx` ahead of the two `shl` the way
+                 * the original does (17 -> 15).  Writing the doubling into the
+                 * loads (`pos2.x = b->ride_dx * 2;`) interleaves
+                 * load/shift/store per component; storing the pre-doubled
+                 * temps instead (`int px = b->ride_dx * 2; pos2.x = px;`)
+                 * escapes the extent entirely. */
+                {
+                    int px = b->ride_dx;
+                    int py = b->ride_dy;
+                    pos2.x = px * 2;
+                    pos2.y = py * 2;
+                }
                 BlokeWalkAnim(b);
                 BlokeSetFrame(b, 0);
                 b->flags |= 0x80;
@@ -3136,14 +3423,18 @@ void SpiderRide_Activate(RideElem* elem)
                 qx = def->qx + tile->b.x;
                 qy = def->qy + tile->b.y;
                 SPIDER_SEAT(rec, b->seat) = 0;
-                b->person->zsprite = 0;
                 b->flags &= (unsigned short)~0x80u;
+                b->person->zsprite = 0;
                 b->person->f30 = 0;
                 UnAdjustBlokePosition(&b->person->screen);
                 ScreenToMapRef(&b->person->screen, &b->world, 0);
                 b->person->f34 = 0;
-                b->target.y = qy << 8;
+                /* world.y before target.y, then world.x, then target.x: the
+                 * only one of the 24 orders that reproduces the original's
+                 * interleave of the four shifts with the CalcMoveLine pushes
+                 * (36 -> 17 together with the flag store moving first) */
                 b->world.y = b->world.y << 8;
+                b->target.y = qy << 8;
                 b->world.x = b->world.x << 8;
                 b->target.x = qx << 8;
                 dir = (unsigned char)CalcMoveLine(b->world, b->target,
@@ -3212,11 +3503,43 @@ extern void* g_plane_tab2;                                   /* 0x0062fe8c */
  *   scratch and passed `pos` to NewBNVPath.  The frame proves the three
  *   objects: 0x14 (8) scratch, 0x1c (8) screen, 0x24 (8) spill pair,
  *   0x2c (12) pos, 0x38 (12) pos2 = 0x44.
- * WHAT IS LEFT (108): the head is a three-way register rotation -- the
- * original has r=edi, tile=ebx, rec=ebp, we have r=ebx, tile=ebp, rec=edi
- * (all six orders of the `next`/`b`/`tile` statements measured, inert) --
- * and then the same wx/wy pair and y-chain residual as the Spider. */
-// WIP-FUNCTION: LEGOLAND 0x0043e410  (72%, 108/387; frame exact, head register rotation and the y chain remain -- see above)
+ * NEXT ROUND (audit 108 -> 87), both transfers from the Barrels/Spider:
+ *   - the y chain built FROM sy plus the empty-`if` flatten breaker (see
+ *     SpinningBarrels_Activate items 9 and 10): 108 -> 95;
+ *   - `b->flags |= 0x80;` moved BELOW the two `pos` stores: 95 -> 87.  As on
+ *     the Spider this reverses the earlier "flag store above the sx2
+ *     subtractions" rule, which only held while the y chain reassociated.
+ * AND THEN (audit 87 -> 21, byte length now 1253 == 1253):
+ *   - REMOVING the volatile read of `rec` at the SeatOf call was worth
+ *     87 -> 35 on its own AND fixed the head's three-way register rotation
+ *     (r=edi, tile=ebx, rec=ebp) and the 2-byte deficit.  The volatile read
+ *     was only ever a crutch for the wrong y chain.  DIAGNOSTIC THAT FOUND
+ *     IT: stub each `case` body out in turn and watch where the cursor load
+ *     lands -- stubbing case 0 alone restored `mov edi,[eax+0xcc]`, which
+ *     said the pressure was inside case 0, not in the loop head.
+ *   - case 7: `p = b->person;` cached for the z-sprite store only, 35 -> 28.
+ *   - case 13: the flag clear before the z-sprite store and world.x before
+ *     world.y (best of the 48 measured head/shift orders), 28 -> 21.
+ * ROUND 6 (2026-09-04, audit 21 -> 19).  Case 7's `ofs` pair takes the same
+ * lever as SpiderRide_Activate case 7: both short fields into int temps
+ * first, doubling at the store (`int px = b->ride_dx; int py = b->ride_dy;
+ * ofs.ox = px * 2; ofs.oy = py * 2;`).  The two `movsx` then group ahead of
+ * the two doublings.  All 18 spelling combinations measure 19.  Cost: the
+ * second doubling comes out `lea edx,[eax+eax]` where the original has
+ * `shl edx,1`, so the byte length goes 1253 == 1253 to 1254 vs 1253 -- the
+ * one place in this file where a strict-count win costs the exact length,
+ * recorded here so it is not mistaken for a regression.
+ * WHAT IS LEFT (19): indices 72/74 and 86-96 are the two y-block items the
+ * Barrels also has (the position of the scroll subtraction and the
+ * `b->person` hoist -- see the round-6 paragraph in
+ * SpinningBarrels_Activate, which identifies the source shape and the
+ * three-cycle register rotation that blocks it; applying it here measures
+ * 46); 198/199/201 is what remains of case 7's `ofs` pair (grouped now, but
+ * descending, plus the `lea`); and 212-215 is the `b->flags |= 0x80` store,
+ * which the original schedules AFTER both `ofs` frame loads.  The flag/`p`
+ * sweep was RE-RUN in the new case-7 shape (5 flag positions x 3 `p`
+ * positions plus the pre-UnAdjust position) and 19 is still the floor. */
+// WIP-FUNCTION: LEGOLAND 0x0043e410  (95%, 19/387; frame, head and y chain exact; byte length 1254 vs 1253 -- see above)
 void PlaneRide_Activate(RideElem* elem)
 {
     RideDef*    def = elem->data;
@@ -3237,9 +3560,11 @@ void PlaneRide_Activate(RideElem* elem)
     int         sy;
     unsigned char dir;
     SpillPair   spill;
+    Person3D*   p;
     int         wx;
     int         wy;
     int         sx2;
+    int         sy2;
 
 
     r = def->riders;
@@ -3264,20 +3589,26 @@ void PlaneRide_Activate(RideElem* elem)
                 sy = (wx + wy) * th >> 9;
                 *(volatile int*)&spill.x = sx;
                 sx2 = g_map_cfg->ox - Get_XScroll() + sx;
-                sy = sy + (g_map_cfg->oy - Get_YScroll());
-                b->flags |= 0x80;
+                /* See SpinningBarrels_Activate: scroll subtracted from sy
+                 * first, origin added back, empty `if` as the flatten breaker. */
+                sy2 = sy - Get_YScroll();
+                sy2 += g_map_cfg->oy;
+                if (sy2) { }
                 sx2 -= g_plane_rider_dx / 2;
                 sx2 -= screen.ox;
-                sy -= g_plane_rider_dy / 2;
-                sy -= screen.oy;
+                sy2 -= g_plane_rider_dy / 2;
+                sy2 -= screen.oy;
                 pos.x = sx2 * 2;
-                pos.y = sy * 2;
+                pos.y = sy2 * 2;
+                /* order-independent; below the seed stores is where the
+                 * original schedules it (95 -> 87 on this alone) */
+                b->flags |= 0x80;
                 b->person->zsprite = g_plane_zsprite;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617706.75f, -1617948.625f);
                 b->b35 = 0;
                 sprintf_w(&g_plane_pathname[6], "%02d",
-                          PlaneRide_SeatOf(r, *(PlaneRec* volatile*)&rec,
+                          PlaneRide_SeatOf(r, rec,
                                            (char)g_plane_def->capacity));
                 b->bnvpath = NewBNVPath(g_plane_tab1, 1, g_plane_pathname,
                                         -1617706.75f, -1617948.625f, &pos);
@@ -3314,15 +3645,24 @@ void PlaneRide_Activate(RideElem* elem)
                     PlaneRide_SetFull(rec);
                 break;
             case 7:
-                ofs.ox = b->ride_dx * 2;
-                ofs.oy = b->ride_dy * 2;
+                /* Both short fields into int temps FIRST: that groups the two
+                 * `movsx` ahead of the two doublings the way the original does
+                 * (21 -> 19).  Same lever as SpiderRide_Activate case 7. */
+                {
+                    int px = b->ride_dx;
+                    int py = b->ride_dy;
+                    ofs.ox = px * 2;
+                    ofs.oy = py * 2;
+                }
                 BlokeWalkAnim(b);
                 BlokeSetFrame(b, 0);
                 UnAdjustBlokePosition(&ofs);
                 b->flags |= 0x80;
+                /* cached only for the z-sprite store, as in case 0 */
+                p = b->person;
                 pos2.x = ofs.ox;
                 pos2.y = ofs.oy;
-                b->person->zsprite = g_plane_zsprite;
+                p->zsprite = g_plane_zsprite;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617706.75f, -1617948.625f);
                 b->b35 = 2;
@@ -3354,14 +3694,16 @@ void PlaneRide_Activate(RideElem* elem)
                 qx = def->qx + tile->b.x;
                 qy = def->qy + tile->b.y;
                 PLANE_SEAT(rec, b->seat) = 0;
-                b->person->zsprite = 0;
+                /* the flag clear FIRST and world.x before world.y: the
+                 * best of the 48 measured head/shift orders (28 -> 21) */
                 b->flags &= (unsigned short)~0x80u;
+                b->person->zsprite = 0;
                 b->person->f30 = 0;
                 UnAdjustBlokePosition(&b->person->screen);
                 ScreenToMapRef(&b->person->screen, &b->world, 0);
                 b->person->f34 = 0;
-                b->world.y = b->world.y << 8;
                 b->world.x = b->world.x << 8;
+                b->world.y = b->world.y << 8;
                 b->target.x = (qx << 8) + 0x80;
                 b->target.y = (qy << 8) + 0x80;
                 dir = (unsigned char)CalcMoveLine(b->world, b->target,

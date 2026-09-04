@@ -874,6 +874,38 @@ static __inline Cell* RouteCellAt(Pos* p)
  * hypothesis is that the original source kept `cur->pos.x` live past the
  * copy through a use that VC6 later deleted (or a use hidden in code that
  * was #ifdef'd out); no surviving C reaches it.  Semantics are identical. */
+/* 2026-09-04, endgame lane.  ~35 more measured variants (all five else-block
+ * spellings x both call-argument spellings, named temps in four positions, a
+ * volatile push argument, a half-struct copy) -- NOTHING beats 3.  Best of the
+ * new shapes: `to.y = cur->pos.y; to.y--; to.x = cur->pos.x;` + (to.x,to.y)
+ * gives 7 with the right 1336 bytes but reorders the y block; the field forms
+ * still give either 419 (one web in ecx, the whole function's plan flips at
+ * index 25) or 138 (three uses: 0..37 EXACT, then a store from eax and a
+ * remat for the push).
+ *  - THE DECISIVE NEW FACT, from a corpus scan written for exactly this shape
+ *    (scratchpad/endgame/scan_copy3.py: `mov rB,rA` where rA was defined by a
+ *    memory load, rA is DEAD at the copy, and rB is immediately stored to a
+ *    stack home or pushed): the shape occurs in the whole repo exactly TWICE,
+ *    and BOTH are unmatched WIPs -- this function (index 38) and
+ *    `InsertChildIntoList` (fpui.c 0x475630, index 46, its one missing
+ *    instruction).  ZERO of the 1541 audit-exact bodies contain it.  So this
+ *    is a FAMILY-WIDE unknown, not a per-function one: whatever source form
+ *    makes VC6 leave an un-coalesced copy of a rematerialisable loaded value
+ *    will close both functions at once, and neither lane should keep paying
+ *    for it alone.  fpui.c's note reaches the same conclusion independently
+ *    and names the only near-analogue in the corpus, `RenderAdvisorIcon`
+ *    0x443e8a, where the copy is a genuine PHI (`if (!g) g = v;` then
+ *    `f(g)`, the push reading the merge register).  Block 0x477c54 here has
+ *    exactly ONE predecessor (verified against every branch in the body), so
+ *    a phi cannot be the mechanism at this site.
+ *  - Restated mechanism, from the register map: at index 27 the goal test's
+ *    `cur->pos.x` is in eax and the global in ecx in BOTH bodies; the only
+ *    question is whether that web is still live at 38.  If it is not (the
+ *    committed struct-copy body) eax is reused for `g_route_to.y` at 31 and
+ *    38 is a fresh load -- 3 mismatches.  If it is (any field spelling) VC6
+ *    either coalesces the whole thing into ecx (419) or keeps eax and remats
+ *    (138).  The original's third possibility -- keep eax, split at the block
+ *    EDGE with a copy -- is the one no C spelling reaches. */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)
 {

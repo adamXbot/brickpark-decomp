@@ -760,7 +760,43 @@ int Road_FindCardinals(int x, int y, RoadRec** out)
  * VC6 placed n's edi web entry ON BOTH EDGES instead of in the dominator.
  * Look for whatever makes VC6's reload placement per-edge -- or for a name
  * whose undefined value COALESCES onto n's own home instead of a dead
- * argument slot, which would make the probe above legal and exact. */
+ * argument slot, which would make the probe above legal and exact.
+ *
+ * 2026-09-04 pass 2 (scratchpad/ridecb5/d1..d7.py, run with
+ * scratchpad/sweep4/mv.py).  Still 27; the residual is now reduced to ONE
+ * missing property: *** A NON-EMPTY `r == 0` ARM IS THE WHOLE LEVER. ***
+ *     if (r == 0)
+ *         *(volatile int*)&n;      <-- any statement at all in this arm
+ *     else
+ *         n++;
+ * compiles to the original's diamond EXACTLY - `jne` to the increment arm,
+ * `mov edi,[esp+10h]` in BOTH arms, `jmp` out of the fall-through arm,
+ * `inc edi` - and the only difference left is the volatile's own dead
+ * `mov edx,[esp+10h]` ahead of it (24 X, 160B vs 157B, register-blind
+ * distance 2).  With an EMPTY `r == 0` arm VC6 always hoists the single
+ * reload into the dominator (this code, 27 X).  So the wanted statement is
+ * one that keeps the arm a real basic block but emits no instruction, and
+ * every candidate measured folds the block away again BEFORE layout:
+ * `;`, `n = n;`, `n += 0`, `n -= 0`, `n |= 0`, `n *= 1`, `(void)n;`,
+ * `n = (n, n);`, `out = out;`, `r = r;`, `int t = n;` (dead local),
+ * `while (0) n++;`, `if (n) { }` (the empty-if FLATTEN breaker, inside the
+ * arm, before the test and after it), `if (n == 0) { }`, `if (r) n++;`
+ * nested inside the `r == 0` arm, `n += (r != 0)`, `n *= (r == 0)`,
+ * `n += (int)r`, and a `goto` transcription of the same diamond - all 27.
+ * `n -= (int)r` and `n |= (int)r` are folded to a memory `inc` instead
+ * (25 X / 156B).  Also re-measured and still worse: `n++` variants
+ * (`++n`, `n += 1`, `n = n + 1`), `while (r) { n++; break; }`,
+ * `if (!(r == 0))`, `r != (RoadRec*)0`, `long n`, declaring `r` before `n`,
+ * `if (out != 0)`, testing a copy `q = r`, the out-store duplicated into both
+ * arms (58) or moved ahead of the count (59), `n = n + !!r` (47),
+ * `m = n; if (r) m++;` (47) and a `union { int n; int m; }` (43, all four
+ * counts go to memory).  A dead `x = n;` in the `r == 0` arm DOES build the
+ * diamond and lands on 157B exactly, but VC6 then enregisters the parameter
+ * `x` and the whole allocation rotates (55 X, arms `mov ebp,esi` / `inc esi`).
+ * Two-variable diamonds with an explicit `else m = n` cost a second frame
+ * slot (162B, 48-51 X) whatever the arm order or declaration order; only the
+ * ILLEGAL uninitialised-`m` probe stays on one slot (5 X), and its two X that
+ * are not the slot are the arm order plus the `lea edi,[edx+1]` fold. */
 // WIP-FUNCTION: LEGOLAND 0x00413450  (62/64 insns, 27 X from idx 37: the third test's `n` reload hoisted above the branch instead of duplicated on both arms)
 int Road_FindDiagonals(int x, int y, RoadRec** out)
 {
@@ -1187,11 +1223,13 @@ extern void*    g_bs_launch_sample;  /* 0x004b52c8 */
 /* =========================================================================
  * 0x0041a720 -- BoatingSchool_Tick (BOATING SCHOOL cb_a8 / iface slot 8).
  *
- * RESIDUAL (2026-09-04, audit 358/358 insns, 1165 vs 1164 bytes,
- * mismatch=53, first diverging index 64).  This round took it from 289 to
- * 53; the note below says exactly what bought what, because two of the
- * levers are `volatile` SHIMS that must come out when the real cause is
- * found.
+ * RESIDUAL (2026-09-04 pass 2, audit 358/358 insns, 1166 vs 1164 bytes,
+ * mismatch=47, first diverging index 64).  Pass 1 took it from 289 to 53;
+ * pass 2 to 47 with the `cy` local in case 4 (see there).  The note below
+ * says exactly what bought what, because two of the levers are `volatile`
+ * SHIMS that must come out when the real cause is found.  Both shims were
+ * RE-TESTED at 47: removing shim 1 is +242, shim 2 is +214, both +242 -
+ * they are still carrying their weight.
  *
  * THE ONE ROOT CAUSE.  The whole function is ONE STEP BEHIND in VC6's
  * eax->ecx->edx scratch rotation from index 64 on: the q[4] test at 60 takes
@@ -1226,13 +1264,31 @@ extern void*    g_bs_launch_sample;  /* 0x004b52c8 */
  *                 action first and matches, so this is a consequence of the
  *                 shim, not a source order (`b->action = 7` written before
  *                 the dir8 assignment at all four sites costs 18);
- *   idx 240..251  case 4's argument setup: we read b->y first and carry tx
- *                 in eax where the original reads y, then tx into ecx, then
- *                 x into eax;
- *   idx 266..290  case 5, one register behind from its first instruction --
- *                 it inherits the shift case 4 leaves behind;
- *   idx 301..306  case 5's src2 fill, and 312..314 case 6's `mov ecx,
- *                 [g_bs_cls]` (we get eax) -- the same shift again.
+ *   idx 240..251  case 4's argument setup: the original hoists the
+ *                 `lea edx,[esi+98h]` for &b->path into the ty computation
+ *                 and loads y, tx, x in that order; we hoist the b->y load
+ *                 there instead and load x before tx;
+ *   idx 266..287  case 5, one register behind from its first instruction --
+ *                 it inherits the shift case 4 leaves behind (was 266..290;
+ *                 the `cy` local closed 288..290 and all of case 6);
+ *   idx 303..306  case 5's src2 fill: our `mov [esp+50h],1` sinks one place.
+ *
+ * PASS 2 (2026-09-04): `int cy = b->y;` read into a block-scoped local in
+ * CASE 4 ONLY, used as CalcMoveLine's second argument, is worth 53 -> 47 and
+ * closes the whole of case 6 and the tail of case 5.  Measured around it:
+ * `cx` and `cy` together 48, `cx` alone 52, `cy` then `cx` 49, adding a `t =
+ * b->tx` and/or `u = b->ty` local 48-59, the same locals in CASE 5 collapse
+ * the case-0 arm layout back to 289 (both with and without the case-4
+ * local), locals for tx/ty INSTEAD of the field stores 140, the ty value
+ * spelled inline at the call 137, and volatile on b->x/b->y/b->tx in case 4
+ * 52/50/51.  So a named value for ONE of the four argument loads is a
+ * scheduler lever here, and only b->y in case 4 pays.
+ * Also re-measured for index 64 and still inert: `1 + st->count`, a comma
+ * expression, the increment before the store (54), a local `BsStation* s`,
+ * `(*st).count`, `(int)st->q[4]`, `st->q[4] == (void*)0`, `!st->q[4]`,
+ * `st->q[4 + 0]`, `st->count < 5` (54), the guard operands swapped (58),
+ * `(unsigned)` round the increment (289), storing b through a temp and
+ * `(void*)b`.
  *
  * RULED OUT for index 64 (measured this round, all still 289 or worse):
  *   - every spelling of the increment: `+= 1`, `= count + 1`, `++count`,
@@ -1264,7 +1320,7 @@ extern void*    g_bs_launch_sample;  /* 0x004b52c8 */
  * `volatile` does.  Find the real break and both shims should come out and
  * cases 4, 5 and 6 should fall with them.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x0041a720  (358/358 insns, 53 X from idx 64: the switch body one register behind in the eax->ecx->edx scratch rotation)
+// WIP-FUNCTION: LEGOLAND 0x0041a720  (358/358 insns, 47 X from idx 64: the switch body one register behind in the eax->ecx->edx scratch rotation)
 void BoatingSchool_Tick(void)
 {
     RideInst*        next;
@@ -1387,7 +1443,17 @@ void BoatingSchool_Tick(void)
             case 4:
                 b->tx = (((int)g_bs_cls->ox + key.b.x) << 8) - 0xc0;
                 b->ty = (((int)g_bs_cls->oy + key.b.y) << 8) + 0x80;
-                b->dir8 = (unsigned char)(CalcMoveLine(b->x, b->y, b->tx, b->ty, &b->path) + 0x10);
+                {
+                /* `cy` is a CODEGEN LEVER, not a temporary anyone needs: it
+                 * makes this case read b->y through a named value, which
+                 * changes which of the four argument loads the scheduler
+                 * hoists into the ty computation and fixes the tail of case
+                 * 5 and the whole of case 6 (53 -> 47).  `cx` as well is 48,
+                 * cx alone 52, adding tx and/or ty 57-59, and the same local
+                 * in case 5 collapses the case-0 arm layout again (289). */
+                int cy = b->y;
+                b->dir8 = (unsigned char)(CalcMoveLine(b->x, cy, b->tx, b->ty, &b->path) + 0x10);
+                }
                 b->action = 7;
                 NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
                 b->stage++;

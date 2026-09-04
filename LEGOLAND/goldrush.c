@@ -1643,55 +1643,73 @@ extern void*      g_car_pal_a;       /* 0x0082c690  livery 3 */
 extern void*      g_car_pal_b;       /* 0x0082c6b8  livery 2 */
 extern void*      g_car_pal_c;       /* 0x0082c6bc  livery 1 */
 
-/* 351/351 instructions and the frame layout (0x38, with the first
- * GetTileDimensions' width out-param homed in the dead `c` argument slot and
- * the "did something" flag / the depth sort key sharing the two tile-dim
- * slots) reproduce the original exactly, and 199 of 345 aligned instructions
- * match; the residual is ONE register tie-break in the isometric projection
- * and what it drags behind it. The original loads c->wy into ebp and c->wx
- * into ebx, computes the SUM into a fresh eax and COPIES wx into edi for the
- * difference, so sy is coalesced onto wy's register (ebp) and sx onto the
- * copy (edi). Every spelling tried here -- the two statements in either
- * order, `(wy + wx)`, split `sum`/`dif` temporaries, an explicit
- * `sx = wx; sx -= wy;` copy, both declaration orders of wx/wy and of sx/sy,
- * and inlining `c->wx >> 8` -- produces the mirror image: wy in ebx, wx in
- * edi, the difference computed IN PLACE in edi and the sum into a fresh ebp.
- * VC6 also reassociates the two `sx -=` steps into one add, where the
- * original keeps them apart. Behaviour, the frame, the record layout and the
- * whole manoeuvre dispatch are reconstructed; only the schedule differs. */
-/* 345 instructions against the original's 351, and the frame layout is the
- * original's shape: 0x38
- * with the first GetTileDimensions' WIDTH out-param homed in the dead `c`
- * argument slot, the "this car did something" flag sharing the HEIGHT
- * out-param's slot at -0x38, the render depth key sharing the width's, and
- * the 0x103-style blit context in the top twelve bytes. 217 of 345 aligned
- * instructions match (62.9%); the six-instruction shortfall is VC6 folding
- * work the original leaves apart (see the reassociation note below).
+/* 351/351 instructions (was 345 -- the six-instruction shortfall is CLOSED),
+ * 1151 bytes against 1147, 322 strict mismatches (was 330), and the frame
+ * layout is the original's exactly: 0x38, with the first GetTileDimensions'
+ * WIDTH out-param homed in the dead `c` argument slot (entry+0x04), `th` at
+ * entry-0x38 doubling as the "this car did something" flag, tw2/th2 at -0x34
+ * and -0x30, swx/swy at -0x2c/-0x28, off at -0x24/-0x20, saved at -0x1c/-0x18,
+ * tx/ty at -0x14/-0x10 and the 0x306 blit context in the top twelve bytes.
  *
- * THE RESIDUAL, precisely: one register tie-break in the isometric
- * projection, at index 19. The original loads c->wy into ebp and c->wx into
- * ebx, computes the SUM into a fresh eax, COPIES wx into edi for the
- * difference, and only then multiplies -- so sy is born in eax and moved to
- * ebp (wy's register) and sx is born in the copy (edi):
+ * WHAT CLOSED THE SIX (2026-09-04).  The original does NOT fall through from
+ * the blocked-ahead arm into the join: it branches FORWARD to the join when
+ * `c->manoeuvre == 0` and keeps a full INLINE epilogue for the `manoeuvre != 0`
+ * return (0x004028f6, `pop edi/esi/ebp/ebx; add esp,0x38; ret` -- exactly the
+ * six instructions we were short), so the else arm is laid out before the join
+ * and its own MayEnterSquare failure gets a second inline epilogue.  Spelling
+ * the guard as `if (c->manoeuvre == 0) goto joint; return;` with `joint:` on
+ * the tx/ty test reproduces both.  `goto joint` from the else arm as well, and
+ * dropping the `else` altogether, give byte-identical code.
+ *
+ * THE RESIDUAL, precisely: one register tie-break in the isometric projection
+ * at index 19, and the register renaming it cascades through the whole body
+ * (315 of the 322 survive a register-blind compare, so almost nothing else is
+ * structurally different).  The original computes the SUM first into a fresh
+ * scratch register, which is only possible if `wy` is still live at that point
+ * -- i.e. the difference is allocated after it:
  *      lea eax,[ebx+ebp] / mov edi,ebx / imul eax,th / sub edi,ebp /
  *      imul edi,tw / sar eax,9 / ... / mov ebp,eax / ... / sar edi,9
- * Every spelling tried here computes the DIFFERENCE first and in place
- * (`mov edi,ebx / sub edi,ebp / imul edi,tw / add ebp,ebx / imul ebp,th`),
- * which costs the `mov ebp,eax` copy and reschedules everything downstream of
- * it. Tried and measured: both statement orders; `(wy + wx)`; split
- * `sum`/`dif` temporaries; an explicit `sx = wx; sx -= wy;` copy; separating
- * the multiplies from the shifts in all four orders; both declaration orders
- * of wx/wy and of sx/sy; and inlining `c->wx >> 8`. Only the shift order
- * moves anything -- putting `sx >>= 9` BEFORE `sy >>= 9` is what puts wy in
- * ebp and wx in ebx, which is why it is spelled that way below.
+ * This build computes the difference first and folds the sum in place
+ * (`add ebp,ebx`), which costs the `mov ebp,eax` copy.  Exactly TWO outcomes
+ * exist across every spelling measured (~25 this round on top of the earlier
+ * set): with `sx >>= 9` BEFORE `sy >>= 9` we get wy in ebp / wx in ebx (the
+ * original's pair) and the in-place sum -- 322 strict, 351 instructions; with
+ * `sy >>= 9` first we get the original's three-register `lea` but the pair
+ * rotates to wy in ebx / wx in edi and one instruction is lost -- 330 strict,
+ * 350 instructions.  Nothing reaches both.  Inert: `sy = wx + wy; sy *= th;`
+ * and every other split of the add/multiply/shift; `sx = wx; sx -= wy;`;
+ * a block with `int s`/`int d` temporaries; `(wy + wx)`; both statement
+ * orders; both declaration orders of wx/wy and of sx/sy; loading `wx` before
+ * `wy`.
  *
- * Two smaller residuals ride on the same shift: VC6 reassociates the two
- * `sx -=` steps into one add unless the layer-offset reads sit between them
- * (they do below, which is worth 14 aligned instructions), and the three
- * `c->bloke` re-reads around Find3DPersonFromBloke come out in a different
- * order. Behaviour, the frame, the SchoolCar record layout and the whole
- * manoeuvre dispatch are reconstructed; only the schedule differs. */
-// WIP-FUNCTION: LEGOLAND 0x00402780  (345 insns vs 351, 62.9% aligned; one projection register tie-break)
+ * TWO SMALLER RESIDUALS, both measured this round and both left as they are:
+ *  (a) VC6 reassociates the two `sx -=` steps into one `add`; the original
+ *      keeps them apart with the car-image loads scheduled between.  Moving
+ *      the two `off` stores does NOT stop it (the store-between-the-subs cure
+ *      from `SpinningBarrels` does not reach this shape): every one of the
+ *      eight orderings of {sy-=, sx-=, sx-=, off.x/off.y} still emits the
+ *      merged `add`.  Two of them are structurally closer on the blind
+ *      metrics without touching the strict count -- both `sx -=` first then
+ *      `sy -=` then the `off` stores gives register+offset-blind 64 (this
+ *      build: 104) at 1155 bytes, and putting `sy -=` last gives offset-blind
+ *      95 (this build: 156) but loses an instruction -- so neither is adopted:
+ *      the strict count is identical and the byte length gets worse.
+ *  (b) the "did something" flag: the original caches `th` in EDI over the
+ *      manoeuvre switch (`mov edi,1` with no memory store, plus a one
+ *      instruction block `mov edi,[esp+0x10]` at 0x00402b56 reached only from
+ *      the `c->bb != 0` branch, and `test edi,edi` at the end), where this
+ *      build keeps it in memory throughout.  That is a consequence of the
+ *      index-19 allocation, not a source shape: giving the flag its own local,
+ *      or reusing `wx`/`wy` for it, adds a fifteenth frame slot (0x3c) and is
+ *      worse (325); reusing `tw2`/`th2` keeps 0x38 but diverges at index 5
+ *      (323).  The original's home for the flag IS `th`'s -0x38 slot, which
+ *      is why `th` is reused for it below.
+ * The original also SPILLS sx to `tx`'s home at -0x14 immediately after
+ * `sar edi,9` and then overwrites it with `c->tx` -- a dead store this build
+ * does not emit, and the one instruction we have spare elsewhere.
+ * Behaviour, the frame, the SchoolCar record layout and the whole manoeuvre
+ * dispatch are reconstructed; only the schedule differs. */
+// WIP-FUNCTION: LEGOLAND 0x00402780  (351/351 insns, 322 mismatches; the projection register tie-break at index 19)
 void StepSchoolCar(SchoolCar* c)
 {
     /* `tw` doubles as the render depth key and `th` as the "this car did
@@ -1779,8 +1797,9 @@ void StepSchoolCar(SchoolCar* c)
         c->stall++;
         if ((short)c->stall <= 0x200)
             return;
-        if (c->manoeuvre)
-            return;
+        if (c->manoeuvre == 0)
+            goto joint;
+        return;
     } else {
         c->stall = 0;
         if (c->speed < c->top_speed)
@@ -1799,6 +1818,7 @@ void StepSchoolCar(SchoolCar* c)
         }
     }
 
+joint:
     if ((((tx - c->wx) ^ (tx - swx)) | ((ty - c->wy) ^ (ty - swy))) & 0x80000000)
         goto step;
     if (c->bb) {

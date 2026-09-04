@@ -907,26 +907,27 @@ extern void  ScriptSetRunning(int on);            /* 0x004748a0 */
 extern void  sub_468840(void);                    /* 0x00468840 */
 extern void  sub_4688e0(void);                    /* 0x004688e0 */
 
-/* 0x0046c920 -- SaveScripts. Every instruction is right (166 of 166, same
- * opcodes, same operands, same order within each block) EXCEPT for where VC6
- * parks the ONE shared `return 0` block that the two loops branch to.
+/* 0x0046c920 -- SaveScripts.
  *
- * VC6 emits a `return 0` as `xor eax,eax` + epilogue, deletes the `xor` at any
- * site it reaches by fall-through with eax already zero, and keeps exactly one
- * full copy for the sites that need a branch. Measured on this toolchain (see
- * scratchpad/savechunks): that surviving copy is ALWAYS placed at the LAST
- * `return 0` statement in the function -- verified on six probe shapes, and it
- * is what makes LoadScripts below match exactly. The original places it at the
- * FIRST guard instead (0x0046c941, reached by `je`/`jne` from all five loop
- * failures), which no arrangement of `return 0` / `goto fail` / nesting I could
- * find reproduces: a label sinks the block to just before the final block, and
- * nesting the body merges all nine inline copies away.
- *
- * So ours has the `xor eax,eax` at the last guard and the original has it at
- * the first; every other instruction lines up, and the 12-byte length gap is
- * the four short-vs-near loop branches that follow from it. Left WIP rather
- * than claimed. */
-// WIP-FUNCTION: LEGOLAND 0x0046c920  (166 insns, one displaced `xor eax,eax`)
+ * CLOSED 2026-09-04 (130 -> 0) by ONE edit: the FIRST guard's failure is a
+ * `goto fail;` and the `fail: return 0;` sits textually LAST, after the final
+ * `return`.  Both halves are load-bearing, and together they pin the one
+ * shared `return 0` block to 0x0046c941:
+ *   - VC6 emits `return 0` as `xor eax,eax` + epilogue, deletes the `xor` at
+ *     every site it reaches by fall-through with eax already zero, and keeps
+ *     exactly ONE full copy for the sites that need a branch.  That surviving
+ *     copy is placed at the LAST `return 0` STATEMENT in the function, so the
+ *     `fail:` arm has to be the last statement to host it.
+ *   - A `goto` label block is laid out after its LAST goto source, so with the
+ *     first guard as its ONLY goto source the block lands immediately after
+ *     that guard -- at the top of the function, where the five loop failures
+ *     branch BACK into it (`je 0x46c941`).
+ * Writing the loop failures as `goto fail` as well moves the block after the
+ * step loop (152); writing only the loop failures that way is inert (130).
+ * The first guard therefore executes a redundant `xor eax,eax` on a path where
+ * eax is already zero -- that is the original's code, and it is what the five
+ * backward branches need. */
+// FUNCTION: LEGOLAND 0x0046c920
 int SaveScripts(void)
 {
     int         n;   /* the string loop counter, then the 10-byte block size */
@@ -935,7 +936,7 @@ int SaveScripts(void)
     g_script_errors = 0;
     g_script_now = GetGameTimer();
     if (!SaveIconStateChunk())
-        return 0;
+        goto fail;
     if (!SaveGameWrite(g_script_text1, 0x80))
         return 0;
     if (!SaveGameWrite(g_script_text2, 0x80))
@@ -981,6 +982,8 @@ int SaveScripts(void)
             v = 0;
         return SaveGameWrite(&v, 4) != 0;
     }
+fail:
+    return 0;
 }
 
 // FUNCTION: LEGOLAND 0x0046cb60

@@ -824,7 +824,64 @@ extern int g_popup_y;              /* 0x007fded0  PopUpInfo.pos.y */
  * a web that swallows every other occurrence, including `cmp reg,imm`, and
  * the def lands at their common dominator.  renderinit.c's
  * SetBridgeDrawOffsets is the same web seen from the other side -- `mov
- * eax,6Dh` exists there only because 0x6d is stored to two globals. */
+ * eax,6Dh` exists there only because 0x6d is stored to two globals.
+ *
+ * 2026-09-04, endgame lane.  The corpus scan the method asks for was written
+ * and run (scratchpad/endgame/scan_const2.py: every exact body holding BOTH
+ * `cmp r,K` and a separate `mov r,K` for the same non-trivial K).  17 sites,
+ * and one of them is the worked example that states both regimes in its own
+ * note: memdb.c's `__DEBUG_TAG` (0x453a30) --
+ *     `if (len >= 12) n = 12; else n = len;`  keeps `cmp ecx,0Ch` IMMEDIATE
+ *     `n = 12; if (len < 12) n = len;`        CSEs the 12, `cmp ecx,esi`
+ * i.e. single-assignment ARMS keep the immediate.  Every other split site
+ * (GetBuildTime, RenderIcons, CalculateViewRideCode, Calc_Item_Attractiveness,
+ * LLIDB_SaveICM/LoadICM/CloseICM, __DEBUG_MALLOC/SMALLOC, UnInitMan,
+ * MakeAnimInstance) is a clamp whose constant has exactly ONE register use.
+ * There is NO site anywhere in the exact corpus where a constant with two
+ * register uses stays split, so the rule above survives the scan intact.
+ *  - Applying the __DEBUG_TAG shape here is inert.  Measured, all
+ *    byte-identical to the committed body (3): routing the low bound through
+ *    the high arm's `limit` in four statement orders, assigning it before the
+ *    branch, reusing `y`/`x`/`size`/`w`/`h` as the carrier, a two-arm phi with
+ *    the tails written out in full, and FOUR SINGLE-EXIT forms (one
+ *    `return limit;` after a real if/else join, both arm orders).  VC6
+ *    constant-propagates the carrier back to a literal before web building in
+ *    every one of them.  Restructurings that do change the code are all worse:
+ *    a joined phi with the `y >= 0x25 &&` guard 15-17, swapped arms 14, a
+ *    fall-through low arm 14.
+ *  - NEW AND USEFUL: the web CAN be broken, and the mechanism is register
+ *    occupancy, not spelling.  Hoisting `limit = 0x16f - h;` above the y test
+ *    ("min_form") leaves eax holding the limit across the compare; VC6 then
+ *    cannot park the constant's def there, the compare KEEPS `cmp esi,25h`,
+ *    the low arm gets an immediate store plus its own `mov eax,25h`, and the
+ *    body is 43 instructions / 144 BYTES -- the original's byte count exactly
+ *    (though 18 mismatches, because the limit computation and the g_popup_x
+ *    store move above the branch).  So the question is now sharp: in the
+ *    original, eax and edi are BOTH free at index 25 and VC6 still did not
+ *    hoist.  Zero-cost dead tests cannot occupy a register, and there is no
+ *    value in this function that is live across the compare, so no C spelling
+ *    reproduces the occupancy.
+ *  - SECOND NEW FACT, and it isolates the trigger exactly.  Replace the low
+ *    arm's `return 0x25;` with `return *(volatile int*)&g_popup_y;` (a probe,
+ *    not a candidate -- the returned value is unobservable but the reload is
+ *    not the original's code): indices 0..26 then match INCLUDING
+ *    `cmp esi,25h / jge`, and only the four instructions of the low arm are
+ *    wrong (4 mismatches).  So the compare's immediate survives precisely
+ *    when the constant needs NO register in the low arm.  With one register
+ *    materialisation VC6 always webs it with the compare and hoists the def.
+ *    The original has BOTH -- `cmp esi,25h` immediate AND `mov eax,25h` in
+ *    the arm feeding a register store -- which is only consistent with
+ *    `mov eax,25h` being a DEF OF THE RETURN-VALUE WEB (whose other def is
+ *    the high arm's `0x16f - h`) rather than a constant materialisation, the
+ *    same shape as buildtick.c's GetBuildTime.  Every attempt to build that
+ *    web here fails on constant propagation: the low arm's early `return`
+ *    means its own def dominates both uses, so VC6 folds the carrier back to
+ *    a literal, and the only way to give the value two reaching defs -- a
+ *    real if/else join -- needs an extra `y >= 0x25` guard, because on the
+ *    low path `y <= bound` is true and the merged form would store `y`
+ *    instead of 0x25.  That guard costs instructions (15-17 mismatches).
+ *    Unless a matched function turns up with a two-register-use constant that
+ *    stays split, treat this as exhausted. */
 // WIP-FUNCTION: LEGOLAND 0x004718c0  (43/43 instructions, 143/144 bytes,
 //   mismatch 3: the y-clamp low bound's constant def is one block too early)
 int ClampPopUpToScreen(int size)
