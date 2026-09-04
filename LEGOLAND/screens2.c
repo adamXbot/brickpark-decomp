@@ -834,8 +834,121 @@ void InitNewSaveGamePOPUP(Icon* popup)
  * bodies, which is itself evidence the shape is rare.
  *
  * Tooling added this pass: scratchpad/screens2/vb.py (patch-batch runner over
- * screens2.c, same shape as scratchpad/popup/vb.py) and ex_v1..ex_v4.py. */
-// WIP-FUNCTION: LEGOLAND 0x0048f0f0  (116/119 insns; only push ebx / xor ebx,ebx / pop ebx missing, so every index is shifted by one - see note)
+ * screens2.c, same shape as scratchpad/popup/vb.py) and ex_v1..ex_v4.py.
+ *
+ * PASS N+3 (lane H, 2026-09-04).  Baseline re-confirmed (119/119 instructions
+ * by audit's extent, 480 vs 469 bytes, mismatch 118 -- the whole body shifted
+ * one instruction by the missing `push ebx`).  THE CORPUS SCAN THE PREVIOUS
+ * PASS ASKED FOR WAS RE-RUN AND IT DOES FIND SITES -- the earlier "no such
+ * function" result was an artefact of the scan requiring that the register is
+ * never redefined later; allowing the zero-web to END at a redefinition finds
+ * them (scratchpad/laneH/scan_zero4.py).  What it finds settles the question:
+ *   - the one useful witness is music.c's `PlayMIDI` (0x004805d0), whose
+ *     `xor esi,esi` is exactly this construct.  Counted properly it has FOUR
+ *     uses, not three: `cmp word ptr [eax+0ch], si` (the `i < m->ntracks`
+ *     loop guard, WORD class, from a `short` field), then the three stores
+ *     `mov [eax+8],esi`, `mov [edi+14h],esi`, `mov [edi+0ch],esi`, two of
+ *     them inside the loop.  Its C is four plain statements (`m->time = 0;`
+ *     ... `m->tracks[i]->time = 0; m->tracks[i]->pos = 0;`) with nothing
+ *     clever in it.
+ *   - the only other small site, math3d.c `SetPersonRotation` (4 uses in
+ *     ebx), is hand-written `__asm` and proves nothing.
+ *   PlayMIDI therefore CONFIRMS BOTH RULES this note derived by experiment
+ *   rather than contradicting them: the hoist needs FOUR uses, and the
+ *   register class follows the narrowest use -- word (si) reaches esi, and
+ *   only a BYTE use forces a byte-addressable callee-saved register, i.e.
+ *   ebx.  There is no matched function anywhere in the 1541 exact bodies
+ *   with a THREE-use callee-saved constant, so the threshold is real and
+ *   InitExitCheckBox's three straight-line stores are genuinely below it.
+ * The class rule was also re-measured directly, and it is about the CLASS, not
+ * the position: a fourth use placed at the tail, between the two tail stores,
+ * or immediately before the first zero store gives `push esi / xor esi,esi`
+ * in all three positions when it is a DWORD store and also when it is a WORD
+ * store (`*(short*)&g` -> esi, 8 mismatches), while a single BYTE store
+ * (`*(char*)&g` at the tail) gives `push ebx / xor ebx,ebx` with indices
+ * 0..115 index-for-index exact and only THREE mismatches (the previous pass
+ * recorded four; three is what today's toolchain reports).
+ * New negative this pass: duplicating the whole `g_exit_big_popup = 0; panel =
+ * LoadSpriteIcon(infopopup,..); dy = 0x78;` tail into BOTH the small-panel
+ * fall-through and the else arm -- in the hope that two textual zero stores
+ * would clear the threshold and be cross-jumped back together -- is NOT
+ * merged: 126 instructions (+7), 462 bytes.  Both the `goto have_panel` and
+ * the plain-else spellings give the same object.
+ * Also newly ruled out, the PlayMIDI-shaped idea (a byte-class use that is a
+ * COMPARE rather than a store, so that it could be code the function needs
+ * anyway): an empty-bodied byte compare on a value that is NOT a compile-time
+ * constant -- `if ((char)g_screen_mode == 0) { }`, the `(unsigned char)` and
+ * `if (!(char)g_screen_mode)` forms, and `if ((char)g_np_close_icon->x == 0)
+ * { }` after the icon exists -- all compile to the BASELINE byte for byte
+ * (116 instructions, no push).  So VC6 flattens an empty if before the
+ * constant-class analysis regardless of whether the compared value is
+ * constant; the previous pass's explanation for why the DrawPopUpMock trick
+ * fails here was too narrow.  `memset(&g_exit_7cb310, 0, 0)` is not folded
+ * away either (122 instructions).
+ * WHERE THAT LEAVES IT: the original's zero is byte-class (it is in ebx, and a
+ * byte-class fourth use is the only thing that reproduces indices 0..115
+ * exactly) AND has only three emitted uses, all dword stores.  The missing
+ * fourth use must therefore emit no instruction, and every zero-cost byte
+ * construct measured across three passes is folded before the hoist decision.
+ * Unless a matched function turns up with an UNWEIGHTED three-use callee-saved
+ * constant, treat this as at its floor.
+ *
+ * PASS N+4 (lane M, 2026-09-04).  Residual UNCHANGED at 118.  The "look for a
+ * byte- or word-class COMPARE rather than another store" idea was tested to
+ * destruction and is DEAD, and the PlayMIDI witness turns out to prove
+ * something different from what the previous pass read off it.
+ *  - A BYTE OR WORD COMPARE AGAINST ZERO IS NOT A USE OF THE ZERO REGISTER.
+ *    Measured in isolation (scratchpad/laneM/t4.c h5, t6.c q1/q2): with three
+ *    straight-line dword zero stores plus `if (gsc > 0)` on a signed char
+ *    GLOBAL, VC6 emits `mov al,[gsc] / test al,al` -- no hoist; through a
+ *    POINTER, `mov cl,[eax+4] / test cl,cl` -- no hoist; and the exact
+ *    PlayMIDI shape, `if (gp->sh > 0)` on a short FIELD, emits
+ *    `cmp word ptr [eax+6], 0` with an IMMEDIATE zero and still no hoist.
+ *    So `cmp word ptr [eax+0ch], si` in PlayMIDI is a CONSEQUENCE of a hoist
+ *    that had already happened, not the fourth use that earned it.
+ *  - WHAT PLAYMIDI ACTUALLY SHOWS is that the threshold is on a LOOP-WEIGHTED
+ *    use count, not on a count of four.  Its three stores are not equal: two
+ *    of them are inside the `for (i = 0; i < m->ntracks; i++)` body.  Measured
+ *    (scratchpad/laneM/t7.c): TWO uses both inside a loop are enough to hoist
+ *    (r4, and into a scratch edx at that, since nothing there is live across a
+ *    call); one use outside plus ONE inside is not (r1); three outside is not
+ *    (r3).  InitExitCheckBox has no loop, so no weighting is available to it
+ *    and its three straight-line stores are genuinely below the bar.
+ *  - THE CORPUS AGREES, AND MAKES THIS FUNCTION A UNIQUE OUTLIER.
+ *    scratchpad/laneM/z5.py lists every matched body carrying a callee-saved
+ *    register whose ONLY definition is `xor r,r` (41 of them).  Twelve of
+ *    those have that register as their SOLE callee-saved push -- i.e. the
+ *    register exists only to hold the zero -- and EVERY ONE OF THE TWELVE USES
+ *    ESI (1, 5, 5, 5, 7, 8, 12, 18, 20, 26, 26 and 38 uses; screens2.c's own
+ *    KillListProfileSprite is the 38).  z6.py finds only FIVE matched
+ *    functions in the whole binary whose sole callee-saved push is EBX, and
+ *    three of them use bl/bh (byte class forced) while the other two
+ *    (schoolcar.c LevelTrackRun / LevelTrackRunBack) are call-free loops where
+ *    ebx is simply the fourth register under pressure.  InitExitCheckBox --
+ *    sole push ebx, pure-dword zero, no loop -- matches nothing.
+ *  - The one-use case, logflume2.c `LFPiece_IsVisible` 0x0040cdf0 (`push esi /
+ *    xor esi,esi` for a single `mov eax,esi`), is NOT a counterexample to the
+ *    threshold: its C is `int r = 0; ... if (p) r = LFPiece_HasRider(p);
+ *    return r;`, so the register holds a VARIABLE with two reaching
+ *    definitions that is live across a call, not a rematerialisable constant.
+ *    That is the shape to reach for if anyone wants a cheap callee-saved zero:
+ *    give it a second definition it cannot be folded through.
+ *  - New zero-cost-fourth-use negatives, all measured in a 6-line micro
+ *    (scratchpad/laneM/micro.py + t4.c/t5.c) rather than on the full function:
+ *    a byte store to a dead LOCAL char; a local char carrier whose value is
+ *    folded into a later store; `*(char*)&g` killed by a later `g = 0`; and --
+ *    the most promising of them -- a UNION byte member killed by a dword
+ *    member store (`union { char b; int i; } u; u.b = 0; u.i = 0;`).  All four
+ *    are eliminated BEFORE the hoist decision: 2 dword globals + u.b + u.i
+ *    gives three emitted stores and NO push, while 3 dword globals + u.b + u.i
+ *    gives four and does push (esi).  Dead-store elimination in this build is
+ *    an early pass, without exception.
+ * CONCLUSION: the previous pass's floor stands, and the reason is now
+ * mechanical rather than empirical -- the hoist needs a loop-weighted use
+ * count this straight-line function cannot reach, and the byte class needed
+ * for ebx can only come from an emitted byte-class USE of the register, of
+ * which every zero-cost candidate has now been eliminated. */
+// WIP-FUNCTION: LEGOLAND 0x0048f0f0  (audit 119i/480B vs 119i/469B, mismatch 118; the real body is 116 instructions - only push ebx / xor ebx,ebx / pop ebx are missing, so every index is shifted by one and the three zero stores are immediates - see note)
 void InitExitCheckBox(int x, int y)
 {
     Icon* panel;

@@ -881,7 +881,45 @@ extern int g_popup_y;              /* 0x007fded0  PopUpInfo.pos.y */
  *    low path `y <= bound` is true and the merged form would store `y`
  *    instead of 0x25.  That guard costs instructions (15-17 mismatches).
  *    Unless a matched function turns up with a two-register-use constant that
- *    stays split, treat this as exhausted. */
+ *    stays split, treat this as exhausted.
+ *
+ * 2026-09-04, lane H.  ~35 more variants; the residual is UNCHANGED at 3, but
+ * the mechanism is now isolated completely and the USE COUNT is measured, not
+ * inferred.  Three controls, all on the committed body with one statement
+ * changed:
+ *   - `return 0x25;` with NO store (`retonly`): `cmp esi,25h` KEPT, the def
+ *     drops into the arm.  So constant + compare + ONE register use does not
+ *     web (GetBuildTime's shape, reproduced here).
+ *   - `g_popup_y = 0x25;` with NO return (`storeonly`): `cmp esi,25h` KEPT and
+ *     the store is an IMMEDIATE `mov dword ptr [7fded0h],25h`.  So a STORE of
+ *     the constant is not a register use at all.
+ *   - both (the real body): 3 uses -> web, def hoisted.  The original has all
+ *     three (`cmp esi,25h`, `mov [7fded0h],eax`, `ret` with eax) and no web,
+ *     which this VC6 never does for a three-use constant.
+ * *** THE SHARPEST MEASUREMENT: `if (y <= 0x24)` (identically `if (!(y >
+ * 0x24))`) gives 2 mismatches and 144/144 BYTES, with indices 27..42 -- the
+ * whole low arm including `mov eax,25h` -- index-for-index exact. ***  Only
+ * the compare pair is wrong (`cmp esi,24h / jg` for `cmp esi,25h / jge`).
+ * That proves the residual is nothing but "the compare's constant equals the
+ * arm's": make them different by ANY amount and the def lands in the arm.
+ * NOT COMMITTED, and deliberately: the original plainly wrote `y < 0x25`
+ * (`cmp esi,25h`), so `y <= 0x24` would trade one wrong instruction pair for
+ * another and make the source less faithful for a cosmetic 3 -> 2.
+ * Newly ruled out this round (all reproduce the committed body's 3 exactly
+ * unless noted): every same-width TYPE barrier on the compare -- `y < 0x25L`,
+ * `(long)y < 0x25L`, `y < (int)0x25u`, `y < (int)(short)0x25`, a `#define`,
+ * an `enum` constant, a `long y` local (with `(int)y` at the kept-y store);
+ * the same barriers on the ARM's constant -- `0x25L`, `(int)0x25u`,
+ * `sizeof(struct { char _p[0x25]; })`, an `unsigned top` carrier; carriers
+ * `int top` / `limit` / `y = 0x25` in the arm; `return g_popup_y = 0x25;`;
+ * an inlined `static __inline int SetPopUp(int px, int py) { g_popup_x = px;
+ * g_popup_y = py; return py; }` used by BOTH arms; a degenerate
+ * `y < 0x25 ? 0x25 : 0x25` return; swapping the two stores in the arm (5);
+ * hoisting `g_popup_x = x;` above the y test (14, VC6 does not sink it);
+ * `-y > -0x25` and `y >= 0 && y < 0x25` (17-18, extra compares).
+ * CONCLUSION unchanged and now evidence-backed: the original's low arm has a
+ * three-use 0x25 whose def sits in the arm; no VC6 SP3 spelling reaches that,
+ * because this build webs at three uses and keys constants by value only. */
 // WIP-FUNCTION: LEGOLAND 0x004718c0  (43/43 instructions, 143/144 bytes,
 //   mismatch 3: the y-clamp low bound's constant def is one block too early)
 int ClampPopUpToScreen(int size)

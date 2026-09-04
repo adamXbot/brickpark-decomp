@@ -2468,7 +2468,42 @@ extern void RemoveAllBlokesFromRide(RideDef* def, BPosW sq);     /* 0x0048a2e0 *
  * or a helper that takes the two bytes and returns the two sums rather than
  * storing them, are the untried shapes.  The bug note above (v[2] used for
  * the y offset) is confirmed by the address the original loads (0x4b4730).
- * Variants: scratchpad/logflume/sw1.py .. sw4.py (run with var.py). */
+ * Variants: scratchpad/logflume/sw1.py .. sw4.py (run with var.py).
+ *
+ * 2026-09-04 (fourth lane).  The untried shapes above are now measured and
+ * the two families are shown to be THE SAME EDIT, which makes this a much
+ * harder residual than "one instruction apart" suggested.
+ *  - The trigger for family (b) is exactly ONE thing: giving the Y BYTE a
+ *    name.  Naming the X byte alone (`bx = p->sq.b.x;` then
+ *    `cur.x = bx + v[0];` with y inline) is BYTE-IDENTICAL to family (a);
+ *    naming the y byte -- anywhere, by any spelling -- is family (b).  And
+ *    the flipped `add` at index 46 comes from the same name: with the y sum
+ *    written inline the destination is the widened byte (`add eax,ecx`),
+ *    with a named operand it is the global (`add ecx,eax`).  There is no
+ *    third state, so "b's schedule with a's sums" is not a source form that
+ *    exists -- it is a request for VC6 to name and not name the same value.
+ *  - Family (b) confirmed at 24 with indices 0..45 EXACT and byte length
+ *    342/343; EVERY divergence from 46 on follows the one flipped operand
+ *    order (the argument pushes at 54-58 are its downstream).
+ *  - New shapes measured, all either 11 (family a) or 24 (family b):
+ *    two SEPARATE one-argument inline helpers (`LfOx(x)`, `LfOy(y)`), one
+ *    two-argument `LfAdd(byte, global)` helper called twice (both operand
+ *    orders, and the helper's parameter order reversed), an x-only or y-only
+ *    helper, both bytes AND both globals in named int locals in all three
+ *    interleavings (so the sums are symbol+symbol, to test the
+ *    "earliest-defined symbol wins" rule -- it does NOT: the second sum
+ *    still takes the global), the y sum written `gy + by`, two-def forms on
+ *    the TEMPS (`bx += v[0]; by += v[2];` and every mix -- forward
+ *    substituted back), a `BPosW*`/`Footprint*` pointer to either operand, a
+ *    global-only temp (gx or gy alone), a block-scoped `by`, and `by` typed
+ *    `unsigned`/`long` (24), `short` (14, first=40), `unsigned char` (74).
+ *    A dead second use of `by` folded away and reverted to family (a).
+ *  - So the recorded rule stands and is now stated more sharply: THE
+ *    DESTINATION OF A `byte + global` SUM IS THE BYTE WHEN BOTH OPERANDS ARE
+ *    INLINE LOADS AND THE GLOBAL WHEN EITHER OPERAND IS A NAMED SYMBOL --
+ *    except for the FIRST such sum in a statement group, which keeps the
+ *    byte either way.  That is why family (a) gets both sums right and
+ *    family (b) only the first. */
 // WIP-FUNCTION: LEGOLAND 0x0040abf0  (89%, schedule of the origin/copy block, see note)
 void LFEntrance_Remove(RideElem* elem, BPosW sq, void* c)
 {

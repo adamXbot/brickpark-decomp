@@ -175,9 +175,8 @@ extern void   RemoveBlokeFromRide(RideObject* item, RiderNode* r);   /* 0x0048a1
 extern void   BuyItem(RideElem* elem, MapSquare* at, int which);     /* 0x004539e0 */
 
 
-/* 2026-09-04: audit.py mismatch 299 -> 51 of 404, and the body is now the
- * original's SIZE exactly (404 instructions / 1288 bytes, no ESCAPES).  Two
- * things closed the 248:
+/* 2026-09-04 (lane D): EXACT -- 404/404 instructions, 1288/1288 bytes,
+ * audit.py mismatch 0 (was 49).  What closed it, in order:
  *
  *  (a) Case 6 must carry its OWN copy of the `b->state = 7; NewDirForAction(b,
  *      (a >> 5) + 3); b->action++;` tail instead of a `goto` into case 12's.
@@ -186,136 +185,72 @@ extern void   BuyItem(RideElem* elem, MapSquare* at, int which);     /* 0x004539
  *      statements does the CalcMoveLine cleanup stay DEFERRED: the original
  *      merges it with NewDirForAction's into one `add esp,0x1c` in the shared
  *      block.  With the `goto`, case 7 -- which reaches the same tail with an
- *      empty stack -- gets merged in too, the deferral is impossible, both
- *      cleanups are emitted separately (`add esp,0x14` + `add esp,8`) and
- *      case 7 loses its own six-instruction copy.  Same cause, both symptoms.
- *      Cases 13..16 and 17 already showed the merged `add esp,0x1c`/`0x20`.
- *  (b) The three chair-offset cases (6, 8, 11) need the waypoint AND the two
- *      offset words in registers before the sum.  A read into a plain `int`
- *      local is forward-substituted and folded back into the `add`; reading
- *      them into ONE-DIMENSIONAL ARRAY locals with constant indices
- *      (`int oa[2]`, `int wa[2]`) defeats forward substitution, keeps them in
- *      registers, costs no frame (VC6 scalarises a constant-indexed local
- *      array) and restores the missing four instructions.  `volatile` does
- *      the same but is dirtier and scores worse everywhere else.
- *      With the arrays in place the STATEMENT ORDER inside each case is a
- *      real lever and was searched exhaustively (120 + 840 + 20 valid orders,
- *      coordinate-descended to a fixed point): the winning orders all read
- *      the Y offset BEFORE the X one and put a store to `b` (`b->world =
- *      b->target`, `b->seated = 1`) between the offset reads and their use.
+ *      empty stack -- gets merged in too, the deferral is impossible and both
+ *      cleanups are emitted separately.
  *
- * WHAT IS LEFT (51 mismatches, all in cases 6/8/11, register naming only --
- * register-blind edit distance is 16).  The three-term sum
- * `waypoint + (cell << 8) + offset - 0x80` is associated the wrong way: the
- * original pairs (waypoint + cell) in the `add` and puts the offset in the
- * closing `lea` (`mov ebx,[ecx*8+g_cafe_pos] / add ebx,ecx /
- * lea edx,[ebx+edx-0x80]`); ours pairs (cell + offset) and puts the waypoint
- * in the lea.  Consequence: the cell byte's `xor r,r / mov r8,[edi] / shl r,8`
- * is hoisted several slots early into a callee-saved register instead of
- * sitting next to the `add`, and every register downstream is renamed.
+ *  (b) THE WAYPOINT MUST BE SPELLED INLINE, NOT THROUGH A NAMED LOCAL.  This
+ *      is the whole of the old "association" residual and it reverses a long
+ *      chain of earlier conclusions, so it is worth stating precisely.  The
+ *      three-term sum is `g_cafe_pos[step].x + (key->bx << 8) + oa[0] - 0x80`.
+ *      Written that way the waypoint is a MEMORY REFERENCE, and for a
+ *      commutative `+` chain VC6 LOADS a memory reference into the add's
+ *      DESTINATION register rather than folding it -- exactly the `imul` rank
+ *      rule, which turns out to hold for `add` too:
+ *          mov ebx, dword ptr [ecx*8 + g_cafe_pos]
+ *          add ebx, eax                 <- waypoint is the destination
+ *          lea edx, [ebx + edx - 0x80]
+ *      Routed through `wa[0]` the waypoint is only a register-candidate
+ *      SYMBOL, it loses the destination to the `<< 8` temporary, and the whole
+ *      block is renamed.  The old note's claim that an inline waypoint "is
+ *      FOLDED (`add r,[mem]`) and the body is four instructions short" is
+ *      simply false on this baseline -- it was measured with the offsets
+ *      spelled differently.  Nothing is folded; the instruction count never
+ *      moved off 404.  (The Y sums keep the `<< 8` temporary as destination
+ *      because the waypoint's own scheduled load lands after it; that is
+ *      consistent, not an exception.)
  *
- * Ruled out for the association, all measured: all six textual orders of the
- * three terms and every parenthesisation (identical objects -- VC6 sorts the
- * flattened sum before instruction selection); the constant written at the
- * end, in the middle, or bracketed with one term; named `int` locals for any
- * subset of {waypoint, cell shift, offset} (48 combinations); a `const
- * CafeOfs*` / `const Pos*` pointer local (moves the fold, does not remove
- * it); `unsigned`/`long` locals with a narrowing cast; a two-statement
- * partial sum (`px = wp + cell; target = px + ofs - 0x80`); an inline helper
- * `CafeTarget(wp, cell, ofs, bias)` in four parameter orders; a whole-row
- * `CafeOfs` struct copy (grows the frame); one merged `int t[4]` for both
- * pairs in four index assignments (55, worse); `volatile` on the waypoint
- * (387 instructions, much worse).  The observed rank is: a MEMORY reference
- * pairs with the computed shift ahead of an array symbol, and an array symbol
- * pairs with it ahead of nothing -- so the pair can be made (cell, waypoint)
- * by leaving the waypoint inline, but then it is FOLDED (`add r,[mem]`) and
- * the body is four instructions short.  Getting the waypoint both FIRST and
- * in a register is the one thing no spelling reached.
+ *  (c) THE TWO CHAIR OFFSETS MUST BE READ X-THEN-Y, and the offsets must stay
+ *      in the `unsigned int oa[2]` array local.  `oa[0] = ..._x` before
+ *      `oa[1] = ..._y` puts the two loads in ascending displacement order, as
+ *      the original has them; the reverse order costs 8-24 mismatches per
+ *      case.  `int oa[2]` instead of `unsigned int oa[2]` still costs 301 --
+ *      the same-width conversion in the sum is load-bearing.  Plain `int`
+ *      scalars are forward-substituted and fold the offsets back into the add.
  *
- * 2026-09-04 (sweep lane): 51 -> 49.  Declaring the offset pair `unsigned int
- * oa[2]` (or casting either offset to `unsigned` inside the three-term sum --
- * measured identical, and so is `unsigned wa[2]`) is worth two instructions:
- * the same-width conversion changes the operand ranking enough that case 6's
- * X and Y sums come out with the original's registers, so 112..123 there now
- * match index for index even though the ASSOCIATION is still (cell + offset)
- * rather than (waypoint + cell).  Arithmetic is unchanged modulo 2^32.
- * Also measured this pass, all worse: a partial-sum spelling with the array
- * local carrying `waypoint + cell` (`wa[0] = g_cafe_pos[step].x + (key->bx <<
- * 8); target.x = wa[0] + oa[0] - 0x80;`) -- VC6 folds the waypoint into the
- * add (`add ecx,[eax*8+g_cafe_pos]`, strict 265-273); `const Pos* wp` /
- * `const CafeOfs* co` pointer locals (306/314); a `Pos` struct copy of the
- * waypoint (82); plain `int` locals for the offsets (310); `key->bx * 256`
- * and `(int)key->bx << 8` (inert); and every textual order and
- * parenthesisation of the TWO-term sums in cases 12 and 13..16, whose single
- * residual each (0x38a and 0x422) is the same association shown as a `lea`
- * operand swap -- `lea ecx,[edx+ecx-0x80]` (waypoint as base) against ours
- * `lea ecx,[ecx+edx-0x80]`.  Note the original is NOT uniform: the X sums put
- * the waypoint first and the Y sums put the cell first, which tracks which of
- * the two values the emitted stream defines first.
- * The case-8 statement order was re-searched exhaustively (all 840
- * dependency-valid orders) with the unsigned offsets in place: the order
- * already in the file (world, row, oa[1], oa[0], seated, step, wa[0]) is the
- * unique best at 49; the next is 51.  Case 6's 180 valid orders were searched
- * too -- the order in the file is again the best.
- * What is left in case 6 is now pure SCHEDULING (indices 88..111): the
- * original emits the two `b->world` stores, then `row`, then the waypoint,
- * then stand_x, then stand_y, then the cell shift; ours hoists `row` to the
- * top and emits stand_y, waypoint, the world stores, stand_x, cell.
+ *  (d) STATEMENT ORDER inside each of the three chair cases, searched
+ *      exhaustively over every dependency-valid permutation on this baseline:
+ *        case 6   step, b->world = b->target, row, oa[0], oa[1]   (unique 0)
+ *        case 8   b->world, b->seated = 1, row, oa[0], oa[1], step
+ *        case 11  row, oa[0], oa[1], step
+ *      For case 6 the next-best order scores 11, so it is a genuine constraint
+ *      and not a tie.
  *
- * 2026-09-04 (sweep6 lane).  No change to the code -- still 49 -- but the
- * association question is now REDUCED TO ONE CONCRETE OBSTACLE, and the
- * newest cross-lane lever was tested here and does not apply.
- *
- * 1. THE PARTIAL-SUM AGGREGATE CURE DOES NOT TRANSFER.  anim2.c's
- *    BoatingSchool_DrawBoats closed 79 mismatches by writing a commutative
- *    sum's leading pair into the fields of a non-address-taken aggregate
- *    (`Pos t; t.x = A + B; t.y = C; dst = t.x + t.y + D;`, two such
- *    aggregates so the field assignments stay contiguous).  Applied here to
- *    all three cases (`t.x = wa[0] + (key->bx << 8); t.y = oa[0];
- *    b->target.x = t.x + t.y - 0x80;` and the same for y) it grows the frame
- *    to 0x10, ESCAPES and scores 293.  Variants measured: the constant folded
- *    into `t.x`; only `t.x` protected; block-scope instead of function-scope
- *    aggregates; `oa` back to plain `int`.  All 112..312.  The old note's
- *    single-field attempt (`wa[0] = wp + cell; target = wa[0] + oa[0]`) was
- *    not a fair test of that lever -- a one-field aggregate is inert by
- *    construction -- but the fair two-field test now says no.
- *
- * 2. THE RULE THAT DECIDES THE ASSOCIATION IS THE ADD'S *DESTINATION*, and it
- *    is now characterised.  For the three-term sum both builds add the
- *    remaining operands in DESCENDING DEFINITION ORDER; they differ only in
- *    which operand becomes the destination:
- *      ours     destination = the compiler TEMPORARY (the `<< 8` shift, the
- *               last value defined), then + oa[0] (defined 2nd),
- *               then + wa[0] (defined 1st)   -> `add cell,ofs` + `lea +wp`
- *      original destination = the EARLIEST-DEFINED SYMBOL (the waypoint),
- *               then + the cell shift, then + the offset
- *                                            -> `add wp,cell` + `lea +ofs`
- *    So there is no temp in the original's sum: the cell shift must have been
- *    a NAMED value there too.
- *
- * 3. NAMING THE CELL SHIFT DOES FLIP THE DESTINATION -- and then loses on a
- *    PEEPHOLE.  With `int ca[2]; ca[0] = key->bx << 8;` written BEFORE
- *    `wa[0] = g_cafe_pos[step].x;` (definition order offsets, cell, waypoint)
- *    case 8 comes out as
- *        mov ebx, [eax*8 + g_cafe_pos] / add ebx, ecx / lea ecx,[ebx+ebp-0x80]
- *    which is the ORIGINAL, instruction for instruction.  But VC6 then
- *    compiles the standalone `ca[0] = key->bx << 8;` with its byte-into-the-
- *    high-half peephole -- `xor ecx,ecx / mov ch, byte ptr [edi]`, TWO
- *    instructions -- where the original has the three-instruction
- *    `xor ecx,ecx / mov cl,[edi] / shl ecx,8`.  One instruction short per
- *    sum, six short overall, everything downstream misaligns: 306.
- *    So the whole remaining problem is: NAME THE CELL SHIFT WITHOUT LETTING
- *    VC6 COLLAPSE `byte << 8` INTO `mov ch`.  Measured and rejected:
- *    `unsigned int ca[2]` (identical); the cell in `wa[]` with the waypoint
- *    left inline (309 -- the waypoint is still not folded, but the peephole
- *    still fires); a two-stage `ba[0] = key->bx; ca[0] = ba[0] << 8;`, which
- *    VC6 folds straight back to the inline form (byte-IDENTICAL to the
- *    current file, so array locals do NOT defeat forward substitution for
- *    this value the way they do for the offsets); `key->bx * 256` and
- *    `(int)key->bx << 8` (inert, as the old note already recorded).
- *    Per-case application (case 6 only / 8 only / 11 only / 8+11) is worse
- *    than all-three in every column: 211..313. */
-// WIP-FUNCTION: LEGOLAND 0x004316f0  (404/404 insns, 1288/1288B, 49 by audit; cases 6/8/11 pair the sum the other way)
+ * Levers derived here and worth reusing (see docs/DECOMP.md):
+ *  - `x = byte * 256;` as a STANDALONE assignment keeps VC6's three-instruction
+ *    `xor r,r / mov rl,[mem] / shl r,8`; `x = byte << 8;` in the same position
+ *    collapses to the two-instruction `xor r,r / mov rh,[mem]` peephole.  As a
+ *    SUBEXPRESSION the two spellings are byte-identical.  That removes the
+ *    obstacle the previous note called the open question -- though in the end
+ *    the naming turned out not to be needed at all.
+ *  - THE DESTINATION RULE, in the form this function proves.  A commutative
+ *    `+` chain's destination is chosen BEFORE the addends are sorted, and the
+ *    rank is: (1) an inline MEMORY REFERENCE -- it is LOADED into the
+ *    destination, never folded into the add; (2) a compiler TEMPORARY; (3) a
+ *    named local, and between two named locals the one defined LAST (nearest
+ *    the add) wins, NOT the earliest -- an earlier cross-lane note had that
+ *    half backwards.  The remaining addends are then added in DESCENDING
+ *    definition order, a temporary counting as defined at its use.  Here the
+ *    waypoint is rank 1 and wins the destination over the `<< 8` temporary;
+ *    the temporary is then the first addend and the offset symbol the second.
+ *    The Y sums keep the temporary as destination only because the waypoint's
+ *    own load is scheduled after it.
+ *  - Corpus evidence for (b): `Entrance1_Tick` (ridecb7.c, 0x0042e0a9) has the
+ *    identical shape from the identical C -- `b->target.y = tbl[b->f3a] +
+ *    (ty << 8);` gives `mov edx,[eax+ecx*4] / shl ebp,8 / add edx,ebp`, the
+ *    inline memory reference taking the destination away from the shift.
+ *    A scan of all 1542 exact bodies for "add rA,rB with rA a plain load and
+ *    rB a shift" returns exactly 5 hits; that was the decisive one. */
+// FUNCTION: LEGOLAND 0x004316f0
 void OctopusCafe_Tick(RideElem* elem)
 {
     RideObject*   item = elem->data;
@@ -327,7 +262,6 @@ void OctopusCafe_Tick(RideElem* elem)
     int           step;
     int           row;
     unsigned int  oa[2];
-    int           wa[2];
     unsigned char a;
 
     r = item->riders;
@@ -368,14 +302,12 @@ void OctopusCafe_Tick(RideElem* elem)
                 break;
             case 6:
                 step = g_cafe_walk[(b->seat >> 1) * 4 + 4];
-                wa[0] = g_cafe_pos[step].x;
-                row = g_cafe_chair_dir[b->seat];
-                oa[1] = g_cafe_chair_ofs[row].stand_y;
                 b->world = b->target;
+                row = g_cafe_chair_dir[b->seat];
                 oa[0] = g_cafe_chair_ofs[row].stand_x;
-                b->target.x = wa[0] + (key->bx << 8) + oa[0] - 0x80;
-                wa[1] = g_cafe_pos[step].y;
-                b->target.y = wa[1] + (key->by << 8) + oa[1] + 0x80;
+                oa[1] = g_cafe_chair_ofs[row].stand_y;
+                b->target.x = g_cafe_pos[step].x + (key->bx << 8) + oa[0] - 0x80;
+                b->target.y = g_cafe_pos[step].y + (key->by << 8) + oa[1] + 0x80;
                 a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
                 b->new_dir = a;
                 b->state = 7;
@@ -388,15 +320,13 @@ void OctopusCafe_Tick(RideElem* elem)
                 break;
             case 8:
                 b->world = b->target;
-                row = g_cafe_chair_dir[b->seat];
-                oa[1] = g_cafe_chair_ofs[row].sit_y;
-                oa[0] = g_cafe_chair_ofs[row].sit_x;
                 b->seated = 1;
+                row = g_cafe_chair_dir[b->seat];
+                oa[0] = g_cafe_chair_ofs[row].sit_x;
+                oa[1] = g_cafe_chair_ofs[row].sit_y;
                 step = g_cafe_walk[(b->seat >> 1) * 4 + 4];
-                wa[0] = g_cafe_pos[step].x;
-                b->target.x = wa[0] + (key->bx << 8) + oa[0] - 0x80;
-                wa[1] = g_cafe_pos[step].y;
-                b->target.y = wa[1] + (key->by << 8) + oa[1] + 0x80;
+                b->target.x = g_cafe_pos[step].x + (key->bx << 8) + oa[0] - 0x80;
+                b->target.y = g_cafe_pos[step].y + (key->by << 8) + oa[1] + 0x80;
                 a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
                 b->new_dir = a;
                 b->state = 7;
@@ -420,13 +350,11 @@ void OctopusCafe_Tick(RideElem* elem)
                 b->f70 = 0;
                 BlokeWalkAnim(b);
                 row = g_cafe_chair_dir[b->seat];
-                oa[1] = g_cafe_chair_ofs[row].stand_y;
                 oa[0] = g_cafe_chair_ofs[row].stand_x;
+                oa[1] = g_cafe_chair_ofs[row].stand_y;
                 step = g_cafe_walk[(b->seat >> 1) * 4 + 4];
-                wa[0] = g_cafe_pos[step].x;
-                b->target.x = wa[0] + (key->bx << 8) + oa[0] - 0x80;
-                wa[1] = g_cafe_pos[step].y;
-                b->target.y = wa[1] + (key->by << 8) + oa[1] + 0x80;
+                b->target.x = g_cafe_pos[step].x + (key->bx << 8) + oa[0] - 0x80;
+                b->target.y = g_cafe_pos[step].y + (key->by << 8) + oa[1] + 0x80;
                 a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
                 b->new_dir = a;
                 b->state = 7;

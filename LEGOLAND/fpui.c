@@ -909,8 +909,67 @@ char CheckFocussedIcon(void)
  * (tools: scratchpad/sweep1/batch.py, which reports insns/bytes/first-divergence,
  * whether a copy-then-push appeared (cp=), and the recovered n/a/p/prev register
  * map; scratchpad/sweep1/scan_argcopy.py mines the exact corpus for the shape;
- * scratchpad/lists/oll.py for the sibling in fpui2.c). */
-// WIP-FUNCTION: LEGOLAND 0x00475630  (67 of 68 insns, 169B vs 171B; audit.py prints 68i/170B counting a pad byte. First diverging index 46: one missing `mov edx,eax` argument copy, see note)
+ * scratchpad/lists/oll.py for the sibling in fpui2.c).
+ *
+ * 2026-09-04 (fourth lane).  Still 22 / index 46.  Two new facts, both
+ * NEGATIVE for the standing hypotheses, both cheap to re-use:
+ *  - A NINTH corpus site for `mov rB,rA / push rB` that the earlier scan
+ *    missed because it allows a `push` between the load and the copy:
+ *    workers2.c `AddRepairOrderForObject` 0x0049b977,
+ *    `xor edx,edx / mov dl,[eax+11h] / push edi / mov edi,edx / push edi`.
+ *    It is the ONLY corpus instance whose copied value is a plain LOAD and
+ *    not a call result -- but it is still the survive-the-call class: its C
+ *    is `int life = MapCellAt(..)->life; int cost = GetObjRepairCost(cls,
+ *    life); ... (cls->max_cond - life)`, so `life` is read again AFTER the
+ *    call, and the copy exists only because a byte load had pinned it in
+ *    edx (eax held the MapCellAt result) and it then had to reach a
+ *    callee-saved register.  (scratchpad/laneF/scan_deadcopy.py.)
+ *  - DISPROOF that "the pushed value stays live past the call" is the
+ *    trigger HERE: a probe that names `b = p->obj` and reads it again after
+ *    the second call does NOT produce a copy -- VC6 simply loads `b`
+ *    straight into ebx (`mov ebx,[esi+4] ... push ebx`) and re-plans the
+ *    whole function.  Naming `b` and using it in the OTHER arm (the
+ *    parents-differ exit) is byte-identical to the base body: still
+ *    `push eax`.  So the family's rule is narrower than "value survives":
+ *    VC6 emits the copy only when the value is ALREADY pinned in a
+ *    caller-saved register it may not keep.  Here the value is in eax
+ *    because it is the base of the `[eax+58h]` parent load, and eax is
+ *    exactly the register the push wants, so no legal pressure argument
+ *    forces the copy.
+ *  - Also measured and byte-identical or worse: `b` assigned after the
+ *    parent test; `p = prev->next` in the latch; `GetObjCost(p->obj) >=
+ *    GetObjCost(a)` (flips only the final `cmp`/`jge`, the call order is
+ *    unchanged); a loop-carried `b` read after the loop (first=38).
+ *  - The remaining reading that fits every observation is that the ARGUMENT
+ *    TEMP's live range reaches the CALL rather than ending at the PUSH, so
+ *    it interferes with eax's definition as the return register and must be
+ *    copied out.  Nothing found makes VC6 model it that way.
+ *
+ * *** THE TWO-WAY TEST, AND THE CASE FOR RETIRING THIS FUNCTION. ***
+ * The corpus mechanism for an un-coalesced register copy is: it needs either
+ * a PHI (the destination has two reaching defs at a merge) or INTERFERENCE
+ * (the source's live range overlaps another value competing for its
+ * register).  Read off the original at the site, 0x004756aa:
+ *  - PHI: NO.  Every branch target in the body is 0x475661, 0x475672,
+ *    0x475684, 0x475692, 0x47569a and 0x4756d1.  0x4756aa is not among them,
+ *    so the block containing `mov edx,eax` has exactly ONE predecessor - the
+ *    fall-through of the `jne` at 0x4756a8.  A phi cannot be the mechanism.
+ *  - INTERFERENCE: NO.  eax is defined at 0x47569d (`mov eax,[esi+4]` =
+ *    p->obj), read at 0x4756a3 (the parent load) and at 0x4756aa (the copy),
+ *    and its next event is the `call` at 0x4756ad which redefines it.  No
+ *    other value is live in eax across that span and nothing competes for
+ *    it, so the argument could simply have been pushed from eax - which is
+ *    what every one of ~185 measured variants does.
+ * Neither condition holds, so the copy has no cause this compiler can be
+ * driven to reproduce from C.  That is the SAME verdict the simcore lane
+ * reached independently for `RequestRoute` 0x00477bd0 by the same test (its
+ * block also has one predecessor and its value has no later use), so the two
+ * sites are alike in having neither mechanism - not in sharing a single
+ * unknown lever.  RECOMMENDATION: retire this function at 67 of 68
+ * instructions / 169 of 171 bytes with the residual documented, as
+ * `UpdateControllerFromMouseData` was.  Semantics are correct and the body
+ * is index-for-index identical outside index 46. */
+// WIP-FUNCTION: LEGOLAND 0x00475630  (67 of 68 insns, 169B vs 171B; audit.py prints 68i/170B counting a pad byte. First diverging index 46: one missing `mov edx,eax` argument copy which has NEITHER a phi NOR interference behind it -- proposed for retirement, see note)
 void InsertChildIntoList(ObjDef* d)
 {
     ObjNode* p = g_object_list;

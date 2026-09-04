@@ -84,11 +84,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **44.4% exact, 51.3% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1542 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **44.9% exact, 51.3% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1544 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 589, ~25,500 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 39 |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 37 |
 
 (Row values refreshed 2026-09-04 after four section-B waves: 30 partials plus
 one new twin (1504/1504), then 15 (1519), 10 (1529) and 11 (1540). Fully

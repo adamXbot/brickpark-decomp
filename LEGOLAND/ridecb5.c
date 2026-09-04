@@ -796,7 +796,32 @@ int Road_FindCardinals(int x, int y, RoadRec** out)
  * Two-variable diamonds with an explicit `else m = n` cost a second frame
  * slot (162B, 48-51 X) whatever the arm order or declaration order; only the
  * ILLEGAL uninitialised-`m` probe stays on one slot (5 X), and its two X that
- * are not the slot are the arm order plus the `lea edi,[edx+1]` fold. */
+ * are not the slot are the arm order plus the `lea edi,[edx+1]` fold.
+ *
+ * 2026-09-04 pass 3 (lane H).  Still 27; 23 MORE candidate statements for the
+ * `r == 0` arm measured, every one folding the block away before layout and
+ * every one landing on exactly 27 X / 62 insns / 153 bytes:
+ *   `__assume(r == 0);` (VC6 SP3 accepts it and emits nothing -- so it is not
+ *   a block keeper either), `n = (unsigned)n;`, `n = (int)(unsigned)n;`,
+ *   `n = (long)n;` (same-width conversion tuples ARE folded here, unlike the
+ *   no-code FP conversion tuples of SetBlokePositionFromBNV), `switch (n) { }`
+ *   and `switch ((int)r) { }` with no cases, `n = n + (int)r;`,
+ *   `n += (int)(r - (RoadRec*)0);`, `;`, `(void)&n;`, `n = Ident(n);` through
+ *   a `static __inline` identity, `do { } while (r != 0);` (folded -- VC6
+ *   knows r == 0 in this arm), `if (out) { }`, `if (r == out[5]) { }`,
+ *   `n = -(-n);`, `y = y;`, and `goto merged;` to a label on the following
+ *   `if (out)`.
+ * Two arm statements that DO change the code, both worse, recorded so they
+ * are not re-tried: `if (out) out[5] = 0;` (semantically identical inside
+ * this arm, but VC6 emits a second `test ebx,ebx / je / mov` -- 70 insns,
+ * 168B, 52 X) and `n = *(volatile int*)&n;` (25 X, 156B, but VC6 then keeps
+ * the counter in memory and the increment becomes `inc dword ptr [esp+10h]`
+ * with the reload AFTER the merge -- the wrong shape).  `*(volatile int*)&n;`
+ * remains the only statement that builds the original's diamond and it still
+ * costs its own dead `mov edx,[esp+10h]` (24 X, 65 insns, 160B) -- worse on
+ * both audit gates than the committed body.  The lever is unchanged and still
+ * unmet: a statement that keeps the `r == 0` arm a real basic block and emits
+ * no instruction. */
 // WIP-FUNCTION: LEGOLAND 0x00413450  (62/64 insns, 27 X from idx 37: the third test's `n` reload hoisted above the branch instead of duplicated on both arms)
 int Road_FindDiagonals(int x, int y, RoadRec** out)
 {
@@ -1319,6 +1344,20 @@ extern void*    g_bs_launch_sample;  /* 0x004b52c8 */
  * casts, unsigned casts, `!(x == 5)`, an `int*` alias) do NOT break it; only
  * `volatile` does.  Find the real break and both shims should come out and
  * cases 4, 5 and 6 should fall with them.
+ *
+ * 2026-09-04 (lane H).  Baseline RE-CONFIRMED on today's toolchain: 47 X,
+ * 358/358 instructions, 1166 vs 1164 bytes, first divergence 64 -- so both
+ * committed `volatile` shims are still load-bearing and still worth what the
+ * note above says (method step "re-test committed shims" done).  One more
+ * non-volatile CSE barrier was tried for index 64 and it FAILS: declaring the
+ * +0x14 field as `union { int i; unsigned u; }` and reading the guard through
+ * one member and the increment through the other gives 49 X (1165 bytes) --
+ * and all three member pairings (u then i, i then u, i then i) are IDENTICAL,
+ * so this VC6 value-numbers same-width union members as ONE lvalue.  A union
+ * is therefore not a CSE barrier here, which narrows the search: the
+ * same-width TYPE conversion barrier that works in RequestRoute needs two
+ * differently-typed OBJECTS, not two views of one, and `volatile` remains the
+ * only break found for this shape.
  * ========================================================================= */
 // WIP-FUNCTION: LEGOLAND 0x0041a720  (358/358 insns, 47 X from idx 64: the switch body one register behind in the eax->ecx->edx scratch rotation)
 void BoatingSchool_Tick(void)

@@ -905,7 +905,57 @@ static __inline Cell* RouteCellAt(Pos* p)
  *    38 is a fresh load -- 3 mismatches.  If it is (any field spelling) VC6
  *    either coalesces the whole thing into ecx (419) or keeps eax and remats
  *    (138).  The original's third possibility -- keep eax, split at the block
- *    EDGE with a copy -- is the one no C spelling reaches. */
+ *    EDGE with a copy -- is the one no C spelling reaches.
+ *
+ * 2026-09-04, lane H.  ~30 more variants, residual UNCHANGED at 3 (indices
+ * 31/32/38), and the family-wide unknown now has a PRECISE NECESSARY
+ * CONDITION that this site cannot satisfy.
+ *  - The 16-combination sweep was re-run from scratch (four else-block
+ *    spellings {x-then-y-1, x-then-y-then-dec, y-1-then-x, struct-copy plus a
+ *    redundant `to.x = cur->pos.x`} x four argument spellings {(to.x,to.y),
+ *    (cur->pos.x,to.y), (to.x,cur->pos.y-1), (cur->pos.x,cur->pos.y-1)}).
+ *    Exactly three outcomes, all previously recorded: 3 (the committed struct
+ *    copy), 7 (`to.y = cur->pos.y; to.y--; to.x = cur->pos.x;` + (to.x,to.y),
+ *    right byte count, y block reordered), 138 (any x-field spelling with the
+ *    x argument written `cur->pos.x`: indices 0..37 EXACT, including
+ *    `mov edx,[4bb5a4h]` at 31, then a store from eax and a remat for the
+ *    push) and 419 (the one-web ecx form).  Nothing else.
+ *  - Also new and all worse: making the struct copy DOMINATE the goal test
+ *    (`to = cur->pos;` before the test, testing `to.x`/`to.y` or still
+ *    `cur->pos.x`/`cur->pos.y`), a `Pos cp` function-level local copied once
+ *    and used by both the test and the else, and the same inside the else
+ *    only -- 425..443, several with ESCAPES.
+ *  - *** WHY RenderAdvisorIcon's COPY EXISTS, read instruction by instruction
+ *    off 0x443e59..0x443eaa, because the answer narrows this residual.  The
+ *    sequence is
+ *        0x443e80  mov ecx,[665f60h]   ; ecx = g_vid_next
+ *        0x443e86  cmp ecx,edi         ; edi is the function's zero
+ *        0x443e88  jne 0x443e92
+ *        0x443e8a  mov ecx,eax         ; ecx = g_vidanim   <-- THE COPY
+ *        0x443e8c  mov [665f60h],ecx
+ *        0x443e92  push ecx            ; SetVidAnim(g_vid_next)
+ *    Its source eax is NOT live afterwards (it is redefined by a reload at
+ *    0x443ea2), so interference is NOT the reason.  The reason is that ecx is
+ *    a PHI REGISTER: the pushed value has TWO reaching defs -- the load at
+ *    0x443e80 on the fall-through edge and g_vidanim on the taken edge -- and
+ *    a phi has to live in ONE register, so the taken edge must materialise
+ *    into it.  The store then reads the phi register too.  So the corpus
+ *    contains exactly two mechanisms that keep such a copy: a PHI
+ *    (RenderAdvisorIcon) and INTERFERENCE (the four `mov rA,rB /
+ *    mov [esp+d],rA` sites the earlier scan found, where the source stays
+ *    live).  THIS SITE HAS NEITHER.  Block 0x477c54 has one predecessor
+ *    (re-verified), so the to.x value has a single reaching def; and
+ *    `cur->pos.x` has no use after index 38 -- the later reads at 0x477caa,
+ *    0x477cf8 and 0x477d42 are all fresh loads behind calls, so no web spans
+ *    them.  With neither a phi nor interference there is nothing for VC6 to
+ *    refuse to coalesce, which is exactly why every field spelling either
+ *    coalesces (419) or remats (138).  Unless the original's translation unit
+ *    had a second reaching def or a later use of that value which was
+ *    afterwards deleted, this copy is not reachable from C. ***
+ *    Apply the same two-way test to `InsertChildIntoList` (fpui.c 0x475630,
+ *    index 46) before assuming the two are one problem: if ITS copy sits at a
+ *    join, or its source survives, that one is reachable and this one is
+ *    not. */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)
 {

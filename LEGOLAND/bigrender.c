@@ -1521,6 +1521,113 @@ static __inline SpriteRec* TileSprite(int id)
  *       `t.x` in the accumulate pair (worse, 346).  The parameter-volatile
  *       shim that closed SoftPrint_XBltFast (`(*(Cursor* volatile*)&c)`)
  *       forces a reload of `c` from its home and costs 140 more (484).
+ *       ===== 2026-09-04, lane H =====
+ *       Residual UNCHANGED at 273.  Three new results, two of them useful.
+ *       (i) READ OFF THE ORIGINAL, and it reframes the whole thing: the
+ *       ELSE arm (DrawCursorSegmentB) is NOT merged in the original either.
+ *       0x0046020b and 0x00460223 are two full, separate case blocks with
+ *       the `lea eax,[esp+70h]` already hoisted above `push 2` / `push 1`
+ *       exactly as we emit them, and each has its own `call 0x45fad0 /
+ *       add esp,18h / jmp 0x460261`.  So the original's compiler merged
+ *       EXACTLY ONE pair in this function -- cases 1 and 2 of the FIRST arm
+ *       -- and left the structurally identical pair in the second arm alone.
+ *       That is the exact opposite of this build's "only the LAST switch
+ *       merges" rule, and it means the difference is not a threshold we can
+ *       satisfy by lengthening a suffix but a different choice of WHICH
+ *       candidate pair the pass takes.  Anything that makes our second arm
+ *       merge instead is therefore also wrong.
+ *       (ii) The shared-tail construct IS reachable from C, just not with
+ *       immediate pushes.  Writing the original's block shape literally --
+ *         case 1: kd = 1; goto a12;
+ *         case 2: kd = 2;  a12: DrawCursorSegmentA(&vs, kd, x, y, col, th);
+ *       -- does produce one merged block fed by two tiny arms, but `kd`
+ *       becomes a phi in a register, so the arms are `mov edx,2 / jmp` and
+ *       `mov edx,1` and the merged block starts at `movsx ebx,bx` with
+ *       `push edx` for the kind: 274 X, 1451 bytes, 391 real instructions.
+ *       VC6 does not sink the two constants back into `push imm`.  Both
+ *       label placements (label in case 1 or in case 2) are identical.
+ *       `if (kk == 0) {..} else if (kk == 1 || kk == 2) {..}` is 289.
+ *       (iii) For residual (a) the accumulate pair was swept exhaustively:
+ *       all SIX legal interleavings of {t.x = c->origin.x, t.y =
+ *       c->origin.y, t.x += x, t.y += y} plus both `t = c->origin;`
+ *       struct-copy forms.  Only three outcomes -- 273 (the committed order,
+ *       `t = c->origin` and `lylxayax`), 276 (`lxlyayax`, `lylxaxay`) and
+ *       397 + ESCAPES (either fully-sequential coordinate form).  The
+ *       3-cycle rename eax->edx->ecx at index 48 is untouched by statement
+ *       order, so it is an allocation-order fact about the block's first
+ *       temp, not a source-order one.
+ *
+ *       ===== 2026-09-04, lane M =====
+ *       Residual UNCHANGED at 273.  Two results, and the second one probably
+ *       CLOSES THE QUESTION.
+ *       (i) THE GOTO-FLIP LEVER DOES NOT REACH THIS FUNCTION.  Eleven
+ *       spellings of it in the repro (scratchpad/laneM/rc1.py): `goto endsw`
+ *       in all six cases, in the A arm only, in A case 0 / 1 / 2 alone, in A
+ *       cases 1+2, in the B arm only, and the flat `if (!(flags & 0x20)) goto
+ *       barm; ... goto endsw; barm: ... endsw:;` restructuring with and
+ *       without case gotos.  Every one is 140 insns / 387 bytes / 0 merge
+ *       sites -- byte-identical to the plain if/else.  Inside a switch a
+ *       `goto join` and a `break` are literally the same instruction, so no
+ *       asymmetry can arise from them; the sibling's lever needs a join the
+ *       switch does not already own.
+ *       (ii) THE CORPUS SAYS THE DEPTH-5 MERGE HAPPENS NOWHERE ELSE IN THE
+ *       BINARY.  scratchpad/laneM/xj.py / xj2.py / xj3.py scan every matched
+ *       body for the cross-jump signature (`push <imm>` immediately followed
+ *       by `jmp T` where the instruction before T is also a `push <imm>`) and
+ *       measure the SHARED SUFFIX DEPTH of each site (T to the host block's
+ *       terminating jmp/ret).  89 sites in 24 functions.  The histogram is
+ *           5:1  7:16  9:10  11:1  13:37  15:1  16:2  18:8  27:4  29:1
+ *           32:3  40:1  41:1  43:1  53:1  76:1
+ *       and the single depth-5 site IS 0x45ff00's own.  There is no depth-6
+ *       site either.  So the original's compiler performed, in this one place,
+ *       a merge two instructions shallower than anything it did in the other
+ *       88 sites of the program, and this build's floor of 6 (measured) is
+ *       already BELOW the corpus minimum of 7.  Treat residual (b) as a
+ *       build difference, not a spelling we have not found, unless someone
+ *       turns up a second depth-5 or depth-6 site.
+ *       (iii) Rule 1 of the model above is WRONG as stated and should be
+ *       read as "the host is the LAST block IN LAYOUT ORDER OF THE MERGED
+ *       GROUP", not "the predecessor the join falls through from".  The
+ *       witness is ridecb1.c `Restaurant1_Tick` 0x0042f1a0, matched: three
+ *       one-instruction case blocks `push 0 / jmp` , `push 1 / jmp`, `push 2`
+ *       falling into a NINE-instruction shared tail that itself ends `jmp
+ *       0x42f45a` -- the host is not the join's fall-through predecessor, and
+ *       two non-canonical predecessors merge into it.  (Its tail is long
+ *       because the varying argument is the callee's LAST parameter, hence
+ *       pushed FIRST; RenderCursor's `kind` is the SECOND parameter, which is
+ *       what caps our shared suffix at five.)  screens2.c `PrintExitCheckBox`
+ *       0x0048f2d0 is a second matched witness (if / else-if / else, depths 13
+ *       and 13).
+ *       (iv) Newly ruled out as the "sixth instruction that vanishes"
+ *       (scratchpad/laneM/rc2.py, all 140/387/0 in the repro): `goto n; n:`
+ *       inside each case, `goto` to a label after the if/else, an empty
+ *       `for` loop, `col = col;`, `flags = c->flags;`, `x = x + 0;`, a bare
+ *       `;`, `if (0) A(...);`, `(void)th;`.  What DOES trigger the merge is
+ *       anything that really lengthens the tail: `if (c->count < 0) return;`
+ *       (138/381/1) and -- the `add esp` split from the DECOMP lever --
+ *       making an argument a call result, `A(&vs,K,x,y,col,Th())` (132/361/1),
+ *       `Idn(th)` (136/373/1) or even `(VS*)Idn((int)&vs)` (139/380/1).  All
+ *       four are semantically wrong here; they only confirm the mechanism.
+ *       (v) For residual (a), newly ruled out 2026-09-04 (lane M; driver
+ *       scratchpad/laneM/pv.py, a whole-file patch-batch runner over
+ *       bigrender.c).  The note above left "t and tb in ONE aggregate (does
+ *       not compile as written -- redo it if you want it)" open: it is now
+ *       measured, with every `t.`/`tb.`/`&t`/`&tb` in the body rewritten.
+ *       Both member orders and an added pad member give X=367 with first
+ *       divergence 7 -- the aggregate goes to the TOP of the frame and re-lays
+ *       everything, exactly as the "DO NOT move t/tb into a block scope"
+ *       warning predicts.  Do not revisit it.  Also inert, all byte-identical
+ *       to the committed body (X=342 / first=48 on pv.py's whole-function
+ *       metric): commuting either `view.right`/`view.bottom` addition,
+ *       reading g_map directly instead of the `map` local in all four view
+ *       assignments, a `void*`/`const Pos*` prototype for GetTileBounds, an
+ *       `int` return on it, no prototype at all, TileSprite as a MACRO instead
+ *       of a static __inline, commuting TileSprite's index addition, and an
+ *       `unsigned int` parameter on it.  Reordering the four view assignments
+ *       does move things -- and breaks the prologue (first divergence 5 and 8,
+ *       X=359 and 355), so the prologue's statement order is already right.
+ *       temp1 is still ALWAYS eax.
+ *
  * LEVER already applied (worth 124 mismatches and the ESCAPES failure):
  * `t.x = c->origin.x; t.y = c->origin.y; t.x += x; t.y += y;` -- the
  * separate load-then-accumulate form.  Written `t.x = c->origin.x + x`,

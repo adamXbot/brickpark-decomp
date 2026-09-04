@@ -687,8 +687,47 @@ extern int ArcTan256(int x, int y);                            /* 0x004806e0 */
  * unknown: `RequestRoute` index 38 and `InsertChildIntoList` index 46 both
  * need an EXTRA register-to-register copy that VC6 coalesced away for us,
  * whereas here the copy exists in both bodies and only its SOURCE differs --
- * register in the original, memory for us.  Do not conflate them.) */
-// WIP-FUNCTION: LEGOLAND 0x00433840  (330/330 insns, 3 mismatches; the straight-run y `imul` operand order)
+ * register in the original, memory for us.  Do not conflate them.)
+ *
+ * ===================== RETIRED 2026-09-04 (lane H) =====================
+ * FORMALLY EXHAUSTED -- do not spend another round on index 275.  The facts
+ * that close it were all RE-MEASURED from scratch on today's toolchain before
+ * this paragraph was written, so none of it is a stale claim:
+ *   1. The residual is exactly 3, at 330/330 instructions and 1108/1108
+ *      BYTES.  The body is byte-exact everywhere else, so nothing but the
+ *      operand rank of this one `imul` is left to find.
+ *   2. Both source orders of the y product (`j * g_jc_step[i].dy` and
+ *      `g_jc_step[i].dy * j`) are BYTE-IDENTICAL, as are `(j + 0) * dy`,
+ *      `(long)j * dy` and an `(int)` cast on the table operand.  Source order
+ *      is not a lever and every zero-cost identity is folded before the
+ *      ranking pass runs.
+ *   3. `(short)j` reaches ONE mismatch -- `movsx ecx, di` where the original
+ *      has `mov ecx, edi` -- at 1109 bytes.  That is simultaneously the proof
+ *      of the mechanism and of its price: a cast is what promotes `j` from a
+ *      register-candidate symbol (rank 3) to a compiler TEMPORARY (rank 1)
+ *      and so folds the table into the imul, and every construct that manages
+ *      it leaves its own instruction or its own byte behind.  NOT committed:
+ *      it trades the exact byte length for a cosmetic 3 -> 1 and `movsx
+ *      ecx,di` is certainly not what the original emitted.  (It is however
+ *      semantically identical for 0 <= j < 0x50, so it is available if a
+ *      future rule ever makes 1-mismatch/1-byte-over preferable.)
+ *   4. `*(volatile int*)&j` as the multiplier does force a fresh temporary
+ *      but spills the whole loop: 247 mismatches, 1135 bytes.
+ *   5. The corpus scan (scratchpad/endgame/scan_imul.py) found exactly ONE
+ *      `mov r,reg / imul r,[mem]` in the 1541 audit-exact bodies, and its
+ *      register operand is a value LOADED FROM MEMORY for an earlier product
+ *      -- a rank-1 temporary by construction.  Ours is an enregistered
+ *      induction variable, rank 3 at every site, and all 16 commutations of
+ *      this function's four product pairs are byte-identical, so the
+ *      textual-CSE link that closed SoftPrint_XBltFast cannot transfer.
+ * CONCLUSION: reproducing `mov ecx,edi / imul ecx,[g_jc_step+i*8+4]` needs a
+ * C expression that turns an enregistered IV into a rank-1 temporary at zero
+ * instruction and zero byte cost.  No such expression exists in VC6 SP3's IR:
+ * anything that creates a temporary creates a tuple that emits code, and
+ * anything that emits no code is folded before the ranking runs.  Behaviour,
+ * the frame, the wobble tables and 327 of 330 instructions are exact; treat
+ * the remaining 3 as unreachable, as with `UpdateControllerFromMouseData`. */
+// WIP-FUNCTION: LEGOLAND 0x00433840  (330/330 insns, 3 mismatches, 1108/1108 bytes; RETIRED 2026-09-04 -- the straight-run y `imul` operand order needs a rank-1 temporary from an enregistered IV, which no zero-cost C expression produces; see the RETIRED block above)
 void JcBoat_Animate(JcBoat* b, int from, int to)
 {
     JcCurve* c = 0;

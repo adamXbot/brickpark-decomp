@@ -831,7 +831,55 @@ extern unsigned char g_jc_river_tiles[16][25];               /* 0x004b72e4 */
  * There is no matched twin to copy from: the boating school's equivalent,
  * BsWater_SetTile (0x0041c4c0), has not been decompiled yet.
  * `cx` must stay a derived counter (`cx = x + j - 2`) so VC6 rewrites the
- * inner guard as `(2 - x) + cx < 5`; that part is exact. */
+ * inner guard as `(2 - x) + cx < 5`; that part is exact.
+
+ *
+ * 2026-09-04 (lane D).  NO CHANGE -- still 27 -- but the residual is now
+ * localised exactly and the MECHANISM is identified.
+ *
+ * REGISTER-BLIND THE BODY IS THREE MOVED INSTRUCTIONS, nothing else:
+ *   (i)   `mov byte ptr [esp+0x1b], bl` -- the key's y byte -- belongs before
+ *         the JcWater_FindAt call and we emit it after;
+ *   (ii)  `mov esi,[esp+0x24]` and (iii) `mov ecx,[esp+0x1c]` sit one slot
+ *         apart in the outer-loop preheader.
+ * All 27 strict mismatches are the ebx<->ebp and ecx<->edx renamings that
+ * follow.  (Register-blind aligned distance 6, shape-blind 4.)
+ *
+ * THE MECHANISM.  In the original `y` is a REGISTER VARIABLE in ebx and the
+ * row cursor `y + i - 2` is COALESCED onto it (`lea ebx,[ebx+eax-2]`), with
+ * ebx rematerialised from the parameter home only on the loop's BACK edge --
+ * which is why the original's first entry jumps past TWO instructions
+ * (`jmp 0xa7` skips both `mov ebx,[esp+0x20]` and `mov esi,[esp+0x24]`).
+ * Ours gives ebx to the table cursor `t` and then has no callee-saved
+ * register left for `y`, so `y` is reloaded into a scratch and the row cursor
+ * takes ebp.  The decision is visible at index 43: the original leaves the
+ * `mask * 5` intermediate in eax (`lea eax,[eax+eax*4]`) and materialises `t`
+ * in ebp only at index 47, AFTER the constant-zero's last use at 44 frees
+ * ebp; ours commits ebx at 43 and coalesces both `lea`s into it.
+ *
+ * RULED OUT THIS PASS (re-measured, current baseline 27 / rb 6 / shape 4):
+ *   - the pointer TYPE of `t`: `const char*`, `char*`, `signed char*`,
+ *     `unsigned char*` are all BYTE-IDENTICAL.  The "type, not spelling, is
+ *     what the allocator ranks" lever does not reach a pointer-vs-int
+ *     tie-break.
+ *   - `t++` moved from the for-increment into the body: 30 (+3), confirming
+ *     the recorded increment-placement lever.
+ *   - the {t, i=0, g_bg_full_update} order x key-store-position cross product
+ *     re-run in full: the shape in the file is the unique best.  EVERY
+ *     key-store-before-the-call variant lands on 67-68 because `y` then has
+ *     no use spanning the call, goes to ecx, and `push ebx` is deferred into
+ *     the merge block -- a split prologue the original does not have.  Note
+ *     this means the FIRST diverging instruction is the one the original's
+ *     shape demands and our best score forbids; it is kept at 27 only
+ *     because audit.py counts strict mismatches.
+ *   - `w->links` before `w->pos` (31); `t` before the owner copy (28, and one
+ *     byte short); `g_bg_full_update` before the owner copy (36); `i = 0`
+ *     before t/g (64); `t` in the outer for-init (64).
+ *   - a named `cy = y + i - 2` in the outer loop body: 114, frame 0xc,
+ *     ESCAPES -- worse than the old note recorded, re-confirmed.
+ *   - the inner loop written as a `while` with an explicit `j++; t++;` tail:
+ *     byte-identical.
+ */
 // WIP-FUNCTION: LEGOLAND 0x00436dc0  (116/116 insns, 367/367B, 27 by audit; ebx<->ebp tie-break + one store position)
 void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
 {
@@ -1259,23 +1307,78 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * ox/oy MUST be computed before the call, so their definitions necessarily
  * precede bp's; the original's ascending order therefore cannot come from
  * statement order.
- * ONE MEASURED, STRUCTURALLY TRUER ALTERNATIVE, deliberately NOT adopted:
- * writing the two bloke-position statements `bp.x` FIRST (the order the
- * original EMITS them in -- `mov [esp+0x44],ecx` at 0x1c7 before
- * `mov [esp+0x4c],edx` at 0x1dc) gives 112 strict but register-blind 66 and
- * shape-blind 68, against 111/80/78 for the `bp.y`-first order in the file.
- * With `bp.x` first the whole bloke block has the original's shape and only
- * the addend order and an ecx<->edx naming differ.  It is left as `bp.y`
- * first ONLY because the strict count the gate reports is one lower; a lane
- * that closes the addend order should switch it back first.
+ * THE bp.x-FIRST BLOKE ORDER IS NOW ADOPTED (2026-09-04, lane D).  The
+ * original EMITS the two bloke-position stores `bp.x` first
+ * (`mov [esp+0x44],ecx` at 0x1c7 before `mov [esp+0x4c],edx` at 0x1dc), and
+ * writing them that way costs ONE strict mismatch (111 -> 112) while
+ * improving every structural measure: register-blind 80 -> 66, shape-blind
+ * 78 -> 68, and the LCS-aligned register+offset-blind region total 52 -> 44
+ * of 422.  The earlier note kept `bp.y` first only because the strict index
+ * count was one lower; that count is known to mislead once a block is
+ * displaced, so the structurally true order is now in the file and the
+ * marker records 112.
  * Also re-measured and inert on the current baseline: `scr.x` instead of the
  * `int sx` local (byte-identical, so the frame does not depend on it); a
  * `void* spr` + `int px, py` local trio for both overlay PrintSprite calls;
  * folding `& 0xff` into each arm's `code`; and laying the `i == 0` overlay
  * arm out of line with an explicit goto, either after the for loop (which is
  * where the original puts loop A's copy, 0x391) or inside it (both 114) --
- * VC6 canonicalises the CFG and picks its own block order. */
-// WIP-FUNCTION: LEGOLAND 0x00432d00  (422/422 insns, 1457/1466B, 111 by audit; the ox/oy addend order and two PrintSprite scheduling clusters)
+ * VC6 canonicalises the CFG and picks its own block order.
+
+ * 2026-09-04 (lane D, the addition-order lane).  112 strict / 44 structural
+ * (was 111 strict / 52 structural).  The cross-lane destination rule was
+ * TIGHTENED here and on OctopusCafe_Tick (0x004316f0, closed to 0 this
+ * round), and the tightened form says this residual is NOT a destination
+ * problem at all.
+ *
+ * THE RULE, RESTATED.  For a commutative `+` chain VC6 does not fold an
+ * inline MEMORY REFERENCE into the `add`; it LOADS it into the add's
+ * DESTINATION register (the same rank-2 rule already recorded for `imul`).
+ * That is why `g_map->origin_x` is the destination here -- in OUR build and
+ * in the original alike, `mov cx,[edx+0x20]` then three `add`s into ecx.
+ * The remaining addends are then sorted, and THAT is the whole residual:
+ *     ours     ecx += bp.x ; += sx ; += ox     (descending definition order:
+ *              bp.x is defined last, then sx, then ox)
+ *     original ecx += ox   ; += bp.x ; += sx   (source order)
+ * Both bloke sums differ the same way (`add ecx,edi` then `add ecx,ebx` here,
+ * `add ecx,ebx` then `add ecx,edi` there).  Nothing measured moves the
+ * sort while staying in the flat attractor.
+ *
+ * RULED OUT THIS PASS (all re-measured on the current baseline; strict /
+ * register-blind / offset-blind, baseline 111/80/102):
+ *   - volatile READS of ox and oy at the screen sums (358), at the bloke
+ *     sums (359), at both (361) -- a volatile read makes the value's
+ *     definition point the use site, which by the descending-order rule
+ *     should put it FIRST; it does, and destroys everything else.
+ *   - inlining the ox/oy expressions at the screen sums (364, ESCAPES), at
+ *     the bloke sums (365, ESCAPES), at both (373, ESCAPES).
+ *   - a volatile read of sx / scr.y at the screen sums (334).
+ *   - `int oa[2]` and `unsigned int oa[2]` array locals for ox/oy: BYTE-
+ *     IDENTICAL to the flat baseline.  The array-local trick that defeats
+ *     forward substitution on OctopusCafe_Tick's chair offsets is completely
+ *     inert here, because ox/oy already survive as symbols.
+ *   - `(unsigned)` casts on ox/oy (inert); reading bp.x/bp.y into `int`
+ *     temps before the sums, plain and with the temp written first (inert).
+ *   - storing b->sy before b->sx (117); that plus bp.x-first (118).
+ *   - moving the ox/oy assignments after sx/scr.y in the head (367, ESCAPES).
+ *   - the partial-sum aggregate applied to ONE sum at a time -- b->sx only
+ *     308, b->sy only 114, both screen sums 306, both bloke sums 117, all
+ *     four 305.  This closes the two-attractor question: ANY aggregate on a
+ *     screen sum jumps to the 30x attractor, and an aggregate on the bloke
+ *     sums alone stays flat but still scores worse.  There is no partial
+ *     application that keeps the flat allocation and buys the order.
+ * WORTH KNOWING: a volatile READ of b->sx in the hull PrintSprite call keeps
+ * strict at 111 but improves register-blind 80 -> 76 and shape-blind 78 ->
+ * 74, which localises the second half of cluster (a) as a SCHEDULE problem
+ * (the b->sx reload) rather than an allocation one.  Combined with the
+ * bp.x-first bloke order it gives 112 strict but 62/64 -- the best
+ * structural score any variant has reached.  Neither is committed because
+ * audit.py counts strict.
+ * FRAME/SIZE: ours is 1457 bytes against 1466 with equal instruction counts;
+ * an index-for-index size compare shows the deficit is entirely inside the
+ * two mismatching clusters, not a systematic encoding difference.
+ */
+// WIP-FUNCTION: LEGOLAND 0x00432d00  (422/422 insns, 1457/1466B, 112 by audit / 44 structural; the ox/oy addend order and two PrintSprite scheduling clusters)
 void JungleCruise_UpdateRiverAnim(int mode)
 {
     Pos     scr;
@@ -1336,8 +1439,8 @@ draw:
             PrintSprite(g_jc_boat_ilf->sprites[b->frame[g_jc_anim_tick] & 0xff],
                         b->sx, b->sy, 0, 0);
 
-            bp.y = g_map->origin_y + oy + scr.y;
             bp.x = g_map->origin_x + ox + sx;
+            bp.y = g_map->origin_y + oy + scr.y;
             AdjustBlokePosition(&bp);
 
             if (b->frame[g_jc_anim_tick] >= 4 && b->frame[g_jc_anim_tick] < 0xc) {

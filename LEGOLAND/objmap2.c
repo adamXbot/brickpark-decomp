@@ -1318,7 +1318,61 @@ static __inline int UidHit(Cell* c, ObjDef* def, int x, int y)
  *       hoist.
  *   In all three the map pointer is ONE value whose live range the allocator
  *   splits, and the reload lands on the EDGE, never at the use.  Ours emits
- *   three loads at first use in each region instead. */
+ *   three loads at first use in each region instead.
+ *
+ * 2026-09-04 PASS 6 (fourth lane).  Committed body unchanged at 20, but the
+ * residual is now bounded at FOUR and the colouring is PROVED reachable.
+ *   THE FIND: a volatile READ of `g_map_rows` -- not of `g_map` -- inside a
+ *   horizontal-only copy of the probe helper takes this function from 20 to
+ *   FOUR mismatches, 191/191 instructions, 477/477 bytes:
+ *       static __inline Cell* CellH(int y, int x)
+ *       {
+ *           Cell** rows;
+ *           if (x >= 0 && x < g_map->width && y >= 0 && y < g_map->height) {
+ *               rows = *(Cell** volatile*)&g_map_rows;
+ *               return &rows[y][x];
+ *           }
+ *           return 0;
+ *       }
+ *   with the two horizontal probes calling CellH and the two vertical ones
+ *   still calling CellYX.  Both landing pads appear at the probe ENTRY and
+ *   BOTH probe regions get the original's registers -- g_map in esi, the
+ *   width/height zero-extend scratch in edx -- so indices 0..108 and 112..190
+ *   are exact.  The whole remaining residual is the pair 110/111 in each
+ *   horizontal probe: the original interleaves `lea ecx,[ecx+ecx*4]` between
+ *   `mov edx,[g_map_rows]` and `mov edx,[edx+edi*4]`, and the volatile stops
+ *   the scheduler moving the lea across it, so we emit the two dependent
+ *   loads back to back.  That cost is the recorded volatile cost, sharpened
+ *   this round by a sibling lane: a volatile-qualified ACCESS is at once a
+ *   forced memory reference AND a SCHEDULING BARRIER that nothing crosses,
+ *   and the two are the same switch -- so "pin the load's position but let
+ *   the scheduler still lift the independent `lea` past it" is not reachable
+ *   from C at all.  (A volatile DECLARATION is inert in VC6 SP3; only the
+ *   access matters.)  The last FOUR are therefore a hard floor for any
+ *   volatile shim, not something more placements will close: they are an
+ *   artefact of the shim, not of the source.  NOT COMMITTED: `g_map_rows` is an ordinary global everywhere
+ *   else in the reconstruction and the original cannot have declared this one
+ *   read volatile.  Variant: scratchpad/laneF/uid_A1_stmt_in_guard.c
+ *   (sweeps: scratchpad/laneF/uid1..uid9.py).
+ *   WHAT THIS SETTLES: the esi/edx swap is NOT a liveness problem in the
+ *   probes themselves and NOT a property of the guard's shape -- it is
+ *   decided by whether the ROW-TABLE load in the same region is movable.
+ *   Nine different spellings of the horizontal guard (four separate early
+ *   returns, fully nested ifs, `w`/`h` int or `unsigned short` locals, an
+ *   (x, y) parameter order, a `Cell** rows` local read before the guard, the
+ *   negated `||` form, `(int)` casts on width/height, a separate `Cell* c2`
+ *   for the two horizontal probes) are ALL BYTE-IDENTICAL to this body, and
+ *   so are the non-volatile ways of writing the row access (`rows = g_map_rows`
+ *   inside the guard, `Cell* row = g_map_rows[y]`, `Cell*** pr = &g_map_rows`,
+ *   `(char*)g_map_rows[y] + x*20`, `*(Cell**)((char*)g_map_rows + y*4) + x`).
+ *   Also re-measured on this baseline: one shared `Map* m` for all four
+ *   probes hoists ONE load into the entry block (index 6, esi) and leaves the
+ *   horizontals reloading into edx exactly as here (28) -- so VC6 colours
+ *   every rematerialisation of the map pointer independently, which is why
+ *   no pointer-variable grouping can work; a volatile map pin on ONE
+ *   horizontal probe is 17, on both 20 with register-blind distance ZERO, and
+ *   a single shared volatile map pin is 75/471B.  Volatile reads of
+ *   `m->width`/`m->height` cost 8-16 bytes and do not swap the pair. */
 // WIP-FUNCTION: LEGOLAND 0x0048a3e0  (89.5%, left/right probes reload g_map at its use into edx, the original at the probe entry into esi)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {

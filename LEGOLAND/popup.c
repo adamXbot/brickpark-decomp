@@ -880,6 +880,67 @@ extern char* strcat(char*, const char*);
  *   - wrapping either or both PrintCachedText calls in a `static __inline`
  *     forwarder so its arguments become temporaries (360-567).
  *
+ * PASS N+1 (2026-09-04, laneB).  Still 13; the residual and the first
+ * diverging index are unchanged (590).  What this pass settled:
+ *
+ *   THE TWO SHIMS BRACKET THE ANSWER, and neither can be the original.
+ *   A volatile STORE at the def -- `*(volatile int*)&halfw = w / 2;` with
+ *   ORDINARY reads at both uses -- scores 16 and fixes BOTH things the note
+ *   above asked for: the reload is hoisted to the top of the block (our index
+ *   590 is `mov ecx,[esp+0x40]`, matching) and the `ty + 0x22` spill moves to
+ *   AFTER all five pushes (index 603, matching).  What it breaks instead is
+ *   the pair of constant pushes that precede the block: a volatile store is a
+ *   memory barrier, and VC6 will not schedule a `push` (a stack WRITE) above
+ *   one, so `push 0xffffff` / `push 0xff0000` sink below the spill (original
+ *   0x779 / 0x786, i.e. BEFORE it) and `push 0x11` / `push 2` then land one
+ *   slot late each.  The original's spill sits between those pushes and the
+ *   rest of the block, so NO volatile store can reproduce it -- just as no
+ *   volatile load can be hoisted.  13 (barrier on the load) and 16 (barrier
+ *   on the store) are the two sides of the same wall.
+ *
+ *   NEW LEVER -- a `volatile` DECLARATION is INERT in VC6.  `volatile int
+ *   halfw;` with every access written `*(int*)&halfw` compiles BYTE-FOR-BYTE
+ *   to the plain-`int` object (422 mismatches, frame 0x444 instead of 0x434).
+ *   Only a volatile-QUALIFIED ACCESS forces a memory reference.  So the 73
+ *   an earlier pass recorded for `volatile int halfw` was the price of the
+ *   accesses that declaration implies, not of the declaration.
+ *
+ *   NEW LEVER -- VC6 UN-ESCAPES every cheap address-take.  Each of these
+ *   leaves halfw fully enregistered and produces the plain object exactly
+ *   (422, frame 0x444): `(void)&halfw;`; an unused `int* hwp = &halfw;`;
+ *   reading `*hwp` at one or both uses (hwp is propagated and the escape
+ *   removed); a one-element array `int halfw[1]` with `halfw[0]` everywhere;
+ *   `union { int i; unsigned u; }`; a call to an empty
+ *   `static __inline void EscInt(const int*)`; and
+ *   `static __inline int RdInt(const int* p) { return *p; }` at one or both
+ *   uses.  Combined with the previous paragraph: in VC6 there is no way to
+ *   ask for "memory-resident with ordinary accesses" -- residency and the
+ *   scheduling barrier are the same switch.
+ *
+ *   Also measured and ruled out this pass: volatile read at use 2 only (416 --
+ *   confirms the old figure) and at both uses (21); volatile store plus a
+ *   volatile read at use 1 (23), at use 2 (24), at both (31); a volatile
+ *   store on `ty` (573) or on `w` (536), or on halfw and ty together (419);
+ *   moving the volatile store after the `ty` statement (527).
+ *
+ *   STATEMENT ORDER IN THE 0x306 BLOCK IS INERT.  All 41 dependency-legal
+ *   permutations of {box.top, box.bottom, w, halfw, ty} score exactly 13 with
+ *   the read shim and exactly 16 with the store shim -- the optimiser
+ *   normalises them.  So is scope and naming: declaring halfw/ty/w inside the
+ *   `if (g_popup.kind == 0x306)` block, giving the later icon-x web its own
+ *   local (halfw is reused there), and naming `ty + 0x22` all leave the
+ *   object unchanged at 13.
+ *
+ *   THE RenderThickBox LEVER DOES NOT TRANSFER.  gpu.c 0x00489390 gets its
+ *   spill-at-a-call-site / reload-at-the-top-of-the-next-block by spelling
+ *   the CSE (`h - 2*t`) inline at both call sites.  Spelling `w / 2` inline
+ *   in both PrintCachedText argument lists with no named local scores 53 --
+ *   better than every other non-shim spelling and, uniquely, it gets the
+ *   FRAME right (0x434, where plain `halfw` gives 0x444) -- but VC6 then
+ *   keeps w/2 in ecx across the block, the spill-home pool loses a slot and
+ *   ~20 frame offsets permute over the rest of the function.
+ *   `(box.right - box.left) / 2` inline at both sites is 386.
+ *
  * Still true from earlier passes: the two ride cases share one tail (VC6
  * cross-jumps case 0x10c into case 0x10b at the `call GetString`); `top` is
  * computed before `right` in the icon section, which removes a reload of
@@ -889,7 +950,7 @@ extern char* strcat(char*, const char*);
  * does an empty `default:`.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3141/3141 bytes, mismatch=886->705->398->60->53->13 by audit.py; exact except indices 590..603, the first kind-0x306 PrintCachedText argument block -- the volatile shim that spills halfw at its def cannot be hoisted, so its reload sits at the push instead of at the top of the block; first diff at index 590)
+// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3141/3141 bytes, mismatch=886->705->398->60->53->13 by audit.py; exact except indices 590..603, the first kind-0x306 PrintCachedText argument block -- halfw must be memory-resident with ORDINARY accesses, and in VC6 memory residency and a scheduling barrier are the same switch: a volatile READ pins the reload at the push (13), a volatile STORE pins the two constant pushes below the spill (16); first diff at index 590)
 void DrawPopUpInfo(void)
 {
     char    name[256] = {0};

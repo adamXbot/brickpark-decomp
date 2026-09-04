@@ -404,145 +404,197 @@ static __inline void EmitObjectSprite(SpriteDesc* desc, Pos at, int key,
 }
 
 /* RenderView -- 903/903 instructions, 2893B vs 2880B, no ESCAPES,
- * audit.py mismatch = 478 (425 of 903 index-for-index identical, 47.1%).
- * Was 633 at the start of this round; the whole gain came from ONE class of
- * lever, described below, and the function is now structurally very close.
+ * audit.py mismatch = 381.  It was 633 two rounds ago, 478 at the start of
+ * THIS round, and every step of 478 -> 381 came from four source-shape
+ * changes that are argued from the disassembly rather than found by search.
+ * Register/offset-blind LCS is now 846 of 903 (was 791) and mnemonic LCS 858
+ * (was 812), so the instruction SEQUENCE is 94% right; what is left is
+ * 57 structurally-displaced slots plus the frame-slot permutation.
  *
- * WHAT IS NOW EXACT (do not disturb it):
- *  - indices 0..63 are IDENTICAL, byte for byte: the __chkstk prologue with
- *    frame 0x2f90 (was 0x2f8c), the SPLIT prologue (`push esi` / `push edi`
- *    at 5/7, `push ebx` / `push ebp` sunk to 58/60 in the block that calls
- *    SetClipping), the four `view` fills, count/cls, the two global flags,
- *    GetClipping / RenderGroundLayer / PrintBackground and the whole
- *    g_edit_state cursor gate;
- *  - the ODF pre-render walk (352..366): `cls` now lives in esi across the
- *    walk instead of being reloaded from its frame home each iteration;
- *  - the object-queue head (375..391): TWO short-lived zeros rematerialised
- *    inside the loop (`xor edx,edx` / `xor ecx,ecx`) exactly as the original,
- *    instead of one function-wide zero register hoisted above the walk;
- *  - the gather loop's two collect sites (248..254 / 322..328): `count` is
- *    read-modify-written in its frame slot and the array store goes through
- *    the strength-reduced `edi` put pointer, `lea edi,[esp+ecx*4+0xc0]` at
- *    194 with the SAME displacement 0xc0 as the original;
- *  - the whole tail from 862 to the `ret` at 902: `mov edi,[count]` AFTER
- *    the three RenderPeople/RenderWorkers/DrawAndClearPrintList calls,
- *    `pop ebp` / `pop ebx` interleaved into the count test, `test`-against-
- *    self instead of `cmp reg,zeroreg`, `dec edi`, and `pop edi` / `pop esi`
- *    interleaved into the g_show_cursor test.  The function-wide zero
- *    register that used to pin ebx past DrawAndClearPrintList is gone.
+ * ===========================================================================
+ * WHAT CHANGED THIS ROUND (all four are structural, not score-chasing)
+ * ===========================================================================
+ * 1. THE HALFOFFSET SITES ARE FOUR-TEMP, NOT INLINE EXPRESSIONS.  All three
+ *    sprite-offset sites read as
+ *        gx = <dx expr>;  gy = <dy expr>;
+ *        hx = HalfOffset(gx);  hy = HalfOffset(gy);
+ *        at.x = tb.left + hx;  at.y = tb.top + hy;
+ *    and NOT `at.x = tb.left + HalfOffset(<dx expr>);`.  The proof is in the
+ *    original at 668..673: it loads BOTH desc->dx and desc->dy into registers
+ *    and computes BOTH sums before touching either sign test, so the flags of
+ *    the first `add` are dead by the time the first branch is reached and the
+ *    original must spell `test eax,eax` / `jge` where the fused form gives a
+ *    bare `jns`.  Writing both sums first buys those two instructions back;
+ *    halving into temps before the tb.left/tb.top adds buys the original's
+ *    "half, half, add, add, store, store" order.  Indices 668..702 (the
+ *    build-animation arm) are now instruction-for-instruction identical to
+ *    the original, and the emit window went from 34 structurally-wrong slots
+ *    to 6.  The old note's "two-temp spellings cost 31 elsewhere" was
+ *    measured on the two-temp (raw dx/dy) form, which is NOT the right shape:
+ *    both the sums AND the halves need temps.
  *
- * THE LEVER THAT DID IT: the ORDER OF THE INDEPENDENT STATEMENTS in the
- * tile-geometry block.  Not their spelling -- their order.  VC6 assigns the
- * callee-saved registers in the order the values are created, and the
- * assignment it makes for `sx` vs `tw` at index 64/73 propagates through
- * every later block: it decides which of the two idiv pairs gets a register
- * divisor, which of `count`/`px` keeps ebx in the gather loop, whether the
- * ODF walk gets a register for `cls`, and whether the tail needs a zero
- * register at all.  With `sx` in ebp and `tw` in ebx (the original's choice)
- * everything downstream falls out; with them swapped nothing does.
+ * 2. THE SWITCH CASE ORDER IS 1, 2, 3, 4 -- the natural one.  The previous
+ *    round used 1, 3, 2, 4 because it scored 3 better on the strict count.
+ *    It is wrong: the original's arms at 115..161 are, in address order,
+ *    case 1 (`hw - 2*ry`), case 2 (`hw + 2*ry`), case 3 (`hw + 2*(ry-th)`),
+ *    case 4 (`hw + 2*(th-ry)`), and switch arms are emitted in SOURCE order.
+ *    Restoring 1,2,3,4 removes an 11-instruction displacement (the old file
+ *    had orig[128:139] missing and ours[147:158] extra) and drops the
+ *    geometry window from 41 structurally-wrong slots to 30.  Case 3 ends in
+ *    `jmp` into case 4's last two instructions (`mov [rx],edx` / `sub esi,edi`)
+ *    -- the identical-suffix merge, which only lines up when 3 and 4 are
+ *    adjacent in source.
  *
- * The order that produces it -- found bya search over topological orders of the
- * block's dependence graph (16 statements, ~4000 legal orders; a random
- * sample of 1500 plus hill-climbing and simulated annealing, ~4000 compiles
- * in total, tooling in scratchpad/renderview/w/) -- is the one in the body
- * below:  sh, th, ylimit, sw, hh, sy, tw, xlimit, qy, ry, sx, hw, qx, rx,
- * tile.x, tile.y.  Note that `ylimit` and `xlimit` are pulled UP into the
- * middle of the block; leaving them after the quadrant switch (where a
- * reading of the disassembly would put them, since the original emits them
- * at 162..172) costs 162 mismatches -- VC6 schedules them back down on its
- * own, and having them in the block changes the register order for the
- * better.  Measured: best-with-them-inside 478, best-with-them-outside 640.
+ * 3. `mode = 0xff00;` IS THE FIRST STATEMENT OF THE `else` ARM, not the last.
+ *    THIS IS THE BIG ONE: it alone took the file from 502 to 386.  Moving a
+ *    dead-simple constant assignment to the TOP of the block changes which
+ *    registers at.x / at.y are computed into: with it last, VC6 lands them in
+ *    edx/eax (caller-saved), the values do not survive the
+ *    GetBuildAnimFrame / SetOverrideFrame calls in the sibling arm, and the
+ *    single-sprite emit has to RELOAD them from the frame -- three extra
+ *    instructions that shifted the whole tail (indices 800..903) by three and
+ *    cost 73 strict mismatches on their own.  With it first they land in
+ *    esi/ebx exactly as the original, both arms end with the same
+ *    `mov ecx,[ebp]` / `push ecx` / `call` / `add esp,0x18` suffix, VC6's
+ *    cross-jump merges all four, and the tail realigns to zero structural
+ *    error.  GENERAL RULE, worth trying anywhere a block ends with a
+ *    constant store: the PLACEMENT of a constant assignment inside a block
+ *    decides the callee-saved-vs-caller-saved split for the values computed
+ *    beside it, because VC6 allocates in creation order and the constant
+ *    takes a register the moment it is created.
  *
- * Three smaller levers of the same family, all measured:
- *   - the SWITCH CASE ORDER of the quadrant nudge: `1, 3, 2, 4` beats the
- *     natural `1, 2, 3, 4` by 3 (VC6 lays the arms out in case order);
- *   - `key2 = ...;` before `bright = corner.right;` (6);
- *   - the field-fill order of the two BlitCtx tokens (5), and the
- *     `c->top / c->left / c->bottom / c->right` order of the second depth
- *     strip (1), and `count = 0;` before `cls = g_odf_head;` (2), and
- *     `g_sort_keys[..] = key2;` before `c = &g_sort_clips[..];` (6).
+ * 4. `mode = desc->mode;` is likewise the FIRST statement of both BlitCtx
+ *    arms (mode, obj, kind, base), matching the original's 765..774 and
+ *    658..666.  Worth 3.
  *
- * THE FRAME.  The original's frame is 0x2f90 and ours was 0x2f8c: one
- * 4-byte slot short.  The missing slot is `key2`'s: the original gives it a
- * home of its own between `corner` and `sd`, and VC6 colour-shares ours with
- * a gather-loop slot because its live range is short.  Aggregate PINNING
- * fixes it -- putting `key2` in a struct beside ANY local whose live range
- * does not overlap it forces both to distinct homes.  Pinning it with a
- * local that DOES overlap (aleft, bright, key1) does nothing, which is the
- * test that identifies the mechanism.  `rowx` measured best (503 vs 511 for
- * `key`); see the comment on the `pin` struct in the body.
+ * ===========================================================================
+ * THE FRAME.  Size is right (0x2f90); BOTH SIDES USE EXACTLY THE SAME 40
+ * SLOTS; only the lowest 13 are permuted, and the permutation is ONE MOVE.
+ * ===========================================================================
+ * Measured with scratchpad/laneG/fm.py (control-flow-aware esp simulation
+ * from the entry, so pushes inside call-argument runs are accounted for;
+ * slot = the [esp+N] operand plus the push depth at that instruction).
+ * Every slot from +0x034 up agrees in address, reference count and
+ * first-reference index, to within a couple of instructions:
+ *     +0x034 view(16)  +0x044 cls  +0x048 corner(16)  +0x058 bright
+ *     +0x05c key2  +0x060 sd(16)  +0x078/+0x88/+0x94 ctx tokens
+ *     +0x0a0 saved(16)  +0x0b0 visible[3000]  (0xb0 + 0x2ee0 = 0x2f90 exactly)
+ * The low block:
+ *     ORIG  th | rx | tile.x tile.y | tw | count | qx/rowx | xlimit |
+ *           ylimit&at.x | at.y | py | rowy | ...
+ *     OURS  rx | tile.x tile.y | th | tw | count | ylimit | xlimit |
+ *           qx/rowy | py | 2*tw | at.x | at.y
+ * i.e. ours is the original's list with `th` moved from the bottom to fourth,
+ * plus ONE EXTRA spilled temp: our `tw + tw` is CSE'd between `xlimit` and the
+ * column-loop `px` initialiser and gets a home of its own at +0x028, while
+ * the original recomputes `add ecx,ecx` at both sites (169 and 185) and never
+ * spills it.  Breaking that CSE by hand does not work -- `view.right+tw+tw`,
+ * `tw+(tw+view.right)` and `view.left-tw-tw-rx` all compile to the identical
+ * object; VC6 canonicalises the sum before CSE.
+ * The two frame differences cost 56 of the 381 on their own: index-for-index
+ * mismatch is 381 strict, 326 with every [esp+N] collapsed, 310 with every
+ * register collapsed, 234 with both, and 190 on mnemonics alone.
  *
- * FIRST DIVERGING INDEX: 64.
- *      orig  mov ebp,[g_scroll_x] / sar ebp,8 / mov ecx,[g_tile_sprites+eax*4]
- *            / mov esi,[g_scroll_y] / add esp,4
- *      ours  mov edx,[g_map] / mov ebp,[g_scroll_x] / add esp,4
- *            / mov ecx,[g_tile_sprites+eax*4] / sar ebp,8
- * i.e. the same instructions in a different SCHEDULE, because our `ylimit`
- * needs `g_map->view_h` here and the original's does not yet.  Registers are
- * already right (ebp = sx).  This is scheduling noise, not allocation.
+ * FIRST DIVERGING INDEX: 67.  Indices 0..66 are byte-identical (the __chkstk
+ * prologue, the SPLIT prologue with `push esi`/`push edi` at 5/7 and
+ * `push ebx`/`push ebp` sunk to 58/60, the four `view` fills, count/cls, the
+ * two global flags, GetClipping / RenderGroundLayer / PrintBackground, the
+ * whole g_edit_state cursor gate and SetClipping).
+ *      orig  67 mov esi,[g_scroll_y] / 68 add esp,4 / 69 mov ax,[ecx+0x16]
+ *      ours  67 add esp,4 / 68 mov ax,[ecx+0x16] / 69 mov ecx,[g_scroll_y]
+ * -- the same instructions, one slot apart in the schedule.
  *
- * WHAT IS LEFT, measured on a register/offset-NORMALISED diff (296 of 903
- * slots differ; the streams are the same instructions in the same order
- * except in these runs):
- *   98..131   the quadrant switch.  The original computes the switch arms
- *             with `th` still in a register and folds `(th+1)>>1` into the
- *             gap between the two idiv pairs; ours reloads.  Permuting the
- *             four case bodies and the two guard forms did not close it.
- *   159..172  the ylimit/xlimit stores land in different frame slots
- *             (ours 0x48/0x24, the original 0x20/0x1c) -- see below.
- *   408..451  the two footprint-corner GetTileBounds calls: same
- *             instructions, different scheduling of the stores of key1 /
- *             aleft / key2 / bright.
- *   669..786  the sprite-emit block.  The ORIGINAL loads BOTH desc->dx and
- *             desc->dy into registers before halving either, then does the
- *             two `test/jge/neg/sar/neg/jmp/sar` sequences back to back and
- *             only then adds tb.left/tb.top; we finish at.x (including its
- *             store) before starting at.y, so our first halving fuses the
- *             flags of the preceding `add` into a `jns` where the original
- *             emits a separate `test`/`jge`.  Two-temp spellings
- *             (`hx = desc->dx; hy = desc->dy;` before the two HalfOffsets)
- *             reproduce the eager loads but cost 31 elsewhere; an inlined
- *             helper taking l/t/dx/dy did nothing.  THIS IS THE NEXT THING
- *             TO ATTACK: it is 120 slots, it is a real structural
- *             difference (not allocation), and the eager-load form is
- *             provably what the original does.
+ * ===========================================================================
+ * WHAT IS LEFT: 57 structurally-displaced slots, 42 of them in ONE knot
+ * ===========================================================================
+ * Aligned register+offset-blind, the differing regions are
+ *   67..91    the tile-geometry preamble: same instructions, VC6 interleaves
+ *             our ylimit/xlimit loads into it.
+ *   98..108   TEN instructions ours has here and the original does not: our
+ *             `sx / tw` and `sx % tw` idivs, done SECOND and with a MEMORY
+ *             divisor (`idiv dword [esp+0x20]`).  The original does the
+ *             sx/tw pair FIRST with `idiv ebx` (tw in ebx from `movsx ebx,cx`
+ *             at 73), spills th at 77 and RELOADS it into ebx at 88 for the
+ *             sy/th pair.  So the original's source computes qx, rx before
+ *             qy, ry.
+ *   164..176  TWELVE instructions the original has here and we do not: it
+ *             computes ylimit and xlimit AFTER the quadrant switch, right
+ *             before the row loop.  We compute them inside the geometry
+ *             block, so they are emitted at 74..88 instead.
+ *   the rest  1-2 instruction schedule noise, ~15 slots in total, spread
+ *             over the depth-key and strip-clip blocks.
+ * The two ten/twelve-instruction regions nearly cancel, which is why indices
+ * 108..173 are simply SHIFTED by ten and why the geometry window costs 119 of
+ * the 381 strict mismatches while being only 27 structurally wrong.
  *
- * FRAME SLOT MAP, ours vs the original (base = esp after `sub esp,0x2f90`;
- * a disassembly `[esp+N]` outside a call-argument run is base+N-16):
- *   ORIG th@0x00 rx@0x04 tile@0x08 tw@0x10 count@0x14 qx@0x18 xlimit@0x1c
- *        ylimit@0x20 .. view@0x34 cls@0x44 corner@0x48 bright@0x58 key2@0x5c
- *        sd@0x60 ctx@0x78/0x88 saved@0xa0 visible@0xb0
- *   OURS th@0x0c rx@0x00 tile@0x04 tw@0x18 count@0x1c ... xlimit@0x24
- *        ylimit@0x48 view@0x34 cls@0x44 corner@0x4c ... sd@0x5c
- *        saved@0x9c visible@0xac  (frame size now correct; 57 of 135
- *        single-operand [esp+N] references agree exactly, was 44)
+ * *** THE GEOMETRY BLOCK IS A HARD TWO-ATTRACTOR LEVER.  Fixing either half
+ * kills the SPLIT PROLOGUE. ***  Measured on the current file:
+ *     ylimit after the switch          geom 27 -> 21, total structural 57 ->
+ *                                      51, but strict 381 -> 815 (prologue
+ *                                      survives, first=67, but the whole low
+ *                                      frame renumbers);
+ *     xlimit after the switch          geom -> 24, strict 798, first=0;
+ *     both after the switch            geom -> 22, strict 551, first=5;
+ *     qx/rx pair first                 geom -> 32, strict 845, first=5;
+ *     both + qx/rx first               geom -> 15 (the BEST geometry seen,
+ *                                      and structurally the best whole
+ *                                      function: 51 slots), strict 532,
+ *                                      first=5.
+ * first=5 means all four callee-saved pushes moved to the entry: the
+ * geometry block's demand for esi/edi forces the g_edit_state gate's
+ * constants 0 and 1 into ebx/ebp, whose live ranges then start at index 5.
+ * The original needs esi/edi in BOTH places and still splits, so there is a
+ * register-preference lever here that is not yet identified.  Three
+ * respellings of the gate (separate if/else for g_show_cursor; a leading
+ * `g_show_cursor = 0;` with a single positive arm; the current form) do not
+ * change it: 532 / 854 / 532.  WHOEVER PICKS THIS UP: this is the single
+ * biggest remaining win -- it is worth ~90 strict mismatches -- and it needs
+ * the prologue-split rule, not another statement permutation.
  *
- * Ruled out this round, all measured (score = audit.py mismatch, baseline
- * 478 unless stated), so that they are not repeated:
- *   - five spellings of the ODF pre-render walk (do/while, for, one
- *     combined test, hoisted callback, hoisted ctx): all identical;
- *   - an explicit live-range split of `cls` into a second pointer: 642;
- *   - reading g_odf_head at the walk instead of at the top: 868;
- *   - `while (--count)` reusing the gather counter in the DoBuildEffects
- *     tail, `n = count` moved inside the `if`, `pp = visible` hoisted, and
- *     `*(volatile int*)&count` to stop the load being hoisted above the
- *     three flush calls: 503 / 503 / 652 / 717 (all worse -- the tail is
- *     already exact, leave it alone);
- *   - an explicit per-row `put = &visible[count]` induction pointer: 804
- *     (VC6's own strength reduction already produces the original's
- *     `lea edi,[esp+ecx*4+0xc0]` in the column-loop preheader);
- *   - making `count` address-taken by pinning it in a struct with `tile`
- *     (which IS address-taken, via RenderViewCellProbe): this DOES give the
- *     original's memory read-modify-write of `count`, but it kills the
- *     strength reduction that produces the `edi` put pointer, so the array
- *     store becomes `mov [esp+edx*4+0xc8],ecx` and the score goes to 655;
- *   - `Pos rowstart;` instead of the two ints rowx/rowy: 517;
- *   - pinning key2 with aleft / bright / key1 (overlapping live ranges): no
- *     extra slot, 530;
- *   - a full 1-opt sweep of every adjacent independent statement pair in the
- *     function (two passes, ~500 compiles): converged.
+ * ===========================================================================
+ * RULED OUT THIS ROUND (scores are this round's own baselines, 381/384/386)
+ * ===========================================================================
+ *   - 90 random topological orders of the 16-statement geometry block plus a
+ *     full move-one-statement local search to convergence (two passes): the
+ *     committed order (sh, th, sw, hh, sy, tw, xlimit, ylimit, qy, ry, sx,
+ *     hw, qx, rx, tile.x, tile.y) is a sharp local optimum; the best random
+ *     order found was 458 and the second 520.  The previous round's order
+ *     differed only in ylimit's position and scored 386;
+ *   - all 24 permutations of the ctx_build fill {mode, obj, kind, base}:
+ *     the committed mode/obj/kind/base is best (next best +1);
+ *   - all 24 of the ctx_normal fill: mode/obj/kind/base best at 381,
+ *     mode/obj/base/kind ties;
+ *   - 9 orders of the object-queue loop head {cell, sd zero-fill,
+ *     g_sort_count = 0, flags &= ~0x400} and 3 orders of the six sd fields:
+ *     converged (moving the sd fill after `flags &=` costs 6, the field
+ *     order costs 3);
+ *   - aleft before key1 (no change), bright before key2 (+6), `base =
+ *     cell->base` after the tile fills (+260!), tile.y before tile.x at
+ *     either footprint corner (no change on strict, +4 structurally);
+ *   - the four-temp form at sites B and C WITHOUT `mode = 0xff00` first
+ *     (517 / 499) -- the two levers only pay off together;
+ *   - separate gx2/gy2/hx2/hy2 per arm instead of shared temps: no change;
+ *   - EmitObjectSprite taking two ints instead of `Pos at` by value: no
+ *     change on strict, and `at` as two plain int locals costs 152 and
+ *     shrinks the frame to 0x2f8c;
+ *   - pinning key2 against 17 different partners (bright, aleft, key1, d1,
+ *     span, step, qx, qy, hw, hh, sy, quad, three, d2, px, py, rowy): rowx,
+ *     qx, py and rowy all tie at 381 and everything else is worse or loses
+ *     the 4-byte slot (frame 0x2f8c, first=0).  KEEP THE `pin` STRUCT;
+ *   - `hh` from `sh`, `th = (int)sh`, `sw = (short)(sh * 2)`, dividing by
+ *     `sh` instead of `th`: all byte-identical.  Dividing by `sw` or taking
+ *     `hw` from `sw` costs 430 (it breaks the prologue);
+ *   - `desc->sprite = def->build_sprite;` moved before or between the two
+ *     `at` assignments: +2 / +3.
+ * Tooling for all of this is in scratchpad/laneG/:  sc.py (audit-exact score
+ * plus strict / register-blind / offset-blind / both-blind LCS), regions.py
+ * (LCS-aligned structural region report -- USE THIS, not the strict count,
+ * when a change displaces a block), wscore.py (per-window structural and
+ * strict breakdown), fm.py + fmd.py (the frame slot map for either side),
+ * geo.py (topological search over the geometry block), try_.py (textual
+ * variant runner).
  * ------------------------------------------------------------------------- */
-// WIP-FUNCTION: LEGOLAND 0x0045b180  (903/903 insns, mismatch=478; scheduling of the sprite-offset block)
+// WIP-FUNCTION: LEGOLAND 0x0045b180  (903/903 insns, mismatch=381; geometry block schedule + low frame slot order)
 void RenderView(void)
 {
     Cell*       visible[3000];
@@ -584,6 +636,7 @@ void RenderView(void)
     int         aleft, bright;
     int         d1, d2, span, step, three;
     int         mode;
+    int         hx, hy, gx, gy;
     Pos         at;
     unsigned short f;
 
@@ -608,12 +661,12 @@ void RenderView(void)
 
     sh = g_tile_sprites[g_default_tile]->h;
     th = sh;
-    ylimit = g_map->view_h + view.bottom;
     sw = (short)(sh + sh);
     hh = (th + 1) >> 1;
     sy = (g_scroll_y >> 8) - hh;
     tw = sw;
     xlimit = tw + tw + view.right;
+    ylimit = g_map->view_h + view.bottom;
     qy = sy / th;
     ry = sy % th;
     sx = g_scroll_x >> 8;
@@ -636,18 +689,18 @@ void RenderView(void)
             ry += hh;
         }
         break;
-    case 3:
-        if (rx < hw + 2 * (ry - th)) {
-            tile.y++;
-            rx += hw;
-            ry -= hh;
-        }
-        break;
     case 2:
         if (rx >= hw + 2 * ry) {
             tile.y--;
             rx -= hw;
             ry += hh;
+        }
+        break;
+    case 3:
+        if (rx < hw + 2 * (ry - th)) {
+            tile.y++;
+            rx += hw;
+            ry -= hh;
         }
         break;
     case 4:
@@ -814,23 +867,35 @@ void RenderView(void)
                     ctx_build.kind = 0x104;
                     ctx_build.base = cell->base;
                     if (def->build_sprite) {
-                        at.x = tb.left + HalfOffset(desc->dx + def->anim_dx);
-                        at.y = tb.top + HalfOffset(desc->dy + def->anim_dy);
+                        gx = desc->dx + def->anim_dx;
+                        gy = desc->dy + def->anim_dy;
+                        hx = HalfOffset(gx);
+                        hy = HalfOffset(gy);
+                        at.x = tb.left + hx;
+                        at.y = tb.top + hy;
                         desc->sprite = def->build_sprite;
                         SetOverrideFrame(GetBuildAnimFrame(def, base));
                     } else {
-                        at.x = tb.left + HalfOffset(desc->dx);
-                        at.y = tb.top + HalfOffset(desc->dy);
                         mode = 0xff00;
+                        gx = desc->dx;
+                        gy = desc->dy;
+                        hx = HalfOffset(gx);
+                        hy = HalfOffset(gy);
+                        at.x = tb.left + hx;
+                        at.y = tb.top + hy;
                     }
                     EmitObjectSprite(desc, at, key1, mode, &ctx_build);
                 } else {
+                    mode = desc->mode;
                     ctx_normal.obj = cell->obj;
                     ctx_normal.kind = 0x103;
                     ctx_normal.base = cell->base;
-                    mode = desc->mode;
-                    at.x = tb.left + HalfOffset(desc->dx);
-                    at.y = tb.top + HalfOffset(desc->dy);
+                    gx = desc->dx;
+                    gy = desc->dy;
+                    hx = HalfOffset(gx);
+                    hy = HalfOffset(gy);
+                    at.x = tb.left + hx;
+                    at.y = tb.top + hy;
                     if (!(f & 4)) {
                         if ((f & 0x200) && GetBlink()) {
                             mode = 0xff0000;

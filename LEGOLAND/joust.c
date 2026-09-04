@@ -793,7 +793,6 @@ typedef struct Person3D {
     unsigned char pad00[0x1c];
     Offset        screen;        /* +0x1c where the person is drawn */
     Offset        local;         /* +0x24 the person's own offset pair */
-    unsigned char pad2c[4];
     void*         zsprite;       /* +0x2c the ride's depth sprite while riding */
     int           f30;           /* +0x30 1 while the ride positions the person */
     unsigned char pad34[8];
@@ -1122,82 +1121,198 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  *    goto, case 5 textual copy with gx/gy temps) scores 322-329 because
  *    the tail lands after case 2 and the whole register cascade shifts.
  * 3. FRAME: SOLVED this round -- see "FRAME SOLVED" above. */
-/* THIS ROUND (2026-09-04).  Two structural facts recovered; the strict audit
- * count went 231 -> 281 while the CONTENT match went the other way, so read
- * the numbers carefully before "improving" it back:
+/* ROUND OF 2026-09-04 (second pass).  281 -> 74 strict, and the block layout
+ * and the shared-tail merge are now the original's.  READ THE METRICS, NOT
+ * THE STRICT COUNT: with a block displaced the index-for-index count is
+ * actively misleading here (a store swap in case 5 scored 165 strict at one
+ * point and was structurally much worse).  Use scratchpad/laneG/sc.py and
+ * regions.py -- register+offset-blind LCS ("both") and the count of ORIGINAL
+ * indices inside a differing region:
  *
- *     metric                              before   now
- *     audit strict index-for-index         231     281   (worse)
- *     LCS of the instruction streams       189     272   (much better)
- *     LCS ignoring register names          276     301   (better)
- *     compiled instruction count           357     367   (orig 347)
+ *     metric                       start    now
+ *     audit strict                  281      74
+ *     reg+offset-blind LCS          286     331   (of 347)
+ *     orig indices in a bad region   61      16
+ *     ESCAPES                       yes      no
+ *     bytes                        1119    1121   (orig 1122)
  *
- * The strict count is inflated by ONE 13-instruction displacement (item 2), and
- * the frame is now provably exact, so this is the better base to continue from.
+ * FOUR THINGS CLOSED THEM.
+ * 1. A REAL STRUCT BUG, not a codegen question: `Person3D` carried a bogus
+ *    `pad2c[4]` between `local` (+0x24..+0x2c) and `zsprite`, so zsprite, f30
+ *    and depth were all 4 bytes too high.  The original stores `[eax+0x2c]`,
+ *    `[edx+0x30]` and `fstp [eax+0x3c]`; we were emitting +0x30/+0x34/+0x40.
+ *    (Joust_Draw only touches `screen` and `local`, so it never saw it.)
+ * 2. THE CROSS-JUMP SURVIVOR, SOLVED -- and it is a new, transferable lever.
+ *    The original keeps `call CalcMoveLine` in the shared block T (case 0's
+ *    tail) and case 5 ends `jmp` into it; we were hosting the merged copy in
+ *    case 5, because VC6's identical-suffix merge keeps the LAST copy in
+ *    source order.  The cure is to write the outer busy-AI guard as a
+ *    `goto` to a label at the loop's continue point instead of an
+ *    `if (b->state == 0) { .. }` block:
+ *        if (b->state != 0) goto endsw;
+ *        { switch (b->action) { ... } }
+ *      endsw: ;
+ *        r = next;
+ *    An explicit label at the join flips the merge host from the LAST copy to
+ *    the FIRST -- indices 61..74 then match exactly and the 13-instruction
+ *    displacement disappears (258 -> 77 strict, robl 316 -> 329).  Exactly
+ *    equivalent and byte-identical: `goto endsw;` in place of `break` in
+ *    case 2's tail, in case 5's, or in both, with the label after the switch
+ *    or at the loop bottom.  NOT equivalent: the goto in case 0's copy as
+ *    well (139), in all three copies (inert -- it is the ASYMMETRY between
+ *    the first copy and the others that decides it), or `goto` in T and
+ *    case 2 (inert).  The guard form is shipped because it is the only one
+ *    of these that reads as ordinary source.
+ *    Ruled out before that was found (all inert or worse): a `static
+ *    __inline` helper holding the tail called from any subset of the three
+ *    sites; `if (dir) { }` fold breakers; `b->action = b->action + 1`,
+ *    `(unsigned char)(3 + (dir >> 5))`, a case-local `dir5`; `default:
+ *    break;` first or last; `case 1:` moved or deleted (byte-identical --
+ *    its jump-table entry already points at the switch end); five if/else
+ *    shapes for case 0.
+ * 3. CASE 3 IS THE mechrides.c BNV SHAPE, and BOTH halves are needed:
+ *      screen = GetScreenCoordsForObject(sq, def);
+ *      wy = b->world.y;            <- between the two calls, y BEFORE x
+ *      wx = b->world.x;
+ *      GetTileDimensions(&tw, &th);
+ *      sx2 = (wx - wy) * tw >> 9;  <- ONE web per axis...
+ *      sy2 = (wx + wy) * th >> 9;
+ *      *(volatile int*)&spill.x = sx2;
+ *      sx2 += g_map_cfg->ox - Get_XScroll();   <- ...continued in place
+ *      sy2 += g_map_cfg->oy - Get_YScroll();
+ *    The compound assignment must be used on BOTH axes; the y-only form is
+ *    worth nothing and the pair is worth +22 robl and clears ESCAPES.  With
+ *    it the loop head does NOT flip, so the older note's "any extra live
+ *    value flips ebx = sq / ebp = ty" was true only of the spellings that
+ *    need a separate `sx`/`sy` pair.  `b->flags |= 0x80;` belongs at the END
+ *    of that block (16 positions swept twice, on both baselines).
+ * 4. CASE 5's `(qx + b.x) << 8` CSE on BOTH axes (`sx`/`sy` reused from case
+ *    3), which the previous round rejected because only the one-axis form
+ *    had been tried; with (3) in place it costs nothing and case 5 now
+ *    reproduces the original's forwarded `push ecx` and its whole block.
+ *    Plus `unsigned char sp = (unsigned char)b->saved_speed;` cached at the
+ *    top of case 5: it claims the byte register before the `b->person` load
+ *    and puts the whole `switch (b->seat)` head in the original's registers
+ *    (6 differing indices -> 2; the residual is that the load is then five
+ *    slots earlier than the original's).
  *
- * 1. FRAME (see above): `BnvPos pos` (3 ints) + `SpillPair spill` written once
- *    through a volatile.  `sub esp,0x30`, every displacement right, and the
- *    loop head allocates ebx = def->base_x/ty and ebp = sq exactly as the
- *    original does.  Instructions 0..60 are now byte-identical.
- * 2. BLOCK LAYOUT: the tail after `if (lane > 1)` must be a TEXTUAL COPY in
- *    every arm -- no `goto move` anywhere.  With any goto, VC6 moves the label
- *    block to after its last goto source (measured again this round: case 2
- *    only -> 0x3e5, both -> 0x3ea; a fall-through predecessor does NOT pin it,
- *    arm A just gets a `jmp`).  All-textual reproduces the original's layout
- *    (case0 0x76, T 0xa7, armB 0xea, case2 0x13c, case3 0x164, case4 0x288,
- *    case5 0x34d, case6 0x426, break target 0x44a) and the exact reload+push
- *    block at T.  FIRST DIVERGENCE IS NOW INDEX 61.
- * 3. THE RESIDUAL, index 61: the CROSS-JUMP SURVIVOR.  The original keeps the
- *    `call CalcMoveLine` in T (0xbe) and case 5 ends `jmp 0xbe`; we emit the
- *    call in case 5's copy and T ends `jmp <case5>`.  Everything else about
- *    that merge is right (case 2 -> T's first reload, exactly as the original).
- *    MEASURED RULE, from scratchpad/joust/syn/gen_merge.py and gen_m7.py plus
- *    the k_c5_first variant: when two blocks share an identical machine-code
- *    suffix VC6 keeps the copy that is LAST IN SOURCE ORDER and turns the
- *    others into jumps -- confirmed in four independent probes (2-case, 7-case,
- *    and with the case labels permuted, where moving `case 5` textually first
- *    moved the surviving copy to case 2).  The original therefore behaves as
- *    if case 0's tail were the last copy, which no case ordering can produce
- *    (the case blocks are laid out in textual order, and the original's are in
- *    0..6 order).  A `goto` cannot be the answer either: case 5 jumps to the
- *    CALL, i.e. into the middle of the tail, which no label can name.
- *    Ruled out this round: all four if/else shapes for case 0 (arm A inline,
- *    arm B first, both arms carrying their own tail, arms swapped) -- all give
- *    the same merge; distinct `dir` variables per copy (VC6 normalises them);
- *    all 24 store orders in case 5; case 2 as a goto placed in situ and before
- *    case 0; permuting the case labels.  A DIFFERENT statement order inside
- *    case 5's tail does break the merge and drops the strict count to 208
- *    (scratchpad/joust/tsu_v26.py, probe_alt5) -- but it is provably NOT the
- *    original's source: the original merges FROM THE CALL, which requires the
- *    post-call code, and hence the source statement order, to be identical.
- * 4. CASE 5's remaining ~20 instructions: the original computes
- *    `(qx+bx)<<8` and `(qy+by)<<8` ONCE and reuses them (`shl eax,8` then
- *    `add eax,0x80`); we recompute, because the store to b->world.x forces an
- *    alias reload of def->qx.  Every spelling that CSEs them needs a temp, and
- *    ANY extra live value anywhere in the function (a fresh gx/gy, reusing
- *    sx/sy or tx/ty, wx/wy pre-reads, sx2/sy2) flips the loop head back to
- *    ebx = sq / ebp = ty and costs far more than it gains (measured: rb-LCS
- *    301 -> 295..307 but strict 281 -> 296..346).  Seventeen head spellings
- *    were swept against the CSE base (operand order, statement order,
- *    declaration order, two-def forms, `unsigned char lane`, a base_x-first
- *    read): the head assignment is completely insensitive to spelling, so it
- *    is pure allocation pressure.  Fixing item 3 first is the way in: with the
- *    merge right, case 5's CSE is the only thing left.  The audit's ESCAPES
- *    flag is the same fact: those ~20 extra instructions push branch targets
- *    past the original's end.  CSEing only ONE axis (`sx = (def->qx +
- *    sq->b.x) << 8;`, gy left recomputed) keeps the head, clears ESCAPES and
- *    lands 347i/1121B against 347i/1122B -- but at strict 291, and a source
- *    that CSEs one axis and not the other is not credible, so it is not
- *    shipped (scratchpad/joust/tsu_v28.py, h_gx_only).
- * 5. CASE 3 also wants the mechrides.c shape (`wy`/`wx` read before
- *    GetTileDimensions, then `sx2`/`sy2` as SECOND variables) -- the original
- *    loads world.y/world.x at 0x41759f/0x4175a2 before the call and homes both
- *    halves of `screen`, which we do not.  It is written the mechrides way in
- *    scratchpad/joust/tsu_v24.py (f7_cse: rb-LCS 307, the best shape found,
- *    358 instructions) but it flips the head, so it is not shipped.
- * Tooling: scratchpad/joust/align.py (LCS-aligned diff), rbscore.py
- * (register-blind LCS), ttv.py + tsu_v13..v28.py (the variant sets above). */
-// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, audit mismatch 281/347, first divergence 61: frame and block layout now exact, one cross-jump survivor wrong -- see above)
+ * WHAT IS LEFT: 16 differing original indices, ALL in case 3 (orig 129-189),
+ * and all schedule rather than structure -- the original interleaves the two
+ * `Get_?Scroll` results, the `g_ts_zspr` load and the two GetUnitDepth
+ * constant pushes into the rider_dx/dy divisions where we group them
+ * differently, and it computes `wx + wy` before `wx - wy` (its `wy` lives in
+ * edi where ours lives in ebp).  Measured inert on this baseline: the two
+ * sums swapped (robl 323), the two scroll adds swapped (327), the four `-=`
+ * in three pairings, the two `pos` stores swapped (326), `wx` read before
+ * `wy` (ties), spilling sy2 instead of sx2 (ties), `sx2 = delta + sx2` and
+ * every other non-compound spelling of the two scroll chains (all normalise
+ * to the same object), combining the two subtractions per axis, int locals
+ * for screen.ox/oy or for the rider halves, `sx2 + sx2` for the doubling,
+ * and 30 permutations of the block's five trailing statements (the best is
+ * worth one index and needs `b->flags |= 0x80;` after the GetUnitDepth call,
+ * which is not a credible source order, so it is not shipped).
+ * The remaining single byte (1121 vs 1122) is one `[esp+N]` displacement.
+ * Tooling: scratchpad/laneG/sc.py, regions.py; scratchpad/laneE/grun.py runs
+ * a variants file and prints all of these metrics per variant. */
+/* ROUND OF 2026-09-04 (third pass).  74 -> 72 strict, 15 differing original
+ * indices (regions.py "both": 24 max-counted).  Tooling for this round is in
+ * scratchpad/laneL/ (run.py = one compile per variant with all four metrics,
+ * show.py = regenerate one variant and list it side by side, regions.py).
+ * TWO SMALL CLOSES, both from re-running a sweep the previous round had done
+ * on an older baseline (the standing "re-run permutation searches after any
+ * structural change" rule paid twice):
+ *   A. ALL 120 orders of case 3's five trailing statements, not the 30 the
+ *      last round managed: the winner moves `b->flags |= 0x80;` BELOW the two
+ *      person stores (pos.x, pos.y, zsprite, f30, flags).  robl 331 -> 332,
+ *      74 -> 73.  Every order that puts either `pos` store anywhere but first
+ *      costs 30+ indices and ESCAPES, so the two `pos` stores really are the
+ *      head of that group.
+ *   B. Case 5: `b->flags &= ~0x80;` OUTSIDE the `sp` block, i.e.
+ *          b->flags &= ~0x80;
+ *          { unsigned char sp = (unsigned char)b->saved_speed;
+ *            b->person->zsprite = 0; b->person->f30 = 0; b->speed = sp; }
+ *      The cached `sp` is still what claims the byte register (removing it
+ *      costs 4 strict and 4 structural), but each statement it is moved BELOW
+ *      pushes its `mov al,[esi+0x44]` one slot later, towards the original's
+ *      276; moving it below BOTH person stores loses the register instead
+ *      (76/robl 330), so 272 is as far as it goes.  73 -> 72.
+ *
+ * THE BIG FINDING, NOT SHIPPED: THE X CHAIN IS TWO WEBS, and that is almost
+ * certainly the original's source.  Written
+ *      px = (wx - wy) * tw >> 9;          <- fresh pre-scroll name
+ *      sy2 = (wx + wy) * th >> 9;
+ *      *(volatile int*)&spill.x = px;
+ *      sx2 = g_map_cfg->ox - Get_XScroll() + px;   <- delta wins the dest
+ *      sy2 += g_map_cfg->oy - Get_YScroll();       <- compound, web wins
+ * the body becomes 1122 bytes -- EXACTLY the original's, from 1121 -- and
+ * case 3's indices 119..147 match the original instruction for instruction:
+ * the load order, `mov ebp,ebx / add ebx,edi / imul ebx,th / sub ebp,edi /
+ * imul ebp,tw / sar / sar`, BOTH `movsx` placements and both `mov edx,[cfg]`
+ * loads.  The mechanism is now understood end to end:
+ *   - The commutative add's destination is the delta TEMPORARY only when the
+ *     LHS is a different name; `sx2 += ..`, `sx2 = .. + sx2` and every other
+ *     one-name spelling normalise to the compound and put sx2 in the dest.
+ *     (mechrides.c's Safari/Spider/Plane/Barrel _Activate twins say the same
+ *     for their X chain; this is the same code shape.)
+ *   - Because the delta's register then BECOMES sx2, it must be callee-saved,
+ *     so the zero-extend target is edi rather than a scratch; that leaves eax
+ *     LIVE (it still holds Get_XScroll's short return) at the `g_map_cfg`
+ *     load, which therefore takes edx.  With one web the movsx is scheduled
+ *     first, eax frees, the cfg pointer lands in eax and takes the 5-byte
+ *     `A1` encoding -- which is the whole 1121-vs-1122 byte difference.
+ *   - `mov ebp,ebx / add ebx,edi` vs our `mov edi,ebx / sub edi,ebp / add
+ *     ebp,ebx` is NOT an IR-order difference: both are diff-first, and the
+ *     scheduler hoists the sum+imul into the gap after the copy.  Whether it
+ *     can hoist to slot 2 (original) or only slot 3 (ours) is decided purely
+ *     by which operand's register the add consumes -- a WAR hazard against
+ *     the copy in one case and against the sub in the other.
+ * WHY IT IS NOT SHIPPED: the extra web rotates the LOOP HEAD -- the original
+ * has ebp = sq and ebx = ty, the two-web form gets ebx = sq and ebp = ty --
+ * which costs ~33 indices in the loop head, case 5 and the block layout
+ * (ESCAPES returns, with a duplicated jmp before case 3).  Net bad 24 -> 57.
+ * The rotation is NOT the number of values live across `Get_XScroll` (three
+ * callee-saved either way, esi + two) and is not reachable from the loop
+ * head: all 60 legal orders of `next/sq/b/tx/ty` were measured on top of the
+ * two-web form and every one keeps the rotation (best 57, most 60-91).  Nor
+ * is it the block layout: the four `goto endsw` asymmetries and the plain
+ * `if (b->state == 0) { }` guard were re-measured on top of it (57..91).
+ * THE ROTATION IS NOT GLOBAL PRESSURE, measured directly: removing a web
+ * elsewhere leaves it untouched -- the cached `sp` byte in case 5, case 5's
+ * sx/sy CSE, the `lane` local in case 0, `tx`/`ty` computed lazily inside
+ * case 0, the spill shim moved or put on sy2: every one still reports
+ * first=16 and the same ebx/ebp swap.  Nor is it the NAME: carrying the
+ * pre-scroll x in `ty`, `tx` or `lane` (all dead in case 3) instead of a new
+ * `px` is byte-identical to `px`, confirming "webs, not names" here.  What
+ * actually flips is narrow: `def->base_x` takes ebx in the original and ebp
+ * in the two-web form, and `ty` (which reuses that register) and `sq` follow.
+ * *** If a later round finds what ranks sq above ty, this variant is very
+ * probably the finished function: apply scratchpad/laneL/tsu_d.py:x2web. ***
+ *
+ * ALSO MEASURED AND INERT THIS ROUND (all exactly 72/robl 332, or worse):
+ * commuting either product, `tw * (wx - wy)`, splitting either product into
+ * 2 or 3 statements, `unsigned`/`long` on wx or wy (`short` costs 11),
+ * `if (wx) ;` / `if (wy) ;` extra uses (VC6 deletes them outright -- the
+ * empty-if lever does NOT extend a live range here), a `worldcopy` struct
+ * read of b->world, direct `b->world.x/y` reads in either product, `p =
+ * b->person` cached for the zsprite store (mechrides lever 11 -- worth 6
+ * there, worth -1 here), the same with `g_ts_zspr` cached too, `sox`/`soy`
+ * locals read early in three positions, and the Y chain split into two webs
+ * (71 strict but robl 328 -- a compensating error, rejected).
+ * `int seat = b->seat;` cached just before `b->b35 = 0;` is worth one
+ * structural index (robl 334, bad 23) but is not a credible source line and
+ * costs one strict, so it is not shipped.
+ * WHAT IS LEFT (15 original indices, all schedule, none reachable from any
+ * spelling measured): 131 (the sum/diff hoist above), 139 and 146 (the two
+ * `movsx`), 148 (the original loads screen.oy into the register `px` just
+ * freed -- ours has no free register there), 150/153, 161/163/166/168-169/172
+ * (the `or flags`, `g_ts_zspr` and `b->person` loads interleaved into the
+ * rider_dy chain instead of grouped after the two `pos` stores), 184/188 (the
+ * original reuses eax for BOTH NewBNVPath loads because its seat byte is in
+ * ecx; ours has the seat in eax and two scratch registers free, so the
+ * scheduler groups the loads), and 276 (case 5's `sp` load, above).
+ * EVERY ONE of these is downstream of the same register cascade the two-web
+ * form fixes. */
+// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1121/1122 bytes, audit mismatch 72/347 but only 15 of 347 original indices in a structurally differing region, all of them case 3's schedule plus one in case 5; first divergence 119)
 void TempleSlide_Update(RideElem* elem)
 {
     RideDef*   def = elem->data;
@@ -1217,6 +1332,10 @@ void TempleSlide_Update(RideElem* elem)
     int        th;
     int        sx;
     int        sy;
+    int        wx;
+    int        wy;
+    int        sx2;
+    int        sy2;
 
     r = def->riders;
     while (r) {
@@ -1225,7 +1344,13 @@ void TempleSlide_Update(RideElem* elem)
         b = r->bloke;
         tx = def->base_x + sq->b.x;
         ty = def->base_y + sq->b.y;
-        if (b->state == 0) {
+        /* The busy-AI guard is a `goto` to the loop's continue point, not an
+         * `if (b->state == 0) { .. }` block: the explicit label is what makes
+         * VC6's identical-suffix merge host the shared CalcMoveLine tail in
+         * case 0's copy (the FIRST) instead of case 5's (the last). */
+        if (b->state != 0)
+            goto endsw;
+        {
             switch (b->action) {
             case 0:
                 b->flags |= 8;
@@ -1267,21 +1392,23 @@ void TempleSlide_Update(RideElem* elem)
 
             case 3:
                 screen = GetScreenCoordsForObject(sq, def);
+                wy = b->world.y;
+                wx = b->world.x;
                 GetTileDimensions(&tw, &th);
-                sx = (b->world.x - b->world.y) * tw >> 9;
-                sy = (b->world.x + b->world.y) * th >> 9;
-                *(volatile int*)&spill.x = sx;
-                sx = g_map_cfg->ox - Get_XScroll() + sx;
-                sy = sy + (g_map_cfg->oy - Get_YScroll());
-                sx -= g_ts_rider_dx / 2;
-                sx -= screen.ox;
-                b->flags |= 0x80;
-                sy -= g_ts_rider_dy / 2;
-                sy -= screen.oy;
-                pos.x = sx * 2;
-                pos.y = sy * 2;
+                sx2 = (wx - wy) * tw >> 9;
+                sy2 = (wx + wy) * th >> 9;
+                *(volatile int*)&spill.x = sx2;
+                sx2 += g_map_cfg->ox - Get_XScroll();
+                sy2 += g_map_cfg->oy - Get_YScroll();
+                sx2 -= g_ts_rider_dx / 2;
+                sx2 -= screen.ox;
+                sy2 -= g_ts_rider_dy / 2;
+                sy2 -= screen.oy;
+                pos.x = sx2 * 2;
+                pos.y = sy2 * 2;
                 b->person->zsprite = g_ts_zspr;
                 b->person->f30 = 1;
+                b->flags |= 0x80;
                 b->person->depth = GetUnitDepth(-1617664.875f, -1617913.0f);
                 b->b35 = 0;
                 b->bnvpath = NewBNVPath(g_ts_objsamples, 0,
@@ -1330,9 +1457,12 @@ void TempleSlide_Update(RideElem* elem)
                 BlokeWalkAnim(b);
                 BlokeSetFrame(b, 0);
                 b->flags &= ~0x80;
+                {
+                unsigned char sp = (unsigned char)b->saved_speed;
                 b->person->zsprite = 0;
                 b->person->f30 = 0;
-                b->speed = (unsigned char)b->saved_speed;
+                b->speed = sp;
+                }
                 switch (b->seat) {
                 case 0:
                     ofs.ox = -0x280;
@@ -1351,10 +1481,12 @@ void TempleSlide_Update(RideElem* elem)
                     ofs.oy = -0x500;
                     break;
                 }
-                b->world.x = ofs.ox + ((def->qx + sq->b.x) << 8);
-                b->world.y = ofs.oy + ((def->qy + sq->b.y) << 8);
-                b->target.x = ((def->qx + sq->b.x) << 8) + 0x80;
-                b->target.y = ((def->qy + sq->b.y) << 8) + 0x80;
+                sx = (def->qx + sq->b.x) << 8;
+                sy = (def->qy + sq->b.y) << 8;
+                b->world.x = ofs.ox + sx;
+                b->world.y = ofs.oy + sy;
+                b->target.x = sx + 0x80;
+                b->target.y = sy + 0x80;
                 dir = (unsigned char)CalcMoveLine(b->world, b->target, b->path) + 0x10;
                 b->state = 7;
                 b->new_dir = dir;
@@ -1369,6 +1501,7 @@ void TempleSlide_Update(RideElem* elem)
                 break;
             }
         }
+endsw: ;
         r = next;
     }
 }
@@ -1407,6 +1540,18 @@ static __inline void Joust_DrawBand(Bloke** here, char n, int code)
     for (i = 0; i < n; i++)
         if (here[i]->action == code)
             IP_RenderBlokeIn3DNow(here[i]);
+}
+
+/* Seat a rider on its horse: park the seat offset's y and write the person's
+ * local x in one step.  This has to be a helper: a `static __inline`'s
+ * arguments are evaluated into temporaries BEFORE its body runs, so the
+ * person's address is computed before `seat.oy` is stored and the local x
+ * store comes after it -- an order no plain-C statement sequence can express
+ * (see the note above Joust_Draw). */
+static __inline void Joust_SeatRider(Offset* seat, Offset* local, int dx)
+{
+    seat->oy = -0x30;
+    local->ox = dx;
 }
 
 /* NOTE: the block structure, the eight-slot collection array, every band and
@@ -1555,55 +1700,49 @@ static __inline void Joust_DrawBand(Bloke** here, char n, int code)
  * push always glues to the lea, so the original's IR must have the
  * seat.oy store between the address computation and the ox store -- no
  * C spelling found reaches it. */
-/* THIS ROUND (2026-09-04): the ORIGINAL'S IR IS NOW KNOWN, and so is why we
- * cannot ship it.  Still 3 of 552, indices 301-303.
+/* CLOSED 2026-09-04, 3 -> 0.  Two independent facts, both needed:
  *
- * WHAT PRODUCES THE ORIGINAL'S SCHEDULE, exactly:
- *     static __inline void JD_S(Offset* s, Offset* o, int v)
- *     { s->oy = -0x30; o->ox = v; }
- *     ...
- *     seat.ox = 0;
- *     JD_S(&seat, &p->local, b->ride_dx);
- *     p->local.oy = b->ride_dy;
- * The inline expansion evaluates the arguments into temporaries FIRST (the
- * `movsx` of ride_dx and the `lea` of &p->local) and only then runs the body,
- * so the IR becomes [st seat.ox; ld dx; lea; st seat.oy; st local.ox] -- the
- * one order no plain-C statement sequence can express, because in
- * `p->local.ox = b->ride_dx;` the load, the address and the store are one
- * statement and nothing can be placed between the address and the store.
- * It reproduces indices 299-305 BYTE FOR BYTE, including the original's
- * `mov [esp+0x18],ebx` sitting between the lea and the push.
+ * (1) THE ORIGINAL'S IR, reproduced by `Joust_SeatRider` above.  A
+ *     `static __inline` helper's arguments are evaluated into temporaries
+ *     BEFORE its body runs, so `H(&seat, &p->local, b->ride_dx)` with body
+ *     `{ s->oy = -0x30; o->ox = v; }` yields
+ *         [st seat.ox] [ld dx] [lea &p->local] [st seat.oy] [st local.ox]
+ *     -- the store sitting between an address computation and its own store,
+ *     which NO plain-C statement sequence expresses.  Proved exhaustively:
+ *     all 24 store orders, every comma form (in a statement, inside an
+ *     argument list, in the assignment's LHS base pointer, and through a
+ *     pointer local -- all five normalise to statement order), and a
+ *     function-like macro give either the store two slots too EARLY (the old
+ *     residual at 301-303) or two slots too LATE.  It is NOT a scheduler
+ *     window/phase effect: a dead `*(volatile int*)&mode;` inserted at five
+ *     different points upstream (and twice at one of them) shifts the whole
+ *     stream by one or two instructions and leaves this group's order
+ *     unchanged, so the emitted order here is pure IR order.
  *
- * WHY IT IS NOT SHIPPED: that reordering, and only that reordering, rotates
- * the register allocation of the WHOLE function -- 552 instructions still,
- * but 63 mismatches from index 33, where the hoisted `sq->key` goes to `di`
- * instead of `ax` and the collected bloke to `eax` instead of `ecx`, which
- * then flips the store order of the two halves of `off` at 114-117.  The
- * escape itself is innocent: `JD_Ox(&seat)`, `JD_Oy(&seat)`, a helper taking
- * &seat that stores `o->ox` BEFORE `s->oy`, and a three-parameter helper with
- * a dead first argument all stay at 3 with no rotation (jd_v19.py,
- * diag_dummy3 in jd_v16.py).  So it is the ORDER that costs it, and the
- * original somehow has the order without the cost.
- * Measured inert against the rotation (jd_v14/16/17/18/20.py): all six
- * parameter orders, `int*`/`void*`/`register`/`const`/`short` parameter
- * types, a returning helper, `__forceinline`, a macro (comma expressions are
- * normalised to statement order before scheduling, so every comma/LHS-comma
- * form gives the plain-C schedule), the seat declared first in the block,
- * eight spellings of the collection loop, an explicit `key` local, and
- * `void*`/`int*` prototypes for AdjustBlokePosition/AdjustOffsetForViewMode.
- * Whole-block helpers (the ridecb1 rider-placement shape) re-allocate the
- * function: 97-328 mismatches.
+ * (2) THE PRICE, and how it is paid.  On its own the helper still compiled to
+ *     552 instructions but with 63 mismatches from index 33, because the
+ *     hoisted `sq->key` left the eax/ecx/edx scratch rotation and coalesced
+ *     into edi (`mov di,[edi]`, sq dying at that load), which shifted the
+ *     rotation of the whole rest of the function by one step -- 55 of the 63
+ *     were pure naming, and the other 8 were two forced `lea`/`mov`
+ *     transpositions that only existed because the `lea`'s destination had
+ *     become the register the store still needed.  The cure is the rider
+ *     loop's guard: `if (sq->key == r->ride_id) { Bloke* b = r->bloke;
+ *     if (b->flags & 0x80) { ... } }` in place of the one `&&` chain.  The
+ *     TWO-LEVEL guard with `b` cached between the halves is what does it;
+ *     `if (..) if (r->bloke->flags & 0x80)` (no `b` in between) is inert.
  *
- * ALTERNATIVE 3-MISMATCH FORM: writing the block
- *     seat.ox = 0; p->local.ox = b->ride_dx; seat.oy = -0x30;
- *     p->local.oy = b->ride_dy;
- * also scores 3 but moves the first divergence to 303 (we then emit
- * push/st local.ox/st seat.oy where the original has st seat.oy/push/
- * st local.ox).  Same rotation, one slot the other way; kept out because the
- * shipped order reads as the original's (both seat fields set together) and
- * the count is identical.  All 24 store orders were re-measured this round;
- * only these two reach 3. */
-// WIP-FUNCTION: LEGOLAND 0x00408580  (552 of 552 instructions, mismatch 3 at indices 301-303: the seat.oy store is scheduled between the lea and the push; the IR that does it is known but rotates the whole allocation -- see above)
+ * Also measured this round, all rejected: three other ways to put the key
+ * back in the rotation -- `*(volatile unsigned short*)&sq->key` at the
+ * collection compare (63 -> 8, but it stops the hoist so the load moves into
+ * the loop body), `IP_RenderBlokeIn3DNow(b)` instead of `r->bloke` (63 -> 50,
+ * the original really does re-read `r->bloke` for that call), and assigning
+ * `r = def->riders` after the declarations (63 -> 31); 48 four- and five-
+ * parameter helper shapes covering every evaluation order of the dx load,
+ * the dy load and the address lea; and splitting the helper in two.  Every
+ * one of those left a second residual at 306-310 (`movsx edx,[esi+0x3e]`
+ * coming out ecx) which the guard fix does not have. */
+// FUNCTION: LEGOLAND 0x00408580
 void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode)
 {
     RideDef*   def = elem->data;
@@ -1658,20 +1797,21 @@ void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode
 
             r = def->riders;
             while (r) {
-                if (sq->key == r->ride_id && (r->bloke->flags & 0x80)) {
-                    Bloke*    b = r->bloke;
-                    Person3D* p = b->person;
-                    Offset    seat;
-                    seat.ox = 0;
-                    seat.oy = -0x30;
-                    p->local.ox = b->ride_dx;
-                    p->local.oy = b->ride_dy;
-                    AdjustBlokePosition(&p->local);
-                    AdjustOffsetForViewMode(&seat);
-                    p->screen.ox = b->ride_dx + seat.ox + screen.ox;
-                    p->screen.oy = b->ride_dy + seat.oy + screen.oy;
-                    AdjustBlokePosition(&p->screen);
-                    IP_RenderBlokeIn3DNow(r->bloke);
+                if (sq->key == r->ride_id) {
+                    Bloke* b = r->bloke;
+                    if (b->flags & 0x80) {
+                        Person3D* p = b->person;
+                        Offset    seat;
+                        seat.ox = 0;
+                        Joust_SeatRider(&seat, &p->local, b->ride_dx);
+                        p->local.oy = b->ride_dy;
+                        AdjustBlokePosition(&p->local);
+                        AdjustOffsetForViewMode(&seat);
+                        p->screen.ox = b->ride_dx + seat.ox + screen.ox;
+                        p->screen.oy = b->ride_dy + seat.oy + screen.oy;
+                        AdjustBlokePosition(&p->screen);
+                        IP_RenderBlokeIn3DNow(r->bloke);
+                    }
                 }
                 r = r->next;
             }

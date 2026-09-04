@@ -203,9 +203,87 @@ void* memset(void*, int, unsigned int);
  * over {blokes, riders, link, AddBasicObject} x the six scalar seeds, run
  * twice (once per rider spelling) -- the committed placement is the minimum.
  *
+ * PASS N+1 (2026-09-04, laneB).  Still 15, first diverging index still 32.
+ * The MECHANISM is now pinned down, and it explains why the two spellings are
+ * complementary rather than one being a refinement of the other:
+ *
+ *   - VC6's intrinsic memset ALWAYS materialises its destination as a scratch
+ *     pointer.  Even `memset(&st->riders[0], 0, 4)` emits `lea ecx,[esi+0x30]`
+ *     and stores `[ecx]`.  That temp is the whole point: it occupies ecx from
+ *     index 32, so the `o` argument cannot be hoisted into ecx and instead
+ *     lands in EAX with a LATE load -- which is what fixes the eax/ecx/edx
+ *     rotation of all three SetMapTile arms and is worth the 87.
+ *   - Three plain stores address off esi correctly (indices 49..51 are
+ *     `mov [esi+0x30/34/38], eax`, the original's addressing) but then VC6
+ *     hoists the `o` load into ecx SEVENTEEN instructions early (our index 32
+ *     becomes `mov ecx,[esp+0x14]`), and that one choice rotates every
+ *     downstream register: ~85 of the 102 mismatches are the rotation, not the
+ *     rider stores.
+ *   So the residual is a single allocator decision -- `o` in eax vs ecx -- and
+ *   every measured spelling buys one half at the price of the other.
+ *
+ * MEASURED AND RULED OUT THIS PASS (baseline = the committed memset, 15):
+ *   - split memsets: 4+plain+plain (15, and rb 14 -- the best register-blind
+ *     of the memset family), plain+8 (15), plain+plain+4 (15), 8+plain (101),
+ *     4+8 (101), 8+4 (103), three 4-byte memsets (99);
+ *   - `memset(st->riders, 0, 3 * sizeof(void*))` and a redundant cast on the
+ *     base are byte-identical to the committed form;
+ *   - a 12-byte struct copy from a zeroed local carrier (105); `memcpy` from a
+ *     static zero triple (105, and 454 bytes); `void** r = st->riders; r[0..2]`
+ *     (102); a `void* z = 0;` carrier (102); chained assignment (102);
+ *     `*(int*)&st->riders[i] = 0` (102); reverse order (102);
+ *   - placements not covered by the old 2450-point search: the plain stores
+ *     after `st->next = g_jc_stations` (96) or after the publish (96) --
+ *     these give the BEST shape in the whole search, rb=10, i.e. every
+ *     instruction is in the original's position and only the registers
+ *     differ -- interleaved into the blokes run (103-106), and before the
+ *     blokes / timer / take (106);
+ *   - an inline forwarder around AddBasicObject, an early-return guard and
+ *     `if (st != 0)` are all byte-identical to the committed object;
+ *   - SHIM, for the record: a volatile read of `o` at its use with plain rider
+ *     stores is 99 and rb=6 (the best register-blind of all) but pins the load
+ *     AFTER `mov [g_jc_stations],esi`, three slots later than the original.
+ *
+ * A LOWER NUMBER EXISTS AND IS **NOT COMMITTED**, deliberately.  Re-running
+ * the placement search over the SPLIT memset spellings (the re-run rule) finds
+ * 12 -- three better than the committed 15, same 141 instructions / 438 bytes,
+ * first diverging index 42 instead of 32, and indices 0..41 and 53..140 all
+ * byte-identical, i.e. the residual becomes ONE contiguous 12-instruction
+ * window.  The spelling is
+ *      st->next = g_jc_stations;
+ *      memset(&st->riders[0], 0, 4);      (or the same 4-byte memset on
+ *      st->riders[1] = 0;                  riders[2] with the other two
+ *      st->riders[2] = 0;                  plain -- both score 12)
+ *      g_jc_stations = st;
+ * It is NOT committed because a four-byte memset of a single pointer slot is
+ * not source anyone wrote: it is a lever, not a reconstruction.  What it does
+ * mechanically is worth knowing, though -- ONE store through the memset's
+ * scratch pointer is enough to keep `o` in eax, while the other two stores
+ * address off esi as the original's do, and putting the `next` link store
+ * BEFORE the riders in the source stops the `lea` being hoisted to index 32.
+ * Whoever finds the honest construct for `xor ecx,ecx` should re-run the
+ * placement search with the link-before-riders order.
+ * Same matrix, plausible spellings only: full memset after the link (99) or
+ * after the publish (99); three plain stores after the link (96, and rb=10 --
+ * every instruction in the original's position, only the registers wrong) or
+ * after the publish (96); memset over the BLOKES instead, at any of the three
+ * placements (101-107); memset over both (105-107); a `for` loop over the
+ * riders after the link (62); an inline `ClearSlot(void**)` helper on
+ * riders[0] (96); `__int64` zero stores at either end (96).
+ *
+ * CORPUS SCAN (negative, and informative).  scratchpad/laneB/scan_zero2.py
+ * walks all 1542 exact bodies looking for a SECOND zero register storing to
+ * the same base register as an older live zero -- the `xor ecx,ecx` at index
+ * 42 here.  There is no such instance anywhere in the matched corpus: the only
+ * two candidates it reports (person3d.c LoadAnim3D, westtown2.c
+ * Bank_TickCustomer) are `xor r,r / mov rl,byte ptr [..]` zero-EXTENSION
+ * idioms, not rematerialised zeros.  So no function we have matched
+ * demonstrates the construct that splits a zero web mid-run, and the memset
+ * route stays the closest reachable state.
+ *
  * DATA: the `owner` handed to JungleCruise_UpdateRiverTile really is the
  * station record itself (its +0x00 IS the packed square). */
-// WIP-FUNCTION: LEGOLAND 0x00434f90  (141/141 insns; riders cleared off esi from a rematerialised zero, we use a lea base)
+// WIP-FUNCTION: LEGOLAND 0x00434f90  (141/141 insns, 438/438 bytes, 15 by audit; first diff at index 32 -- one allocator decision: the original clears the riders off esi from a rematerialised `xor ecx,ecx` while keeping `o` in eax, our memset buys the eax and pays a `lea` base, plain stores buy the base and pay the eax)
 void JungleCruise_Add(void* o, Pos* p)
 {
     BPosW      key;

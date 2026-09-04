@@ -1708,8 +1708,83 @@ extern void*      g_car_pal_c;       /* 0x0082c6bc  livery 1 */
  * `sar edi,9` and then overwrites it with `c->tx` -- a dead store this build
  * does not emit, and the one instruction we have spare elsewhere.
  * Behaviour, the frame, the SchoolCar record layout and the whole manoeuvre
- * dispatch are reconstructed; only the schedule differs. */
-// WIP-FUNCTION: LEGOLAND 0x00402780  (351/351 insns, 322 mismatches; the projection register tie-break at index 19)
+ * dispatch are reconstructed; only the schedule differs.
+ *
+ * 2026-09-04, lane H.  Residual UNCHANGED at 322.  The "exactly two outcomes"
+ * claim above was re-derived from scratch as a full CROSS PRODUCT rather than
+ * a list of one-off spellings: {wy= before wx= | wx= before wy=} x {sy= before
+ * sx= | sx= before sy=} x {sx>>=9 first | sy>>=9 first | both shifts folded
+ * into the product expressions} = 12 builds, plus 11 more spellings
+ * (fully-sequential per coordinate, an explicit `sx = wx; sx -= wy;` copy,
+ * `wx + wy` split into a sum temp then multiplied, `th * (wx + wy)` with the
+ * multiplier first, `(wy + wx)`, `wx + -wy`, `sx = sx >> 9`).  Every one of
+ * the 23 lands on exactly one of the two known points:
+ *     322 X / 351 insns / 1151B  -- wy in ebp, wx in ebx (the ORIGINAL'S
+ *         PAIR, indices 0..18 exact) but the difference computed first, so
+ *         the sum folds in place as `add ebp,ebx`;
+ *     330 X / 350 insns / 1151B  -- the original's three-register
+ *         `lea ebp,[edi+ebx]` for the sum, but wy rotates to ebx and wx to
+ *         edi, first divergence 8, and the difference then folds in place
+ *         instead (`sub edi,ebx`), losing an instruction.
+ * The two are exactly complementary: whichever product is emitted SECOND is
+ * the one VC6 coalesces with its operand's register, and the original has
+ * NEITHER coalesced (`lea eax,[ebx+ebp]` for the sum into a scratch register,
+ * `mov edi,ebx / sub edi,ebp` for the difference, then `mov ebp,eax` to move
+ * the sum into wy's freed register).  Reaching that needs BOTH webs kept
+ * separate from wx/wy, and the shift order is the only control we have over
+ * which one is emitted first.  Committed body keeps the 322 point because it
+ * has the original's register pair and its instruction count.
+ *
+ * 2026-09-04, lane M.  322 -> 320, and the "351/351 instructions" headline is
+ * now known to have been TWO COMPENSATING ERRORS cancelling.
+ *  - ADOPTED: the original's dead store at 0x004027f3 is now emitted, as
+ *    `*(volatile int*)&tx = sx;` immediately before `tx = c->tx;`.  audit.py:
+ *    mismatch 322 -> 320, LCS diff 198 -> 195, register-blind diff 150 -> 131.
+ *    It costs one instruction (352 emitted, audit trims to 351) and four bytes
+ *    (1151 -> 1155).  That is not a regression being hidden; the arithmetic
+ *    says so.  The original is `ours + dead store + lea + mov ebp,eax
+ *    - add ebp,ebx - E`, so with 351 == 351 before this change E was exactly
+ *    TWO: we carry two instructions the original does not (residual (b), the
+ *    flag kept in memory).  The old count match was those two extras cancelling
+ *    the two missing projection instructions.  Emitting a real instruction of
+ *    the original's exposes that, and every structural metric improved, so it
+ *    is kept.  When index 19 is fixed the count returns to 351 (+1 for
+ *    lea/mov-minus-add, -2 for the flag).
+ *  - The phantom-home lever was measured in all its documented forms.  Only
+ *    the write THROUGH AN EXISTING LOCAL works here: `*(volatile int*)&tx`
+ *    before `tx = c->tx` gives 320/352.  A block-scope `struct { int x, y; }
+ *    spill` (or the sy variant) RESERVES A REAL SLOT and re-lays the prologue
+ *    -- first divergence 0, 328/330 -- because this frame is already the
+ *    original's 0x38 with nothing spare; a one-member struct and a bare `int`
+ *    spill are inert-but-costly (322/352, worse LCS than &tx); `&ty`, `&swx`
+ *    and `&saved.x` all score worse than `&tx`.  Position matters: before the
+ *    swx/swy/saved.y run it costs TWO instructions (353), after it costs one.
+ *  - The "exactly two outcomes" result survives a THIRD, larger sweep (49
+ *    builds this pass) and is now certain.  New spellings, all landing on one
+ *    of the two points: a statement of the save block interleaved between the
+ *    sum and the difference (all three of swx/swy/saved.y); `-(wy - wx)`; an
+ *    explicit temp for the SUM whose live range straddles the difference
+ *    (`int t = (wx+wy)*th; sx = (wx-wy)*tw; sx >>= 9; sy = t >> 9;` plus two
+ *    variants) -- the strongest idea, because the original's `mov ebp,eax` IS
+ *    a two-web copy, but VC6 flattens the temp anyway; an explicit temp for
+ *    the DIFFERENCE (330 point); both temps; a volatile barrier between the
+ *    two products (flips to the 330 point); and the full
+ *    {sum-first|diff-first} x {sx>>=9|sy>>=9} x {separate|folded|inline}
+ *    x {dead store|none} cross product.
+ *  - WHAT THE TWO POINTS ACTUALLY ARE, stated so nobody re-derives it: the
+ *    REGISTER ASSIGNMENT of our 322/320 point is already the original's
+ *    exactly -- wx=ebx, wy=ebp, sx=edi, sy=ebp.  Only the EMISSION ORDER of
+ *    the two products differs.  The original emits the sum first, so ebp still
+ *    holds wy and the sum must go to a scratch (`lea eax,[ebx+ebp]`, then
+ *    `mov ebp,eax` once wy dies).  We emit the difference first, so the sum
+ *    folds in place (`add ebp,ebx`).  Every construct that makes THIS build
+ *    emit the sum first also makes it re-assign wy to ebx and wx to edi, so
+ *    the sum can be built straight into a free ebp -- that is the 330 point,
+ *    first divergence 8.  The lever needed is one that forces the sum first
+ *    WITHOUT freeing ebp, i.e. something that keeps wy live past the sum; no
+ *    zero-cost spelling of that exists (a third use of wy costs an instruction
+ *    the original does not have). */
+// WIP-FUNCTION: LEGOLAND 0x00402780  (351 insns by audit's extent, 352 emitted, 1155 vs 1147 bytes, 320 mismatches; the projection register tie-break at index 19)
 void StepSchoolCar(SchoolCar* c)
 {
     /* `tw` doubles as the render depth key and `th` as the "this car did
@@ -1747,6 +1822,11 @@ void StepSchoolCar(SchoolCar* c)
     swx = c->wx;
     swy = c->wy;
     saved.y = c->cur.y;
+    /* The original spills sx into tx's home here and overwrites it eleven
+     * bytes later without ever reading it (0x004027f3).  That dead store is
+     * VC6 scheduling, not behaviour; the volatile write is the only way to
+     * ask this build for a store at a value's death. */
+    *(volatile int*)&tx = sx;
     tx = c->tx;
     saved.x = c->cur.x;
     ty = c->ty;

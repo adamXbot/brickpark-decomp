@@ -1613,18 +1613,127 @@ extern CarRow  g_tower_car[4];                               /* 0x004b77a8 */
  * 8 BETTER than the committed body -- it is NOT committed because it is a
  * numeric accident: it loses the case-0 tile CSE and keeps the zero web, so
  * it is further from the original than what is here. */
-// WIP-FUNCTION: LEGOLAND 0x0043bac0  (33%, 149/222; frame and block layout now exact, the cursor/pointer register swap remains -- see above)
+/* ROUND 7 (2026-09-04, still 149).  The ebx/ebp swap was attacked from the
+ * reference-count side and is now known to be a PRIORITY ORDERING, one place
+ * off.  The four callee-saved webs are ranked b > rec > {tile,tx} > r in ours
+ * and b > rec > r > {tile,tx} in the original (registers are handed out
+ * esi, edi, ebx, ebp in that priority order).  Evidence that the ranking is
+ * movable at all: promoting case 0's `b->flags |= 8;` to
+ * `r->bloke->flags |= 8;` -- ONE extra reference to `r` -- puts `r` in EDI,
+ * i.e. it jumps r ABOVE rec, overshooting the target by one place (209).
+ * Nothing found lands on the intermediate rank.  Measured and inert (r stays
+ * in ebp): 22 single-point b/r reference mutations (every `b->` line in the
+ * switch promoted to `r->bloke->` in turn, and every `r->bloke->` demoted),
+ * eight declaration-order permutations, the six loop-head orders RE-RUN with
+ * the named `tile` local, `tilex` without the volatile read, `for(;;)` with
+ * the test inside, case 5 deleted, an extra `rec` reference, `def` re-read as
+ * `((RideDef*)elem->data)`, `unsigned seat`, `int base[3]`, and `tx` inlined
+ * into case 0.  The named-`tile` head (round 6) re-measured in this state:
+ * 207 strict but rb 116 -> 85 and shp 112 -> 89, still the truest shape and
+ * still not committed. 
+/* ROUND 8 (2026-09-04, audit 149 -> 138, byte length 693 -> 697 of 698, and
+ * THE ebx/ebp SWAP IS FIXED -- `r` is now in ebx and the whole prologue plus
+ * indices 0-22 are exact).  Round 6 had the head's shape right (a named
+ * `tile` local) and round 7 blamed a reference-count ranking; both were half
+ * the answer.  What actually moves the ranking is WHICH POINTER THE LATER
+ * CASES READ THROUGH, and the winning combination is:
+ *   1. `RideTile* tile = RIDE_TILE(r);` for the FindRecord call, `tilex`,
+ *      `base[1]` and case 0's SpaceTower_TakeSeat (round 6's shape), AND
+ *   2. `int tiley = tile->b.y;` as a NAMED local that cases 3 and 8 both
+ *      consume.  The original keeps that byte-load's value in edx live
+ *      across the jump table (case 8's `add ecx,edx` reads it), so it really
+ *      is one CSE'd value and not two reads.  With `tile` alone (case 3 and
+ *      case 8 re-reading through `r`) the strict count is 200 and `r` is
+ *      still in ebp; adding `tiley` gives 163 and `r` in EBX.  The grid was
+ *      measured: {tiley, tile->b.y, RIDE_TILE(r)->b.y} x {same} for cases 3
+ *      and 8 = 138/211/169/212/210/148/153/153/160, and every cell that has
+ *      case 3 reading `tile->b.y` ESCAPES (VC6 tail-duplicates the
+ *      NewDirForAction tail).
+ *   3. The original reloads the spilled `def` TWICE back to back (indices
+ *      22/23) and reads base_x through the first and base_y through the
+ *      second.  `(*(RideDef* volatile*)&def)->base_y` buys the second load
+ *      and is worth 163 -> 138.  This is a SHIM: it produces the right
+ *      instruction from the right slot but pins it LATE (ours emits it at
+ *      index 31, the original at 23), which is the whole of what is left in
+ *      the head.  Proof that the schedule and not the shim is the residual:
+ *      spelling that second read `g_spacetower_def->base_y` (a genuinely
+ *      different memory reference, so no CSE) puts the load at index 23 and
+ *      makes indices 22-29 and 34-41 exact at 132 strict -- but the original
+ *      plainly reads [esp+0x24] there, not the global, so it is NOT
+ *      committed.  Everything that would reload `def` without a barrier was
+ *      measured and CSE'd away: a second `def2 = elem->data` local (163),
+ *      `((RideDef*)elem->data)->base_y` (195), `(int)(unsigned)`, a volatile
+ *      on the FIELD rather than the pointer, `RideDef* volatile def` (177),
+ *      and a `static __inline` helper taking `&def` (136 strict but rb 208
+ *      -> 195 and bad 14 -> 27: a compensating error, rejected).
+ *   4. `unsigned seat` (round 3 had measured this and not committed it):
+ *      strict- and byte-neutral, and it turns our `sar edi,1` into the
+ *      original's `shr edi,1`.  Committed because it is right, not because
+ *      it scores.
+ * WHAT IS LEFT (138): (a) the head's second `def` load is scheduled at 31
+ * instead of 23, which swaps eax/edx for the rematerialised `tile` pointer
+ * and `tiley` at indices 30-33; (b) case 3 (indices 89-121) is a two-register
+ * rotation plus the original's re-read of `tile->b.y` through the pointer
+ * still live in eax -- because the original's dir byte lands in ECX there and
+ * ours in AL, the original's `push ecx` cannot merge into the shared
+ * NewDirForAction tail and ours does, which is the 3-instruction offset that
+ * runs to the end of the body; (c) from index 122 on the body is a pure
+ * 3-slot shift with no register differences at all.  Re-measured and inert in
+ * this state: base[3], all the r/b reference mutations from round 7, the
+ * volatile read on tilex moved to case 3, and a volatile read of tiley. */
+/* ROUND 8b: the whole 138 now reduces to ONE tie-break, traced end to end.
+ * At the head's index 30 the original puts the rematerialised `tile` pointer
+ * in EAX and `tiley` in EDX; ours does the reverse.  Everything else follows:
+ * with `tile` in eax the original's case 3 must reload `tiley` through it
+ * (`xor edx,edx / mov dl,[eax+1]`, +2 instructions we do not emit) and must
+ * index the car table through eax (`lea eax,[edi+edi*4] / mov cl,[eax*4+..]`),
+ * which puts case 3's dir byte in CL where ours is in AL -- and because ours
+ * matches case 8's AL, our `push` merges into the shared NewDirForAction tail
+ * where the original's `push ecx` cannot (+1).  Those three instructions are
+ * the whole 3-slot offset that makes indices 122-221 differ.  It is NOT a
+ * free-register question: `g_spacetower_def->base_y` reproduces the original's
+ * register PRESSURE at index 30 exactly (ecx busy from 23, only eax and edx
+ * free) and STILL picks edx for the lea, so the choice is the order of the two
+ * values in the allocator's list, not availability.  Measured and inert in
+ * this state: all six loop-head orders, six random declaration-order
+ * permutations, `base[1] = tiley + def->base_y` (operand order), `tiley` as
+ * unsigned int, a `dir` local or a `car` index local in case 3,
+ * `SpaceTower_TakeSeat(r, RIDE_TILE(r))` (now byte-identical to `tile`, so
+ * case 0's argument spelling has stopped mattering), FindRecord taking
+ * `RIDE_TILE(r)`, and `tilex` read through `RIDE_TILE(r)`.  Worse: `tiley` as
+ * char/uchar/short (166-197), read as `tile->key >> 8` (194), a whole-union
+ * `RideTile t = *tile;` copy (168), `tiley` read through `RIDE_TILE(r)` (157),
+ * and `tiley` computed before `tx` (157). */
+/* ROUND 8c: re-checked with scratchpad/laneK/permrank.py (see the ROUND 8c
+ * paragraph in SpinningBarrels_Activate).  The committed body is real=136
+ * against real=138 for the pre-round-8 body, so the change is a real
+ * improvement but the strict 149 -> 138 OVERSTATED it: eleven of those were a
+ * register renaming.  Full ranking of this round's candidates:
+ *   c3R_c8Y no-voldef 103 | c3Y_c8Y voldef (COMMITTED) 136 | old body 138
+ *   | c3T_c8R 146 | c3R_c8Y voldef 151 | c3R_c8R 152 | c3Y_c8Y no-voldef 159
+ *   | c3Y_c8R 169 | c3T_c8R no-voldef 190 | c3T_c8Y 210
+ * `c3R_c8Y` with no volatile def read scores real=103 with the IDENTITY
+ * permutation -- by far the best number in the file -- and its case split
+ * (case 3 RE-READS `tile->b.y`, case 8 consumes the CSE'd `tiley`) is exactly
+ * what the disassembly shows.  It is NOT committed because it spills `tiley`
+ * and takes the frame to `sub esp,0x14` where the original has 0x10; its bad
+ * list opens [0, 1, 7, 15], the prologue.  That makes the remaining task
+ * precise: find the spelling that keeps `tiley` in edx across the jump table
+ * while case 3 re-reads it through the pointer in eax. */
+// WIP-FUNCTION: LEGOLAND 0x0043bac0  (38%, 138/222; frame, block layout, the ebx/ebp cursor split and everything to index 22 exact -- see above)
 void SpaceTower_Activate(RideElem* elem)
 {
     RideDef*   def = elem->data;
     int        tilex;
+    int        tiley;
     RiderNode* next;
+    RideTile*  tile;
     int        base[2];          /* only [1] is ever used (original) */
     RiderNode* r;
     TowerRec*  rec;
     Bloke*     b;
     int        tx;
-    int        seat;
+    unsigned   seat;
     unsigned char dir;
 
     SpaceTower_TickMachine();
@@ -1632,18 +1741,20 @@ void SpaceTower_Activate(RideElem* elem)
     while (r) {
         next = r->next;
         b = r->bloke;
-        rec = SpaceTower_FindRecord(RIDE_TILE(r));
+        tile = RIDE_TILE(r);
+        rec = SpaceTower_FindRecord(tile);
         if (rec == 0)
             break;
-        tilex = RIDE_TILE(r)->b.x;
+        tilex = tile->b.x;
         tx = def->base_x + tilex;
-        base[1] = def->base_y + RIDE_TILE(r)->b.y;
+        tiley = tile->b.y;
+        base[1] = (*(RideDef* volatile*)&def)->base_y + tiley;
         if (!b->state) {
             switch (b->action) {
             case 0:
                 rec->joined++;
                 rec->timer = 200;
-                SpaceTower_TakeSeat(r, RIDE_TILE(r));
+                SpaceTower_TakeSeat(r, tile);
                 b->flags |= 8;
                 b->target.x = tx << 8;
                 b->target.y = (base[1] + 1) << 8;
@@ -1662,7 +1773,7 @@ void SpaceTower_Activate(RideElem* elem)
             case 3:
                 seat = b->seat;
                 b->target.x = (g_tower_seat[seat].dx + tilex) << 8;
-                b->target.y = (g_tower_seat[seat].dy + RIDE_TILE(r)->b.y) << 8;
+                b->target.y = (g_tower_seat[seat].dy + tiley) << 8;
                 dir = (unsigned char)CalcMoveLine(b->world, b->target,
                                                   b->path) + 0x10;
                 b->state = 7;
@@ -1698,7 +1809,7 @@ void SpaceTower_Activate(RideElem* elem)
                 break;
             case 8:
                 b->target.x = ((def->qx + *(volatile int*)&tilex) << 8) + 0x80;
-                b->target.y = ((def->qy + RIDE_TILE(r)->b.y) << 8) + 0x80;
+                b->target.y = ((def->qy + tiley) << 8) + 0x80;
                 dir = (unsigned char)CalcMoveLine(b->world, b->target,
                                                   b->path) + 0x10;
                 b->state = 7;
@@ -2573,6 +2684,36 @@ extern const int g_safari_end_off[8];                        /* 0x004b4ce4 */
  * removing `*(volatile int*)&spill.x = sx;` costs the frame (0x38 -> 0x34)
  * and measures 331; `spill.y` 133; spilling `sy` instead 147; reusing `sy`
  * for the whole y chain 148. */
+/* ROUND 7 (2026-09-04, unchanged at 132).  Nothing new committed.  The y
+ * block (86-124) is the family residual: see the ROUND 7 paragraph in
+ * SpinningBarrels_Activate, which now proves the rotation is decided inside
+ * this one block and that it is triggered by the y accumulator being ONE web
+ * with the later subtractions kept separate -- not by the compound itself.
+ * The tail rotation is still the `p = b->person;` load landing at index 91
+ * instead of 103.  Note for the next lane: the original stores pos.x EARLY
+ * (index 106) and then RECYCLES edi for the screen.oy reload (107), where
+ * ours keeps screen.oy in ebp the whole time -- i.e. the original is one live
+ * value SHORT of registers here where we are not, which is the same
+ * "one temp too few" symptom recorded in round 5 and is probably the same
+ * cause as the early `p` load. */
+/* ROUND 8 (2026-09-04, unchanged at 132).  This function is now the best
+ * INSTRUMENT for the family residual, because the one-web y chain here is
+ * worth rb 386 -> 395 and bad 16 -> 7 (i.e. only SEVEN original indices are
+ * left in a differing region register-blind) while the strict count goes
+ * 132 -> 149.  What the one-web chain fixes here, on top of the two `sub`s:
+ * indices 86-90 become exact, so BOTH GetUnitDepth pushes land where the
+ * original has them, and screen.oy stops being loaded 20 slots early.  What
+ * it costs is the three-cycle callee-saved rotation (orig ebx -> ours edi,
+ * orig ebp -> ours ebx, orig edi -> ours ebp).
+ * A named `ys` local (`ys = Get_YScroll(); sy += g_map_cfg->oy - ys;`)
+ * UNDOES the rotation completely -- indices 60-84 then match register for
+ * register -- but with the block split gone VC6 flattens the four later
+ * subtractions into the delta.  The 32-cell sweep of {four breaker forms} x
+ * {eight positions} shows the breaker is a pure block split (`if (sx2){}`
+ * and `if (sy){}` are byte-identical) and that its position selects one of
+ * three register attractors; none of the 32 keeps both the separate
+ * subtractions and the original naming.  See the ROUND 8 paragraph in
+ * SpinningBarrels_Activate for the full list of what else was measured. */
 // WIP-FUNCTION: LEGOLAND 0x00415220  (67%, 132/402; frame, byte length and the head exact, a tail register rotation remains -- see above)
 void SafariRide_Activate(RideElem* elem)
 {
@@ -2915,8 +3056,17 @@ extern char g_sbarrel_pathname[];                            /* 0x004b78b4 "BoxB
  *     (compound assignment on the shift's own web).  A corpus scan over all
  *     1542 exact bodies for `sub <scratch>,<scratch>` followed within three
  *     slots by `add <callee-saved>,<that scratch>` returns exactly TWO hits,
- *     both in PrintSpriteEx (0x4856a0), and both are `param += expr` -- i.e.
- *     the shape only ever comes from a compound assignment on a variable.
+ *     both in PrintSpriteEx (0x4856a0), and both are `param += expr`.
+ *     *** 2026-09-04, WITHDRAWN by the integrator: that scan was over-narrow
+ *     (it required the `sub` within three slots and a specific operand
+ *     class).  The loose form -- `add <callee-saved>,<scratch>` with no
+ *     preceding-instruction or window condition -- finds 171 hits across the
+ *     1544 exact bodies, so it does NOT show "the shape only ever comes from
+ *     a compound assignment".  The compound-assignment conclusion still
+ *     stands on the direct 2x2 isolation measured below; it simply has no
+ *     corpus evidence behind it.  General rule now in docs/DECOMP.md: a
+ *     conclusion resting on a scan finding few or no instances must be
+ *     re-run with looser conditions before it is relied on. ***
  *   - the same substitution moves the Safari's two GetUnitDepth pushes onto
  *     indices 86/89 where the original has them, and halves its
  *     register-blind residual (rb 34 -> 18), with the identical 3-cycle.
@@ -2964,6 +3114,156 @@ extern char g_sbarrel_pathname[];                            /* 0x004b78b4 "BoxB
  * orders, direct stores, `int pv[2]`, `short` temps, `x+x` instead of `x*2`,
  * a `static __inline` seed helper with either argument order (only the
  * helper's STORE order matters), an empty `if` between the stores. */
+/* ROUND 7 (2026-09-04, unchanged at 19).  ~330 further variants; the wall is
+ * now characterised exactly, so do not re-derive it.
+ * (a) DESTINATION RULE, refined and re-measured.  For a commutative add the
+ *     destination is the expression TEMPORARY when the sum contains one; when
+ *     BOTH operands are named locals it is the one defined LAST (nearest the
+ *     add), NOT the earliest.  `sy2 = sy + dy` and `sy2 = dy + sy` both emit
+ *     `add <dy>,<sy>`.  So the original's `add ebx,edx` (destination = the
+ *     long y web) can only come from a compound `sy2 += <expr>` on that web,
+ *     or from `<expression temporary> + <named local>`; a named delta cannot
+ *     produce it.
+ * (b) THE ROTATION IS DECIDED ENTIRELY INSIDE case 1.  Stub-each-case (every
+ *     other case body replaced by `break;`, 8 variants) leaves the rotated
+ *     triple in every one, so nothing outside this block can be blamed and
+ *     nothing outside it can cure it.
+ * (c) THE DISCRIMINATOR IS NOT THE COMPOUND.  Isolated on a 2x2 (strict
+ *     counts; 19 = committed):
+ *       2 webs, `sy2 = sy - ys; sy2 += oy;`  + empty-if   19   ebx/ebp
+ *       2 webs, same, no empty-if                        237   ebx/ebp
+ *       1 web,  `sy2 -= ys; sy2 += oy;`      + empty-if    38   edi/ebx  ROT
+ *       1 web,  same, no empty-if                        237   ebx/ebp
+ *       1 web,  `sy2 += oy - ys;` (the original's shape)   34   edi/ebx  ROT
+ *     The one-web SUB/ADD form rotates too, so the trigger is "the y
+ *     accumulator is ONE web AND the later subtractions are kept separate",
+ *     not the compound.  Both no-empty-if rows fold the two later
+ *     subtractions into a scratch web (that is what the empty `if` exists to
+ *     stop), which is why they do not rotate.
+ * (d) Inert this round -- ALL identical to the plain merged form: the six
+ *     loop-head orders (next/b/tile) re-run under the merged y chain; tx/ty
+ *     swapped and moved above FindRecord; world-read order; sx/sy compute
+ *     order; y-chain before x-chain; all orders and interleavings of the four
+ *     subtractions; `unsigned`/`unsigned int`/`long`/`short` on each of
+ *     wx,wy,sx,sx2,sy2; three spill placements; a dummy extra use of wx or
+ *     wy; GetTileDimensions first; four positions for
+ *     GetScreenCoordsForObject; three declaration-order permutations; named
+ *     `sox`/`soy` locals read early or late; the `p` cache removed; an extra
+ *     int web; a late use of sx; compound-chain shifts (`sy2 = wx + wy;
+ *     sy2 *= th; sy2 >>= 9;`) in three spellings; inlined world reads with no
+ *     wx/wy locals; a zero-cost extra coalescing web at either chain's tail
+ *     (`{int py = sy2 * 2; pos.y = py;}`, `sy3 = sy2 - screen.oy`,
+ *     `sx3 = sx2 - pivot/2`, `sx2 *= 2`); and SEVEN alternative spill shims
+ *     (`volatile SpillPair`, `volatile int[2]` at either index, a volatile
+ *     STRUCT MEMBER, two volatile ints, the cast on `.y`) -- the shim's
+ *     spelling is irrelevant to the rotation, only its existence is (dropping
+ *     it costs the frame, 0x3c -> 0x38).
+ * (e) Strictly worse and rejected: a copy `sy2 = sy;` before the compound
+ *     (VC6 does NOT coalesce it -- sy2 lands in a SCRATCH register and the
+ *     whole tail re-schedules); a destructive `sar`/`imul`/`add` web split
+ *     (`sy = (wx+wy)*th; sy2 = sy >> 9;` keeps the triple but sinks the `sar`
+ *     below both scroll calls and still puts sy2 in ecx); a named delta `dy`
+ *     (keeps the triple, but VC6 then FLATTENS the two later subtractions
+ *     into dy, and the empty-`if` that stops the flattening brings the
+ *     rotation straight back); the one-statement form
+ *     `sy2 = ((wx+wy)*th>>9) + (oy - Get_YScroll())` (frame 0x3c -> 0x40: the
+ *     shift then lives across both scroll calls); a real dead store instead
+ *     of the volatile one (`pos2.x`, `pos2.y`, `pos2.z`, `pos.x`, `pos.y`,
+ *     plain `spill.x`) -- all are dead-store-eliminated, frame 0x38.
+ * (f) The DECOMP rider-placement lever ("an AdjustBlokePosition block must be
+ *     a `static __inline` helper that OWNS the escaped Offsets") was built
+ *     and measured here: a `SBarrel_SeedPos(b, tile, def, &pos)` helper
+ *     owning `screen` and `spill` keeps the 0x3c frame only when the `p`
+ *     cache stays in the caller, and ROTATES with BOTH y shapes (the base
+ *     sub/add form rotates inside the helper too).  It is not the cure here.
+ * (f2) Delta-spelling closure: `sy2 = sy - (Get_YScroll() - oy)`,
+ *     `sy2 = sy + (oy - Get_YScroll())`, `sy2 = sy; sy2 -= ys - oy;` and the
+ *     `(int)`-cast form all canonicalise to the SAME code as the plain copy
+ *     form -- VC6 folds the difference into one temporary and the accumulator
+ *     lands in a scratch register (ecx), so the long web is never the
+ *     destination.  Combined with (a) this closes the search: the only
+ *     spelling that puts the sum in the long web is the in-place compound,
+ *     and the in-place compound always rotates.
+ * (f3) Function-level structure is inert too (all identical to merged):
+ *     `return` vs `break` on the missing record, a lazily assigned `def`,
+ *     `for (r = ..; r; r = next)`, `while (r != 0)`, `!b->state`, and moving
+ *     SpinningBarrels_TickMachine() to the head.
+ * (g) Case 8's 2 (indices 213/214) re-searched with nine spellings; the
+ *     committed `int px = ..*2; int py = ..*2; pos2.y = py; pos2.x = px;` is
+ *     still the floor.  Natural x-then-y stores cost the movsx order back. */
+/* ROUND 8 (2026-09-04, unchanged at 19).  The wall was re-derived from
+ * scratch on the Safari and the Spider as well as here, and TWO NEW FACTS
+ * pin it down; do not re-run these searches.
+ * (i) THE EMPTY `if` IS A PURE BLOCK SPLIT, NOT A SECOND CONSUMER.  Under the
+ *     one-web chain, `if (sx2) { }` and `if (sy) { }` in the same position
+ *     compile to BYTE-IDENTICAL objects (measured on the Safari: 153 either
+ *     way, and the same for `if (sy != 0)`).  What stops the reassociation is
+ *     the basic-block boundary, and its POSITION is what picks which of three
+ *     attractors you land in -- after the compound gives the ebx/ebp naming,
+ *     after `sx2 -= screen.ox` gives a THIRD naming (edi/ebx), later still is
+ *     inert.  Under the one-web chain the empty `if` is unnecessary
+ *     (`oneweb_noif` is byte-identical to `oneweb_if` on all three
+ *     functions), which is itself an argument that the one-web chain is the
+ *     original's source: it needs no shim.
+ * (ii) A NAMED `ys` LOCAL RESTORES THE ORIGINAL'S CALLEE-SAVED NAMING.
+ *     `ys = Get_YScroll(); sy += g_map_cfg->oy - ys;` (one web) puts wy back
+ *     in edi, wx/sy in ebx and sx in ebp -- the Safari's indices 60-84 then
+ *     match the original REGISTER FOR REGISTER -- but with no block split
+ *     VC6 flattens the two later subtractions into the delta and the block
+ *     costs 17 bytes (Safari 307, Spider 299).  Adding the block split back
+ *     re-rotates.  So the two halves of the residual are now known to be the
+ *     SAME switch: `separate later subtractions` XOR `original registers`.
+ *     Nothing found sits on both sides.
+ * Also measured this round and inert or worse (all on the one-web chain
+ * unless noted): wx/wy read order; the spill on sy, on spill.y, moved after
+ * the x chain, or doubled; `if` on sx2/both/before; y-chain before x-chain;
+ * all four subtraction interleavings; `p` removed or moved; a coalescing
+ * tail web for x or for y (`sy3 = sy - ofs/2`, `{int py = sy*2;}`); named
+ * `oy`, named `xs`, a `tw` copy; screen.ox/oy in named locals; sum-before-
+ * difference (329 -- confirms the DECOMP difference-before-sum lever, which
+ * this file already had right); GetScreenCoordsForObject or the world reads
+ * moved below GetTileDimensions.  `pos.y` stored before `pos.x` scores 28
+ * here (bad 6 -> 2) but emits the two seed stores in the wrong order and is
+ * a compensating error -- NOT committed.  All 60 legal orderings of the
+ * seven tail statements (p / pos.x / pos.y / zsprite / f30 / depth / b35)
+ * were re-run and the committed order is the floor (next best 23).
+ * The `goto endsw` lever (DECOMP: an explicit goto at a switch's join flips
+ * the identical-suffix merge) was applied to all five functions in this file:
+ * inert on the Safari and the Plane, 19 -> 58 here, 15 -> 134 on the Spider
+ * and 138 -> 145 on the Tower.  This file's shared tails are already hosted
+ * where the original hosts them. */
+/* ROUND 8c (2026-09-04): THE ONE-WEB Y CHAIN WAS RE-RANKED WITH
+ * scratchpad/laneK/permrank.py (mismatches surviving the best permutation of
+ * ebx/ebp/edi/esi) AND IS STILL NOT ADOPTED HERE.  Adapter:
+ * scratchpad/mechJ/vJ.py (permrank's V.build over whole files) --
+ *   PYTHONPATH=scratchpad/mechJ python scratchpad/laneK/permrank.py vJ \
+ *       <Name> <0xVA> scratchpad/mechJ/cand/*.c
+ * Result over all four BNV activations, `real` = permutation-aware count:
+ *       function      cur(2-web+if)        one-web
+ *       Barrels       19  perm=IDENTITY    17  perm=bpdibxsi
+ *       Spider        15  perm=IDENTITY    25  perm=bpdibxsi
+ *       Plane         19  perm=IDENTITY    29  perm=bpdibxsi
+ *       Safari       132  perm=IDENTITY   131  perm=bpdibxsi
+ * The committed two-web bodies score real == strict with the IDENTITY
+ * permutation in all four, i.e. they have NO register difference from the
+ * original anywhere in the function; the one-web bodies need the three-cycle
+ * rename and STILL carry more real mismatches on three of the four.  The
+ * one-web chain's extra, non-rotation cost is a load VC6 hoists into the slot
+ * the in-place `sub` used to occupy: `mov ecx,[esp+0x3c]` (the screen.ox
+ * reload) seven slots early on the Spider and the Plane, and the `p =
+ * b->person` load on the Safari.  So on this file the one-web chain buys two
+ * instructions on the Barrels, ties on the Safari and loses ten on the Spider
+ * and the Plane -- it is NOT the uniform win it is on Carousel_Tick, and only
+ * the two-web body reproduces the original's register allocation.
+ * The coordinator's paired lever ("name only the FIRST b->person read") was
+ * completed as a 2x2 on every function: adding the cache to the Spider's and
+ * the Plane's case 0 is INERT (VC6 CSEs it, byte-identical either way, with
+ * or without the one-web chain), and removing it from the Barrels or the
+ * Safari is worse (real 17 -> 20 and 131 -> 234).
+ * The empty `if` is NOT droppable in the two-web shape: `noif` measures real
+ * 231 / 283 / 294 / 300 on Barrels / Spider / Plane / Safari.  It is a block
+ * split, so what it buys is a reassociation barrier, and no non-`if`
+ * construct has been found that provides one. */
 // WIP-FUNCTION: LEGOLAND 0x0043c950  (95%, 19/362; frame, byte length and the whole y block exact -- see above)
 void SpinningBarrels_Activate(RideElem* elem)
 {
@@ -3265,6 +3565,36 @@ extern const int g_spider_end_off[8];                        /* 0x004b4ddc */
  * DESCENDING (+0x3e first) where the original is ascending, and the second
  * doubling is `add eax,eax` where the original has `shl eax,1`.  Floor for
  * this shape. */
+/* ROUND 7 (2026-09-04, unchanged at 15).  Two searches re-run from scratch:
+ *   - The y chain: see the ROUND 7 paragraph in SpinningBarrels_Activate.
+ *     The one-web/compound form is confirmed as the original's shape and
+ *     confirmed to cost the three-cycle callee-saved rotation here too
+ *     (15 -> 42); ~330 variants ruled out.
+ *   - Indices 87-97 (the `or byte [esi+0x62],0x80` and the `mov edx,[esi+4]`
+ *     the original interleaves INTO the arithmetic): every arrangement that
+ *     lifts the flag store above the two `pos` stores -- flag alone, flag +
+ *     z-sprite, flag + z-sprite + f30, flag between the two pos stores, with
+ *     and without a `p = b->person;` cache, and crossed with EIGHT spill-shim
+ *     variants (`spill.y`, both members, a 12-byte `BnvPos`, `int[2]`,
+ *     `int[3]`, a volatile READ, no spill) -- COSTS THE FRAME, 0x3c -> 0x38,
+ *     and measures 359-380.  The p cache alone remains inert (15 either way).
+ *     So the original's hoist is not reachable by moving the statement; like
+ *     the Safari's early `p` load it is a scheduler phase, not source order. */
+/* ROUND 8 (2026-09-04, unchanged at 15).  Case 7's remaining 3 (indices
+ * 195/196/198) is now proved to be a FLOOR and not a spelling: the full grid
+ * {`* 2`, `<< 1`, `x + x`} x {both temp declaration orders} x {both store
+ * orders} = 36 variants was re-run, and every cell gives 15 with the movsx
+ * pair DESCENDING (x-store first) or 17 with the pair ASCENDING (y-store
+ * first).  The second doubling is `add eax, eax` in all 36 -- the original's
+ * `shl eax, 1` is not reachable from any spelling, because ours loads
+ * +0x3e into EAX first (eax is free at the jump-table target) where the
+ * original loads +0x3c into ECX (its scratch rotation is one step further
+ * on at that point).  The y chain was re-attacked with eight further two-web
+ * spellings (`sy2 = sy;` then the compound, `sy2 = oy - ys; sy2 += sy;`,
+ * `sy + oy - ys`, `sy - (ys - oy)`, a named delta, and the oy-first orders):
+ * every one is 116 or 350.  See the ROUND 8 paragraph in
+ * SpinningBarrels_Activate for the one-web/named-`ys` result, which restores
+ * this function's callee-saved naming too and costs the flattening. */
 // WIP-FUNCTION: LEGOLAND 0x00416330  (96%, 15/376; frame, byte length, the y chain, case 7's movsx pair and case 13 exact -- see above)
 void SpiderRide_Activate(RideElem* elem)
 {
@@ -3539,6 +3869,37 @@ extern void* g_plane_tab2;                                   /* 0x0062fe8c */
  * which the original schedules AFTER both `ofs` frame loads.  The flag/`p`
  * sweep was RE-RUN in the new case-7 shape (5 flag positions x 3 `p`
  * positions plus the pre-UnAdjust position) and 19 is still the floor. */
+/* ROUND 7 (2026-09-04, unchanged at 19).  The y chain is the family residual
+ * (see the ROUND 7 paragraph in SpinningBarrels_Activate) and indices 86-96
+ * are the Spider's flag/person-load window, ruled out there this round.
+ * NEW here: indices 212-215 (case 7, after UnAdjustBlokePosition) were
+ * searched exhaustively -- all twelve orderings of
+ * {`b->flags |= 0x80`, `p = b->person`, `pos2.x = ofs.ox`, `pos2.y = ofs.oy`}
+ * that keep x before y were measured and the COMMITTED order is the best of
+ * them (19; the others 19-26).  The original emits the two `ofs` loads BEFORE
+ * the flag store and the two `pos2` stores after it, which no source order
+ * reproduces: VC6 will not hoist a load of an escaped local above an earlier
+ * may-aliasing store, so this is the same scheduler-phase item as the
+ * Spider's 87-97 window. */
+/* ROUND 8 (2026-09-04, unchanged at 19).  THE ROUND-7 CLAIM ABOUT 212-215 IS
+ * HALF WRONG and is corrected here: reading `ofs` into two int temps before
+ * the flag store --
+ *     { int ox = ofs.ox; int oy = ofs.oy;
+ *       b->flags |= 0x80; p = b->person; pos2.x = ox; pos2.y = oy; }
+ * -- DOES hoist both `[esp+0x34]` / `[esp+0x38]` loads above the
+ * `or byte [esi+0x62],0x80`, exactly as the original has them (rb 378 -> 380,
+ * bad 9 -> 7).  It is not committed because the eax/ecx/edx assignment then
+ * sits one step behind the original's rotation and the two `pos2` stores come
+ * out y-then-x, which costs 1-3 strict (all 8 combinations of {temp
+ * declaration order} x {store order} x {flag/`p` order} measure 20-22).  So
+ * this window is a rotation phase, not a missing hoist.
+ * Case 7's 198/199/201 was re-run as the same 36-cell grid as
+ * SpiderRide_Activate case 7 (identical outcome: 19 with the movsx pair
+ * descending, 21 with it ascending, `lea edx,[eax+eax]` in every cell; the
+ * plain `ofs.ox = b->ride_dx * 2;` form is 21 at the exact 1253 bytes).  The
+ * one-web y chain measures 44 here and does NOT change case 7, which kills
+ * the theory that the missing `oy - ys` scratch temp is what puts our
+ * rotation a step behind inside a later case block. */
 // WIP-FUNCTION: LEGOLAND 0x0043e410  (95%, 19/387; frame, head and y chain exact; byte length 1254 vs 1253 -- see above)
 void PlaneRide_Activate(RideElem* elem)
 {

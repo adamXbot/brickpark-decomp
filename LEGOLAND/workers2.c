@@ -1001,7 +1001,8 @@ void Mechanic_Build(Bloke* b)
  *    direct call test on top of the new join (193 instructions / 699 bytes).
  *
  *    PASS N+3 (2026-09-04, sweep6 lane).  No change to the code; the lever
- *    for residual (1) is still not found, so the `== 1` join STAYS -- but the
+ *    for residual (1) is still not found, so the `== 1` join STAYS
+ *    [SUPERSEDED -- the join was reverted to `!= 0` in PASS N+5 below] -- but the
  *    mechanism is now pinned down, and the note's old figures are corrected.
  *    CORRECTION: `!= 0` is no longer 183/671.  On the current body audit.py
  *    reports 184 instructions / 672 bytes for BOTH spellings (the real body
@@ -1035,8 +1036,96 @@ void Mechanic_Build(Bloke* b)
  *    (one instruction short); `char r` / `unsigned char r` (176 -- it forces
  *    a fourth callee-saved push and renames everything, and it would also be
  *    a semantic change, the callees' return values are not known to be 0/1).
+ *
+ *    PASS N+4 (2026-09-04, laneB).  The lever for residual (1) is still not
+ *    found.  [At the time of writing this pass the `== 1` join was left in
+ *    place; PASS N+5 below reverts it.]  New this pass:
+ *
+ *    THE CONSTANT-1 WEB, READ OFF THE ORIGINAL IN FULL.  ebp is ONE web for
+ *    the literal 1 across the whole button-2 branch: defined at 0x470653 for
+ *    `g_icon_clicked = 1` (0x47065d), consumed by `found = 1` TWICE as
+ *    `mov esi,ebp` (0x47069c, 0x4706c2), and consumed by fail's
+ *    `mov [g_drag_lock],ebp` at 0x470895 -- which is why the four early fail
+ *    paths (hit type 0x10a/2, both cursor.y2 tests, the origin_x test, the
+ *    cell.x/cell.y tests) can jump straight to a store with no immediate.
+ *    ebp is then CLOBBERED twice on the in-range path -- `xor ebp,ebp /
+ *    mov bp,[edx+0x16]` for the height (0x470750) and `mov ebp,[g_map_rows]`
+ *    (0x47075a) -- so the web is rematerialised three times: 0x47077a (the
+ *    in-range locked arm), 0x4707a3 (the out-of-range arm, residual (1)) and
+ *    0x4707ca (the `place` preheader, for the join edge on which ebp holds
+ *    the row table).  We reproduce the def at 0x47077a and the one at
+ *    0x4707ca exactly; only the arm's is folded to an immediate.
+ *    NOTE what that implies: because `place` redefines ebp after the merge,
+ *    the arm's `mov ebp,1` is DEAD in the original -- a rematerialisation the
+ *    allocator inserted while the arm still fell into the join and never
+ *    removed.  A dead-but-emitted instruction, like the `and dx,0x20`
+ *    merged-arm ghost in DECOMP.md.
+ *
+ *    RULED OUT THIS PASS, all on the honest `!= 0` baseline (all 82 strict /
+ *    3 difflib-aligned, i.e. no change): `!= 0`, `> 0`, `!(== 0)`,
+ *    `0 != lock` and `lock ? 1 : 0` as the join; the arm without braces, with
+ *    a trailing `;`, with `found = 0`, `w = 0` or `found = 1` after the
+ *    store; `one`-local variants feeding icon_clicked + the arm + fail, or
+ *    every store of 1 in the function (all constant-propagated back);
+ *    `if (r != 0)`, `!(r == 0)`, `!!r`, `switch (r) { case 0: break; default:
+ *    goto tail; }`, `if (r == 0) goto fail; goto tail;` and `found = r;` for
+ *    residual (2).
+ *    NEW and worth recording: making the out-of-range arm `goto fail;` (with
+ *    the honest `!= 0` join) does NOT tail-duplicate fail here -- VC6 SHARES
+ *    the block, drops to 181 instructions / 668 bytes and folds EVERY store
+ *    of 1 to an immediate, while growing its own duplicate of fail for one of
+ *    the early exits (133 mismatches).  Hoisting the height test to a
+ *    `if (cell.y >= height) goto fail;` guard gives the same 133.  The direct
+ *    call test in one or both placement arms still ESCAPES the extent (678
+ *    bytes).  `g_drag_lock = g_icon_clicked;` in the arm (a semantic
+ *    obfuscation, not a candidate) gets the register form but as a bare
+ *    `mov [lock],ebp` with no rematerialisation -- 667 bytes.
+ *
+ *    THE HONEST SPELLING, stated plainly for whoever reads this next.  The
+ *    original's join is `cmp dword ptr [0x668954], edi / jne` -- a compare
+ *    against the ZERO register, which is VC6's lowering of `if (g_drag_lock)`
+ *    / `!= 0`.  A `== 1` source cannot produce it: ours compiles to
+ *    `mov eax,[lock] / mov ebp,1 / cmp eax,ebp / je`, three instructions the
+ *    original does not have.  So `!= 0` IS the original and `== 1` is a
+ *    count-alignment trade: it buys 184/672 and 13 strict at the price of
+ *    three wrong instructions, where `!= 0` is 183 instructions / 671 bytes
+ *    and is byte-identical to the original EXCEPT the missing `mov ebp,1` at
+ *    0x4707a3 and `cmp eax,edi` for `test eax,eax` at 0x470891.  The 82 is
+ *    one missing instruction shifting every later index, not 69 wrong ones.
+ *
+ *    PASS N+5 (2026-09-04, laneB).  THE JOIN IS REVERTED to `if (g_drag_lock)`
+ *    on the evidence above: a shape we can prove is not the original does not
+ *    belong in the tree merely because it scores better, and the strict
+ *    index-for-index count actively misleads once one instruction is missing
+ *    and every later index shifts.
+ *
+ *    THE RESIDUAL, in full and final form.  audit.py: 184/184 instructions,
+ *    672/672 bytes, mismatch 82 -- but the compiled body is 183 real
+ *    instructions ending in `ret` (audit trims our COMDAT to the original's
+ *    184-instruction extent, which picks up one byte of /Gy alignment
+ *    padding), and difflib-aligned it is THREE lines, first at index 102:
+ *      (1) index 102/103 -- original `mov ebp,1` + `mov [g_drag_lock],ebp`
+ *          at 0x4707a3 against our single `mov dword ptr [g_drag_lock],1`.
+ *          ONE missing instruction, one byte.  Everything after it shifts,
+ *          which is the whole of the 82.
+ *      (2) index 166 -- original `test eax,eax` at 0x470891 against our
+ *          `cmp eax,edi` (same 2 bytes; VC6 uses the live zero register for a
+ *          test on a VARIABLE and `test` for a test on a call result
+ *          directly, but the direct spelling costs the cross-jump -- see
+ *          residual (2) above).
+ *    Every other instruction in the function is byte-for-byte the original's.
+ *
+ *    AND NOTE WHAT (1) IS.  Because `place` redefines ebp after the merge
+ *    (0x4707ca), the arm's `mov ebp,1` at 0x4707a3 is DEAD in the original:
+ *    a rematerialisation of the single ebp constant-1 web that the allocator
+ *    inserted while the arm still fell into the join, and that survived the
+ *    later jump threading and tail duplication.  It is an allocator leftover
+ *    in the same class as the `and dx,0x20` merged-arm ghost recorded in
+ *    docs/DECOMP.md -- a dead instruction that is nonetheless emitted.  So
+ *    the thing still to find is not a better way to spell the store; it is
+ *    whatever keeps our const-1 web live into that arm at allocation time.
  */
-// WIP-FUNCTION: LEGOLAND 0x00470620  (184/184 insns, 672/672 bytes, 13 by audit; the arm's store form at 0x4707a3 and `test eax,eax` at 0x470891)
+// WIP-FUNCTION: LEGOLAND 0x00470620  (184/184 insns, 672/672 bytes, 82 by audit but only 3 difflib-aligned, first diff at index 102; TWO defects only -- the dead `mov ebp,1` rematerialisation at 0x4707a3, whose absence shifts every later index and is the whole of the 82, and `cmp eax,edi` for `test eax,eax` at 0x470891; every other instruction is byte-identical)
 void CheckWorkerOnMouseStatus(WorkOrder* o)
 {
     Pos  cell;
@@ -1091,12 +1180,14 @@ void CheckWorkerOnMouseStatus(WorkOrder* o)
              * is VC6 threading the join below through a known-true test. */
             g_drag_lock = 1;
         }
-        /* `== 1` not `!= 0`: on this path the lock is only ever 0 or 1, and
-         * comparing against the CONSTANT keeps the 1 live into the join, which
-         * is what makes the out-of-range arm above store it from the constant
-         * register (`mov ebp,1 / mov [g_drag_lock],ebp`) instead of folding it
-         * into an immediate.  See the note above this function. */
-        if (g_drag_lock == 1)
+        /* The join is `!= 0`, which is what the original has: `cmp dword ptr
+         * [g_drag_lock], edi` against the zero register.  An earlier pass
+         * spelled it `== 1` because that lines the instruction COUNT up with
+         * the `mov ebp,1` we are missing in the out-of-range arm above, but it
+         * compiles to `mov eax,[lock] / mov ebp,1 / cmp eax,ebp / je` -- three
+         * instructions the original does not contain -- so it was a scoring
+         * trade, not a reconstruction.  See the note above this function. */
+        if (g_drag_lock)
             goto tail;
 place:
         if (g_worker_on_mouse_type == 0x307) {
