@@ -1859,8 +1859,9 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   past two 96-byte arrays, but the same name declared in TWO disjoint blocks
   behaves like a function-level local, which is the configuration the earlier
   measurement used. It is really a WEIGHT effect with a measured threshold,
-  and **references made only via `lea X` inside an `__asm` block carry LOW
-  weight**. On the real function, block scope moves an object exactly one
+  and **references made only via `lea X` inside an `__asm` block carry ZERO
+  weight** (corrected 2026-09-04: deleting 4, 8 or all 24 of them is
+  byte-identical — only C-level references rank arrays). On the real function, block scope moves an object exactly one
   step, cutting ~24 references moves it exactly one step, and **the two do not
   stack**. **Declaration
   order of locals is completely inert** for /O2 frame layout, with and without
@@ -2193,19 +2194,36 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   scheduling clusters"; in fact 44 of the mismatches are a pure three-slot
   shift of instruction-identical code, a consequence of the block layout, and
   the sums account for only 31.
-- **CROSS-FILE TWIN, and it is VC6's canonical form:** `Carousel_Tick`
-  indices 228-231 and `SpiderRide_Activate` 195-198 are byte-for-byte the same
-  difference — two `movsx` off +0x3c/+0x3e, descending emission, `shl edx,1` /
-  `add eax,eax` split — arrived at from two independently written sources. 39
-  spellings across the two files all tie or ESCAPE. Treat it as one problem.
-- **THE COLLECTIVE TARGET — where the next pass should go.** `SpiderRide`
-  87-97, `SpinningBarrels` 113-132, `PlaneRide` 86-96 and 212-219,
-  `SafariRide` 86-124 and `Carousel_Tick` 123-127 are all the SAME
-  slot-placement window: VC6 and the original disagreeing about which free
-  slot a constant push or an independent load falls into, with identical
-  instructions and registers either side. No individual lever found, but
-  **whoever cracks it collects five functions at once** — a better use of a
-  lane than any one of them alone.
+- **CROSS-FILE TWIN — real, but the note MISREAD which way round it is
+  (corrected 2026-09-04).** `Carousel_Tick` 228-231, `SpiderRide_Activate`
+  195-198 and `PlaneRide_Activate` 198-201 are the same difference, but the
+  ORIGINAL's two `movsx` loads are **ASCENDING** (+0x3c then +0x3e) and it is
+  OURS that are descending. The mechanism the earlier note gave is right — VC6
+  evaluates the LAST store's operand first, so an x-store-first source forces
+  the +0x3e load first — but the target is `{ascending loads, x-store first}`,
+  and three functions had been aimed at the wrong shape. Final registers and
+  both stores already agree; only the two loads are swapped, and `add eax,eax`
+  versus `shl` follows from which loads first (this also owns one function's
+  extra byte, a 3-byte `lea` against a 2-byte `shl`). 20 further spellings
+  measured against the corrected target — still unreachable.
+- **THE COLLECTIVE TARGET, now RESOLVED TO ONE INSTRUCTION SLOT.** The five
+  "windows" are one idiom appearing twice per function, once per axis:
+  `mov eax,[rider offset] / cdq / sub eax,edx / <<<SLOT>>> / sar eax,1 /
+  sub <acc>,eax / mov eax,[esp+screen.o?] / sub <acc>,eax`. **The entire
+  family residual is which instruction, if any, VC6 puts in that one slot.**
+  Two rules describe the original and we break both in OPPOSITE directions:
+  the original NEVER fills the X slot, and ALWAYS fills the Y slot with the
+  first ready operation belonging to the statements AFTER the two `pos`
+  stores. We fill the X slot on the three rides that cache the person
+  pointer, and never fill the Y slot from below. Everything else in the five
+  windows — the two float-constant pushes, the pointer load — is DOWNSTREAM,
+  taking the next free slot, which is why they land 6-12 indices late with
+  identical instructions, registers and byte length either side. The block's
+  own source is INVARIANT: ~60 spellings byte-identical, including flat
+  three-term tails, named halves, an `Offset*`, all interleavings, a cache at
+  three points (VC6 sinks the load every time — **local register pressure
+  cannot be raised from source**) and respelling the two adjacent globals as
+  one object.
 - **Two negatives worth keeping:** a load/load/store/store pair is NOT
   necessarily a whole-struct copy (`*(Pos*)&b->x = world;` was byte-identical
   and did not explain it), and a same-difference rewrite that holds the byte
@@ -2311,6 +2329,129 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 - **A constant frame SHIFT can make the strict count meaningless:** in
   `AnimApplyPart` indices 22-216 are identical instruction for instruction
   under a uniform +4 offset, so the 182 massively overstates the distance.
+
+- **A CONFOUND that invalidated a family of earlier measurements.** Moving a
+  flag store, a sprite store or a pointer cache above `pos.x = sx2 * 2;` makes
+  VC6 REASSOCIATE the four tail subtractions into `sx2 + (-screen.ox - h)`
+  (`mov/sar/neg/sub/add`) and take the frame 0x3c -> 0x38 — so earlier notes'
+  330-380 scores were measuring the reassociation, not the hoist they claimed
+  to test. An empty `if` does NOT substitute for that barrier. **The clean
+  instrument is the FOLDED STORE form** `pos.x = (sx2 - h/2 - screen.ox) * 2;`
+  — byte-identical to the statement form and immune to the reassociation.
+  Use it to de-confound any "hoist a statement" experiment. Re-run in that
+  form, the previous floor survived on an unconfounded measurement.
+- **Correction: it is the NAMED `ys` LOCAL, not the one-web y chain, that
+  flattens the four later subtractions.** `sy += cfg->oy - Get_YScroll();`
+  with ONE name holds the byte length exactly; introducing `ys` costs two
+  bytes, i.e. flattens. The empty `if` is INERT in the one-name spelling.
+- **The slot follows the VALUE, not the chain:** storing the other axis first
+  flips which halving is emitted first, but the same global is hoisted in both
+  orders (a compensating error — strict 26 vs 29 while real goes 8 vs 11).
+- **`SpaceTower_Activate` root cause, stated end to end:** the original
+  reloads the descriptor TWICE (two registers at indices 22 and 23) so one
+  dies at the following load and is free for the contended value; we reload
+  once, that register stays busy to index 32, the value takes eax and gets
+  spilled, and the frame goes 0x10 -> 0x14. A route scoring 103 against 138
+  exists but is NOT committed: register-blind rises 14 -> 21 and the frame is
+  wrong — the compensating-error signature. **If a future pass finds a
+  non-volatile second reload at index 23, both changes go in together.**
+
+- **Which projected coordinate is FINISHED FIRST decides whether VC6 computes
+  the sum in place or with a `lea`** (`TempleSlide_Update`, 29 -> 22 with the
+  byte length now EXACT). A sum computed in place means the sum is the LAST
+  use of its operand, so the difference precedes it in the IR: writing the X
+  projection before the Y one reproduces `mov ebp,ebx / add ebx,edi / imul
+  ebx,[th] / sub ebp,edi / imul ebp,[tw]` exactly, where the sum-first order
+  emitted a `lea` plus a compensating `mov` — the single byte the body was
+  over. **A coupled callee-saved tie-break can then be broken by moving reads
+  ABOVE a preceding call**, lengthening a pointer's live range at zero code
+  cost (reads before = 22, reads after = 327, one read before = 327).
+- **A conversion block's source order can be READ OFF the original's operand
+  displacements**, retiring a search space instead of sampling it. In
+  `AnimApplyPart` the ten `fild` operands spell out exactly the shipped
+  source order — which matters because one reordering scores better on every
+  metric while growing the frame, and is known-wrong source.
+- **An address-taken out-param becomes shareable with a spill home only by
+  being born inside a `static __inline` helper** (it becomes an
+  inline-expansion temporary in the spill pool rather than a named
+  address-taken local). That yields `StepSchoolCar`'s original tail without a
+  fifteenth slot — though inlining there destroys the sum-first projection, so
+  the two are not yet compatible.
+- **WITHDRAWN: two standing items on `TempleSlide_Update`.** The `Pos t`
+  partial-sum barrier is removed — it was a workaround for the wrong
+  projection shape and a misapplication of the four-term rule to a TWO-term
+  sum; four plain `-=` are better on every measure. And the recorded pointer
+  "if a later round finds what ranks `sq` above `ty`, the two-web X form is
+  very probably the finished function" is refuted: that condition was found,
+  all seven forms were re-run crossed with every read and call placement, and
+  they still score 327 and ESCAPE. The extra web is a second independent tip
+  of the same tie-break.
+
+- **FRAME WEIGHT IS THE SURVIVING-IR REFERENCE COUNT — and that closes
+  `Draw3DPersonModel`'s frame by proof, not exhaustion.** Two decisive
+  negatives: routing every use of an array through an alias pointer is
+  byte-identical (copy-propagated, counted after), and 8, 16 or 24 DEAD reads
+  are byte-identical (eliminated before the count). Since our surviving
+  profile equals the original's slot for slot (384 = 384 references, 79 = 79
+  slots), **no source spelling can change the weights.** Size probes confirm
+  it from the other side: 84B and 112B both land at position 3, 140B and 224B
+  at position 4 — **position 5 is never reached by size**, so the object
+  cannot be pushed down by being larger. Ours and the original share an
+  identically shaped 49-slot pool spine; only the four array insertion points
+  differ by one chunk.
+- **New frame class:** an array born in a `static __inline` helper is an
+  inline-expansion temporary, sits one step FURTHER from ebp than the same
+  array block-scoped, and at two or fewer references goes past larger arrays
+  to the far end. (Unusable in the case at hand, because the helper would have
+  to contain an `__asm` block naming two of the frame objects as MASM symbols.)
+- **A three-load run with the base register overwritten by the LAST load is
+  the signature of three consecutive source reads through one pointer** —
+  reordering an unrelated assignment into the middle of them is observable.
+  That is how `Draw3DPersonModel`'s last head error was found: one field read
+  belongs BETWEEN two others, not after all three. All 120 orders of the five
+  head assignments were compiled and it is the unique best; every structural
+  measure rose with it.
+- **The landscape moves, so re-test "byte-identical" claims:** an array in one
+  block spanning two loops was recorded as byte-identical to one block per
+  loop, and after an unrelated fix it is three worse.
+
+- **THE BLOCK-EXILE RULE, with eleven in-tree proofs.** A block that ends in
+  an unconditional `jmp` is EXILED past the fall-through trace; a block that
+  falls into its successor is laid out in place. A tree-wide scan of all 1544
+  exact functions for the signature (a conditional whose target block ends in
+  a backward `jmp` into the middle of a fall-through-reached region) found
+  eleven hits, four of them genuine source-level cases — `UpdateMapDrag`
+  0x452030, `InitSavedGameScreen` 0x48d4b0, `KillAllSamplesFromSource`
+  0x496b80, `LoadObjectLibrary` 0x480f00. **The source idiom that makes an
+  else arm end in a `jmp` is CROSS-JUMPING:** write both arms out in full with
+  a common tail; VC6 merges the common suffix, glues it to the THEN arm and
+  rewrites the ELSE arm's copy into a backward jump into the middle of the
+  then arm's straight-line code. A source `goto` survives only when it crosses
+  a LOOP boundary — otherwise the front end normalises it into a plain if/else
+  and inverts it.
+- **TOOLING BUG that had corrupted earlier frame readings: reset esp to the
+  frame base at EVERY BRANCH TARGET.** A linear push/pop simulation drifts
+  across joins and misreads every `[esp+N]` after the first branchy region.
+  Four of one lane's seven reconstruction errors were invisible without the
+  fix, and a previous round's recorded slot attribution was simply wrong.
+  Tools: `scratchpad/w9renderview/esp.py`, `slots.py`.
+- **`(y>>3) * 32` is NOT the same as `((y>>3) << 5)`** — the multiply blocks
+  reuse of a nearby `y & ~7` while the shift allows it. **A pre-scaled byte
+  index buys a separate `shl` where an array index folds into the scaled
+  addressing mode**, and a 2-D array declaration gets both effects and is the
+  natural spelling (a 32x32 mark grid reproduced a 35-instruction block
+  exactly, where the flat index reassociates and folds the scale).
+- **Absent-named-local detection, SECOND form:** a value RE-DERIVED from a
+  reloaded pointer across calls — rather than reloaded from its own home —
+  proves there is no named local for it.
+- **Corrections:** VC6 does NOT fold a duplicated null test on an
+  address-taken struct (a previous round claimed it does); and the standing
+  instruction to adopt a particular geometry ordering "once the +10 region is
+  fixed" is RETIRED — moving both limits out removes both halves of that
+  compensating pair but breaks the split prologue, so the two are one problem.
+  The prologue bit is also narrower than recorded: the constants still take
+  the same registers in a broken variant; what changes is whether one value's
+  web coalesces with the constant-zero register.
 
 Recorded so they are not re-derived; several cost hundreds of measured variants:
 

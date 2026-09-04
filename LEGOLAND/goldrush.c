@@ -1950,6 +1950,59 @@ extern void*      g_car_pal_c;       /* 0x0082c6bc  livery 1 */
  *     ours emits it before, in place on th2's register.  Moving the source
  *     line above `c->sy` is robl 319; moving it after the switch is 322.
  *   - 265/293/294/340, the flag, above. */
+/* ROUND OF 2026-09-04 (third pass).  The flag's frame-slot question is ANSWERED
+ * mechanically, and the answer is a construct, not a spelling -- but the
+ * construct costs more elsewhere than it wins, so nothing is shipped and the
+ * build is unchanged at 319 / real 317 / robl 326 / bad 42 / 1153B.
+ *
+ * *** THE CONSTRUCT THAT PUTS THE FLAG IN EDI WITH A 0x38 FRAME: making the
+ * FIRST GetTileDimensions' two out-params locals of a `static __inline`
+ * helper.  As inline-expansion temporaries they come out of the
+ * lifetime-coloured spill pool (docs/DECOMP.md's "inline-expansion
+ * temporaries share the spill-home pool"), which a NAMED address-taken local
+ * never does, and that is exactly what the note above asked for:
+ *      static __inline int GR_TileProject(int sum, int diff, int* pdiff)
+ *      { int w, h; GetTileDimensions(&w, &h); *pdiff = diff * w;
+ *        return sum * h; }
+ *      sy = GR_TileProject(wx + wy, wx - wy, &sx);
+ * plus separate `int flag` and `int depth` locals gives `sub esp,0x38`,
+ * `mov edi,1` at the flag's set and a `mov edi,[home]` reload on the
+ * bb != 0 path -- the original's tail shape -- WITHOUT the fifteenth slot.
+ * So "an address-taken local cannot share" was right and the way round it is
+ * to stop the local being named.
+ * WHY IT IS NOT SHIPPED (322 / real 322 / robl 321 / bad 52 / 1150B):
+ *   (a) the pool lands THREE SLOTS HIGH.  The helper's `h` gets E+0x10 and
+ *       swx/swy fall to E+0x00/E+0x04, where the original has h at E+0x00 and
+ *       swx/swy at E+0x0c/E+0x10; `w` does take the dead argument slot
+ *       E+0x3c correctly.  The flag then gets a home of its own at E+0x18
+ *       rather than sharing h's, so the sharing that motivated the change
+ *       does not actually happen -- the frame only stays 0x38 because `depth`
+ *       stops needing a slot.
+ *   (b) inlining reorders the projection: the `lea eax,[ebx+ebp]` sum-first
+ *       shape is lost and the diff is emitted first, which is the opposite of
+ *       what index 19 wants.  Eight helper spellings (out-param, two
+ *       out-params, an explicit result temp, shifts inside the helper, both
+ *       shift orders, w-first and h-first declarations) are ONE object, so
+ *       the reordering is not reachable from the helper's source.
+ * Variants measured around it: only `h` as a temp with `tw` still named
+ * (334, frame 0x3c -- so BOTH out-params have to leave); only `w` as a temp
+ * (335); both tile calls via helpers (327); `th2` reused for the depth key
+ * (330 but robl 327 / bad 41 / 1143B -- the best structural numbers on this
+ * function and FOUR BYTES SHORT, recorded because it is the only build that
+ * has ever come in under length); plain `int flag` with and without a
+ * separate `int depth` (333, frame 0x3c, 1147B -- the note above's build).
+ *
+ * *** THE joust.c LEVER DOES NOT TRANSFER HERE.  TempleSlide_Update's
+ * projection was fixed this round by moving the two world reads ABOVE the
+ * preceding call, which lengthened a pointer's live range and stopped the
+ * callee-saved rotation.  The analogue was swept here -- the `>>= 9` shift
+ * order crossed with all four positions of the three `ctx` stores, the world
+ * read order and the product order (10 builds) -- and nothing decouples the
+ * rotation at index 8 from the sum-first emission at 19: `sy >>= 9` first is
+ * still robl 328 / bad 39 (structurally the best) with strict 326 and twelve
+ * bytes over.  The two functions' projections are the SAME shape read from
+ * opposite ends, and this one has no statement in front of the reads that can
+ * be moved. */
 // WIP-FUNCTION: LEGOLAND 0x00402780  (351 insns by audit's extent, 1153 vs 1147 bytes, 319 mismatches, 317 surviving the best callee-saved permutation, register-blind LCS 326/351 with 42 original indices in a differing region; the projection emission order at index 19 and the flag's frame home)
 void StepSchoolCar(SchoolCar* c)
 {

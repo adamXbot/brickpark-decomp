@@ -652,14 +652,75 @@ void Carousel_TickInstances(void)
  *  both orders, `+ x`, `<< 1`, a second temp pair, a reversed temp
  *  declaration order); every one either ties at the same residual or
  *  ESCAPES.  Together with the 30 already measured here that is 39 spellings
- *  across two functions and two lanes, so the descending `movsx` sort with
- *  `add` for the second doubling should now be treated as VC6's canonical
- *  form for two structurally identical `movsx`+double+store pairs, and this
- *  cluster as unreachable rather than unfound.
+ *  across two functions and two lanes.  (THE DIRECTION IN THIS SENTENCE IS
+ *  WRONG and is corrected in the PASS w9rides paragraph below: the ORIGINAL
+ *  is ascending, ours is descending.  The cluster is still unreachable.)
  *
  *  RECOMMENDED FOR RETIREMENT.  8 real mismatches in 378 instructions, in
  *  two clusters, both now shown invariant under everything source can
- *  express. */
+ *  express.
+ *
+ * PASS w9rides (2026-09-04).  NO CHANGE (29 strict / 8 real /
+ * register-blind 3).  Both clusters are now stated correctly.
+ *
+ *  CLUSTER (b), 123-127, IS THE FIVE-FUNCTION FAMILY SLOT, and this
+ *  function is where it is cleanest.  The idiom is
+ *      mov eax,[g_carousel_dx] / cdq / sub eax,edx / <<<SLOT>>> /
+ *      sar eax,1 / sub edi,eax / mov eax,[esp+0x44] / sub edi,eax
+ *  and it occurs twice, once per axis.  The original leaves the X slot
+ *  EMPTY (screen.ox is loaded serially into eax at index 125) and fills the
+ *  Y slot with `mov edx,[g_carousel_zspr]`; we fill BOTH, the X one with
+ *  `mov edx,[esp+0x44]` at 123.  That single hoist, plus the one-slot
+ *  knock-on it gives `mov eax,[g_carousel_dy]`, is the entire cluster.  The
+ *  same slot -- same instructions, same registers either side -- is
+ *  SpinningBarrels 113-132, SafariRide 86-124 and SpiderRide 87-97 /
+ *  PlaneRide 86-96 (where the miss runs the other way: the original fills
+ *  the Y slot with `or [esi+0x62],0x80` + `mov edx,[esi+4]` and we leave it
+ *  empty).  The full five-function table and the negatives are in the PASS
+ *  w9rides paragraph of SpinningBarrels_Activate in mechrides.c.
+ *  Measured HERE this pass and byte-identical in every cell: the x tail and
+ *  the y tail as flat three-term expressions (separately and together),
+ *  named halves, named `screen.ox`/`.oy` locals, an `Offset*` for both, the
+ *  four subtractions interleaved and y-first, a `zs = g_carousel_zspr;`
+ *  cache at three points (VC6 sinks it every time -- local pressure cannot
+ *  be raised from source), a second `p2` cache, and the two adjacent
+ *  halving globals respelled as ONE object (`Offset g_carousel_ofs;` at
+ *  0x616078, and `int g_carousel_d[2]`).  Storing `pos.y` before `pos.x`
+ *  DOES move the slot -- it emits the y chain first and leaves that chain's
+ *  slot empty -- but it is `screen.ox` that is hoisted in BOTH orders, so
+ *  the choice belongs to that one load and not to chain position; it scores
+ *  26 strict / 11 real and reverses the seed stores, so it is a
+ *  compensating error and is not committed.
+ *
+ *  CLUSTER (c), 228/229/231, WAS READ BACKWARDS in the previous pass and
+ *  the correction matters.  The ORIGINAL is ASCENDING:
+ *      orig: movsx edx,[esi+0x3c] / movsx eax,[esi+0x3e] / shl edx,1 /
+ *            shl eax,1
+ *      ours: movsx eax,[esi+0x3e] / movsx edx,[esi+0x3c] / shl edx,1 /
+ *            add eax,eax
+ *  The final registers and both stores agree; only the two loads are
+ *  swapped, and `add eax,eax` follows from loading eax first.  So
+ *  "descending is VC6's canonical sort" described OUR output, not the
+ *  original's, and the target was stated wrongly.  The mechanism is right
+ *  though: VC6 evaluates the LAST store's operand FIRST, which is why
+ *  x-store-first forces the +0x3e load first.  The corrected target
+ *  {ascending loads, x-store first} is still not reachable -- 20 further
+ *  spellings this pass, all measured here: y-store-first gives ascending
+ *  loads but swaps the registers and the stores (10 real); pre-doubled
+ *  temps (`int px = b->ride_dx * 2;`) give BOTH `shl` and the ORIGINAL's
+ *  registers but keep the loads reversed and cost 8 indices elsewhere at
+ *  1224 bytes; and byte-identical are `2 * x` at either or both sites, a
+ *  `volatile short` read of either field (or both -- 9/10, it adds
+ *  mismatches), a `short*` walk over the pair, `r->bloke->` on either
+ *  field, a `static __inline` two-int seeder, comma operators, nested and
+ *  reversed scopes.  `short` temps are 152 and a `pos2.z = 0;` filler 153.
+ *  So the cluster is unreachable, but the reason is a source-order rule
+ *  (last store evaluated first) that the original's compiler did not
+ *  follow, not a canonical sort we were matching.
+ *
+ *  STILL RECOMMENDED FOR RETIREMENT: 8 real mismatches in 378 instructions,
+ *  in two clusters, both now shown invariant under everything source can
+ *  express and both now correctly described. */
 // WIP-FUNCTION: LEGOLAND 0x0042c820  (378/378 instructions, 1225/1225 bytes and the whole frame map, audit mismatch 29/378 but only 8 modulo a renaming of the three callee-saved registers; first diff at index 86: the merged Y web takes the LAST callee-saved register instead of ebx -- the same wall as mechrides.c's four _Activate callbacks)
 void Carousel_Tick(RideElem* elem)
 {

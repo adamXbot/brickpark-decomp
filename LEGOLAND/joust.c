@@ -1287,6 +1287,18 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  * in the two-web form, and `ty` (which reuses that register) and `sq` follow.
  * *** If a later round finds what ranks sq above ty, this variant is very
  * probably the finished function: apply scratchpad/laneL/tsu_d.py:x2web. ***
+ * *** WITHDRAWN 2026-09-04 (sixth pass).  What ranks sq above ty WAS found
+ * this round -- the two world reads moved above the GetScreenCoordsForObject
+ * call -- and x2web was re-applied on top of it: still 327, still the flipped
+ * loop head, ESCAPES, 1113 bytes.  So do the seven laneL forms (x2web,
+ * _rev, _sp2, _ysub, y2web, x_delta2, both_delta2) crossed with all four
+ * read/call/GetTileDimensions placements and a struct-copy read: 228-327,
+ * every one either flipping the loop head or 100+ over.  The extra web is a
+ * SECOND, independent tip of the same tie-break, not the same one, and
+ * sinking the call below the projection (a strictly longer `sq` range) makes
+ * it worse, not better (324) -- so the lever is the reads sitting above the
+ * call, not `sq`'s live range as such.  Do not spend another round on x2web
+ * without a new mechanism. ***
  *
  * ALSO MEASURED AND INERT THIS ROUND (all exactly 72/robl 332, or worse):
  * commuting either product, `tw * (wx - wy)`, splitting either product into
@@ -1537,7 +1549,95 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  *     ESCAPES.  So case 3's projection and the loop head's allocation are
  *     coupled, and the next round should attack the pair together rather than
  *     re-sweeping case 3 alone. */
-// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1123/1122 bytes, audit mismatch 29/347, 25 surviving the best callee-saved permutation, 14 of 347 original indices in a structurally differing region; first divergence 119)
+/* ROUND OF 2026-09-04 (sixth pass).  29 -> 22, and the BYTE LENGTH IS NOW
+ * EXACT (1123 -> 1122 = the original's).  real 25 -> 22, robl 338 -> 340 of
+ * 347, bad regions 14 -> 13.  The whole case-3 projection -- original indices
+ * 121 through 147, twenty-seven consecutive instructions including the
+ * `mov ebp,ebx / add ebx,edi / sub ebp,edi` shape that five rounds called the
+ * wall -- is now byte-for-byte exact.  Two reconstruction errors, both found
+ * by reading the original instruction by instruction:
+ *
+ * *** RECONSTRUCTION ERROR 1: THE X PROJECTION IS FINISHED FIRST.
+ * The original is
+ *      128 mov ebp,ebx      <- copy wx
+ *      129 add ebx,edi      <- the SUM computed IN PLACE, in wx's register
+ *      130 imul ebx,[th]
+ *      131 sub ebp,edi      <- the DIFFERENCE built from the copy
+ *      132 imul ebp,[tw]
+ *      133 sar ebp,9        (px)      134 sar ebx,9  (py)
+ * A sum computed IN PLACE means the sum is the LAST use of `wx`, so in the IR
+ * the difference comes FIRST.  Writing `px` before `py` gives exactly those
+ * five instructions; our old sum-first order made VC6 emit the sum with a
+ * `lea` into a fresh register (`lea ebp,[edi+ebx] / sub edi,ebx`) and then
+ * pay an extra `mov ebx,edi` to carry px past Get_XScroll -- the ONE byte the
+ * body was over.  The lever is which projected coordinate is FINISHED first:
+ * with the split-shift form all four product orders collapse into two objects
+ * selected purely by whether `px >>= 9` or `py >>= 9` is written first.
+ *
+ * *** RECONSTRUCTION ERROR 2: THE TWO WORLD READS SIT ABOVE THE
+ * GetScreenCoordsForObject CALL.  On its own, error 1 costs 300: it flips the
+ * LOOP HEAD, moving `sq` from ebp to ebx and `ty` from ebx to ebp, and case 2
+ * then stops sharing case 0's CalcMoveLine tail (the identical-suffix merge
+ * fails because the registers no longer agree).  The two allocations really
+ * are coupled, and what decouples them is `sq`'s live range: a probe that
+ * lengthened it with a dummy `sq->b.x` test inside case 3 restored the loop
+ * head immediately.  The zero-cost way to do the same is to read
+ * `b->world.y` and `b->world.x` BEFORE the call, which is what the shipped
+ * body now does.  Measured: reads before the call 22; reads after 327 (the
+ * flipped-loop-head object); only one read before 327; GetTileDimensions
+ * moved into the gap 36-37; a `Pos w = b->world;` struct copy before the call
+ * ties at 22; a `Pos*` taken before the call and dereferenced after, and a
+ * plain `sq2 = sq;` copy, are both 327 (copy-propagated away, so they do not
+ * lengthen the range).
+ *
+ * *** RE-TESTED SHIM, NOW WITHDRAWN: the `Pos t` partial-sum barrier on the
+ * two x adjustments.  With the projection fixed the four plain `-=` are
+ * strictly better (23 -> 22, robl 337 -> 340, bad 17 -> 13).  It had been a
+ * workaround for the wrong projection shape all along -- and it was a
+ * misapplication of the four-term rule to a two-term sum.  Third round in a
+ * row that "re-test committed shims after a structural change" has paid.
+ *
+ * INERT / WORSE ON THE NEW BASELINE (all re-measured, not inherited):
+ * every association of sx2/sy2 (`px + (ox - XScroll)` etc., VC6 canonicalises
+ * a two-term sum) and every two-step spelling of either scroll statement
+ * (`sy2 = oy - YScroll(); sy2 += py;` and the x twin are byte-identical; only
+ * `sy2 = py - YScroll(); sy2 += oy;` differs, at 61, and the y statement
+ * written first is 27); all four orders of the four `-=` adjustments, and the
+ * interleaved order (22, one object); the volatile spill moved or removed
+ * (removing it is 227); spilling py instead of px (327); all eleven positions
+ * of the `pos.x`/`pos.y` pair inside the case-3 tail -- ANY of them other
+ * than first flips the loop head back to the 327 family, so the pos stores
+ * being first is now load-bearing too; caching tile bytes or base_x/base_y in
+ * the loop head; a `Pos` aggregate for tx/ty; reversing the loop head's two
+ * sums.
+ *
+ * WHAT IS LEFT (22 indices: 116-120, 148, 153, 156-158, 161-172):
+ *   - 116-120: the two world loads are emitted BEFORE the call's two pushes,
+ *     where the original has them after.  That is pure source order -- and
+ *     source order is exactly what the loop head needs (above).  Either the
+ *     original reaches the same live-range extension by a construct not yet
+ *     found, or this five-index shift is the price of the other 300.  This is
+ *     the coupling in its final, much smaller form.
+ *   - 148 + 153 + 156-158: the original hoists screen.OY into ebp (freed
+ *     after 142) and accumulates the Y chain into py's own register
+ *     (`add ebx,ecx`); we hoist screen.OX and accumulate into the scratch
+ *     (`add ecx,ebx`).  By the imul/add RANK rule the destination is the
+ *     compiler TEMPORARY, so the original's `py` must be a temporary and ours
+ *     is a symbol -- but `py += ...` and inlining the whole product into the
+ *     sy2 expression both flip the loop head (327/235).  The next attempt
+ *     should look for a spelling that makes py a temporary WITHOUT
+ *     lengthening the sy2 web.
+ *   - 161-172: with sy2 in ecx instead of ebx the flag OR, the g_ts_zspr load
+ *     and the `b->person` load cannot be interleaved into the rider_dy
+ *     division; they are emitted after the two `pos` stores.  All of this is
+ *     downstream of 153.
+ *   - 148 + 155-158 are the same cascade seen from the other side: with sy2
+ *     in ecx, ebx is free, so BOTH screen fields get callee-saved registers
+ *     (ox in ebp, oy in ebx) and the scheduler swaps the two `sx2 -=`; the
+ *     original has ebx busy with sy2, so only ebp is free, it takes the
+ *     LAST-used field (oy) and ox is loaded into eax immediately before use.
+ *     Nothing here is independent of 153. */
+// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1122/1122 bytes -- the original's length to the byte, audit mismatch 22/347, 22 surviving the best callee-saved permutation, 13 of 347 original indices in a structurally differing region; first divergence 116)
 void TempleSlide_Update(RideElem* elem)
 {
     RideDef*   def = elem->data;
@@ -1619,27 +1719,33 @@ void TempleSlide_Update(RideElem* elem)
                 break;
 
             case 3:
-                screen = GetScreenCoordsForObject(sq, def);
+                /* The two world reads sit ABOVE the GetScreenCoordsForObject
+                 * call and the X projection is finished BEFORE the Y one.
+                 * Both are load-bearing: the read placement lengthens `sq`'s
+                 * live range past the call, which is what keeps `sq` in ebp
+                 * and `ty` in ebx in the LOOP HEAD (with the reads below the
+                 * call the two swap and case 2 stops sharing case 0's
+                 * CalcMoveLine tail -- 300 mismatches), and finishing X first
+                 * is what makes the SUM the last use of `wx`, so VC6 computes
+                 * it in place (`mov ebp,ebx / add ebx,edi / sub ebp,edi`)
+                 * instead of with a `lea`, and the Y chain then stays in
+                 * ebx to the end.  See the note above the marker. */
                 wy = b->world.y;
                 wx = b->world.x;
+                screen = GetScreenCoordsForObject(sq, def);
                 GetTileDimensions(&tw, &th);
-                py = (wx + wy) * th >> 9;
                 px = (wx - wy) * tw >> 9;
+                py = (wx + wy) * th >> 9;
                 *(volatile int*)&spill.x = px;
                 sx2 = g_map_cfg->ox - Get_XScroll() + px;
                 sy2 = g_map_cfg->oy - Get_YScroll() + py;
-                /* The two x adjustments summed in the fields of a
-                 * non-address-taken `Pos` -- anim2.c's DrawBoats barrier
-                 * against forward substitution.  Written as two `-=`, or as
-                 * one `-= a + b`, VC6 flattens them and schedules the pair
-                 * differently; the same barrier on the y pair costs 149. */
-                {
-                Pos t;
-
-                t.x = g_ts_rider_dx / 2;
-                t.y = screen.ox;
-                sx2 -= t.x + t.y;
-                }
+                /* Four plain `-=`.  The `Pos t` partial-sum barrier that
+                 * stood here for four rounds was a WORKAROUND for the wrong
+                 * projection shape and is now strictly worse (23 -> 22, robl
+                 * 337 -> 340): with the reads and the X/Y order fixed above
+                 * the flat form is both simpler and closer. */
+                sx2 -= g_ts_rider_dx / 2;
+                sx2 -= screen.ox;
                 sy2 -= g_ts_rider_dy / 2;
                 sy2 -= screen.oy;
                 pos.x = sx2 * 2;

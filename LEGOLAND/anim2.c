@@ -399,6 +399,38 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * order).  A future round should look for what makes VC6 skip the flat-sum
  * reassociation, not for another barrier: every barrier tested so far either
  * changes the tree or is deleted. */
+/* ROUND OF 2026-09-04 (seventh pass).  UNCHANGED AT 30, and the one-term
+ * second field named as "the shape to build on" is now understood well enough
+ * to be ruled out on its own terms.
+ * WHAT THE ONE-TERM SHAPE ACTUALLY IS.  `t.y = ofs.x; b->sx = t.x + t.y +
+ * scr.x;` gives 32 / real 29 / robl 205 / bad 12, and its residual `lea ecx,
+ * [eax+edi]` at index 90 is NOT an independent defect: under the index-82
+ * rotation (orig edx, eax, ecx -> ours ecx, edx, eax) our accumulator IS the
+ * original's ecx, but it physically sits in EAX, and eax is needed two
+ * instructions later for the Y sum's `xor eax,eax`.  So the accumulator has
+ * to move, and `lea` is how VC6 moves and adds at once.  Fix the rotation and
+ * the `lea` goes with it; nothing else can reach it.  Six spellings of the
+ * join (a third field, `+=` accumulation, scr.x written first, `t.y` assigned
+ * first, an explicit intermediate) are ONE object at 32.
+ * THE ROTATION IS NOT REACHABLE FROM A CONVERSION TUPLE.  The idea was the
+ * docs' "tuples that produce no code still occupy slots" plus the same-width
+ * conversion barrier: `(unsigned)` casts on either or both addends of either
+ * sum, `long` and `unsigned` types for ox/oy, `long` fields for `t`/`u`, and
+ * an `(int)` cast on the whole sum are ALL byte-identical to the shipped
+ * form.  Only a NARROWING cast fires -- `(int)(unsigned short)ofs.y` is 27
+ * strict / real 24, the best strict this function has ever shown -- but it
+ * costs three bytes (747 vs 744) for the `movzx` it adds, so it is a
+ * compensating error, not a fix, and is not shipped.
+ * WHAT THIS NARROWS THE SEARCH TO.  Indices 0-81 are byte-identical, so the
+ * one-step phase difference is accumulated by a tuple that emits NO code
+ * somewhere before the AdjustOffsetForViewMode call -- the rotation plainly
+ * does not reset across that call, or both builds would restart in the same
+ * register.  Every no-code construct tried (casts, named copies, empty-`if`
+ * temps, inline-helper arguments) is either folded by the front end or
+ * copy-propagated by the optimiser.  The joust.c cure for exactly this
+ * one-step phase -- caching a REAL value (an indexed global) in a local --
+ * cannot be applied here because every instruction before 82 already matches,
+ * so any real load would be an extra instruction. */
 // WIP-FUNCTION: LEGOLAND 0x00418fe0  (212/212 insns, 744/744 bytes, 30 mismatches, 27 surviving the best callee-saved permutation, 9 of 212 original indices structurally different; one eax/ecx/edx rotation at index 82)
 void BoatingSchool_DrawBoats(int mode)
 {
@@ -1362,6 +1394,41 @@ extern TexSize g_texsize[];         /* 0x0081c0c0 */
  * the frame.  Nothing that touches integer register pressure can help (the
  * permutation-aware count still equals the strict count under the IDENTITY
  * permutation). */
+/* ROUND OF 2026-09-04 (sixth pass).  UNCHANGED AT 182, and the statement-order
+ * search space for the conversion block is now CLOSED by direct evidence.
+ *
+ * *** THE ORDER OF THE EIGHT int->float CONVERSIONS IS READ OFF THE ORIGINAL'S
+ * OWN OPERANDS, and it is exactly what this file already has.  With a = ecx
+ * and b = esi the byte loads feeding the ten `fild`s are, in emission order:
+ *      [ecx+2] a->x   [ecx+4] a->w   [esi+4] b->w   [esi+2] b->x
+ *      [esp+0x18] (float)tw
+ *      [ecx+3] a->y   [ecx+5] a->h   [esi+5] b->h   [esi+3] b->y
+ *      [esp+0x14] (float)th
+ * i.e. srcx, srcw, dstw, dstx, (float)tw, then srcy, srch, dsth, dsty,
+ * (float)th -- the shipped source line for line.  So ANY reordering of this
+ * block is known-wrong source however it scores, which settles a family that
+ * three rounds have been sampling blindly.
+ *
+ * *** AND ONE OF THOSE REORDERINGS DOES SCORE, WHICH IS WHY THIS MATTERS.
+ * Hoisting the four Y conversions between `srcx` and the rest of the X group
+ * (srcx, srcy, srch, dsth, dsty, srcw, dstw, dstx) gives 176 strict / robl 293
+ * of 331 / bad 59 -- better than the shipped 182 / 289 / 73 on every metric,
+ * and it reproduces three of the original's four `fstp` spills exactly
+ * (indices 233, 238, 243).  It is REJECTED on two independent grounds: it
+ * contradicts the operand order above, and it grows the frame to 0x34 where
+ * the original and this build are both 0x30.  Three neighbours of it score the
+ * same way (srcx,srcy,srch,dsth,dsty,dstw,srcw,dstx and two more: 176-180,
+ * robl 284-292, all frame 0x34); every ordering that KEEPS the 0x30 frame is
+ * 182 or worse (all-eight-hoisted 183/281, a-then-b 182/278, X-then-Y
+ * 183/281, (float)tw or (float)th moved 190/279).  The trade is exact: the
+ * better x87 spill pattern always costs the frame slot.
+ *
+ * SO THE RESIDUAL IS CONFIRMED AS UNREACHABLE FROM STATEMENT ORDER, and the
+ * only remaining handle is an ALIASING or VOLATILE fact that stops VC6
+ * promoting the X group -- every such fact tested so far (volatile floats, a
+ * struct carrier, the p->tex store in all 23 positions) costs either the frame
+ * or the subtract form.  Whoever takes this next should attack the promotion
+ * rule itself, not the source. */
 // WIP-FUNCTION: LEGOLAND 0x00442040  (321 real insns of the original's 331 -- audit pads to 331 with alignment nops -- 182 mismatches, and 182 under the best callee-saved permutation too, so the integer allocation is already exact; the x87 spill group is mirrored)
 void AnimApplyPart(ModelCtx* ctx, int from, int to, AnimPart* parts, int n)
 {

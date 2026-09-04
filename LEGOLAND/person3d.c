@@ -552,277 +552,257 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
     __asm { mov  ecx, eax } __asm { add  ecx, 0x3333 } \
     __asm { lea  edx, v[vo] } __asm { mov  [edx+20], ecx }
 
-/* Residual 62.9% (matchfull 643/1023; audit strict mismatch 386).  Up from 52.0%
- * and mismatch 687 this round -- FIVE reconstruction errors were found and fixed,
- * every one read straight off the disassembly, and all committed:
+/* Residual 63.3% (matchfull 648/1023; audit strict mismatch 377).  ONE
+ * reconstruction error was found this round and it closed the whole 24..37 head
+ * clump; the frame permutation is now 97% of what is left.
  *     metric (index-for-index / LCS over the 1023)   before   ->   after
- *     mnemonic only                                670/ 980  ->  1008/1019
- *     ebp-offset-blind                             500/ 820  ->   944/ 956
- *     register+offset-blind                        556/ 871  ->   947/ 958
- *     strict                                       305/ 473  ->   582/ 588
- *     audit strict mismatch                             687  ->        386
- * OUR INSTRUCTION COUNT IS NOW EXACTLY 1023, the original's, and 3511 bytes
- * against 3523 (the 12 are disp8/disp32 encodings of the wrong frame offsets).
- * With registers, [ebp-N] offsets and immediates all blinded only 21 of the 1023
- * differ (was 141), and the LCS alignment drift is ZERO from index 139 to the end
- * -- one unbroken 884-instruction run.  Classifying the 386 index-for-index
- * mismatches: 362 differ ONLY in their [ebp-N] (the frame permutation), 3 only in
- * a register name, 21 are the head-scheduling residue listed under WHAT IS LEFT.
- * THE FRAME PERMUTATION IS NOW THE ENTIRE REMAINING RESIDUAL.
- * Tools: scratchpad/w8person3d/{t,dump,mreg,cls,drift}.py -- t.py applies source
- * substitutions and reports 5 metrics + the array order, dump.py prints the two
- * streams side by side LCS-aligned, mreg.py the register/offset/immediate-blind
- * region report, cls.py classifies every index-for-index mismatch as
- * ok/offset-only/register-only/REAL, drift.py prints where the alignment slips.
- * Also scratchpad/laneI/{sc,regions,pair,frame,tryx}.py and
- * scratchpad/w7person3d/{ofs,ofs2,syn,s1..s8}.py (frame testbed + profilers).
+ *     mnemonic only                               1008/1019  ->  1016/1021
+ *     ebp-offset-blind                             944/ 956  ->   957/ 962
+ *     register+offset-blind                        947/ 958  ->   957/ 963
+ *     strict                                       582/ 588  ->   590/ 592
+ *     audit strict mismatch                             386  ->        377
+ * Instruction count is 1023, the original's, and 3511 bytes against 3523 (the
+ * 12 are disp8/disp32 encodings of the wrong frame offsets).  With registers,
+ * [ebp-N] offsets and immediates ALL blinded only SEVEN of the 1023 differ (was
+ * 21); the alignment is exact from 0 to 88 and from 139 to the end -- one
+ * unbroken 884-instruction run -- with a single 2-slot window at 131..138.
+ * Classifying the 377 index-for-index mismatches: 367 differ ONLY in their
+ * [ebp-N] (the frame permutation), 10 are the two clumps under WHAT IS LEFT.
+ * Tools: scratchpad/w9person3d/{t9,ofs3,cls2,syn9,sw1..sw10,e1..e16}.py --
+ * t9.py applies source substitutions and reports 5 metrics, the audit mismatch
+ * (relocation-only differences excluded) and the frame array order; syn9.py +
+ * sw*.py are a SYNTHETIC MODEL of this function's frame (LIGHT 12 / MT 36 /
+ * BOX 96 / SC 96 / V 84 with matching reference kinds) that reproduces our
+ * array order exactly and was used to measure the layout rules below.
+ * Also scratchpad/w8person3d/{dump,mreg,cls,drift}.py and
+ * scratchpad/w7person3d/{ofs,ofs2}.py.
  *
- * FIXED THIS ROUND (five errors, each with the disassembly evidence):
- *  1. *** `cr2` IS A MASM CONTROL REGISTER. ***  `FMUL(cr2, dx2, dy1)` expands to
- *     `__asm { mov cr2, eax }`, and MASM resolved the bare name to CR2, emitting
- *     the privileged `0f 22 d0` -- the local was NEVER WRITTEN and the following
- *     `if (cr1 - cr2 < 0)` read an uninitialised dead-argument slot ([ebp+8]).
- *     The original stores to a real frame slot (`mov [ebp-0x14],eax` at 670/930).
- *     Renamed to crs1/crs2.  This is a SEMANTIC bug fix, not a codegen lever: the
- *     shipped body would have faulted at ring 3.  It also gives crs2 a real home,
- *     which moved the whole scalar colouring.  Costs 6 strict on its own; keep it.
+ * FIXED THIS ROUND (one reconstruction error, with the disassembly evidence):
+ *  1. `nverts = fr->n_verts;` IS READ BETWEEN `ngour = set->n_gouraud;` AND
+ *     `tris = set->tris;` -- not after all three FaceSet fields.  Evidence, the
+ *     original at 24..43: it issues `fld [edi+0x38]` (p->ydepth) at 24, BEFORE
+ *     `mov eax,[esi+0x20]`, then runs the three FaceSet loads back to back at
+ *     29,30,31 with `mov eax,[eax+8]` KILLING the set pointer, and stores in the
+ *     order nfaces(32), tris(34), ngour(36), nverts(38).  With nverts read last
+ *     we emitted the set load and the `fr` spill BEFORE the fld, split the trio
+ *     (two loads, a store, then the third load into edx instead of eax) and
+ *     stored nfaces, ngour, nverts, tris.  Reading nverts third makes 24..43
+ *     instruction-for-instruction exact.  ALL 120 orders of the five head
+ *     assignments were compiled: this one is the unique best (377), the old
+ *     order was 386 and the next best is 379.  Every structural measure rose
+ *     with it (mnemonic +8, offset-blind +13, register-blind +10), so it is an
+ *     honest fix and not a compensating one.
+ *
+ * WHAT IS LEFT.  Two things, and one of them is 97% of it.
+ *  1. THE FRAME PERMUTATION -- 367 of the 377.  Every one of those instructions
+ *     agrees with the original in mnemonic, registers and immediates and differs
+ *     ONLY in its [ebp-N].  See THE FRAME below.
+ *  2. Two scheduling clumps, 10 instructions:
+ *      - 88..89 (2): the original loads `fr->bmax.x` into edi and then
+ *        `fr->bmin.x` into ebx for the cx sum; we load them the other way round.
+ *        Same registers, same `add edi,ebx`, same `neg edi` -- purely which
+ *        field lands in the accumulator.  The cz sum already matches (both load
+ *        bmax.z then bmin.z and accumulate into ebx).  RE-MEASURED THIS ROUND on
+ *        the new baseline: both operand orders x2 both statement orders (8
+ *        variants) are BYTE-IDENTICAL for cx-first and 4 worse for cz-first; a
+ *        split `cx = a+b; cx = -cx>>1;`, a fully split negate-then-shift, `(0 -
+ *        ...)`, a `t = fr->bmax.x` temp, and five placements of the cz statement
+ *        are identical or much worse.  The two-operand sum canonicalises.
+ *      - 131..138 (8): the original sinks `neg ebx / sar edi,1 / sar ebx,1` INTO
+ *        the box-init run -- after box[5].z's LOAD at 130 but BEFORE its store
+ *        at 134 -- and issues `push 1` at 136; we emit the same four
+ *        instructions two positions later.  This is the only alignment drift
+ *        left (-2, closed again at 139).  Five placements of
+ *        `TransformVectorsL(light, light, mt, 1)` (before cx, before box[0],
+ *        mid-box, swapped with the box call) lose 30 to 599; five placements of
+ *        the cz statement lose 19 to 31; box[0] moved above cx/cz loses 36.
+ *
+ * ===========================================================================
+ * THE FRAME.  Target map, re-confirmed instruction by instruction (every
+ * [ebp-N] the original touches was enumerated with ofs3.py and attributed; the
+ * per-slot reference COUNTS of light, mt, box, sc, v and a/b/c are identical to
+ * ours slot for slot, which is the whole difficulty):
+ *     -0x00c light[3]        (top of frame, NOTHING above it)
+ *     -0x030..-0x010   9 scalars (refs 16,16,15,17,13,12,11,12,12 near->far)
+ *     -0x054 mt[9]
+ *     -0x078..-0x058   3 scalars (9,8,7), c (at -0x6c), b (at -0x78)
+ *     -0x0d8 box[24]
+ *     -0x0f0..-0x0dc   3 scalars (4,4,4) and a (at -0xf0)
+ *     -0x150 sc[24]
+ *     -0x1a4 v[3]        (v[1] -0x188, v[2] -0x16c: Vertex2D is 28 bytes and
+ *                        v[2]+28 == sc, so v is provably 84 bytes; its per-slot
+ *                        profile 12,6,2,2,2 / 9,4,2,2,2 / 9,6,2,2,2 is OURS
+ *                        exactly, so v is neither a different size nor a
+ *                        different object)
+ *     -0x1b4..-0x1a8   4 scalars: fr -0x1b4 (2 refs), nfaces, tris, ngour
+ * OURS: light -0x20, mt -0x78, v -0xe8, box -0x154, sc -0x1b4, with a(-0x94),
+ * b/a(-0x54) and c(-0x48) pooled and swapped between the loops exactly as the
+ * original pools them (profiles (3,-,8) (6,-,10) (8,-,10) both sides).  Same
+ * frame size (0x1b4), same 79 referenced slots, same TOTAL reference count
+ * (384 = 384).  The array order is light, mt, v, box, sc against the original's
+ * light, mt, box, sc, v.
+ *
+ * SEEN AS A LIST, ours and the original differ ONLY in where the four plain
+ * arrays are inserted into an otherwise IDENTICALLY SHAPED 49-slot pool:
+ *     ORIG: [light] 9sc [mt] 3sc c b [box] 3sc a [sc] v(21) 4sc
+ *     OURS: 5sc [light] 7sc c b [mt] 4sc a v(21) 3sc [box] [sc]
+ * -- same [12 scalars][c][b][n scalars][a][v][m scalars] pool spine, with the
+ * arrays one "chunk" lower in ours.
+ *
+ * FRAME RULES -- what is now MEASURED (synthetic model syn9.py + sw1..sw10.py,
+ * ~250 compiles, plus ~60 on the real file).  Do not re-derive:
+ *  (a) DECLARATION ORDER IS INERT.  Re-confirmed this round: all four
+ *      permutations of the sc/box/mt/light declaration block are byte-identical.
+ *  (b) Any `__asm` block reverses the whole frame-object order; POSITION and
+ *      COUNT are inert (previous lane, 10 placements, 1/2/5 blocks).  NEW: an
+ *      asm block inside the `v` block specifically is also inert, and the
+ *      reversal is all-or-nothing -- asm only in the outer function, only in the
+ *      loop, or both all give the same reversed order.
+ *  (c) The default (asm-reversed) order is ASCENDING BYTE SIZE from ebp down --
+ *      bytes, not elements.  Ours is exactly that: 12, 36, 84, 96, 96.
+ *  (d) *** ASM `lea X` REFERENCES CARRY ZERO WEIGHT. ***  In the synthetic,
+ *      deleting 4, 8, 12, 16, 20 or ALL 24 of the `__asm { lea eax, BOX }`
+ *      references changes NOTHING -- byte-identical frame.  Only C-level
+ *      references rank an array.  (This supersedes the previous lane's "low
+ *      weight": it is exactly nil.)
+ *  (e) C-level references PROMOTE an array toward ebp, and enough of them beat
+ *      size.  Measured on the synthetic at our exact configuration (V 84 bytes,
+ *      15 distinct slots, 64 references; BOX/SC 96 bytes, 24 asm-leas each):
+ *          +8  C refs on BOX -> unchanged        (LIGHT,MT,V,BOX,SC)
+ *          +12 C refs on BOX -> LIGHT,MT,BOX,V,SC
+ *          +20 C refs on BOX -> LIGHT,MT,BOX,SC,V   <-- the ORIGINAL's order
+ *          +12 C refs on SC  -> LIGHT,MT,BOX,SC,V   <-- also the original's
+ *      BUT THE SYNTHETIC'S SENSITIVITY DOES NOT TRANSFER.  On the REAL file,
+ *      measured this round: 4/8/12/16/20/24 extra LIVE C reads of box (or of
+ *      sc) placed before the transform, after the FMULA run, or after the scan
+ *      leave the array order UNCHANGED; so does replacing every
+ *      `__asm { lea eax, box }` (and `lea edx, sc`, and SHADE's `lea edx, v`)
+ *      with a pointer local, which deletes 24 asm references outright.  The
+ *      ONE real-file construct that reaches the original's order is 24 live C
+ *      reads of `box` INTERLEAVED WITH the FMULA run itself -- one per macro
+ *      expansion (`cx += s[(n)/12].x;` inside FMULA, keeping the asm lea):
+ *      that gives light, mt, box, sc, v exactly.  Bunching the same 24 reads
+ *      anywhere else does nothing, and each of them costs an instruction, so
+ *      there is no zero-cost spelling: the promotion needs box to be READ IN C
+ *      at each of the 24 points where the original only leas it in asm.
+ *  (f) *** AND THAT IS WHY IT IS UNREACHABLE FROM SOURCE: the weight is the
+ *      SURVIVING-IR reference count. ***  Two decisive negatives this round:
+ *      (i) routing every C use of `v` through an alias pointer (`Vertex2D* w =
+ *      v;`, so `v` is named once) is BYTE-IDENTICAL -- VC6 copy-propagates and
+ *      counts after; (ii) 8, 16 or 24 DEAD C reads of box or of sc are
+ *      byte-identical too -- they are dead-code-eliminated before the count.
+ *      Since our surviving IR reference profile equals the original's slot for
+ *      slot (384 = 384, 79 = 79), NO source spelling can change the weights.
+ *  (g) Block scope is worth about ONE step of the same currency, and the
+ *      threshold is a joint function of distinct slots touched and reference
+ *      count.  Full synthetic table for an 84-byte struct array (position 1 =
+ *      nearest ebp; there are five positions):
+ *          fn-level  D=3: 4 everywhere;  D=8/15: 4 at R<=8, 3 at R>=16
+ *          in-block  D=3/8: 4 everywhere;  D=15: 4 at R<=16, 3 at R>=24
+ *          inline    D=3/8/15: 5 at R<=2, 4 at R<=16, 3 at R>=24 (D=15)
+ *      Our v is D=15, R=64 -> position 3, which is what we get.
+ *  (h) NEW CLASS FOUND, and it is the only construct that reaches the far end
+ *      on its own: an array born inside a `static __inline` HELPER (an
+ *      inline-expansion temporary) sits one step lower than the same array
+ *      block-scoped, and at R<=2 it goes PAST both 96-byte arrays to position 5.
+ *      It is NOT usable here: the helper would have to contain the SHADE macro,
+ *      whose `__asm { imul dword ptr light[0] }` and `__asm { lea edx, v[vo] }`
+ *      name `light` and `v` as MASM symbols, so both must be lexically inside
+ *      the function that emits them -- and `light` is one object shared by both
+ *      loops and initialised before them.  Passing light as a pointer changes
+ *      the emitted SHADE.  At R=64 the inline class is at position 3 anyway.
+ *  (i) Array SIZE probes (semantics-breaking, diagnostic only): v[2]=56B ->
+ *      position 2, v[3]=84B -> 3, v[4]=112B -> 3, v[5]=140B -> 4, v[8]=224B ->
+ *      4.  Position 5 is NEVER reached by size, not even at 224 bytes, and 112
+ *      bytes still sits above two 96-byte arrays -- so the order is not a size
+ *      sort with weight as a tie-break, and `v` cannot be pushed down by being
+ *      "really" a bigger object.
+ *
+ * RULED OUT ON THE REAL FILE THIS ROUND (all measured, do not re-derive):
+ *  - Declaration order of the four arrays: 4 permutations, byte-identical.
+ *  - Array TYPES: `Vec3i sc[8]` for `int sc[24]`, and `int box[24]` with
+ *    `*(Vec3i*)&box[0] = fr->bmin;` for `Vec3i box[8]` -- both byte-identical.
+ *    The element type is not a lever; only total bytes are.
+ *  - Scope subsets: v at function level (order light,v,mt,box,sc, 417); a/b/c
+ *    and/or tp at function level (389); everything at function level (405);
+ *    `sc` in a block round the FMULA run and the scan (399, order
+ *    light,mt,v,sc,box); `box` in a block (compile shape collapses, 1001);
+ *    both (1001).  NOTE, correcting the previous round's note: `v` in ONE block
+ *    spanning both loops is NO LONGER byte-identical to one block per loop --
+ *    it is now 3 WORSE (389).  Keep one block per loop.
+ *  - Alias pointer over `v` (see (f)(i)): byte-identical.
+ *  - Dead C reads of box/sc (see (f)(ii)): byte-identical.
+ *  - Block-scoping dx1..dy2 and/or crs1/crs2, and giving the second loop its own
+ *    crs pair: 385 to 393, order unchanged.  (Re-measured on the new baseline;
+ *    the previous round's verdict stands.)
+ *  - The sc scan written with DIRECT `sc[i*3]` indexing instead of the `q`
+ *    pointer walk: VC6 strength-reduces it back to the same pointer walk and the
+ *    instruction count stays 1023, but it is 3 worse (380) and the array order
+ *    does NOT move -- the extra 8 C references to sc are not enough (rule (e)
+ *    wants 12).  Also tried: an explicit `i`/`cnt` countdown form and re-deriving
+ *    `q` from `sc` inside the loop -- both 380.
+ *  - Head statement order: all 120 permutations of the five assignments were
+ *    compiled (see FIXED THIS ROUND); dropping the `set` local in favour of
+ *    `fr->faces->...` three times is byte-identical; moving `set` before `ydep`
+ *    or `k65536` later is byte-identical; `fy` early, `face` last and
+ *    nverts/nrm before the trio are 62 to 70 worse.
+ *
+ * FIXED IN EARLIER ROUNDS -- the shapes below are established, do not undo them:
+ *  1. `cr2` IS A MASM CONTROL REGISTER.  `FMUL(cr2, dx2, dy1)` expanded to
+ *     `__asm { mov cr2, eax }` and MASM emitted the privileged `0f 22 d0`, so
+ *     the local was NEVER written and the following compare read an
+ *     uninitialised dead-argument slot -- the shipped body would have faulted at
+ *     ring 3.  Renamed crs1/crs2.  Swept again this round: no `__asm` operand in
+ *     this function collides with a MASM reserved name, and the /FAcs listing
+ *     contains no control-register, debug-register or segment move.
  *  2. The INLINED TransformVectorsL's FIRST ROW is spelled the other way round
  *     from the other two and from math3d.c's copy: `mov eax,[esi] / imul dword
- *     ptr [ebx]` (vertex into eax, matrix as the imul operand) at 0x00440e2c,
- *     against `mov eax,[ebx] / imul dword ptr [esi]` in the library routine at
- *     0x004433c1.  Rows 2 and 3 of the inline copy match the library.  Worth
- *     exactly the 6 instructions it touches.
- *  3. *** THE THREE CORNERS ARE WHOLE-STRUCT COPIES. ***  `a = XV[tp[0]];` with
- *     `XV == (Vec3i*)g_xverts`, not `gp = &g_xverts[tp[0]*3]; a.x = gp[0]; ...`.
- *     Evidence, loop 1 at 566..579: VC6 materialises the corner address into a
- *     FIXED register and dereferences it three times -- `lea ecx,[ecx*4+g] / mov
- *     ebx,ecx / mov ecx,[ebx] / mov [b+0],ecx / mov ecx,[ebx+4] / mov ebx,[ebx+8]
- *     / mov [b+8],ebx` -- where field-wise assignment folds the first field into
- *     `[ecx*4+g]` and needs no `mov ebx,ecx`.  The two register copies at 567 and
- *     574 are the whole signature; a multiset diff of the block showed our body
- *     short by exactly `mov R,R` twice.  The struct copy also reproduces which
- *     field VC6 keeps live (+4, the single-use one) and which two it homes (+0 and
- *     +8) in ALL FOUR corner blocks, and it reproduces the a<->b pool-slot SWAP
- *     between the two face loops (loop1 a=-0xf0/b=-0x78, loop2 a=-0x78/b=-0xf0).
- *     Field-wise `x, z, y` order reaches the same field liveness and was the first
- *     form found (687 -> 668), but only the struct copy also produces the copies.
- *  4. The screen-x expression is `ox + 2 * (a.x + a.z)`, NOT `(a.z + a.x)`.  With
- *     the struct copy in place the operand order stops canonicalising: `(z + x)`
- *     loads the two corner fields into the wrong registers and forces a reload of
- *     .x for the following `.y` expression (`mov ebx,[b+0] / sub ecx,ebx` instead
- *     of the original's `sub ecx,eax` reusing the value at 595).  3+4 together
- *     took the mismatch 668 -> 405 and made the whole 583..660 / 839..933
- *     coordinate machinery instruction-for-instruction exact.
- *  5. `Vertex2D v[3]` IS DECLARED INSIDE EACH FACE LOOP, not at function level,
- *     and so is `int* tp`.  Both are used only there.  Evidence is indirect but
- *     decisive: with `v` at function level VC6 refuses to hoist a load through a
- *     pointer above a store into `v` (it must assume `face`/`tp` may alias the
- *     address-taken array), so our key-index block and our UV block came out as
- *     six strict load/store pairs where the original runs a three-deep software
- *     pipeline (763..776: three loads, then store/load/store/load...).  Moving the
- *     declaration into the loop body reproduces the original's schedule EXACTLY at
- *     all four sites and removed the last alignment drift.  405 -> 389; scoping
- *     `tp` the same way is worth another 3 audit and +20 offset-blind.
+ *     ptr [ebx]` at 0x00440e2c against `mov eax,[ebx] / imul dword ptr [esi]` at
+ *     0x004433c1.
+ *  3. THE THREE CORNERS ARE WHOLE-STRUCT COPIES (`a = XV[tp[0]];`).  VC6
+ *     materialises the corner address into a fixed register and dereferences it
+ *     three times (566..579); field-wise assignment folds the first field into
+ *     `[ecx*4+g]` and emits no `mov ebx,ecx`.  It also reproduces the a<->b
+ *     pool-slot swap between the two loops.
+ *  4. The screen-x expression is `ox + 2 * (a.x + a.z)`, NOT `(a.z + a.x)`:
+ *     with the struct copy in place that operand order stops canonicalising.
+ *  5. `Vertex2D v[3]` and `int* tp` are declared INSIDE EACH FACE LOOP.  This is
+ *     a SCHEDULING fix, not a frame lever: at function level VC6 will not hoist
+ *     a load through `tp`/`face` above a store into the address-taken array and
+ *     the key-index and UV blocks lose the original's three-deep software
+ *     pipeline at four sites.
+ *  6. `box[0] = fr->bmin;` is a WHOLE-STRUCT copy and the other seven corners
+ *     are element-wise off `fr` (`mov eax,esi` at 94 then three moves through
+ *     eax).  Re-measured this round: field-wise corner 0, in x,y,z or x,z,y
+ *     order, is 593 worse.
+ *  7. The transpose reads `p->matrix[k]` DIRECTLY, not through `mp`.
+ *  8. `vptr` is RECOMPUTED from the index as the FIRST statement of the key
+ *     loop, not walked with `vptr += 3`.
+ *  9. `light[0..2]` is initialised BEFORE the transpose.
  *
- * RULED OUT THIS ROUND (all measured, do not re-derive):
- *  - Operand order of the two bbox sums (`bmax.x + bmin.x` vs `bmin.x + bmax.x`,
- *    same for z, and swapping the two statements) canonicalises; so does the order
- *    of the `(p->tint << 24) + t + yy` sum.
- *  - Head statement order: all 6 permutations of nfaces/ngour/tris and 4 positions
- *    of `ydep = p->ydepth` are neutral or worse.  The head residue is scheduling.
- *  - Fetch spellings: `*gp`, `g_xverts + tp[k]*3`, an int temp for the index,
- *    three separate pointers gpa/gpb/gpc, one pointer for `a` and another for b+c,
- *    `Vec3i*` with `->`, and `XV[tp[k]].x` field-wise -- all identical or worse
- *    than the struct copy; reordering the three corner fetches (cba/bca/acb) is
- *    much worse.
- *  - Fetch field order: of the 6 permutations only `x, z, y` (and the struct copy)
- *    put the +4 field in a register; `x, y, z` is the old shape, `y`-first arms
- *    are worse.
- *  - UV block: float fields with a plain assignment compile IDENTICALLY to
- *    `*(int*)&` (VC6 uses integer moves for a float member copy, so the field type
- *    is not observable here); an `int*` alias over `face->uv` is much worse; u's
- *    then v's is worse.  The block is now exact anyway after fix 5.
- *  - Block-scoping SCALARS is completely inert (cnt/q/lo2/hi2 round the sc scan,
- *    dx1..dy2 and crs1/crs2 in the face loops -- the last two are worse).  Only
- *    aggregates and pointers move the frame.
- *  - `v` as three separate `Vertex2D v0,v1,v2` in the loop: worse (strict 550).
- *    `v` in ONE block spanning both loops: byte-identical to one block per loop.
- *    `v` in a DEEPER block (inside the parity if/else through the draw call):
- *    byte-identical -- lexical depth is inert, confirming the previous lane.
- *  - Block-scoping `sc` (round the FMULA run and the scan) or `box`: much worse;
- *    `box` in a block still changes the frame SIZE and costs 18 instructions.
- *
- * FIXED IN THE PREVIOUS ROUND (four changes, each with the disassembly evidence):
- *  1. `box` is `Vec3i box[8]` and CORNER 0 IS A WHOLE-STRUCT COPY, `box[0] =
- *     fr->bmin;`.  The original materialises the source address (`mov eax,esi` at
- *     94) and does three moves through eax at 96..101, then goes back to esi for
- *     the other seven corners -- the signature of one struct assignment followed by
- *     element-wise stores.  It is also what breaks VC6's CSE of `fr->bmin.x`
- *     between the cx sum and box[0]: with 24 scalar stores we loaded bmin.x first
- *     and reused it, which mis-scheduled the whole 53-instruction box init.  Worth
- *     +36 offset-blind.  (`int box[24]` with `*(Vec3i*)&box[0] = fr->bmin;` is
- *     byte-identical -- the struct-array type is not itself a lever, the copy is.)
- *  2. The transpose reads `p->matrix[k]` DIRECTLY, not through the `mp` pointer
- *     local.  With `mt[k] = mp[j]` VC6 emits `add edi,0x58`, clobbering `p`, and
- *     addresses the matrix as [edi+4..0x20]; the original emits `lea eax,[edi+0x58]`
- *     (58), stores it to BOTH pointer homes (60/61), keeps p in edi and addresses
- *     the matrix as [edi+0x5c..0x78].  Worth +49 offset-blind, +15 mnemonic, and it
- *     is what took the audit mismatch from 980 to 741.  `mp`/`mpp` are still needed
- *     for the two calls; only the nine transpose reads change.
- *  3. `vptr` is RECOMPUTED FROM THE INDEX inside the key loop -- `vptr =
- *     &g_xverts[i * 3];` as the FIRST statement of the body -- not walked with
- *     `vptr += 3`.  The original has NO vptr increment in its loop tail (535..540
- *     is `mov eax,cnt / add esi,0xc / add edi,4 / dec eax / mov cnt,eax / jne`); it
- *     strength-reduces vptr to `lea edx,[esi-8]` off the esi that walks g_xverts by
- *     12 and re-stores it every iteration.  Worth +71 strict, mismatch 741 -> 687.
- *     Position matters: assigning vptr AFTER the `t = ... - lo` statement is 15
- *     offset-blind worse than assigning it first.
- *  4. `light[0..2]` is initialised BEFORE the transpose, not after: the original
- *     emits the three light stores at 73..75, in the middle of the mt run (mt[6..8]
- *     follow at 76..78).  Worth +6 offset-blind index-for-index; the two placements
- *     `light` before `mp = p->matrix` and `light` between the two blocks are
- *     byte-identical.
- *
- * THE FRAME.  Target map, unchanged and re-confirmed instruction by instruction
- * (every [ebp-N] the original touches was enumerated with ofs.py and attributed):
- *     -0x00c light[3]        (top of frame, NOTHING above it)
- *     -0x030..-0x010   9 scalars, the 9 hottest (11..17 refs; k65536 -0x1c,
- *                      nverts -0x20, fy -0x10)
- *     -0x054 mt[9]
- *     -0x078..-0x058   b (Vec3i at -0x78, .y never homed), c (at -0x6c, likewise),
- *                      and 3 scalars: -0x58 ydep(9), -0x5c mp(8), -0x60 (7)
- *     -0x0d8 box[24]
- *     -0x0f0..-0x0dc   a (Vec3i at -0xf0) + 3 scalars: -0xe4 nrm, -0xe0, -0xdc mpp
- *     -0x150 sc[24]      (only sc[0] 25x, sc[1] and &sc[4] are ever named)
- *     -0x1a4 v[3]        (v[1] -0x188, v[2] -0x16c: Vertex2D is 28 bytes, and
- *                        v[2]+28 == sc, so v is provably 84 bytes)
- *     -0x1b4..-0x1a8   the 4 coldest scalars, identified from indices 26..36:
- *                      fr -0x1b4, nfaces -0x1b0, tris -0x1ac, ngour -0x1a8
- * OURS, after this round: light -0x20, mt -0x78, v -0xe8, box -0x154, sc -0x1b4,
- * with a(-0x94)/b(-0x54)/c(-0x48) and tp pooled between the loops.  Same size
- * (0x1b4), same objects, the same 79 referenced slots, and -- re-verified with
- * ofs2.py -- the same TOTAL reference count (384 = 384) with only four slots
- * differing in count (we have 7/14/16/16 where the original has 11/12/13/17: a
- * scalar-coalescing difference, not a missing reference).  It is a pure
- * permutation; the array order is light, mt, v, box, sc against the original's
- * light, mt, box, sc, v -- `v` has moved ONE step down from where the previous
- * round left it (declaring it inside the face loops did that) and must go two
- * more, past box and sc, to the far end.  Note the original's array order is NOT
- * ascending byte size (v is 84 and sits below two 96s), which is exactly the
- * testbed's "84-byte array in one block goes to the far end" behaviour -- but our
- * `v` has ~60 references and that testbed effect needed <=16.
- * Two secondary differences: FIVE scalar slots (-4,-8,-0xc,-0x10,-0x14, 20 bytes
- * exactly) sit ABOVE our light where the original has nothing above it, and our
- * b/c pair sits ABOVE mt where the original puts it below.
- *
- * FRAME LAYOUT, WHAT IS NOW PROVEN (synthetic testbed scratchpad/w7person3d/
- * {syn,s1..s8}.py plus scratchpad/laneI/{gen,ph,wt}.py, ~70 compiles):
- *  (a) DECLARATION ORDER IS INERT (re-confirmed on this file, 3 permutations).
- *  (b) ANY `__asm` block reverses the whole frame order (previous lane).  NEW: the
- *      POSITION and COUNT of asm blocks are inert -- 10 placements from before the
- *      first statement to after the last, and 1/2/5 blocks, all byte-identical.
- *      Only presence matters.
- *  (c) The asm-world order is ASCENDING BYTE SIZE.  NEW: it is BYTES, not elements
- *      -- `struct {int f0..f6;} A[3]` and `int A[21]` give byte-identical frames.
- *  (d) NEW, and it corrects the previous lane: BLOCK SCOPE IS NOT WORTH "exactly
- *      one position".  In the testbed an 84-byte array declared in ONE block goes to
- *      the FAR END, past two 96-byte arrays; the same array declared in TWO disjoint
- *      blocks behaves exactly like a function-level local.  The previous lane
- *      measured "one position and no farther" with `Vertex2D v[3]` declared inside
- *      BOTH face loops -- which is precisely the case that cancels the effect.
- *  (e) NEW: it is a WEIGHT effect, and scope is only one unit of it.  With two
- *      96-byte arrays at 24 references each, the 84-byte array goes last at <=16 of
- *      its own references and rises to its size position at >=32; block scope buys
- *      about one step of the same currency, and adding references to the 96-byte
- *      arrays pushes the 84-byte one down just as well.
- *  (f) NEW: references made ONLY through `lea X` inside an `__asm` block carry LOW
- *      weight.  With the two 96-byte arrays referenced only that way -- exactly what
- *      FMULA does to `box` and `sc` -- the 84-byte array rises above them at every
- *      weight tested.  This is why `v` sits where it does for us.
- * MEASURED ON THIS FILE (the previous round's "dead end" list, revised where this
- * round moved it):
- *  - `Vertex2D v[3]` inside the face loops IS NOW COMMITTED, and it was not a
- *    frame lever at all -- it is a SCHEDULING fix (see FIXED THIS ROUND item 5).
- *    It happens also to move `v` one step down (light, mt, v, box, sc).  One block
- *    spanning both loops, one block per loop, and a deeper block inside the parity
- *    if/else are all BYTE-IDENTICAL, so only the fact of block scope matters, not
- *    its extent or depth.  Scoping `int* tp` the same way is worth +20
- *    offset-blind on top.
- *  - `v` must go TWO more steps, past box and sc, to the far end.  Not reached.
- *    Cutting v's references by ~24 (semantics-breaking probes, previous round)
- *    moved it exactly one step and no farther, and the two levers do not stack.
- *  - Block-scoping any subset of {v, sc, mt, light} never yields the target order.
- *    Re-measured this round on the corrected body: `sc` in a block round the FMULA
- *    run and the scan is 30 strict worse; `box` in a block still changes the frame
- *    SIZE and costs 18 instructions.
- *  - Block-scoping SCALARS is completely inert -- cnt/q/lo2/hi2 round the sc scan,
- *    vptr and yy in the key loop: byte-identical.  dx1..dy2 and crs1/crs2 in the
- *    face loops are 25-35 strict WORSE.  Only aggregates and pointers move.
- *  - Statement order does not move any array.
- *  - `Vertex2D v0, v1, v2` as three separate objects, re-measured this round in
- *    the loop block: 550 strict against 582, so worse; the array is right.
- *  - The reference profile still MATCHES in total (384 = 384) and in slot count
- *    (79 = 79); only four slots differ in count, a coalescing artefact.  So no
- *    weight argument distinguishes the two layouts and the original's `v` is still
- *    not reachable from any weight, scope, size, order or asm knob measured here.
- *    The one construct that produces the original's ARRAY sequence remains a
- *    merged 180-byte `struct { Vertex2D v[3]; int sc[24]; }`, which is not
- *    credible source and is not committed.
- *
- * SCALAR COLOURING, newly measured and a clean rule: the original's 19 scalar slots
- * are in STRICTLY DESCENDING reference count as you walk down from ebp --
- * 17,16,16,15,13,12,12,12,11 | 9,8,7 | 4,4,4 | 3,3,3,2 -- with the arrays inserted
- * between the groups.  Ours obeys the same rule except at the top, where VC6
- * coalesces several of our scalars into FIVE slots ABOVE light (now 15,12,14,12,16
- * refs, 20 bytes exactly) that the original does not have at all; the original's
- * light[3] is the topmost object with nothing above it, and those 20 bytes are
- * precisely the distance our light (-0x20) sits below the target (-0xc).  The
- * multiset of scalar reference counts differs from the original's in only four
- * entries -- we have 7,14,16,16 where it has 11,12,13,17 -- so what differs is
- * WHICH variables VC6 coalesces into one slot, not how often anything is read.
- * Closing that is worth the top of the frame.
- *
- * WHAT IS LEFT.  Only two things, and one of them is 95% of it:
- *  1. THE FRAME PERMUTATION -- 362 of the 386, plus 3 register names.  Every one
- *     of those instructions agrees with the original in mnemonic, registers and
- *     immediates and differs ONLY in its [ebp-N].  See THE FRAME above for the
- *     current map and the three deltas (v two steps too high, five scalars above
- *     light, b/c above mt).  Item 2 of the previous round's list -- "the two
- *     triangle-setup blocks, ~30 instructions, allocation not source" -- WAS
- *     WRONG: it was source (the whole-struct corner copy plus the `x + z` operand
- *     order) and both blocks are now exact.
- *  2. The HEAD, 21 instructions in three clumps, all pure scheduling:
- *      - 24..37 (11): the original issues `fld p->ydepth` BEFORE `mov eax,
- *        fr->faces`, then reads set->n_faces/n_gouraud/tris as one three-load run
- *        (29,30,31) and interleaves the three stores with fr->n_verts and
- *        fr->normals; we read two, store nfaces, then read tris.  All six
- *        permutations of the three assignments and four positions of `ydep` are
- *        neutral or worse.
- *      - 88..89 (2): the original loads `fr->bmax.x` before `fr->bmin.x` for the
- *        cx sum; we load bmin.x first.  Both operand orders and both statement
- *        orders canonicalise (the cz sum already matches).
- *      - 131..138 (8): the original sinks `neg ebx / sar edi,1 / sar ebx,1` INTO
- *        the box-init run (after box[5].z at 134) and issues `push 1` two slots
- *        later; we emit the same instructions two positions apart.  Every split
- *        spelling of the two shifted sums was measured last round and all lose 20
- *        to 60 offset-blind.
- *     Neither clump causes any alignment drift: the LCS is one unbroken run from
- *     139 to the end.
- *
- * STRUCT CHECK.  The `pad2c[4]` bug found in another file's Person3D is NOT here:
- * this file's local Person3D has no padding after +0x24, so f2c/f30/zboost sit at
- * +0x2c/+0x30/+0x3c, and every p-> offset this body emits was compared against the
- * original one for one.  Note the naming differs between files: the field another
- * lane calls `depth` is +0x3c (this file's `zboost`); `Person3D::depth` here is the
- * print-list sort key at +0x54, a different field.
+ * STRUCT CHECK.  The `pad2c[4]` bug found in another file's Person3D is NOT
+ * here: this file's local Person3D has no padding after +0x24, so f2c/f30/zboost
+ * sit at +0x2c/+0x30/+0x3c, and every `p->` offset this body emits was compared
+ * against the original one for one.  The field another lane calls `depth` is
+ * +0x3c (this file's `zboost`); `Person3D::depth` here is the print-list sort
+ * key at +0x54.  `i` and `t` share the dead parameter home [ebp+8] in both
+ * bodies (`mov ecx,[ebp+8]` at 685 is `__asm { mov ecx, i }`).
+ * NEW CHECK (scratchpad/w9person3d/pmap.py): every one of the 367 offset-only
+ * mismatches was tested for a CONSISTENT slot bijection.  All five arrays map
+ * one-to-one (-0xc->-0x20, -0x54->-0x78, -0xd8->-0x154, -0x150->-0x1b4,
+ * -0x1a4->-0xe8) and the only multi-valued entries are small scalar slots that
+ * VC6 coalesces differently (e.g. the original's `fr` at -0x1b4 has its own
+ * 2-reference slot while ours shares one with the second loop's `tp`).  No
+ * mismatch differs outside its [ebp-N], so there is no wrong struct field
+ * offset hiding inside the frame residual.
  *
  * NOT ASSEMBLY.  Checked, per the standing question: the ebp frame and the
  * unconditional ebx/esi/edi save come from the `__asm` macros above, the pushes
  * are at the top of the prologue (not inside the stream), there is no `xchg`
  * against memory anywhere in the 1023 instructions, and the body is ordinary
  * scheduled C around them.  This is mixed C + inline asm, not a naked routine. */
-// WIP-FUNCTION: LEGOLAND 0x00440a30  (62.9%, 643/1023 insns; audit mismatch 386,
-//                                    of which 362 are frame offsets alone)
+// WIP-FUNCTION: LEGOLAND 0x00440a30  (63.3%, 648/1023 insns; audit mismatch 377,
+//                                    of which 367 are frame offsets alone)
 void Draw3DPersonModel(Person3D* p)
 {
     int      sc[24];
@@ -874,8 +854,8 @@ void Draw3DPersonModel(Person3D* p)
     set = fr->faces;
     nfaces = set->n_faces;
     ngour = set->n_gouraud;
-    tris = set->tris;
     nverts = fr->n_verts;
+    tris = set->tris;
     nrm = fr->normals;
     fy = p->scale_y;
     if (ydep != 0.0f) {

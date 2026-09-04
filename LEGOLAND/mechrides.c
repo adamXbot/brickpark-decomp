@@ -1769,6 +1769,49 @@ extern CarRow  g_tower_car[4];                               /* 0x004b77a8 */
  *    length, and the promising `c3R_c8Y no-voldef` 103 recorded in ROUND 8c
  *    is reachable ONLY through the `RIDE_TILE(r)` spelling -- it is not a
  *    property of re-reading the field. */
+/* PASS w9rides (2026-09-04).  NO CHANGE (138 strict / 136 real /
+ * register-blind 14).  This body is NOT part of the five-function slot
+ * family; its residual is the index-23 `def` reload, and the open task from
+ * ROUND 8c -- hold `sub esp,0x10` while keeping the `c3R_c8Y no-voldef`
+ * route -- was attacked directly and is now much better bounded.
+ *
+ * WHAT THE HEAD ACTUALLY NEEDS, read off the disassembly:
+ *      orig 22 mov edx,[esp+0x24]   23 mov ecx,[esp+0x24]   (def, TWICE)
+ *           26 mov ebp,[edx+0xc]    <- edx DIES here
+ *           27 mov ecx,[ecx+0x10]   <- base_y in place
+ *           30 lea eax,[ebx+0xc]    31 xor edx,edx  32 mov dl,[eax+1]
+ *      ours 22 mov edx,[esp+0x28]   (def, ONCE, live to 32)
+ *           25 lea ecx,[ebx+0xc]    30 mov al,[ecx+1]  31 mov [esp+0x14],eax
+ * The second reload is the whole thing: it is what frees edx for `tiley`
+ * and hands eax to the `lea` that rematerialises `tile`.  With only one
+ * reload, edx stays busy, `tiley` takes eax and VC6 spills it -- which is
+ * the `sub esp,0x14` and the 695/698 bytes.
+ *
+ * THE `c3R_c8Y no-voldef` ROUTE (real 103 / strict 103, IDENTITY) IS NOW
+ * SHOWN INVARIANT under twenty further spellings, all of them exactly 103
+ * with the identical bad list -- so the spill is not a spelling either:
+ *   - the `def`-reload family CROSSED WITH c3R for the first time (it had
+ *     only ever been swept in the committed c3Y state): a volatile pointer
+ *     read on base_x, on base_y, on both; `((RideDef*)elem->data)` on either
+ *     read; a second `def2 = elem->data` local used for either read, with
+ *     and without a volatile on it.  Every non-volatile one is CSE'd back to
+ *     a single load (103), every volatile one pins the reload late (151-211).
+ *   - empty-`if` block splits at all three head seams with six different
+ *     guard values (tx, tilex, tiley, def, b, rec), and two block scopes
+ *     around the x pair and the y pair: byte-identical.  So the empty `if`
+ *     does NOT give the two field reads separate basic blocks here.
+ *   - six accumulate spellings (`base[1] = def->base_y; base[1] += tiley;`,
+ *     the same for `tx`, both, y-pair first, tiley computed last): 103 for
+ *     the four that keep the head order, 145-195 otherwise.
+ * NOT COMMITTED, and the reason is now the standing test rather than taste:
+ * strict falls 138 -> 103 but REGISTER-BLIND RISES 14 -> 21 and the frame
+ * goes to 0x14 against the original's 0x10 -- the compensating-error
+ * signature.  The committed body's tail from index 122 is a pure 3-slot
+ * shift with no register differences; the 103 body's case 8 reads `tiley`
+ * from a stack slot the original never has.  Flagged for the coordinator:
+ * if a future pass finds a way to keep `tiley` in edx (i.e. a SECOND `def`
+ * reload at index 23 without a volatile), the two changes go in together
+ * and this function should fall a long way. */
 // WIP-FUNCTION: LEGOLAND 0x0043bac0  (38%, 138/222; frame, block layout, the ebx/ebp cursor split and everything to index 22 exact -- see above)
 void SpaceTower_Activate(RideElem* elem)
 {
@@ -2830,6 +2873,29 @@ extern const int g_safari_end_off[8];                        /* 0x004b4ce4 */
  *      the single-`sub` shape the original has is NOT reachable by spelling
  *      the expression compound at this site, unlike SpiderRide where the same
  *      rewrite at least holds the byte length. */
+/* PASS w9rides (2026-09-04).  NO CHANGE (132 strict, 132 real under the
+ * IDENTITY permutation, register-blind 15).  This function is the clearest
+ * instance of the family slot, and the reading given in the previous pass is
+ * confirmed and sharpened: the original leaves the X slot EMPTY and fills
+ * the Y slot with `mov edx,[esi+4]` -- the `p` load -- at index 103, while
+ * we fill the X slot with the screen.ox reload at 96 and put `p` at 91.  Its
+ * `p` load position and the two float-constant pushes are DOWNSTREAM of that
+ * one slot, not independent items; see the PASS w9rides paragraph in
+ * SpinningBarrels_Activate for the aligned five-function table and the
+ * negatives.
+ * New here and all INVARIANT at 132 (byte length exact in every cell): the
+ * folded-store form for both axes, for x only and for y only, with `p`
+ * before / between / after the folded stores; per-axis interleaved blocks
+ * (`sx2 -= ..; sx2 -= ..; pos.x = sx2 * 2;` then the y pair), y-axis first;
+ * and the Carousel_Tick spelling of the y chain -- the product assigned
+ * straight into `sy2` with no `sy` at all and a compound
+ * `sy2 += g_map_cfg->oy - Get_YScroll();` -- which reproduces the one-web
+ * numbers exactly (real 131 / strict 149 / rb 6, perm bpdibxsi) whether or
+ * not an empty `if` follows it, i.e. the empty `if` is INERT in the one-name
+ * spelling.  Dropping the cache (`b->person->zsprite`) or moving it below
+ * both pos stores is 227 in the folded form as it is in the statement form.
+ * Doing the same to the X chain as well (`sx2` used for the product and the
+ * spill) is 382 and moves the prologue. */
 // WIP-FUNCTION: LEGOLAND 0x00415220  (67%, 132/402; frame, byte length and the head exact, a tail register rotation remains -- see above)
 void SafariRide_Activate(RideElem* elem)
 {
@@ -3433,6 +3499,106 @@ extern char g_sbarrel_pathname[];                            /* 0x004b78b4 "BoxB
  * was measured here this pass; the ROUND 6/9 grids already cover the source
  * spellings and the family evidence says the lever, if it exists, is not in
  * this arm's source. */
+/* PASS w9rides (2026-09-04).  NO CHANGE (19 strict, 19 real under the
+ * IDENTITY permutation, register-blind 6).  THE FIVE-FUNCTION WINDOW IS NOW
+ * IDENTIFIED AS ONE INSTRUCTION SLOT, and this is the family note for it.
+ *
+ * Every one of the five bodies contains the same idiom TWICE, once per axis:
+ *
+ *      mov eax,[<ride rider offset, x or y>]
+ *      cdq
+ *      sub eax,edx
+ *      <<<SLOT>>>                 <-- the entire family residual lives here
+ *      sar eax,1                  ; the C `/ 2`
+ *      sub <acc>,eax
+ *      mov eax,[esp+<screen.ox|oy>]
+ *      sub <acc>,eax
+ *
+ * and the whole of what the five "windows" disagree about is WHICH
+ * instruction, if any, VC6 puts in <<<SLOT>>>.  Aligned over all five
+ * (X = the sx2 halving, Y = the sy2 halving; `ok` = we already agree):
+ *
+ *  function          X ORIG  X OURS              Y ORIG                  Y OURS
+ *  Carousel_Tick     empty   mov edx,[scr.ox]    mov edx,[zspr]          same  ok
+ *  SpinningBarrels   empty   mov edx,[scr.ox]    mov edx,[zspr]          same  ok
+ *  SafariRide        empty   mov edx,[scr.ox]    mov edx,[esi+4] (p)     mov edx,[zspr]
+ *  SpiderRide        empty ok  empty ok          or [esi+62],80 ;
+ *                                                mov edx,[esi+4]         empty
+ *  PlaneRide         empty ok  empty ok          the same pair           empty
+ *
+ * TWO RULES DESCRIBE THE ORIGINAL AND WE BREAK BOTH, IN OPPOSITE
+ * DIRECTIONS.  The original NEVER fills the X slot, and it ALWAYS fills the
+ * Y slot with the first ready operation belonging to the statements that
+ * FOLLOW the two `pos` stores.  We fill the X slot on the three rides that
+ * cache `p = b->person` (Carousel, Barrels, Safari) and we never fill the Y
+ * slot from below the pos stores (Spider, Plane).  Everything else in the
+ * five windows is DOWNSTREAM of that one slot: the two GetUnitDepth
+ * float-constant pushes and the `p` load merely take the next free slot
+ * after it, which is why this function's pushes land at 126/132 where the
+ * original has 114/120 and the Safari's `p` load lands at 91 where the
+ * original has 103 -- same instructions, same registers either side, and in
+ * this function the same byte length.  So the "five windows" are one
+ * phenomenon with one degree of freedom, not five problems.
+ *
+ * THE BLOCK'S OWN SOURCE IS INVARIANT, which by the standing test means the
+ * driver is not in it.  Measured on Carousel_Tick (the cheapest instrument,
+ * 8 real) and BYTE-IDENTICAL in every cell: the x tail as one flat
+ * three-term expression, the y tail likewise, both, named halves
+ * (`int hx = g_carousel_dx / 2;`), named `screen.ox`/`.oy` locals, an
+ * `Offset*` through which both are read, the four subtractions interleaved
+ * x,y,x,y and y-first, a `zs = g_carousel_zspr;` cache placed before the
+ * block / mid-block / before `p` (VC6 sinks the load every time, so local
+ * register pressure cannot be raised from source), a `p2 = b->person`
+ * second cache, and -- new -- respelling the two adjacent halving globals
+ * as ONE object (`Offset g_carousel_ofs;` at 0x616078, and `int
+ * g_carousel_d[2]`).  That last one also kills the tempting correlation
+ * that the SafariRide's struct spelling (`g_safari_ofs2.ox`) was the cause:
+ * struct and two-scalar spellings are byte-identical, the Spider gets the
+ * slot right with scalars and the Safari gets it wrong with a struct.
+ *
+ * NEW AND USEFUL: THE REASSOCIATION CONFOUND.  Moving `b->flags |= 0x80;`
+ * (or the z-sprite store, or `p = b->person`) ABOVE `pos.x = sx2 * 2;` makes
+ * VC6 REASSOCIATE the four tail subtractions into `sx2 + (-screen.ox - h)`
+ * -- `mov ecx,eax / sar ecx,1 / neg eax / sub eax,ecx / add ecx,eax` -- which
+ * also takes the frame 0x3c -> 0x38 and costs 330+.  It is the `pos.x`
+ * store IMMEDIATELY AFTER the subtractions that is the barrier, and an
+ * empty `if` does NOT substitute for it: {`if (sx2){}`, `if (sy2){}`, both,
+ * none} x {flag, flag+p, p+flag, p} before the pos stores are all exactly
+ * the same object.  THIS CONFOUNDED EVERY EARLIER "lift the statement above
+ * the pos stores" MEASUREMENT in these notes.  The clean way to run it is
+ * the FOLDED STORE form, `pos.x = (sx2 - <h> / 2 - screen.ox) * 2;`, which
+ * is BYTE-IDENTICAL to the committed statement form and is immune to the
+ * reassociation.  Re-run on SpiderRide in that form: 27 cells of {flag,
+ * flag+p, flag+zsprite, flag+zsprite+f30, zsprite, zsprite+flag} x {before,
+ * between, after the two folded stores}, plus 20 cells of the flag/`p` pair
+ * at all five seams of the four subtractions, plus per-axis interleaved
+ * blocks.  15 is still the floor; the flag store either stays where the
+ * source puts it (below) or floats to the TOP of the region (index 75,
+ * where the original has 87), never to the slot.  So the conclusion the old
+ * notes reached survives, but it now rests on a measurement that is not
+ * confounded.
+ *
+ * CORRECTION TO THE ROUND-8 PARAGRAPH ABOVE: it is NOT the one-web y chain
+ * that flattens the four later subtractions, it is the NAMED `ys` LOCAL.
+ * Measured here: `sy += g_map_cfg->oy - Get_YScroll();` with ONE name (no
+ * `sy2`, no `ys`, no empty `if`) holds the byte length EXACTLY (1148/1148)
+ * and measures real 17 / strict 34 -- identical to every folded spelling of
+ * it, and identical to keeping the four subtractions as statements.  The
+ * `ys = Get_YScroll(); sy += g_map_cfg->oy - ys;` form measures 57/72 at
+ * 1146 bytes, i.e. two bytes SHORT: that is the flattened object.  So the
+ * empty `if` is needed only in the TWO-web spelling; in the one-name
+ * spelling it is inert (byte-identical with and without, on this function
+ * and on the Safari).  The one-name chain is still not committed for the
+ * same reason as before -- it costs the three-cycle callee-saved rotation
+ * and takes audit 19 -> 34.
+ *
+ * ALSO NEW: THE SLOT FOLLOWS THE VALUE, NOT THE CHAIN.  On Carousel_Tick,
+ * storing `pos.y` before `pos.x` emits the Y chain first and the X chain
+ * second -- and in BOTH orders it is `screen.ox` that gets hoisted into a
+ * slot and `screen.oy` that stays serial in eax.  So the choice is a
+ * property of that one load, not of which halving comes first.  (That
+ * variant scores strict 26 against 29 but real 11 against 8 and reverses
+ * the two seed stores: a compensating error, not committed.) */
 // WIP-FUNCTION: LEGOLAND 0x0043c950  (95%, 19/362; frame, byte length and the whole y block exact -- see above)
 void SpinningBarrels_Activate(RideElem* elem)
 {
@@ -3815,11 +3981,57 @@ extern const int g_spider_end_off[8];                        /* 0x004b4ddc */
  *   `py` declared before `px` (committed body otherwise)           15 (tie)
  *   `px + px` / `py + py`                                         15 (tie)
  *   `px << 1` / `py << 1`                                         15 (tie)
- * So VC6 sorts the two `movsx` into DESCENDING displacement order and picks
- * `add` for whichever doubling lands in eax, and nothing in the source
- * reverses either without also reversing the stores.  Treat 195/196/198 as
- * unreachable.  With cluster A also settled, the honest floor for this body
+ * (THE DIRECTION IN THIS SENTENCE IS WRONG and is corrected in the PASS
+ * w9rides paragraph below: the ORIGINAL's pair is ASCENDING, +0x3c before
+ * +0x3e, and it is OUR output that is descending because VC6 evaluates the
+ * LAST store's operand first.  Nothing in the source reverses either
+ * without also reversing the stores, so 195/196/198 is still
+ * unreachable.)  With cluster A also settled, the honest floor for this body
  * is the 87-97 scheduling window plus these three. */
+/* PASS w9rides (2026-09-04).  NO CHANGE (15 strict, 15 real under the
+ * IDENTITY permutation, register-blind 6).  Two results.
+ *
+ *  (1) The 87-97 window is the family Y-SLOT: see the PASS w9rides paragraph
+ *      in SpinningBarrels_Activate, which states the whole five-function
+ *      phenomenon as one instruction slot and lists what is now ruled out.
+ *      What is new HERE is that the old "lift the flag store above the pos
+ *      stores" experiments were CONFOUNDED: doing that reassociates the four
+ *      tail subtractions (`neg`/`sub`/`add`) and changes the frame, which is
+ *      what those 330-380 scores actually measured.  Re-run cleanly in the
+ *      folded-store form (`pos.x = (sx2 - g_spider_zframe / 2 - screen.ox)
+ *      * 2;`, byte-identical to the committed statement form), 47 further
+ *      cells: {flag, flag+p, p+flag, flag+zsprite, flag+zsprite+f30,
+ *      zsprite, zsprite+flag} x {before / between / after the folded
+ *      stores}, and the flag/`p` pair at all five seams of the four
+ *      subtractions.  15 is the floor in every one.  The flag store either
+ *      stays below (committed) or floats to index 75, twelve slots ABOVE
+ *      where the original schedules it; nothing lands it on 87.
+ *
+ *  (2) CORRECTION -- CASE 7's 195/196/198 WAS READ BACKWARDS.  The original
+ *      is ASCENDING, not descending:
+ *          orig: movsx edx,[esi+0x3c] / movsx eax,[esi+0x3e] / shl edx,1 /
+ *                shl eax,1
+ *          ours: movsx eax,[esi+0x3e] / movsx edx,[esi+0x3c] / shl edx,1 /
+ *                add eax,eax
+ *      The FINAL registers agree (+0x3c in edx, +0x3e in eax) and the two
+ *      stores agree; only the two loads are swapped, and our `add eax,eax`
+ *      is a consequence of loading eax FIRST.  The mechanism the old note
+ *      described is right -- VC6 evaluates the LAST store's operand first,
+ *      so an x-then-y store order forces the +0x3e load first -- but the
+ *      conclusion drawn from it ("descending is VC6's canonical sort") was a
+ *      description of OUR output, not the original's, and the target was
+ *      therefore stated wrongly.  The corrected target is {ascending loads,
+ *      x-store first}, and it is not reachable: measured on Carousel_Tick,
+ *      whose indices 228/229/231 are this function's twin, y-store-first
+ *      DOES give ascending loads but swaps the registers and the stores (5
+ *      mismatches), pre-doubled temps (`int px = f * 2;`) give BOTH `shl`
+ *      and the right registers but reverse the two loads and cost 8
+ *      elsewhere, and inert are: `2 * x` on either or both sites, a
+ *      `volatile short` read of either field, a `short*` walk over the pair,
+ *      `r->bloke->` on either field, a `static __inline` two-int seeder,
+ *      comma operators, nested scopes, reversed temp declaration order and
+ *      `short` temps (152).  So 195/196/198 stays unreachable, but for a
+ *      different and now correctly stated reason. */
 // WIP-FUNCTION: LEGOLAND 0x00416330  (96%, 15/376; frame, byte length, the y chain, case 7's movsx pair and case 13 exact -- see above)
 void SpiderRide_Activate(RideElem* elem)
 {
@@ -4144,6 +4356,27 @@ extern void* g_plane_tab2;                                   /* 0x0062fe8c */
  * already swept the source order of the flag store and the `pos2` pair, so
  * this arm's source is not where the lever is.  The extra byte is inside the
  * 212-219 window, not a systematic encoding difference. */
+/* PASS w9rides (2026-09-04).  NO CHANGE (19 strict, 19 real under the
+ * IDENTITY permutation, register-blind 8, still 1254/1253 bytes).  Indices
+ * 86-96 are the family Y-SLOT and 212-219 is the same slot's shadow after
+ * the UnAdjustBlokePosition call: see the PASS w9rides paragraph in
+ * SpinningBarrels_Activate for the full statement and the negatives, and
+ * the one in SpiderRide_Activate for the folded-store re-run that removes
+ * the reassociation confound from every earlier "hoist the flag store"
+ * measurement.  This body is the Spider's twin in both windows and
+ * everything ruled out there rules out here.
+ * CASE 7 (198/199/201) TAKES THE SAME CORRECTION as SpiderRide's 195/196/198
+ * and it is worth spelling out here because the extra byte lives in it:
+ *      orig: movsx ecx,[esi+0x3c] / movsx edx,[esi+0x3e] / shl ecx,1 /
+ *            shl edx,1
+ *      ours: movsx eax,[esi+0x3e] / movsx ecx,[esi+0x3c] / shl ecx,1 /
+ *            lea edx,[eax+eax]
+ * The original's pair is ASCENDING; ours is descending because VC6
+ * evaluates the LAST store's operand first and `ofs.ox` is stored first.
+ * The 3-byte `lea` (against the original's 2-byte `shl`) is the whole of the
+ * 1254 vs 1253, so fixing the load order would fix the byte length too --
+ * but the corrected target {ascending loads, x-store first} is unreachable;
+ * see the twelve further spellings listed in SpiderRide_Activate. */
 // WIP-FUNCTION: LEGOLAND 0x0043e410  (95%, 19/387; frame, head and y chain exact; byte length 1254 vs 1253 -- see above)
 void PlaneRide_Activate(RideElem* elem)
 {
