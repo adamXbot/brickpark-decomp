@@ -424,6 +424,140 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **BEFORE recording "construct X is unreachable from C", scan `.text` for X.**
+  An exhaustive sweep of spellings proves something about the spellings swept,
+  not about the instruction. A recorded entry declared `add reg, -K`
+  unreachable after sweeping every spelling of a subtraction; the binary
+  contains 75 of them, and this tree was already emitting one. The scan is a
+  four-byte pattern search and takes seconds. Same rule for "no instance exists
+  in the corpus" claims — re-run them loosely.
+- **An UP-counting loop materialises its trip count differently from a
+  down-counting one.** `for (i = 0; i < N - 2; i++)` and
+  `for (n = N + (-2); n > 0; n--)` produce the same `test/jle` guard and
+  `dec/jne` latch, so they look interchangeable — but in the up-counting form
+  the trip count is computed by the LOOP TRANSFORMATION rather than by the
+  source expression, and that node emits `add eax,-2` where the down-counting
+  form emits `sub eax,2`. When a loop head differs by exactly that, the
+  direction the source was written in is the answer.
+- **Only EBX is byte-addressable among the callee-saved registers**, so where
+  two byte-typed locals both need to survive calls, exactly one can — and which
+  one wins is forced, not accidental. On `LFDrop_Place` names (8 pairs),
+  declaration order, statement order, extra definitions, reusing the running
+  coordinates and four store orders are ALL byte-identical; only a TYPE change
+  flips it, and it flips completely (one type gives the original's whole
+  18-instruction head plus a spurious `and ebx,0xff`, the other gives the
+  original's exact 341 bytes but a dword head). A residual bracketed from both
+  sides like that is "a byte-typed local that ranks like an int" — state it that
+  way rather than continuing to sweep spellings.
+- **An escaped aggregate versus plain scalars can be the single cause of four
+  separate-looking differences.** On `LFEntrance_Add`, replacing the `Pos` used
+  by one block with two plain int scalars reproduces the original's whole store
+  block instruction for instruction — the hoisted byte load, a store landing
+  between a flags load and its `or`, a SPLIT `mov cl,[mem] / sub al,cl` instead
+  of the folded form, and the operand order — *and* flips the callee-saved tie
+  to the original's. Four things three lanes had chased separately were one
+  fact. It is still not committable (the function's head needs the opposite: with
+  scalars VC6 folds two definitions into `lea eax,[eax+edx+1]` at IR level), but
+  "escaped or not" is the first question to ask of a store block, not the last.
+
+- **CLASSIFY A RESIDUAL BEFORE ATTACKING IT — three blind measures, one
+  experiment, and you know which kind you have.** Run strict, register-blind
+  (rb) and offset-blind (ob) with frame homes resolved by esp depth (never by
+  raw `[esp+N]`, which drifts across branch joins):
+  - `strict >> rb` — an ALLOCATION residual. Ask which register the original
+    frees and when; source order is nearly powerless here.
+  - `strict >> ob` — a FRAME residual. Usually unreachable: weights are counted
+    on surviving IR, so alias-routing and dead reads change nothing, and
+    declaration order is inert.
+  - `strict == rb == ob` — a pure SCHEDULING permutation: the same multiset of
+    instructions, same registers, same homes, in a different order. `Balloonz_Tick`
+    (5) and `ValidateCursor` (5) are both exactly this.
+  - rb still HIGH — a real STRUCTURAL difference, and the only kind that is
+    reliably reachable from C. **These are the bodies to spend a wave on.**
+  Then apply the free-volatile test above to separate a local rotation from a
+  global web rank. Measured across seven partials in wave eleven; three that
+  looked closest by strict mismatch turned out to be floors under this test.
+- **Offset-blind bucketing did NOT mask anything in seven partials checked.**
+  The trap is real (it hid an operand order in `Draw3DPersonModel`) but it is
+  not common: in `Balloonz_Tick`, `DrawPopUpInfo`, `GetObjectUID` and
+  `ValidateCursor`, offset-blind never drops below strict once homes are
+  resolved by push depth. Run the check, but do not assume the trap.
+- **An aggregate does not force a memory home — confirmed independently.**
+  `int a[2]`, `int a[4]`, a struct with a `char pad[8]` or `int pad[3]` tail, and
+  a union with a `char c[8]` member ALL scalarise to the same object as the
+  plain local (verified in the disassembly: the value stays enregistered and the
+  halving is still `sar ecx,1`). This is the same rule as "VC6 flattens an
+  aggregate whose address is never taken", now measured from the other
+  direction. The recorded "unions on an enregistered scalar are a trap" entry is
+  consistent and narrower than it sounds: it is the address-taking that
+  de-enregisters, not the union.
+- **U-pipe slot choice, not aggregation, decides which of a load/store pair goes
+  first.** In `Balloonz_Tick` the two stores were long assumed to be one object
+  because they always emit together; sourcing the halves from two INDEPENDENT
+  `.data` objects (two string literals, or two `static const int`s) is
+  byte-identical, and VC6 places both stores at the same indices regardless of
+  what they copy. The original simply takes the load in the first U slot. When
+  two instructions always move together, test whether they are actually related
+  before building a source construct to pin them.
+
+- **A tail-recursive spelling is byte-identical to the loop** — VC6 SP3
+  eliminates the tail call. So when the original looks like it might have been
+  written recursively, that is NOT a separate search: write whichever reads
+  better. Measured on `WW_AnyBlokeInRect`; retires a hypothesis class that had
+  been sitting open.
+- **Use a free `volatile` read as a DIAGNOSTIC for which kind of residual you
+  have.** A zero-cost `*(volatile int*)&x` (one where the original loads anyway,
+  so it adds no instruction) advances VC6's eax->ecx->edx scratch rotation. In
+  `BoatingSchool_Tick` that is *the* lever, worth 219 and 115 at two sites. In
+  `WW_AnyBlokeInRect` three such reads, singly and together, are byte-identical
+  to the committed body. **When a free volatile read moves nothing, the residual
+  is a global web RANK, not a local rotation — and no barrier or ordering
+  construct will reach it.** That is a one-experiment test for a floor, and it
+  cost nothing.
+- **`audit.py`'s instruction and byte counts include trailing pad NOPs —
+  subtract them before reasoning about a byte deficit.** On `Road_FindDiagonals`
+  the reported 64 insns / 153 B is really 62 / 151 once two pad NOPs are
+  removed, which turns a vague "four bytes short, look for a 2-vs-3-byte form"
+  into an exact account: the deficit is 6 bytes = the original's second
+  `mov edi,[esp+10h]` (4) plus its `jmp` (2), and nothing else in the body is
+  short. Always resolve a byte deficit to specific missing instructions before
+  hunting encoding forms.
+- **Do not hand-hoist a loop invariant VC6 already hoists.** Naming rect fields
+  as locals in `WW_AnyBlokeInRect` is measurably WORSE — one hoisted field costs
+  16, two cost 24 — which confirms the register-resident values are VC6's own
+  invariant hoists. If a value is already loop-invariant, giving it a name only
+  adds a web for the allocator to place.
+
+- **Alias kill: a store to ANY field of an address-taken struct kills CSE
+  availability of an unrelated load.** Not just the field stored — the whole
+  object. Proven two ways on `RequestRoute`: a redundant third occurrence
+  (`to.x = ...; to.y = ...; to.x = ...`) yields 483 instructions in which the
+  first two merge into one register web and the THIRD becomes a fresh
+  `mov ecx,[esi+8]`; and interposing a store (`to.y = ...; to.y--; to.x =
+  cur->pos.x;`) puts a fresh load 12 indices later. **The consequence is that
+  there are only TWO regimes** for such a value — same web as the earlier test
+  (no intervening store) or a fresh load (store in between). A
+  register-to-register copy is not reachable, so if the original has one, no
+  source spelling produces it and the function is at its floor.
+- **The callee-saved register PAIR follows web LENGTH, not source order.** VC6
+  hands eax to the short web and ecx to the long one, every time. Where the
+  original needs the short-web pairing AND a value live across a long range
+  simultaneously, those are contradictory and the residual is unreachable. This
+  plus the alias-kill rule above account for every outcome on `RequestRoute` —
+  which is how a 3-mismatch residual was closed by ARGUMENT rather than by
+  enumerating spellings.
+- **A one-byte deficit can be a register-vs-immediate COMPARE, not a shift
+  form.** `cmp esi,eax` is 2 bytes where `cmp esi,25h` is 3. On
+  `ClampPopUpToScreen` the whole missing byte is exactly that: the original
+  compares against the immediate, we materialise it into a register first. Check
+  this before hunting `shl` vs `lea` — it is the cheaper explanation and it also
+  tells you the original did NOT need the constant in a register afterwards.
+- **Let VC6 do the strength reduction.** On `JcBoat_Animate` an explicit pointer
+  walk with a separate counter keeps the exact byte count but moves the first
+  divergence EARLIER; VC6's own strength reduction of `b->wob[j]` is what the
+  original has. Where an induction variable is involved, write the array
+  subscript and leave it alone.
+
 - **Triage a reconstruction error before "fixing" it: is it OBSERVABLE, and
   does it cost strict?** The two questions are independent and both matter.
   `RenderView` stores `g_sort_count = 0` unconditionally where the original
@@ -1563,7 +1697,10 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   constant carriers are always propagated away under /O2 (every integer type,
   initialiser or assignment, any placement, and via an int temp). VC6 also
   canonicalises `x + (-K)`, `x - K`, `x + ~(K-1)`, `x + (0-K)` and `n -= K` to
-  ONE sub node, so `add reg, -K` is not reachable from C.
+  ONE sub node. **The conclusion once drawn from that — "`add reg, -K` is not
+  reachable from C" — is FALSE and was corrected 2026-09-05; see the trip-count
+  entry below.** All those spellings of a SUBTRACTION do collapse to one sub
+  node, but the instruction is reachable by another route entirely.
 - **An `unsigned char` local loses a two-way callee-saved tie-break to another
   `unsigned char`** even with strictly more, loop-nested references; retyping
   the winner `int` flips it. Type, not spelling, is what the allocator ranks.
@@ -1812,10 +1949,24 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   two-instruction `xor r,r / mov rh,[mem]` peephole.** As a SUBexpression the
   two spellings are byte-identical. That removes the obstacle an earlier note
   called the open question for this family.
-- **The trip-count family is CLOSED:** `24/cellh - 2u`, `+ 0xfffffffeu`,
-  `+ (int)0xfffffffe`, `+ -2` and the unsigned-wrap forms all compile
-  byte-identically to one SUB node. `add reg, -K` is unreachable from any C
-  spelling of a subtraction.
+- **The trip-count family is NOT closed — this entry was wrong and cost a whole
+  family several rounds (corrected 2026-09-05).** The measurement stands:
+  `24/cellh - 2u`, `+ 0xfffffffeu`, `+ (int)0xfffffffe`, `+ -2` and the
+  unsigned-wrap forms all compile byte-identically to one SUB node. The
+  INFERENCE drawn from it — "`add reg, -K` is unreachable from any C spelling"
+  — was false, because every spelling tried was a spelling of a SUBTRACTION in
+  a DOWN-counting loop. **The reachable route is an UP-counting loop:**
+  `for (i = 0; i < 24 / cellh - 2; i++)` is reversed by VC6 into the same
+  `test/jle` guard and `dec/jne` latch, but the trip count is then materialised
+  by the LOOP TRANSFORMATION, and that node is an ADD with a negative constant —
+  `mov eax,0x18 / cdq / idiv [esp+0x10] / add eax,-2 / test eax,eax / jle`, which
+  is the original's `LFDrop_Place` head exactly. A `.text` scan finds **75**
+  `add r32, -K` sites in the binary, and one of them (0x0040c01f in
+  `LFEntrance_Activate`, from `(tile->b.x - 2) << 8`) was ALREADY being
+  reproduced exactly by this tree while the note claimed the form was
+  unreachable. **General lesson: an exhaustive sweep proves something about the
+  spellings swept, not about the instruction.** Before recording "X is
+  unreachable", scan `.text` for X and check whether the tree already emits it.
 - **The strict-count warning is now confirmed in a second lane**, which had
   itself committed two constructs contrary to the original (a store order and
   a bloke-position order) because they scored better. Both were fixed by

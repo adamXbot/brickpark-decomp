@@ -973,6 +973,43 @@ static __inline Cell* RouteCellAt(Pos* p)
  * either on the theory that the other will pay for it.  RETIREMENT ENDORSED
  * at 479 of 482 instructions, 1336/1336 bytes, three register-allocation
  * instructions at indices 31/32/38.
+ *
+ * 2026-09-05, lane w11a.  Unchanged at 3, but the impossibility argument is
+ * now MECHANISTIC rather than enumerative -- two rules were measured that
+ * between them account for every outcome any spelling can reach, so the
+ * search space is closed rather than merely explored.
+ *  1. ALIAS KILL.  `to` is address-taken (`&to` reaches GetRouteNode), so a
+ *     store to ANY field of `to` kills the CSE availability of `cur->pos.x`.
+ *     Measured twice: (a) `to.y = cur->pos.y; to.y--; to.x = cur->pos.x;`
+ *     with (to.x,to.y) -- the x read after the y store is a FRESH
+ *     `mov ecx,[esi+8]` (index 43) and the goal test's web is not extended
+ *     (7 mismatches, 1336 bytes); (b) a redundant THIRD occurrence
+ *     `to.x = cur->pos.x; to.y = cur->pos.y - 1; to.x = cur->pos.x;` -- 483
+ *     instructions, the first two occurrences merge into the eax web (index
+ *     38 becomes `mov [esp+1ch],eax`) and the third is a fresh load into ecx.
+ *     So the else block's x can only ever be (i) the SAME web as the goal
+ *     test, when no store to `to` precedes it, or (ii) a fresh load, when one
+ *     does.  A register-to-register copy is neither; there is no third regime
+ *     for VC6 to land in.
+ *  2. THE REGISTER PAIR FOLLOWS THE WEB LENGTH, not the source.  Whenever the
+ *     else block's x is NOT in the goal test's web, indices 25/27/28 come out
+ *     as the original has them (`mov ecx,[4bb5a0h]` / `mov eax,[esi+8]` /
+ *     `cmp eax,ecx`) and the y compare's global then takes the freed eax --
+ *     the committed body's 3.  Whenever it IS in the web (every field
+ *     spelling), the whole plan flips to g_route_to.x in eax and cur->pos.x
+ *     in ecx, and only THEN does index 31 correctly become
+ *     `mov edx,[4bb5a4h]`.  The original needs the short-web pair at 25..28
+ *     AND a value live at 30..38 simultaneously; measured across five
+ *     spellings, VC6 gives eax to the short web and ecx to the long one every
+ *     time, so that combination is unreachable by construction.
+ * Newly measured this round and all reproducing one of the two regimes above:
+ * `ny = cur->pos.y - 1;` hoisted above the x store with (to.x,ny) [404] and
+ * with (cur->pos.x,ny) [10, the eax<->ecx flip plus a reordered to.y store];
+ * `nx = cur->pos.x;` before the struct copy [405]; the struct copy followed
+ * by `nx = cur->pos.x; ny = to.y;` [405]; `to.x = cur->pos.x;` with the call
+ * folded into the y store [403]; and a `static __inline PosEq(&cur->pos,
+ * &g_route_to)` goal test in three else spellings [9/9/410 -- the inline
+ * costs an instruction].  Nothing beats 3.  FLOOR RE-ENDORSED.
  */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)

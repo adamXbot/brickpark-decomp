@@ -948,6 +948,62 @@ extern char* strcat(char*, const char*);
  * record (see above); the seven switch cases compile byte-identically in
  * any order (VC6 emits each dispatch group in descending case value), as
  * does an empty `default:`.
+ *
+ * PASS w11d (2026-09-05).  Still 13, first divergence still 590.  Two things
+ * this pass adds, one of them the sharpest evidence the search has produced.
+ *
+ *   *** BOTH WANTED BEHAVIOURS DEMONSTRATED WITHOUT A BARRIER. ***  The note
+ *   above infers that the volatile is the only thing in the way; two probes
+ *   now show it directly.
+ *     (i) THE ty+0x22 SINK IS FREE ONCE NOTHING PINS IT.  In the plain
+ *     permutation `top, w, halfw, bottom, ty` (374, no shim of any kind) VC6
+ *     emits `push 0x8e` and only THEN `mov [esp+0x64],eax` -- the original's
+ *     index-603 shape exactly, in a straight-line block with no call between.
+ *     So the ty+0x22 spill sinks below the whole push run of its own accord;
+ *     in the committed body the volatile READ at index 599 is what stops it,
+ *     precisely as the note above reasons.
+ *     (ii) A REAL ESCAPE -- `extern void EscapeInt(int* p);` plus
+ *     `EscapeInt(&halfw);` after the definition, with ORDINARY reads at both
+ *     uses -- is the one construct VC6 cannot un-escape, and it then loads
+ *     halfw out of its home BEFORE the argument pushes and sinks the ty+0x22
+ *     spill below `push 0x8e`, both together.  (Read (ii) with care: the call
+ *     itself also clobbers the caller-saved registers, so it forces a reload
+ *     at that point anyway; (i) is the clean half.)
+ *   Neither can be committed -- the call is three instructions the original
+ *   does not have -- but between them the search target is confirmed exactly:
+ *   a ZERO-COST, NON-VOLATILE escape of `halfw`.  Future passes should hunt
+ *   for that and stop re-measuring spellings of the arithmetic.
+ *
+ *   NEW NEGATIVES.  AGGREGATES DO NOT FORCE A MEMORY HOME -- VC6 scalarises
+ *   every one of them and produces the plain object: `int hwa[2]` and
+ *   `int hwa[4]` with `hwa[0]` at both uses, `struct { int hw; char pad[8]; }`,
+ *   `struct { int hw; int pad[3]; }` and `union { int i; char c[8]; }` are all
+ *   422 (959i, 3143/3146B), i.e. identical to plain `halfw` plus the dead
+ *   slots.  So "put it in an aggregate" is not a way to ask for residency,
+ *   and the un-escaping list above can be extended to aggregate members.
+ *   `static __inline int Half(int v) { return v / 2; }` is 422.  A single
+ *   `static __inline` wrapper holding BOTH PrintCachedText calls -- taking
+ *   `w`, taking `halfw`, or computing `hw = w / 2` inside itself -- inlines to
+ *   the same two objects (53 / 422 / 53); the earlier note only covered
+ *   one-call forwarders.
+ *   STATEMENT ORDER RE-RUN WITHOUT ANY SHIM (the 41-permutation sweep above
+ *   was measured only WITH one, so plain order was never actually swept on
+ *   this baseline): all 20 dependency-legal permutations of {box.top,
+ *   box.bottom, w, halfw, ty} give exactly three objects -- 422 (halfw before
+ *   ty), 374 (w/halfw before both box fields) and 53 (halfw last, i.e. the
+ *   `w / 2` CSE shape) -- and a 36-variant cross product of three
+ *   box.top/box.bottom spellings x three w/halfw spellings x four ty
+ *   spellings is uniformly 422.  The plain route caps at 53.
+ *   WHY 53 IS NOT THE WAY IN, in detail: in that object VC6 computes `ty`
+ *   FIRST, keeps the biased `w` in ecx across the block, reloads `py` twice
+ *   (`mov eax,[py] / mov ecx,[py]`, an extra instruction) and spills BOTH
+ *   ty+0x22 and w/2 after the pushes, so 22 of its 53 are real and the whole
+ *   578..608 window is different in kind, not just in order.
+ *   Frame check: offset-blind = strict = 13 with the homes resolved by ESP
+ *   DEPTH (scratchpad/w11d/esp.py) -- halfw F+0x1128, ty F+0x1100, ty+0x22
+ *   F+0x1130 all agree with the original -- so no frame or operand-order
+ *   error is hiding in an `[esp?]` bucket.
+ *   Tooling: scratchpad/w11d/{sweep,perm,v1,v2,v3}.py, sbs.py, esp.py, m.py.
  * ------------------------------------------------------------------------- */
 
 // WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3141/3141 bytes, mismatch=886->705->398->60->53->13 by audit.py; exact except indices 590..603, the first kind-0x306 PrintCachedText argument block -- halfw must be memory-resident with ORDINARY accesses, and in VC6 memory residency and a scheduling barrier are the same switch: a volatile READ pins the reload at the push (13), a volatile STORE pins the two constant pushes below the spill (16); first diff at index 590)

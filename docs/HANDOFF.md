@@ -150,6 +150,26 @@ at 25-600 to disturb; the last 2 are a commutative-sum canonicalisation
 invariant under every spelling tried. The only construct known to reach the
 original's frame order costs 24 extra instructions, destroying the exact 1023.
 
+**Five more retired at wave eleven (2026-09-05).** All were chosen as the
+project's closest partials by strict mismatch and all turned out to be AT their
+floors — which is the evidence behind the ranking qualifier below.
+`RequestRoute` (3) is closed by ARGUMENT rather than exhaustion: a store to any
+field of an address-taken struct kills CSE availability of an unrelated load, so
+such a value is either the earlier test's register web or a fresh load, and the
+register-to-register copy the original has is a third regime that does not
+exist. `WW_AnyBlokeInRect` (12 of 31, register-blind 0) — three free `volatile`
+reads, singly and together, are byte-identical, so the residual is a global web
+RANK and no barrier or ordering construct reaches it; hand-naming the rect
+fields is measurably worse, confirming those hoists are VC6's own.
+`InsertChildIntoList` (22 of 68) — endorsed by a third independent lane, which
+re-read the whole body against the disassembly index for index and found no
+reconstruction error. `ClampPopUpToScreen` (3 of 43) — its one-byte deficit is
+fully accounted for as `cmp esi,eax` against the original's `cmp esi,25h`, and
+the 2-mismatch alternative is deliberately NOT taken because the original's
+immediate compare says the source wrote `< 0x25`. `JcBoat_Animate` (3 of 330) —
+the retired claim was re-verified rather than inherited; VC6's own strength
+reduction of the array subscript is what the original has.
+
 **Quote coverage.py.** The export figure (95.6%) badly overstates completion —
 exports are only the symbols the linker exposed, and 1411 functions are matched
 against just 645 exports. The callee figure moves in *both* directions, because
@@ -277,15 +297,15 @@ before touching one.* All 37 partials, by mismatch:
 
 | mismatch | insns | address | function | file |
 | --- | --- | --- | --- | --- |
-| 3 | 43 | 0x004718c0 | ClampPopUpToScreen | misc3.c |
-| 3 | 330 | 0x00433840 | JcBoat_Animate | roads.c |
-| 3 | 482 | 0x00477bd0 | RequestRoute | simcore.c |
+| 3 | 43 | 0x004718c0 | ClampPopUpToScreen | misc3.c — **EXHAUSTED** |
+| 3 | 330 | 0x00433840 | JcBoat_Animate | roads.c — **EXHAUSTED** |
+| 3 | 482 | 0x00477bd0 | RequestRoute | simcore.c — **EXHAUSTED** |
 | 5 | 205 | 0x0045f810 | ValidateCursor | objmap2.c — **EXHAUSTED, leave** |
 | 5 | 637 | 0x0042aa90 | Balloonz_Tick | ridecb3.c |
 | 8 | 218 | 0x0041a040 | BoatingSchool_Add | ridecb5.c — **EXHAUSTED, leave** |
 | 10 | 222 | 0x0040bf70 | LFEntrance_Activate | lfentrance.c |
 | 11 | 102 | 0x0040abf0 | LFEntrance_Remove | logflume.c |
-| 12 | 31 | 0x00417e70 | WW_AnyBlokeInRect | waterworks.c |
+| 12 | 31 | 0x00417e70 | WW_AnyBlokeInRect | waterworks.c — **EXHAUSTED** |
 | 13 | 109 | 0x00473b00 | UpdateControllerFromMouseData | input.c — **EXHAUSTED** |
 | 13 | 962 | 0x004724a0 | DrawPopUpInfo | popup.c |
 | 15 | 141 | 0x00434f90 | JungleCruise_Add | ridecb9.c |
@@ -293,13 +313,13 @@ before touching one.* All 37 partials, by mismatch:
 | 19 | 362 | 0x0043c950 | SpinningBarrels_Activate | mechrides.c |
 | 19 | 387 | 0x0043e410 | PlaneRide_Activate | mechrides.c |
 | 20 | 191 | 0x0048a3e0 | GetObjectUID | objmap2.c |
-| 22 | 68 | 0x00475630 | InsertChildIntoList | fpui.c |
+| 22 | 68 | 0x00475630 | InsertChildIntoList | fpui.c — **EXHAUSTED** |
 | 22 | 347 | 0x00417430 | TempleSlide_Update | joust.c |
 | 27 | 64 | 0x00413450 | Road_FindDiagonals | ridecb5.c |
 | 27 | 116 | 0x00436dc0 | JungleCruise_UpdateRiverTile | junglecruise.c |
 | 29 | 378 | 0x0042c820 | Carousel_Tick | ridecb3.c |
 | 30 | 212 | 0x00418fe0 | BoatingSchool_DrawBoats | anim2.c |
-| 45 | 111 | 0x00410180 | LFDrop_Place | logflume2.c |
+| 44 | 111 | 0x00410180 | LFDrop_Place | logflume2.c |
 | 47 | 358 | 0x0041a720 | BoatingSchool_Tick | ridecb5.c |
 | 82 | 184 | 0x00470620 | CheckWorkerOnMouseStatus | workers2.c |
 | 112 | 422 | 0x00432d00 | JungleCruise_UpdateRiverAnim | junglecruise.c |
@@ -330,6 +350,43 @@ the sweep makes obvious:
   size, so the residual is ordering, allocation or operand order — not a wrong
   type, immediate or addressing form. Do not spend variants on arithmetic
   spellings there.
+
+**IMPORTANT QUALIFIER, learned the same day this table was written: a low
+mismatch does NOT mean a function is close to closing.** Wave eleven sent a lane
+at the three functions tied at mismatch 3 — `RequestRoute`, `JcBoat_Animate` and
+`ClampPopUpToScreen` — and all three turned out to be AT their floors, not near
+them. Each is byte-exact and differs only in register allocation, and
+`RequestRoute`'s residual was then closed by argument: a store to any field of
+an address-taken struct kills CSE availability of an unrelated load, so such a
+value is either the same register web as the earlier test or a fresh load, with
+no third regime — and the register-to-register copy the original has is
+therefore unreachable from C. **So sort candidates by REGISTER-BLIND mismatch,
+not strict.** Strict 3 with register-blind 0 is a floor; strict 30 with
+register-blind 25 still has structure left to find.
+
+**The full triage, established across wave eleven's seven partials — two cheap
+experiments tell you whether a residual is reachable at all.** First measure
+strict, register-blind (rb) and offset-blind (ob), with frame homes resolved by
+**esp/push depth**, never by raw `[esp+N]` (which drifts across branch joins and
+has silently misread whole regions before):
+
+| signature | kind | outlook |
+| --- | --- | --- |
+| `strict >> rb` | allocation | source is nearly powerless; ask which register the original frees, and when |
+| `strict >> ob` | frame layout | usually unreachable — weights count surviving IR, declaration order is inert |
+| `strict == rb == ob` | pure scheduling permutation | same instructions, registers and homes, different order |
+| rb still HIGH | **structural** | the only reliably reachable kind — **spend waves here** |
+
+Then apply the free-`volatile` test: insert `*(volatile T*)&x` at a site where
+the original loads anyway, so it costs no instruction. It advances VC6's
+eax->ecx->edx scratch rotation, and is worth 219 and 115 at two sites in
+`BoatingSchool_Tick`. **If it moves nothing, the residual is a global web rank
+and no barrier or ordering construct will reach it** — that is a one-experiment
+floor test.
+
+Wave eleven ran seven partials chosen purely by lowest strict mismatch and
+closed none of them, because none had the structural signature; five are now
+formally exhausted. Run the triage BEFORE assigning a lane.
 
 Regenerate this table with
 `python3 tools/audit.py LEGOLAND/*.c | grep '\[WIP'` (needs a quiet tree —

@@ -999,6 +999,37 @@ char CheckFocussedIcon(void)
  *    contradicts the rule rather than being explained by it.
  * VERDICT: retire at 67 of 68 instructions / 169 of 171 bytes, on the same
  * footing as `UpdateControllerFromMouseData` and `ValidateCursor`.
+ *
+ * 2026-09-05 (small-partials lane).  RETIREMENT ENDORSED A THIRD TIME.  The
+ * whole body was re-read against the disassembly for a reconstruction error
+ * rather than for another spelling, and there is none: the 12-byte node
+ * (obj/keep/next stored in that order), the hoisted `d->parent` load before
+ * the search loop, the `p->obj->elem` compare at +0xc4, the not-found tail
+ * (`g_object_list_mode` -> InsertObjectNode(d) -> HeapFree_w(n)), the
+ * re-read of `a = n->obj` INSIDE the sort loop, the right-to-left call order
+ * (`GetObjCost(p->obj)` first, its result spilled into the DEAD `d`
+ * ARGUMENT SLOT at [esp+1ch]) and the ONE shared link block at 0x4756d1 that
+ * VC6 merges the three exits into are all reproduced index-for-index.  The
+ * residual is the single `mov edx,eax` at 0x4756aa and nothing else.
+ * Three more variants measured, none of them a copy:
+ *   - `b = p->obj;` named BEFORE the parent test with the test written on
+ *     `p->obj` textually (so the CSE has two source spellings): identical,
+ *     22 X / 170 B.
+ *   - the first cost hoisted into its own statement, `c = GetObjCost(p->obj);
+ *     if (GetObjCost(a) <= c)`: 22 X but 169 B and register-blind 2 -- it
+ *     loses the result copy instead of gaining the argument copy, exactly
+ *     like the `c1`/`c2` family already recorded.
+ *   - reusing the DEAD PARAMETER as the pushed value, `d = p->obj;
+ *     GetObjCost(d)` -- the one member of the "assign to something that
+ *     already owns a frame home" family the `x = n;` note left untried:
+ *     26 X, first divergence moves back to index 40, still `push` from the
+ *     load's own register.
+ * Note for whoever inherits this: the SAME missing-copy shape turns up in
+ * ridecb5.c's BoatingSchool_Tick at indices 105 and 206 (`mov ecx,edx` /
+ * `push ecx` where we reload from memory), and there it IS reachable -- from
+ * a schedule in which the register holding the value is immediately needed
+ * for the next argument load.  If a lever is ever found for that site, try it
+ * here before re-opening anything else.
  */
 // WIP-FUNCTION: LEGOLAND 0x00475630  (67 of 68 insns, 169B vs 171B; audit.py prints 68i/170B counting a pad byte. First diverging index 46: one missing `mov edx,eax` argument copy which has NEITHER a phi NOR interference behind it -- proposed for retirement, see note)
 void InsertChildIntoList(ObjDef* d)

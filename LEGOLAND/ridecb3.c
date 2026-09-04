@@ -1270,6 +1270,48 @@ int Balloonz_CarAtPlatform(char wheel, char half)
  * single scheduling window at indices 10-14 with no register difference
  * anywhere in 637 instructions.  Nothing here for a colouring or a
  * reconstruction pass to hold on to. */
+/* PASS w11d (2026-09-05, fifth lane).  Still 5.  Re-measured with the frame
+ * homes RESOLVED BY ESP DEPTH rather than by displacement text
+ * (scratchpad/w11d/esp.py), which is the check the offset-blind filter cannot
+ * do: strict 5, register-blind 5, OFFSET-blind 5.  Offset-blind does not drop
+ * below strict anywhere in the body, so there is no frame error and no
+ * operand-order error hiding inside a `[esp?]` bucket here -- the five lines
+ * really are one permutation of one multiset.  Two NEW negatives, both of
+ * them routes the earlier notes had explicitly left open:
+ *  - THE LAST "IR POSITION" ROUTE IS CLOSED.  Declaring `name` in a NEW
+ *    nested block that OPENS AFTER `r = item->riders;` and wraps the whole
+ *    `while` -- so the initialiser is the first thing in a block entered
+ *    exactly once, textually and in IR after the rider-list load -- is
+ *    BYTE-IDENTICAL (5, first diff 10).  Earlier passes had only moved the
+ *    declaration within the existing block; this moves the block boundary
+ *    itself, and VC6 still emits both stores at 10 and 12.
+ *  - THE "NOTHING EARLIER TO PUT A TUPLE IN" GAP IS CLOSED.  The w7ticks note
+ *    could not place a no-code tuple ahead of the two statements because
+ *    `item` is a declaration-initialiser.  Splitting it into a function-scope
+ *    `RideObject* item;` plus an `item = elem->data;` STATEMENT is itself
+ *    byte-identical (5, first diff 10), and seven no-code tuples placed
+ *    BEFORE that statement -- `(void)0;`, `if (elem) { }` at one, two and
+ *    three deep, `elem = elem;`, `elem = (RideElem*)(char*)elem;` -- are all
+ *    byte-identical as well.  So the scheduler's tuple parity cannot be moved
+ *    from the function HEAD either, not just from between the two statements.
+ *    (Sinking `item = elem->data;` into the pass-1 block instead costs an
+ *    instruction: 638i/2059B, 11 mismatches from index 1.)
+ *  - THE TWO STORES ARE NOT TIED TOGETHER BY BEING ONE OBJECT.  Sourcing the
+ *    two halves from two COMPLETELY INDEPENDENT .data objects -- either
+ *    `*(int*)&name[0] = *(const int*)"Blok"; *(int*)&name[4] =
+ *    *(const int*)"e??";` (two separate string literals) or two file-scope
+ *    `static const int` constants -- is byte-identical (5, first diff 10), and
+ *    so is `unsigned char name[8]`.  So VC6 is not scheduling one 8-byte copy
+ *    as a unit that a source split could break: it places both stores at 10
+ *    and 12 whatever they are copies OF.  (The original's two loads are +0 and
+ *    +4 of ONE literal, so two literals cannot have been its source anyway --
+ *    this was run purely as a mechanism probe, and it says the mechanism is
+ *    the scheduler, not the object.)
+ *  Emitted vs original in the window, for the next reader: ours pairs
+ *  (st_lo, ld_r) (st_hi, test) (st_r, je); the original pairs (ld_r, st_lo)
+ *  (test, st_r) (st_hi, je) -- the same multiset, with the original simply
+ *  taking the LOAD in the first U slot.  Five lanes have now failed to move it.
+ *  Tooling: scratchpad/w11d/{sweep3,b1,b2,b3}.py, sbs.py, esp.py, m.py. */
 // WIP-FUNCTION: LEGOLAND 0x0042aa90  (637/637 instructions and 1993/1993 bytes, audit mismatch 5/637, first diff at index 10: the two halves of the name[8] initialiser are scheduled one slot too early around the rider-list load)
 void Balloonz_Tick(RideElem* elem)
 {

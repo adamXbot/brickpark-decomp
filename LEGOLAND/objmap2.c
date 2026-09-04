@@ -1390,6 +1390,34 @@ static __inline int UidHit(Cell* c, ObjDef* def, int x, int y)
  * (register-blind distance ZERO, indices 0..108 and 112..190 exact), and its
  * last four are the recorded hard floor of any volatile shim.  What is needed
  * is a non-volatile way to make that one load unmovable.
+ *
+ * 2026-09-05 PASS w11d (sixth lane).  Unchanged at 20 / 191i / 477B, first
+ * divergence 95.  Sharpened the statement of the residual and re-ran the
+ * pointer-variable family on THIS baseline (scratchpad/w11d/{sweep2,u1}.py):
+ *   THE RESIDUAL IS EXACTLY TWO DISPLACED LOADS.  Register-blind, the ONLY
+ *   differing lines in the whole body are indices 95-98 and 140-143, and each
+ *   group is one `mov reg,[g_map]` that the original puts at the probe REGION
+ *   ENTRY and we put after the `test/jl` sign test, plus the three lines that
+ *   displacement shifts.  Offset-blind = strict = 20 (nothing offset-only), so
+ *   there is no frame component at all: 12 of the 20 are the esi/edx role swap
+ *   that FOLLOWS from the placement, 8 are the placement itself.
+ *   Re-measured on this body: a horizontal-only `Map* m` with one assignment
+ *   per horizontal probe, with ONE assignment shared by both horizontals, and
+ *   with two separate `m2`/`m3` -- ALL BYTE-IDENTICAL (20), which re-derives
+ *   the PASS-4 copy-propagation rule from scratch.  `m` shared by all four
+ *   probes = 28 (191i/477B) and, importantly, that variant does NOT create the
+ *   original's live range: it only moves the FIRST load from index 13 up to
+ *   index 6 (ahead of `push edi`) while both horizontal probes STILL
+ *   rematerialise at their uses, so a shared local buys the hoist and nothing
+ *   else.  `m` reassigned before every probe = 146 (190i/467B).
+ *   NEW SHAPE, dead, and it closes half of PASS 4's "left to try": capture the
+ *   bounds ONCE (`m = g_map; w = m->width; h = m->height;`) and give the two
+ *   VERTICAL probes a `CellWH(y, x, w, h)` helper -- i.e. buy the vertical
+ *   width/height CSE WITHOUT the two vertical probes sharing a pointer
+ *   expression, which is exactly what PASS 4 asked for.  It is 188 / 182i /
+ *   515B: VC6 hoists both 16-bit reads to the entry block, which loses the
+ *   [esp+0x14] width spill and the whole head.  Only "make rematerialising
+ *   the global at the right probe unattractive" is left.
  */
 // WIP-FUNCTION: LEGOLAND 0x0048a3e0  (89.5%, left/right probes reload g_map at its use into edx, the original at the probe entry into esi)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
@@ -1682,7 +1710,16 @@ static __inline void PeopleCheck(Cursor* cur, Rect* r, WinRect* bound, Pos* o)
  *   with the first three instructions of the sums.  Same multiset, same
  *   registers, only the order differs - so the pre-scheduling list differs by
  *   one item's position, and no source order reaches it without breaking the
- *   origin.y CSE. */
+ *   origin.y CSE.
+ *
+ * 2026-09-05 PASS w11d.  Not re-ground (the lane brief did not assign it);
+ * state RE-CONFIRMED against the binary: 205/205 instructions, 617/617 bytes,
+ * strict 5, register-blind 5, OFFSET-blind 5 with the frame homes resolved by
+ * ESP DEPTH (scratchpad/w11d/esp.py) rather than by displacement text.  That
+ * last number is the new fact: offset-blind does not drop below strict, so no
+ * part of this residual is a frame-offset or operand-order error hiding in an
+ * `[esp?]` bucket -- indices 42-46 really are one permutation of one multiset,
+ * as PASS 4 concluded. */
 // WIP-FUNCTION: LEGOLAND 0x0045f810  (97.6%, bound.right store scheduled before the top sum: 5 insns at idx 42-46)
 void ValidateCursor(Cursor* cur, ObjDef* def)
 {

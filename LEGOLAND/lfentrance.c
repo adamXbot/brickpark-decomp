@@ -503,7 +503,52 @@ void LFQueue_AddRider(LFQueue* q, RiderNode* r)
  *    19 of the 206; the other 187 sit past index 62 and are the fold /
  *    schedule residual described above.  Fixing the tie alone will NOT close
  *    this function -- it is worth about 19 - and the two residuals should be
- *    costed separately from here on. */
+ *    costed separately from here on.
+ *
+ * 2026-09-05 (sixth lane).  Unchanged at 206, but the p1 STORE BLOCK is now
+ * EXPLAINED and reproduced exactly -- at the cost of the head, which makes
+ * the two halves provably incompatible from any single spelling of `a`.
+ *  - THE p1 BLOCK IS AN ESCAPE PROBLEM, not a schedule one.  Replacing the
+ *    `Pos a` used by the head / p1 / loop with two PLAIN INT SCALARS
+ *    `ax, ay` (the tail's `AddBasicObject(g_lftr_elem, &a)` keeping its own
+ *    `Pos a`) reproduces the original's p1 block INSTRUCTION FOR
+ *    INSTRUCTION, including all four things this note has been chasing:
+ *    the `mov dl,[a.x]` load HOISTED above the def/run/parent/flags stores,
+ *    `mov [p1+0x24],ebx` between the flags load and the `or`, the SPLIT
+ *    `mov cl,[4b472ch] / sub al,cl` (the fold is gone), the a.y load before
+ *    the x store -- AND the callee-saved tie flips to the original's
+ *    (`ebp` = p1, `ebx` = st).  So all of those are downstream of ONE fact:
+ *    in the original the p1 block's coordinate is NOT an address-taken
+ *    local, so its reload is not alias-pinned behind the pointer stores.
+ *  - WHY IT CANNOT BE COMMITTED.  The head needs the opposite.  The
+ *    original's head emits `add eax,ecx` ... `inc eax` ... ONE store, which
+ *    is exactly the escaped-store shape already recorded here; with plain
+ *    scalars VC6 folds the two defs at the IR level into
+ *    `lea eax,[eax+edx+1]` and the head loses instructions.  All six legal
+ *    orders of {ax=, ay=, ax++, ay-=dy}, `ax = sq.b.x + fx + 1` and putting
+ *    the `st->queue.path` store between the defs are byte-identical: the
+ *    fold is not preventable for a scalar.  Net: strict 225, LCS-aligned
+ *    register-blind 68 against the base's 34.  Frame: the two scalars need
+ *    ONE extra slot (0x2c) unless the tail's `Pos a` is put in an INNER
+ *    BLOCK SCOPE, which brings the frame back to the original's 0x28 --
+ *    worth knowing, because the original's -0x08/-0x04 pair really is
+ *    shared between the head coordinate and the tail's address-taken Pos.
+ *    So the original's `ax` is a compiler TEMPORARY lifetime-coloured onto
+ *    the tail Pos's home, not a named local -- and nothing found makes a
+ *    once-defined, thrice-used-across-calls value a temporary.
+ *  - TWO COMPENSATING IMPROVEMENTS, both REJECTED by the standing test
+ *    (strict falls, LCS-aligned register-blind RISES): `p1->sq.b.x` written
+ *    FIRST in the p1 block (154 strict, rb-aligned 34 -> 37), and
+ *    `ax = a.x;` after the head with p1/loop reading `ax` (150 strict,
+ *    rb-aligned 34 -> 77).  Neither is the original's shape.
+ *  - Re-measured and INERT on the current baseline: ALL 720 permutations of
+ *    the six p1 scalar stores (every one is 206 and emits the same
+ *    canonical order), all 7 positions of `p1->sq.b.x` alone and all 7 of
+ *    `p1->sq.b.y` alone (only position 0 moves, and that is the rejected
+ *    case above), and an early `xx = a.x;` read at four points inside the
+ *    p1 block (210 -- the read does NOT pin the load where the original has
+ *    it).
+ */
 // WIP-FUNCTION: LEGOLAND 0x0040a600  (20% by audit.py, 206/256 index mismatches, body 250 insns; st/p1 in the opposite callee-saved pair -- swap-blind the first 62 are exact)
 void LFEntrance_Add(RideElem* elem, const Pos* pos)
 {
@@ -839,6 +884,39 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
  *    the same "VC6 groups the two byte-field reads of one 2-byte object"
  *    effect recorded for `key.b.x`/`key.b.y`, and breaking it is probably
  *    the same edit as delaying the spill store.
+ *
+ * 2026-09-05 (sixth lane).  Still 10.  The fifth lane's mechanism is
+ * CONFIRMED and sharpened, and the search space is narrowed by a negative
+ * that should stop the next lane re-running spellings.
+ *  - RESTATED: every register in the window follows from ONE binary choice.
+ *    `tx` is ecx and `ty` is edx in BOTH bodies; what differs is which of
+ *    {qx, next} takes which.  With qx in ecx (ours) the sum is in place
+ *    (`add ecx,eax`, 2 bytes) and `next` in edx must be spilled before
+ *    `xor edx,edx`, which is why our spill store lands at index 19; with qx
+ *    in edx (the original) the sum needs a third register
+ *    (`lea ecx,[edx+eax]`, 3 bytes -- the whole 672/673 byte difference)
+ *    and `next` in ecx is spilled at index 21, one slot before the lea.
+ *    The store position is an EFFECT of the register, not a cause: in both
+ *    bodies the spill sits exactly where its register is next needed.
+ *  - The real requirement is therefore "qx must be a web SEPARATE from tx".
+ *    qx is a single-use operand that dies at the sum, so VC6 evaluates the
+ *    whole tree into tx's register.  Confirmed again this round: the 12
+ *    remaining statement orders not covered by the fifth lane's 40 (all
+ *    still 10 or 59-118), both operand orders of BOTH sums (`tile->b.x +
+ *    def->qx`, `def->qy + tile->b.y`, and both together -- all three
+ *    BYTE-IDENTICAL to the base), and a named `qxl` volatile local placed
+ *    first (still ecx).
+ *  - Two shapes DO break the coalescing and both need a store shim, so
+ *    neither is committed: `next` held in a one-field struct written through
+ *    `*(RiderNode* volatile*)&nx.p` scores 9 (rb 6) and emits qx FIRST at
+ *    index 14 -- the original's emission order -- while still giving qx
+ *    ecx; and a volatile READ of `r->next` scores 8.  Both are strictly
+ *    better than 10 and both are shims, recorded here only as evidence that
+ *    the emission order and the coalescing are INDEPENDENT: getting qx
+ *    emitted first is easy, getting it a register of its own is what is not
+ *    reachable.  What is wanted is a plain-C reason for qx to be live past
+ *    the sum, and the function offers none (case 10 re-reads qy from a
+ *    reloaded `def`, and qx is never read again).
  */
 // WIP-FUNCTION: LEGOLAND 0x0040bf70  (95.5%, 222/222 insns; the tx sum is `add` not `lea`, which renames the 10-instruction preamble)
 void LFEntrance_Activate(RideElem* elem)

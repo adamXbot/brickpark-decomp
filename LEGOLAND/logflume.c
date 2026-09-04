@@ -2539,6 +2539,51 @@ extern void RemoveAllBlokesFromRide(RideDef* def, BPosW sq);     /* 0x0048a2e0 *
  *    -- and the recorded negative "upstream padding does NOT move a store's
  *    schedule slot" says that is not reachable by adding tuples ahead of the
  *    block.  Treat it as at its floor unless that negative is overturned.
+ *
+ * 2026-09-05 (sixth lane).  Still 11, but the fourth lane's rule -- "the
+ * trigger for family (b) is giving the Y BYTE a name" -- is WRONG in a way
+ * that matters, and the corrected rule points at a different (and, so far,
+ * unreachable) target.
+ *  - THE TRIGGER IS AN EXTRA IR TUPLE BEFORE THE X STATEMENT, not the name.
+ *    Proof: `by = p->sq.b.y;` written BEFORE the x statement is family (b)
+ *    (24), and the SAME declaration written AFTER the x statement (still
+ *    before the y statement) is family (a) (11) and BYTE-IDENTICAL to the
+ *    base.  A second proof from the other direction: moving `next = p->next`
+ *    down to just before the x statement -- which costs nothing but ONE
+ *    extra tuple in that window -- also hoists `lea edi,&cur.footprint` up
+ *    to the original's slot (its `mov ebx,[ebp]` then lands in the window,
+ *    so the variant scores 29, but the hoist is real).  So the roots the
+ *    original hoists (the v[2] load, `lea edi`, `mov dx,[p->sq]`) and the
+ *    deferred `cur.x` store are all bought by ONE more tuple ahead of the
+ *    block, and the operand-order flip is bought SEPARATELY by the name.
+ *  - CONSEQUENCE: the target is "one extra, CODE-FREE tuple before the x
+ *    statement".  Every candidate measured is forward-substituted away and
+ *    is byte-identical to the base: splitting either footprint decrement
+ *    into `t = ..-1; ..= t;` (both, and both together), a
+ *    `Footprint* fd = &cur.footprint;` pointer local at five placements
+ *    (before the x statement, first in the block, between the stores, after
+ *    the y store, before the decrements), and a named `gy` for
+ *    `g_lf_footprint.v[2]` before or after the x statement.
+ *  - Also measured and worse: an inline `SetOrigin(&cur, x, y)` helper
+ *    taking the SUMS rather than the bytes, in all four combinations of
+ *    parameter order x body store order (26-27, and `lea edi` hoists too
+ *    far, out of the window entirely); named sum temps `ox`/`oy` stored
+ *    afterwards in both store orders (26-27); a volatile byte read of the y
+ *    byte (63 -- it emits `and eax,0xff` instead of the `xor/mov al`
+ *    widening); a volatile read of `v[2]` (13); `BPosW s = p->sq;` used for
+ *    both bytes AND the call argument (76); a `const BPos* k = &p->sq.b;`
+ *    local (11, byte-identical); both bytes named with the y sum first (26)
+ *    and with the x sum first (24, i.e. the "first sum keeps the byte"
+ *    exception holds however the naming is spread).
+ *  - The DESTINATION-SYMBOL lever does NOT reach this add.  `by = p->sq.b.y;
+ *    ... by += g_lf_footprint.v[2]; cur.y = by;` -- which makes `by` the
+ *    destination symbol of the sum, the one spelling recorded elsewhere as
+ *    able to force `add <sym>, <mem>` -- still emits `add ecx,eax` (the
+ *    global's register) and scores 24; so do `by = by + v[2]`, the fused
+ *    `cur.y = by += v[2]`, and the same treatment applied to BOTH
+ *    coordinates.  For a `byte + global` pair the global takes the
+ *    destination as soon as the byte is a named symbol, whatever the
+ *    assignment form.
  */
 // WIP-FUNCTION: LEGOLAND 0x0040abf0  (89%, schedule of the origin/copy block, see note)
 void LFEntrance_Remove(RideElem* elem, BPosW sq, void* c)

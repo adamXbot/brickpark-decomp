@@ -726,7 +726,26 @@ extern int ArcTan256(int x, int y);                            /* 0x004806e0 */
  * anything that creates a temporary creates a tuple that emits code, and
  * anything that emits no code is folded before the ranking runs.  Behaviour,
  * the frame, the wobble tables and 327 of 330 instructions are exact; treat
- * the remaining 3 as unreachable, as with `UpdateControllerFromMouseData`. */
+ * the remaining 3 as unreachable, as with `UpdateControllerFromMouseData`.
+ *
+ * 2026-09-05, lane w11a.  Re-measured from scratch on today's toolchain:
+ * baseline 330/330 instructions, 1108/1108 bytes, mismatch 3, first
+ * divergence index 275 -- unchanged.  Three more spellings, none of them in
+ * the lists above, all inert or worse:
+ *   - the y product with the table operand FIRST (`g_jc_step[i].dy * j`):
+ *     confirmed byte-identical to the committed `j * g_jc_step[i].dy`, so
+ *     the "source order is not a lever" claim above is re-verified rather
+ *     than inherited;
+ *   - the y line reassociated so the float constant leads
+ *     (`16.0f * (j * g_jc_step[i].dy) + y0`): byte-identical, 3 at 275 --
+ *     float reassociation does not reach the integer product's ranking;
+ *   - the straight loop written as an EXPLICIT pointer walk with a separate
+ *     counter (`for (j = 0, w = b->wob; j < 0x50; j++, w++)`, storing through
+ *     `w->x` / `w->y`): still 330/330 and 1108/1108 BYTES, but 5 mismatches
+ *     with the first at 267 -- VC6's own strength reduction of `b->wob[j]`
+ *     is what the original has, and writing the pointer out by hand perturbs
+ *     the loop head without touching the imul.
+ * FLOOR RE-ENDORSED at index 275. */
 // WIP-FUNCTION: LEGOLAND 0x00433840  (330/330 insns, 3 mismatches, 1108/1108 bytes; RETIRED 2026-09-04 -- the straight-run y `imul` operand order needs a rank-1 temporary from an enregistered IV, which no zero-cost C expression produces; see the RETIRED block above)
 void JcBoat_Animate(JcBoat* b, int from, int to)
 {

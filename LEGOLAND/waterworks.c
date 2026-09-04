@@ -577,7 +577,50 @@ int WW_HasEntrance(void)
  * There is NO matched witness anywhere in the corpus for "an unconditional
  * three-read loop-local temp loses EAX to the loop cursor", which is exactly
  * what this function needs.  That is the open question; nothing else about
- * the body is. */
+ * the body is.
+ *
+ * 2026-09-05 (small-partials lane).  Still 12; ~20 more variants, and one of
+ * them KILLS a whole hypothesis class that the rest of the project relies on
+ * elsewhere:
+ *  - *** `volatile` IS COMPLETELY INERT HERE, AT ZERO INSTRUCTION COST. ***
+ *    Three of this body's loads are single memory reads that a volatile
+ *    qualifier cannot lengthen: `*(volatile int*)&b->world.x >> 8`,
+ *    `*(volatile int*)&b->world.y >> 8` and `b = *(Bloke* volatile*)&b->next`.
+ *    All three, singly and together, are BYTE-IDENTICAL to this body -- same
+ *    31 instructions, same 68 bytes, same 12 EAX/ECX mismatches.  In
+ *    ridecb5.c's BoatingSchool_Tick a free volatile read is THE lever (it
+ *    advances VC6's eax->ecx->edx scratch rotation and two of them are worth
+ *    ~450 mismatches); here it does not move a single register.  So this
+ *    function's EAX is NOT decided by a local scratch rotation -- it is a
+ *    GLOBAL web rank, and no barrier/ordering construct can reach it.  Stop
+ *    looking for a rotation breaker.
+ *  - The recorded "wrap the local in a one-member struct" lever (which fixed
+ *    Roads_CalcCursor's u16) is also inert: `struct { int v; } x` / `y`,
+ *    each alone, both together as TWO DISTINCT struct types, both as members
+ *    of ONE two-member struct, and both declared at inner block scope, are
+ *    all byte-identical.  So the x and y tile temps cannot be split into two
+ *    lighter webs by typing them apart (nor by `long x`/`int y`).
+ *  - Flat `&&` chains are inert too, in every form: the four-condition chain
+ *    with `(b->world.x >> 8)` written out twice per axis, the same chain with
+ *    comma-assignments into function- or block-scope ints
+ *    (`(x = b->world.x >> 8) >= r->left && x <= r->right && ...`), and the
+ *    nested-if version of the same.  All byte-identical.
+ *  - NEW CORPUS FACT: the TAIL-RECURSIVE spelling
+ *    `if (b == 0) return 0; ...; return WW_AnyBlokeInRect(b->next, r);`
+ *    compiles BYTE-IDENTICALLY to the loop -- VC6 SP3 eliminates this tail
+ *    call and rebuilds the same rotated walk.  So a recursive original is
+ *    indistinguishable from a loop here and needs no separate search.
+ *  - `const WinRect* r`, and a goto transcription of the two axis tests to a
+ *    shared `nxt:` label, are inert.
+ *  - Naming the rect fields is WORSE, and by a measured amount: hoisting
+ *    `int left = r->left;` before the loop is 16 X (register-blind 3 -- VC6
+ *    then hoists differently), and hoisting `left` AND `top` is 24 X (rb 6,
+ *    both loads move into the pre-header where the original keeps `r->top`
+ *    INSIDE the loop).  Declaring the same two names at their use sites
+ *    inside the loop is byte-identical to this body, which confirms the two
+ *    register-resident rect values are VC6's own invariant hoists and not
+ *    source locals.
+ *  Residual and marker unchanged. */
 // WIP-FUNCTION: LEGOLAND 0x00417e70  (31/31 instructions, 68/68 bytes, register-blind distance 0; 12 strict mismatches, ALL one EAX<->ECX swap between the list cursor and the tile temp)
 int WW_AnyBlokeInRect(Bloke* b, WinRect* r)
 {

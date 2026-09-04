@@ -17,7 +17,7 @@
  *
  *   addr        class                  slot     what it really is      state
  *   0x0041a040  BOATING SCHOOL         cb_98    BoatingSchool_Add    WIP 218i, 8 X
- *   0x0041a720  BOATING SCHOOL         cb_a8    BoatingSchool_Tick   WIP 358i, 53 X
+ *   0x0041a720  BOATING SCHOOL         cb_a8    BoatingSchool_Tick   WIP 358i, 47 X
  *   0x0041c130  BOATING SCHOOL WATER   cb_9c    BoatingSchoolWater_R [OK]
  *   0x00413b50  DRIVING SCHOOL ROADS   cb_90    Roads_CalcCursor     [OK]
  *
@@ -849,6 +849,30 @@ int Road_FindCardinals(int x, int y, RoadRec** out)
  * function is AT ITS FLOOR: the residual is two instructions (the arm-A
  * reload and its `jmp`) that only a non-empty, zero-code basic block can
  * buy, and no such block exists in this compiler.
+ *
+ * 2026-09-05 (small-partials lane).  Still 27 / 62 insns / 153 bytes, and the
+ * BYTE ARITHMETIC is now closed, which retires a loose end: audit's
+ * "153 vs 157" counts 64 of OUR instructions, two of which are trailing pad
+ * NOPs, so the real body is 62 instructions / 151 bytes and the deficit is
+ * exactly 6 -- the original's second `mov edi,[esp+10h]` (4 bytes) plus its
+ * `jmp` (2).  Nothing else in this body is short: the whole difference is the
+ * diamond, and no 2-vs-3-byte encoding hunt is owed.
+ * Five more candidates, all byte-identical to this body (27 X):
+ *   - `if (r == 0) y = n; else n++;` -- a dead store to the parameter `y`,
+ *     the sibling of the `x = n;` probe that DID build the diamond.  `y` is
+ *     dead here too (its register holds y+4), but unlike `x` it does not even
+ *     build the block: folded.  `out = out;` in the arm behaves the same.
+ *   - `if (r != 0) { n++; goto j3; } goto j3; j3:` -- BOTH arms ending in an
+ *     explicit `goto` to the join.  VC6 threads both gotos away before
+ *     layout, so "make the arm end in an unconditional jump" (the block-exile
+ *     IFF) cannot be spelled from C at this site either.
+ *   - `if (r == 0) n = n ^ 0; else n = (n ^ 0) + 1;` -- an identity that is
+ *     not an assignment tuple; folded like the rest.
+ *   - a shared `int xm4 = x - 4;` for the third and fourth calls is
+ *     byte-identical, which confirms VC6 already CSEs `x - 4` and that the
+ *     `mov ecx,[esp+18h]` reload of the parameter at index 32 is VC6's own
+ *     rematerialisation, not a source-level second read.
+ * Verdict unchanged: at its floor pending a zero-code non-empty block.
  */
 // WIP-FUNCTION: LEGOLAND 0x00413450  (62/64 insns, 27 X from idx 37: the third test's `n` reload hoisted above the branch instead of duplicated on both arms)
 int Road_FindDiagonals(int x, int y, RoadRec** out)
@@ -1404,6 +1428,64 @@ extern void*    g_bs_launch_sample;  /* 0x004b52c8 */
  * two objects that are genuinely distinct to the compiler, which a cast can
  * never make.  `volatile` remains the ONLY break found for this shape, and
  * the committed shim is re-confirmed as load-bearing (worth 2).
+ *
+ * 2026-09-05 (small-partials lane).  Unchanged at 47 / 358 insns / 1166 B,
+ * but *** THE STANDING BEST HYPOTHESIS FOR INDEX 64 IS NOW FALSIFIED ***, so
+ * the next pass should not spend any more time on CSE barriers.
+ *  - The hypothesis was "VC6 CSEs the enqueue reload with the guard's
+ *    `cmp dword ptr [edi+14h],5` into one value number, so it never takes a
+ *    fresh rotation slot; break that CSE and index 64 takes edx."  DISPROOF:
+ *    point the guard at a DIFFERENT FIELD ENTIRELY -- `st->frame != 5`
+ *    (+0x0c) instead of `st->count != 5` (+0x14), so there is no shared
+ *    lvalue and no value number to share -- and index 64 STILL emits
+ *    `mov ecx,[edi+14h] / inc ecx / mov [edi+14h],ecx`.  The body is
+ *    otherwise unchanged (48 X: only the guard's own `cmp` differs, 1166 B,
+ *    same clusters).  There is nothing to break.
+ *  - Nor is index 64 a scratch-ROTATION position.  Insert a third guard
+ *    condition that consumes ecx immediately before the increment
+ *    (`&& st->route != 0` -> `mov ecx,[edi+8] / test ecx,ecx / je`): the
+ *    increment still takes ecx, two instructions after ecx was freed.  So
+ *    VC6 is not "next in rotation" here, it is "lowest free scratch", and it
+ *    is edx in the ORIGINAL only because something is keeping ecx BUSY at
+ *    that point in the original's allocation.  The obvious candidate -- the
+ *    `st->q[4]` value of index 60 and the shuffle arm's `front` of index 72
+ *    being ONE variable whose web spans the whole case -- was tried in three
+ *    forms (one function-level `front` assigned in both arms, the same
+ *    scoped to the case body, each with and without shim 1) and is
+ *    BYTE-IDENTICAL: VC6 splits the web anyway.  A dead use of the value
+ *    after the increment does not keep it alive either (VC6 knows it is 0 on
+ *    that path and stores an immediate).
+ *  - The remaining reading of index 64 is therefore that ecx is reserved in
+ *    the original by something OUTSIDE the enqueue block -- look at the join
+ *    block at 0x41a82d and the shuffle arm, not at the guard.
+ *  - A FREE LEVER WORTH 2, MEASURED BUT DELIBERATELY NOT COMMITTED:
+ *    `*(volatile int*)&b->tx` as CalcMoveLine's THIRD argument in CASE 5
+ *    ONLY takes the body from 47 to 45 at zero byte cost (still 1166) and
+ *    with the register-blind distance unchanged at 10 -- it closes indices
+ *    285 and 287..290, because the original RELOADS b->tx from memory there
+ *    anyway (`mov eax,[esi+24h]`), so the volatile buys the ordering for
+ *    free.  It is a third `volatile` shim on top of two, buying 2 where they
+ *    buy 242 and 214, so it is recorded rather than committed; re-add it in
+ *    one line if a later pass wants the 2.  The same volatile at the case 0,
+ *    3 and 4 sites buys NOTHING on its own and adds nothing to the case 5
+ *    one: cases 0+3 = 47, case 3 alone = 47, cases 4+5 = 45, all four = 45,
+ *    i.e. every combination is 47 without case 5 and 45 with it.  Volatile on
+ *    b->x in case 5 is 49 and on b->y in case 5 is 47.
+ *  - Also measured and worse, so not to be re-tried: the ty value as a named
+ *    local in case 0 (274) or case 3 (164), with or without a split `+=`
+ *    accumulate (68 in case 0); swapping the tx/ty store order in case 5
+ *    (289); `int cx = b->x;` in case 5 (48 but register-blind 14 -- a
+ *    COMPENSATING error by the standing test, reject it).
+ *  - Re-measured contributions of the three committed levers on today's
+ *    toolchain: shim 1 is worth 2 (49 without it, and 1165 B -- i.e. shim 1
+ *    COSTS one of the two surplus bytes), shim 2 in case 0 is worth 219,
+ *    shim 2 in case 3 is worth 115, `cy` in case 4 is worth 6 and also drops
+ *    the register-blind distance 13 -> 10 (so `cy` is a real improvement,
+ *    not a compensating one).  The 2-byte surplus is exactly the two shim-2
+ *    reloads (`mov ecx,[esi+28h]`, 3 bytes, where the original re-uses the
+ *    stored value with `mov ecx,edx`, 2 bytes): kill shim 2 and the byte
+ *    gate closes, which is why shim 2 -- not index 64 -- is the gating
+ *    problem for ever calling this function exact.
  */
 // WIP-FUNCTION: LEGOLAND 0x0041a720  (358/358 insns, 47 X from idx 64: the switch body one register behind in the eax->ecx->edx scratch rotation)
 void BoatingSchool_Tick(void)

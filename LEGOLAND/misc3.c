@@ -941,6 +941,24 @@ extern int g_popup_y;              /* 0x007fded0  PopUpInfo.pos.y */
  * above, the residual is now bounded from every side: it is three
  * instructions, it is entirely "the compare's constant equals the arm's",
  * and this VC6 always webs a three-use constant.  FLOOR.
+ *
+ * 2026-09-05, lane w11a.  Unchanged at 3 (43/43 instructions, 143/144
+ * bytes, first divergence 25).  The two use-count controls were re-derived
+ * on today's toolchain and both still hold -- `return 0x25;` with NO store
+ * gives 42 instructions with `cmp esi,25h` KEPT and the def in the arm, and
+ * the committed three-use body webs -- so the rule is re-verified, not
+ * inherited.  Six more spellings measured, every one byte-identical to the
+ * committed body (43/43, 143 bytes, 3 at index 25): `return g_popup_y;`
+ * read back after the store; `y = 0x25; g_popup_y = y; return y;` (the
+ * y-carrier, i.e. reusing the register the compare reads); `limit = 0x25;`
+ * as the carrier with the arm's own return; the reversed compare
+ * `0x25 > y`; `return g_popup_y = 0x25;`; and `size` (the parameter) as the
+ * carrier after its last use.  Also inert as an occupancy trick:
+ * `y < 0x25 + (w & 0)` -- VC6 folds the `& 0` term before web building, so
+ * it neither occupies a register nor separates the two constants.
+ * The `y <= 0x24` measurement recorded above (2 mismatches, 144/144 bytes)
+ * is deliberately still NOT taken: it trades one wrong instruction pair for
+ * another and contradicts the original's plain `cmp esi,25h`.  FLOOR.
  */
 // WIP-FUNCTION: LEGOLAND 0x004718c0  (43/43 instructions, 143/144 bytes,
 //   mismatch 3: the y-clamp low bound's constant def is one block too early)

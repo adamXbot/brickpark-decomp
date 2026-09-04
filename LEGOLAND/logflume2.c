@@ -1326,6 +1326,55 @@ extern RideDef* g_lftr_def;             /* 0x004cbe30  LOG FLUME TRACK */
  * IDENTICAL head shape with `add al, 6` instead of `add al, 2`, so whatever
  * closes this closes that too.
  *
+ * 2026-09-05 (sixth lane).  45 -> 44, and the `add eax, -2` is CLOSED by a
+ * RECONSTRUCTION FIX, not a spelling: the loop is an UP-COUNTING
+ * `for (i = 0; i < 24 / cellh - 2; i++)`, not the down-counting
+ * `for (n = 24 / cellh - 2; n > 0; n--)` that was here.  VC6 reverses the
+ * up-counting loop into the same `test/jle` guard plus `dec/jne` latch, but
+ * the trip count `24/cellh - 2` is then materialised by the LOOP
+ * TRANSFORMATION rather than by the front end, and that node is an ADD with
+ * a negative constant: `add eax, -2`.  (`n = 24/cellh; for (i = 0; i < n - 2;
+ * i++)` is identical; `for (i = n - 2; i > 0; i--)`, `n = 24/cellh - 2;
+ * for (i = 0; i < n; i++)` and `while (n-- > 2)` all go back to `sub eax,2`.)
+ * *** This falsifies the DECOMP rule "VC6 canonicalises x + (-K), x - K,
+ * x + ~(K-1), x + (0-K) and n -= K to ONE sub node, so `add reg, -K` is not
+ * reachable from C" -- it is reachable, just not from the SUBTRACTION at
+ * this site; here it comes from an up-counting loop's trip count.  A scan of
+ * the whole `.text` section finds 75 `add r32, -K` instructions, and one of
+ * them is already REPRODUCED EXACTLY by this tree: `add eax, -2` at
+ * 0x0040c01f, LFEntrance_Activate case 2, from the plain narrowing
+ * subtraction `(tile->b.x - 2) << 8` on a widened unsigned char.  So the
+ * canonicalisation the rule describes is real for some operand shapes and
+ * not for others; treat "not reachable from C" as retired. ***
+ *  - THE EBX TIE-BREAK IS NOT REACHABLE FROM SOURCE, measured again this
+ *    round on the CURRENT baseline and much harder than "not yet found":
+ *    both coordinates are byte-typed, and on x86 the only byte-addressable
+ *    CALLEE-SAVED register is EBX, so exactly one of them can survive the
+ *    calls in a register and the other must spill -- the tie is FORCED, not
+ *    an artefact.  Everything tried leaves X the winner and is
+ *    BYTE-IDENTICAL in the head: variable NAMES (8 pairs, incl. reversed
+ *    alphabetical and different lengths), declaration order, the x/y
+ *    statement order, giving X two or three defs (`x = v0 + px; x += 2;`
+ *    and `x = v0; x += px; x += 2;` -- both of which match the original's
+ *    `mov al / add al / add al` shape), reusing `px`/`py` themselves as the
+ *    running coordinates (either, or both), `int px, py`, and four store
+ *    orders that put `sub->sq.b.y` first or before the x store (so Y's first
+ *    USE precedes X's).  Only a TYPE change flips it, and either type change
+ *    does: `int y` gives the original's WHOLE 18-instruction head exactly,
+ *    plus one extra `and ebx,0xff`; `int x` (no mask, narrowing only at the
+ *    store) gives the flipped allocation, the correct block store order and
+ *    EXACTLY 341/341 bytes, but a dword head (`xor/xor/mov cl/mov dl/lea
+ *    ecx,[ecx+edx+2]`, +2 instructions).  So the residual is now precisely
+ *    "a byte-typed local that ranks like an int", and the two int forms
+ *    bracket it from both sides.
+ *  - The three families remain: shim + the store order committed here gives
+ *    the x reload at each block top but swaps the x/kind stores and sinks
+ *    the last `y += cellh` past LFPiece_Alloc (344B); shim + the natural
+ *    order kind,dir,run,f28,def,flags,x,y gives 341/341 bytes and the
+ *    correct last block but pins the reload to the x store (X=66); no shim
+ *    gives X in ebx and Y spilled (X=78).  All three are one allocation
+ *    decision apart.
+ *
  * 2026-09-04 (fifth lane).  Unchanged at 45; not re-ground, but one
  * correction to the note above, because it points the next lane at the wrong
  * lever.  The note says "the two-way unsigned-char tie-break lever does not
@@ -1343,7 +1392,7 @@ extern RideDef* g_lftr_def;             /* 0x004cbe30  LOG FLUME TRACK */
  * elsewhere in the corpus and is worth attacking as a general rule rather
  * than on this function.
  */
-// WIP-FUNCTION: LEGOLAND 0x00410180  (111/111 insns, 344/341B, 45 by audit, 18 structural; the coupled x-store/kind-store swap the volatile shim forces)
+// WIP-FUNCTION: LEGOLAND 0x00410180  (111/111 insns, 344/341B, 44 by audit; the ebx tie-break between two byte coordinates -- see note)
 void LFDrop_Place(LFPiece* parent)
 {
     int           cellh;
@@ -1354,7 +1403,7 @@ void LFDrop_Place(LFPiece* parent)
     unsigned char py;
     LFPiece*      sub;
     LFPiece*      prev;
-    int           n;
+    int           i;
 
     def = g_lfdr_def;
     cellh = g_lf_footprint.v[3] - g_lf_footprint.v[1];
@@ -1368,7 +1417,7 @@ void LFDrop_Place(LFPiece* parent)
     parent->end_a = sub;
     prev = sub;
 
-    for (n = 24 / cellh + (-2); n > 0; n--) {
+    for (i = 0; i < 24 / cellh - 2; i++) {
         y += (unsigned char)cellh;
         LF_MAKE_SUB(1, 0)
         LFPiece_AddSub(parent, sub);
