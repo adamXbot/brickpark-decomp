@@ -282,7 +282,41 @@ void* memset(void*, int, unsigned int);
  * route stays the closest reachable state.
  *
  * DATA: the `owner` handed to JungleCruise_UpdateRiverTile really is the
- * station record itself (its +0x00 IS the packed square). */
+ * station record itself (its +0x00 IS the packed square).
+ *
+ * PASS N+2 (2026-09-04, lane w7ticks).  NO CHANGE -- still 15, first diverging
+ * index still 32.  Permrank confirms there is no register question hiding
+ * here: 15 strict = 15 real, and the best permutation is the IDENTITY, so the
+ * residual really is the twelve-instruction window 32..53 and nothing else.
+ *
+ * THE ONE NEW MECHANISM PROVED THIS PASS -- and it closes off the most
+ * obvious remaining route.  An INLINE HELPER CANNOT CREATE A SECOND ZERO.
+ * The hope was that a `static __inline` whose zero arrives as a PARAMETER
+ * would give the riders their own constant temp, the way an inline
+ * expansion's temporaries get their own spill homes:
+ *     static __inline void JcClearRiders(JcStation* s, void* z)
+ *     { s->riders[0] = z; s->riders[1] = z; s->riders[2] = z; }
+ *     JcClearRiders(st, 0);
+ * It does not.  Every form measured -- the helper above (102), the same over
+ * `void** a` (102), an `int z` parameter cast to `void*` (102), the same
+ * helper applied to the BLOKES instead (102), to both groups (102), and the
+ * zero argument first in the parameter list (102) -- is BYTE-IDENTICAL to
+ * three plain stores.  VC6 inlines, then forward-substitutes the constant and
+ * re-CSEs it into the single function-wide zero web before allocation.  Add
+ * that to the corpus scan above: neither a source construct nor an inline
+ * expansion produces the original's `xor ecx,ecx`.
+ * Also newly measured and inert: a `(void*)` cast on the `o` argument (15, so
+ * the "same-width conversion is a CSE barrier" lever does not apply to a void
+ * pointer), a local `void* ob = o;` root copy with plain rider stores (102),
+ * a 4-byte memset on riders[1] with plains either side (15), and
+ * riders[0] plain + an 8-byte memset over riders[1..2] (15) -- the whole
+ * memset family sits on exactly 15 whichever slot carries the intrinsic.
+ * The 12-scoring `link + 4-byte memset` lever was RE-MEASURED and still
+ * scores 12 with the residual as one contiguous window 42..53; it is still
+ * not committed, for the reason recorded above.  Its residual, freshly
+ * listed, is that we emit the g_jc_stations load and the `lea` scratch base
+ * where the original emits `xor ecx,ecx` and the late `o` load -- i.e. the
+ * same single missing construct, just moved ten instructions later. */
 // WIP-FUNCTION: LEGOLAND 0x00434f90  (141/141 insns, 438/438 bytes, 15 by audit; first diff at index 32 -- one allocator decision: the original clears the riders off esi from a rematerialised `xor ecx,ecx` while keeping `o` in eax, our memset buys the eax and pays a `lea` base, plain stores buy the base and pay the eax)
 void JungleCruise_Add(void* o, Pos* p)
 {

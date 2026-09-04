@@ -1127,7 +1127,36 @@ extern SeatOfs g_jc_seat_ofs[];      /* 0x004b72b0 */
  *  The open question is unchanged and is now sharply stated: what raises
  *  case-0 `seat`/case-1 `i` above loop-2 `st` for EAX, while ALSO ranking the
  *  function-wide zero above `inst` for EBX with `b = inst->bloke` read after
- *  the station search (which is where the original reads it, index 122)? */
+ *  the station search (which is where the original reads it, index 122)?
+ *
+ * PASS N+1 (2026-09-04, lane w7ticks).  NO CHANGE -- 208 strict, first
+ * diverging index still 110.  Two things are now settled that were not:
+ *
+ *  (1) THE PERMUTATION-AWARE METRIC DOES NOT RESCUE THIS ONE.  permrank gives
+ *      205 REAL against 208 strict (best perm `bpsibxdi`), i.e. renaming the
+ *      callee-saved registers buys three instructions out of 208.  Whatever
+ *      the colouring question does downstream, the bulk of the residual is
+ *      genuinely different code, not different names.  Register-blind
+ *      distance is 17 of 354, which is the number to drive down.
+ *
+ *  (2) READING `b = inst->bloke;` AFTER THE STATION SEARCH IS MEASURABLY
+ *      WORSE, in every arrangement.  The old note says the original reads it
+ *      there (index 122, between the search's `jne` and the first
+ *      `cmp word ptr [esi+0xe],bx`), which invites moving the statement.
+ *      Moving it below the `while (st)` loop costs 20 strict (228) AND breaks
+ *      four instructions in the PROLOGUE (indices 3, 4, 5, 13) that are exact
+ *      today -- the read then no longer anchors `inst` and the whole entry
+ *      block reschedules.  Measured: b after the loop with the other three
+ *      head statements in all six orders (228 x3, 242 x3); `next` also moved
+ *      below (230 x3); and `b = inst->bloke;` pushed all the way down to
+ *      immediately before `if (b->action == 0)` (228).  Also re-measured for
+ *      completeness: the head statements {st =, next =, key =, b =} in six of
+ *      their 24 orders with b kept before the loop -- four are 208 (the
+ *      committed one among them) and two are 224.
+ *      CONCLUSION: the original's late `mov esi,[ebp+8]` is a SCHEDULING
+ *      consequence of the colouring, not evidence of a late source read.  A
+ *      future pass should stop trying to reproduce it by statement placement.
+ */
 // WIP-FUNCTION: LEGOLAND 0x00435750  (354/354 insns, 208 mismatches, first diff at index 110: loop-2 `st` colours to EAX and `seat`/case-1 `i` to ECX, the reverse of the original; measured to be a WEIGHT threshold on `st`'s reference count, and the b-after-search read the original needs flips the zero/inst pair between EBX and EBP)
 void JungleCruise_Tick(void)
 {

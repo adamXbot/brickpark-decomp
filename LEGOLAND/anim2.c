@@ -315,7 +315,39 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * argument) is propagated back to the use; the only constructs known to
  * resist are a partial SUM in an aggregate field (there is no sum available
  * here) and a volatile read (which costs an instruction). */
-// WIP-FUNCTION: LEGOLAND 0x00418fe0  (212/212 insns, 744/744 bytes, 32 mismatches but only 7 of 212 original indices structurally different; one eax/ecx/edx rotation at index 82)
+/* ROUND OF 2026-09-04 (fifth pass).  32 -> 30, and every metric moved the same
+ * way: real (mismatches surviving the best callee-saved permutation) 29 -> 27,
+ * register+offset-blind LCS 205 -> 206 of 212, ORIGINAL indices inside a
+ * differing region 12 -> 9 (scratchpad/w7joust/w7.py; that tool's region count
+ * charges both sides of a replace, so it reads higher than the "7" quoted
+ * above -- the sequence is unchanged, the counting rule is not).
+ * WHAT CLOSED IT: the x aggregate's SECOND field carries a partial sum of its
+ * own -- `t.y = ofs.x + scr.x;` with `b->sx = t.x + t.y;` instead of
+ * `t.y = ofs.x; b->sx = t.x + t.y + scr.x;`.  Both spell the same value and
+ * both keep the original's addend order, but the two-term field makes indices
+ * 89, 90 and 91 (`push 0 / add ecx,eax / xor eax,eax`) come out exact: the
+ * second `push 0` of the PrintSprite argument list stops being scheduled next
+ * to the first.  The whole family is one attractor -- operand order inside
+ * either term, `t.y + t.x`, `t.y` assigned first, a single four-field struct,
+ * and `u.y` written before `u.x` are all byte-identical at 30.
+ * The same trick on the Y side is NOT the original: `u.y = ofs.y + scr.y`
+ * (with or without the x one) falls back into the flat attractor at 124-136.
+ * A three-term `t.x = origin_x + ox + ofs.x` with `t.y = scr.x` is 32.
+ * NEW AND INERT this round: splitting the wobble shift so `ox`/`oy` get a LATE
+ * definition (`ox = (wx-wy)*tw2;` early, `ox >>= 9;` just before the sums) --
+ * the idea was to make the flat form's descending-definition sort put `ox`
+ * first; it rewrites the prologue instead (174-176, divergence at index 0),
+ * with `>>=` and `= ox >> 9` identical.  An empty-`if` dummy temp before the
+ * sums, meant to advance the eax/ecx/edx rotation by one step, is deleted
+ * outright.  `(void)b->sx;` after the sums does not force the reload.
+ * THE WALL IS UNCHANGED and is stated in the round above: the original reads
+ * `ofs.y` at index 87 (before the `b->sx` store), which keeps edx busy, forces
+ * the second `g_map` load onto ecx and hence the `b->sx` reload at 103.  Our
+ * rotation is one step behind the original's from index 82 (ours ecx, edx, eax
+ * where the original takes edx, eax, ecx), so what is wanted is one MORE
+ * scratch temp before the x sum, not fewer -- but every construct that merely
+ * names a value is copy-propagated back to its use. */
+// WIP-FUNCTION: LEGOLAND 0x00418fe0  (212/212 insns, 744/744 bytes, 30 mismatches, 27 surviving the best callee-saved permutation, 9 of 212 original indices structurally different; one eax/ecx/edx rotation at index 82)
 void BoatingSchool_DrawBoats(int mode)
 {
     Pos     scr;
@@ -365,8 +397,8 @@ draw:
                 Pos u;
 
                 t.x = g_map->origin_x + ox;
-                t.y = ofs.x;
-                b->sx = t.x + t.y + scr.x;
+                t.y = ofs.x + scr.x;
+                b->sx = t.x + t.y;
                 u.x = g_map->origin_y + oy;
                 u.y = ofs.y;
                 b->sy = u.x + u.y + scr.y;
@@ -1189,6 +1221,47 @@ extern TexSize g_texsize[];         /* 0x0081c0c0 */
  * a named `fth` float for the v divisor with `(float)tw` left inline for the
  * u's (strict 179, bad 71, robl unchanged -- an asymmetry no one would write).
  *
+ * ROUND OF 2026-09-04 (fourth pass).  UNCHANGED AT 182.  Two diagnostics that
+ * narrow where a future round should NOT look, and five more negatives.
+ * DIAGNOSTIC 1: the permutation-aware count equals the strict count exactly
+ * (real = 182 = mism, best permutation `ebx->ebx ebp->ebp edi->edi esi->esi`,
+ * i.e. the identity), and that permutation is invariant across every variant
+ * measured here.  The INTEGER allocation is therefore already the original's
+ * everywhere; the whole 182 is x87 order plus the frame numbering that follows
+ * from it.  Nothing that touches integer register pressure can help.
+ * DIAGNOSTIC 2: the frame difference is now itemised.  Both frames are 0x30.
+ *   original  0x10 v2 | 0x14 th | 0x18 tw->(float)tw | 0x1c srcw | 0x20 dstw |
+ *             0x24 int-scratch->dstx | 0x28 i | 0x2c..0x38 x0,x1,y0,y1 |
+ *             0x3c a SECOND int scratch, above the named locals
+ *   ours      0x10 int-scratch | 0x14 (float)th | 0x18 v2 | 0x1c srcy |
+ *             0x20 srch | 0x24 dsth | 0x28 dsty | 0x2c i | 0x30..0x3c x0..y1
+ * Seven pool slots below `i` here against the original's six, so every named
+ * local sits 4 bytes high; the original's seventh scratch is a COMPILER TEMP
+ * created after the Y group and therefore laid out after the named locals.
+ * That is a consequence of the spill flip, not something a declaration can
+ * reach: the pool below `i` holds whichever group got spilled.
+ * NEW AND INERT (all exactly 182/robl 289/bad 73, byte-identical): the Y group
+ * moved into its OWN nested block scope opened after u0 (the obvious way to
+ * give it a separate pool and a later live range); u0 split so its division
+ * happens BELOW the Y group's four assignments (`u0 = (u0-srcx)/srcw*dstw+dstx;
+ * ... u0 = u0/(float)tw;`); and the last four computations reordered to
+ * u1,u2,v1,v2.  VC6 rebuilds the same DAG from all three.
+ * NEW AND WORSE: the six `p->uv` stores interleaved one per computation but
+ * with `p->uv[0][0] = u0;` kept LAST -- which is exactly the original's STORE
+ * ORDER (v0, u1, v1, u2, then u0 and v2) -- is 195/robl 270/1136 bytes, and so
+ * is the same with the `p->tex` store moved to the end.  The original's
+ * interleaving is the scheduler filling FP latency slots with the integer copy
+ * pairs, not a source order; asking for it in source destroys the block.
+ * The `p->tex` position was re-swept over all 23 positions with the full metric
+ * set this time (the earlier sweep recorded only robl): positions 4-7 are
+ * byte-identical to the shipped body, position 9 is the only one that beats it
+ * structurally (robl 291, bad 69) and it costs a strict index and puts the
+ * store in the middle of the Y group's four assignments, which is not source.
+ * `ftw`/`fth` float locals were re-measured with all metrics at the exact
+ * positions the original converts them (just above u0 and just above v0):
+ * 165 strict but robl 284, bad 69, 321 real instructions and 1136 bytes -- the
+ * same attractor the earlier rounds rejected, still rejected.
+ *
  * Two levers that ARE settled and must not be undone: the int->float
  * conversions have to go through named float locals (written inline VC6
  * lowers `float_expr - int_field` to `fisub`/`fidiv` on the widened byte
@@ -1196,7 +1269,7 @@ extern TexSize g_texsize[];         /* 0x0081c0c0 */
  * and `tw`/`th` must be read from g_texsize BEFORE the eight rectangle
  * edges, which is what puts the two table loads at the head of the block as
  * the original has them. */
-// WIP-FUNCTION: LEGOLAND 0x00442040  (321 real insns of the original's 331 -- audit pads to 331 with alignment nops -- 182 mismatches, 42 of 331 original indices structurally different; the x87 spill group is mirrored)
+// WIP-FUNCTION: LEGOLAND 0x00442040  (321 real insns of the original's 331 -- audit pads to 331 with alignment nops -- 182 mismatches, and 182 under the best callee-saved permutation too, so the integer allocation is already exact; the x87 spill group is mirrored)
 void AnimApplyPart(ModelCtx* ctx, int from, int to, AnimPart* parts, int n)
 {
     OutfitRect* a = &ctx->rects[from];

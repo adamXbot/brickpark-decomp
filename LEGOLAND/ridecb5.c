@@ -821,7 +821,35 @@ int Road_FindCardinals(int x, int y, RoadRec** out)
  * costs its own dead `mov edx,[esp+10h]` (24 X, 65 insns, 160B) -- worse on
  * both audit gates than the committed body.  The lever is unchanged and still
  * unmet: a statement that keeps the `r == 0` arm a real basic block and emits
- * no instruction. */
+ * no instruction.
+ *
+ * 2026-09-04 pass 4 (fifth lane).  Still 27; six MORE candidates, including
+ * one genuinely new class, all byte-identical to this body (27 X / 64 insns
+ * / 153 bytes):
+ *   - A `static __inline int Road_Bump(int n, RoadRec* r) { if (r == 0)
+ *     return n; return n + 1; }` used at the third site, and at all four
+ *     sites.  This was the best remaining hope, because an inlined TWO-RETURN
+ *     helper gives the merged value two reaching definitions, which is the
+ *     shape that materialises a value on both edges elsewhere in this
+ *     project.  VC6 folds the helper to the same single-def increment before
+ *     layout: BYTE-IDENTICAL.  So "two reaching defs" is not the trigger
+ *     either -- the trigger really is a non-empty BASIC BLOCK.
+ *   - `n = r ? n + 1 : n;`, `n = *(int*)&n;` in the arm, `n -= 0 * (int)r;`
+ *     in the arm: all folded, all byte-identical.
+ *   - The both-arms out-store with the arms written out in full (`if (r == 0)
+ *     { if (out) out[5] = r; } else { n++; if (out) out[5] = r; }`) is 57 X /
+ *     159 bytes -- VC6 knows r == 0 in the first arm, stores an immediate,
+ *     and the two copies therefore cannot cross-jump.  Confirms the earlier
+ *     58 measurement from a different spelling.
+ * Running total for the `r == 0` arm: ~90 distinct statements over four
+ * passes, every one either folded (27 X) or emitting real code (>= 47 X).
+ * The ONE statement that produces the original's diamond exactly is a bare
+ * `*(volatile int*)&n;`, and it costs its own dead load.  Unless VC6's
+ * block-folding pass can be defeated by something not yet imagined, this
+ * function is AT ITS FLOOR: the residual is two instructions (the arm-A
+ * reload and its `jmp`) that only a non-empty, zero-code basic block can
+ * buy, and no such block exists in this compiler.
+ */
 // WIP-FUNCTION: LEGOLAND 0x00413450  (62/64 insns, 27 X from idx 37: the third test's `n` reload hoisted above the branch instead of duplicated on both arms)
 int Road_FindDiagonals(int x, int y, RoadRec** out)
 {
@@ -1358,7 +1386,25 @@ extern void*    g_bs_launch_sample;  /* 0x004b52c8 */
  * same-width TYPE conversion barrier that works in RequestRoute needs two
  * differently-typed OBJECTS, not two views of one, and `volatile` remains the
  * only break found for this shape.
- * ========================================================================= */
+ * =========================================================================
+ *
+ * 2026-09-04 (fifth lane).  Unchanged at 47; ONE more CSE-barrier class
+ * measured for index 64 and it FAILS, which closes the direction lane H left
+ * open.  Lane H's union result narrowed the search to "the same-width type
+ * conversion barrier needs two differently-typed OBJECTS, not two views of
+ * one".  That has now been tried properly: a SECOND STRUCT TYPE covering the
+ * same record --
+ *     typedef struct BsCount { unsigned char pad00[0x14]; unsigned n; } BsCount;
+ * -- with the guard read as `((BsCount*)st)->n != 5` and/or the increment read
+ * and written through it, in all four pairings, is IDENTICAL to the plain
+ * no-shim body (49 X, 1165 bytes, first divergence still 64), and adding it
+ * alongside the committed volatile shim is identical to the shim alone (47).
+ * So two distinct STRUCT TYPES over one object value-number as one lvalue in
+ * this build exactly as two union members do; the RequestRoute barrier needs
+ * two objects that are genuinely distinct to the compiler, which a cast can
+ * never make.  `volatile` remains the ONLY break found for this shape, and
+ * the committed shim is re-confirmed as load-bearing (worth 2).
+ */
 // WIP-FUNCTION: LEGOLAND 0x0041a720  (358/358 insns, 47 X from idx 64: the switch body one register behind in the eax->ecx->edx scratch rotation)
 void BoatingSchool_Tick(void)
 {

@@ -919,7 +919,29 @@ extern int g_popup_y;              /* 0x007fded0  PopUpInfo.pos.y */
  * `-y > -0x25` and `y >= 0 && y < 0x25` (17-18, extra compares).
  * CONCLUSION unchanged and now evidence-backed: the original's low arm has a
  * three-use 0x25 whose def sits in the arm; no VC6 SP3 spelling reaches that,
- * because this build webs at three uses and keys constants by value only. */
+ * because this build webs at three uses and keys constants by value only.
+ *
+ * 2026-09-04, fifth lane -- CONFIRMED AT ITS FLOOR, no change.  Re-derived
+ * the two probes the coordinator asked about and both reproduce exactly:
+ *   - hoisting ONLY `limit = 0x16f - h;` above the y test (with and without
+ *     also moving the `g_popup_x` store) gives 43 instructions and the
+ *     original's 144 BYTES with the compare's immediate kept -- and 18
+ *     mismatches, because `mov eax,16Fh / sub eax,edx` are then emitted
+ *     before the branch where the original has them at indices 33 and 35,
+ *     SPLIT BY the g_popup_x store inside the high arm.  VC6 does not sink a
+ *     computation into the one arm that uses it, so the 144-byte probe
+ *     cannot be turned into a body: the byte it buys costs two displaced
+ *     instructions.
+ *   - the full two-arm phi (`if (y < 0x25) { limit = 0x25; ...stores... }
+ *     else { limit = 0x16f - h; ...stores...; if (y <= limit) ... }` with one
+ *     trailing `return limit;`) is BYTE-IDENTICAL to the committed body.
+ *     VC6 constant-propagates the low arm's def into the return before web
+ *     building, exactly as recorded.
+ * Together with the three use-count controls and the `y <= 0x24` measurement
+ * above, the residual is now bounded from every side: it is three
+ * instructions, it is entirely "the compare's constant equals the arm's",
+ * and this VC6 always webs a three-use constant.  FLOOR.
+ */
 // WIP-FUNCTION: LEGOLAND 0x004718c0  (43/43 instructions, 143/144 bytes,
 //   mismatch 3: the y-clamp low bound's constant def is one block too early)
 int ClampPopUpToScreen(int size)

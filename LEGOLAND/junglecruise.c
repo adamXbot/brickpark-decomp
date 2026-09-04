@@ -879,6 +879,57 @@ extern unsigned char g_jc_river_tiles[16][25];               /* 0x004b72e4 */
  *     ESCAPES -- worse than the old note recorded, re-confirmed.
  *   - the inner loop written as a `while` with an explicit `j++; t++;` tail:
  *     byte-identical.
+ *
+ * PASS N+1 (2026-09-04, lane w7ticks).  NO CHANGE -- still 27 strict, and
+ * permrank puts the body at 23 REAL with the best permutation an ebx<->ebp
+ * SWAP (perm `bpbxdisi`), which confirms the ebx/ebp diagnosis above and also
+ * shows the swap only buys 4 of the 27: the rest is the displaced key store
+ * and the preheader load order, not naming.
+ *
+ * THE HONEST SOURCE IS THE 67 ONE, AND ITS ENTIRE RESIDUAL IS ONE PUSH.  With
+ * both key byte stores before the call -- which is what the original emits
+ * (indices 9 and 10) and what any human would write -- the object is 67
+ * strict but register-blind only 3, and the diff is a single shift: VC6 gives
+ * `y` ecx instead of ebx and therefore SINKS `push ebx` out of the prologue
+ * into the merge block at index 41 (ebx's first def is then the `t` lea, past
+ * the early-return `je`).  Everything else lines up.  So the question is not
+ * "where does the key store go" but "why does the original's `y` deserve a
+ * callee-saved register when its entry live range [3,10] crosses no call".
+ * The answer visible in the disassembly: in the original `y` is ONE web for
+ * the whole function -- ebx at entry, clobbered by `lea ebx,[ebx+eax-2]`
+ * (cy coalesced onto it) and RELOADED from the parameter home at the top of
+ * each outer iteration (index 49).  Our build SPLITS y into an entry web and
+ * a loop reload, which frees ebx for `t` and pushes cy into ebp.
+ *
+ * NEWLY RULED OUT (baseline 27 / real 23 / rb 2 unless noted):
+ *   - `register` on the `y` parameter, on all three int parameters, and on a
+ *     `yy` copy: byte-identical in both key-store positions.
+ *   - a `yy` local copy of y used only in the loop, or used everywhere
+ *     including the call argument and the key byte: byte-identical (copy
+ *     propagation), in both key-store positions.
+ *   - all five spellings of the row cursor on the HONEST base (`i + y - 2`,
+ *     `y - 2 + i`, `i - 2 + y`, `(y - 2) + i`, `y + (i - 2)`): all 67.  The
+ *     add-destination tie-break between two named locals is therefore NOT
+ *     testable at this site either -- every spelling is one object.
+ *   - the six {t, i = 0, g_bg_full_update} orders re-run on BOTH key-store
+ *     positions (12 objects): committed order 27, honest order 67, and the
+ *     other four 29/68 -- the cross product has no interaction term.
+ *   - `i = 0` moved into the for-init (29) with and without `t` reordered.
+ *   - a named `cy` in the outer body or as a block-scoped initialiser, on
+ *     both key-store positions: 112/113 with ESCAPES either way, re-confirming
+ *     the old note.
+ *   - `unsigned i/j` on the honest base (69).
+ *   - key stores BOTH after the call (105) or moved down to just before
+ *     `w->pos = key` (108) -- VC6 does not hoist a store to an address-taken
+ *     local above a call, so this does not recover the original's index 9/10
+ *     pair; and the mirror shape (y before, x after) is 32.
+ *   - three more spellings of the table cursor -- `(const unsigned char*)
+ *     g_jc_river_tiles + mask * 25`, a block-scoped `m5` two-stage index, and
+ *     `&g_jc_river_tiles[mask][0]`: all byte-identical, so the first
+ *     `lea eax,[eax+eax*4]` landing in `t`'s register rather than staying in
+ *     mask's scratch is not reachable by spelling the address differently.
+ *   - walking the table a row at a time (`t += 5` in the outer increment with
+ *     `t[j]` inside): 110.
  */
 // WIP-FUNCTION: LEGOLAND 0x00436dc0  (116/116 insns, 367/367B, 27 by audit; ebx<->ebp tie-break + one store position)
 void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
@@ -1377,6 +1428,38 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * FRAME/SIZE: ours is 1457 bytes against 1466 with equal instruction counts;
  * an index-for-index size compare shows the deficit is entirely inside the
  * two mismatching clusters, not a systematic encoding difference.
+ *
+ * PASS N+1 (2026-09-04, lane w7ticks).  NO CHANGE -- 112 strict, and permrank
+ * says 110 REAL: the callee-saved renaming buys two instructions, so this is
+ * NOT a colouring problem and the permutation-aware metric does not rescue it.
+ *
+ * THE SUM IS FULLY CANONICALISED -- measured, not assumed.  All 24 orderings
+ * of the four terms of `b->sx`/`b->sy` and all 6 orderings of the three terms
+ * of the two bloke sums compile to ONE object, byte for byte (30 variants).
+ * So the emitted addend order cannot be moved by writing the expression
+ * differently; only the operands' definition points feed the sort.  Reading
+ * the two mismatching sums off the disassembly, the pattern is uniform:
+ *     b->sx :  original ecx += ebx(ox) ; += [esp+0x34](bp.x) ; += edi(sx)
+ *              ours     ecx += [esp+0x34](bp.x) ; += edi(sx) ; += ebx(ox)
+ *     b->sy :  original eax += ebp(oy) ; += [esp+0x3c](bp.y) ; += edx(scr.y)
+ *              ours     eax += [esp+0x3c] ; += edx ; += ebp
+ * i.e. ours rotates the ox/oy register from FIRST to LAST in both, exactly as
+ * the descending-definition-order model predicts (ox is defined first, bp
+ * last -- its definition point is the AdjustOffsetForViewMode call).  For the
+ * original's order the model needs sx defined first, bp second and ox LAST.
+ * NEWLY RULED OUT, all of which try to buy that order:
+ *   - ox/oy computed AFTER AdjustOffsetForViewMode with wx/wy RE-READ INLINE
+ *     from `b->wob[g_jc_anim_tick]` so nothing is live across the call (the
+ *     old note only tried it with the wx/wy locals live): 359, and 359 again
+ *     with the wx/wy declarations removed entirely.  Moving only `ox` is 354.
+ *     Re-reading does not avoid the damage -- the whole head reschedules.
+ *   - sx/scr.y computed after the call instead: 181 for sx alone, 351 for
+ *     both.  sx/scr.y before ox/oy: 367.
+ * So the model's prescription is reachable in source and costs 3x the current
+ * residual every way it can be written.  Either the sort key is not
+ * definition order, or the original's head has a shape that reorders the
+ * definitions without moving the computations -- and no such shape has been
+ * found in two passes.  The two-attractor structure recorded above is intact.
  */
 // WIP-FUNCTION: LEGOLAND 0x00432d00  (422/422 insns, 1457/1466B, 112 by audit / 44 structural; the ox/oy addend order and two PrintSprite scheduling clusters)
 void JungleCruise_UpdateRiverAnim(int mode)

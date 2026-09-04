@@ -1632,7 +1632,24 @@ static __inline SpriteRec* TileSprite(int id)
  * `t.x = c->origin.x; t.y = c->origin.y; t.x += x; t.y += y;` -- the
  * separate load-then-accumulate form.  Written `t.x = c->origin.x + x`,
  * VC6 emits `mov edx,esi / add edx,ebx` (two extra instructions per
- * coordinate) and lays the loop out so a branch escapes the extent. */
+ * coordinate) and lays the loop out so a branch escapes the extent.
+ *
+ * 2026-09-04 (fifth lane) -- CONFIRMED, no change, and deliberately not
+ * re-ground.  Residual (b) has retirement-grade evidence already recorded
+ * here: the corpus scan of every matched body for this cross-jump signature
+ * found 89 sites across 24 functions with shared-suffix depths 5, 7, 9, 11,
+ * 13, 15, 16, 18 and 27, the ONLY depth-5 site in the whole binary is this
+ * function's own, and there is no depth-6 site anywhere -- so this build's
+ * measured merge floor of 6 sits below the corpus minimum of 7 and the
+ * original merged at 5.  That is a build difference, not an unfound spelling,
+ * and the eleven byte-identical `goto join` / `break` spellings inside the
+ * switch confirm the goto-flip lever cannot supply the required asymmetry
+ * there.  Residual (a) (23 mismatches, a three-cycle rename of the tile
+ * loop's scratch temps) is the only part still worth anyone's time, and it is
+ * worth 23, not 273: the 273 is (b)'s four-instruction shift propagating
+ * through every later index.  Cost any future work on this function against
+ * 23, not against 273.
+ */
 // WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%: 181/454 insns, 1438 vs 1429 bytes, audit.py mismatch=273; first diverging index 48, a 3-cycle rename of the tile loop's four scratch temps (23 mismatches, residual (a)); the other 250 all come from residual (b), the un-cross-jumped DrawCursorSegmentA switch tail at index 204 -- 4 instructions and 9 bytes -- which shifts every later index.  2026-09-04: (b) is now REPRODUCIBLE ON DEMAND -- one extra shared trailing instruction in cases 1 and 2 of the first arm makes VC6 emit the original's exact shape, so the blocker is a length threshold on the shared suffix (ours 5 instructions, this VC6 wants 6, the original merged at 5) and the merge provably runs before the scheduler.  Repro: scratchpad/bigrender/run2/repro_nomerge.c driven by scratchpad/bigrender/s0904/rp.py.  See the note above)
 void RenderCursor(Cursor* c)
 {

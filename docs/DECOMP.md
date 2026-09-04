@@ -1275,8 +1275,13 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   blocks made a whole pass byte-identical in one step. Locals whose
   ALLOCATION differs between regions (one spilled, one enregistered) must stay
   block-local.
-- **Two or more zero stores visible together always become `xor r,r` plus
-  register stores.** An intervening aliasing store, a surviving branch, a loop
+- **Two or more zero stores visible together become `xor r,r` plus register
+  stores — but this is FALSE for ABSOLUTE-ADDRESS GLOBALS (corrected
+  2026-09-04).** `InitExitCheckBox`'s last two statements are adjacent zero
+  stores to globals with no call between them, and VC6 emits two 10-byte
+  immediates even though the register form is four bytes shorter. The rule
+  holds for locals and struct fields; globals follow the constant-web use
+  count instead (threshold four straight-line uses).** An intervening aliasing store, a surviving branch, a loop
   and address-taking do NOT split them; only a CALL between them does, and a
   DEAD zero store to an address-taken aggregate is emitted as an immediate.
   The usable lever is maximal source separation — first statement of one block
@@ -1314,11 +1319,15 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 - **The empty `if (v) { }` is also a FLATTEN breaker for a chain of later
   `-=` on the same variable**, not just for `(X+c1)-c2`; without it VC6
   re-sorts the later subtractions into the original sum.
-- **Cache a pointer field in a local FOR ONE STORE ONLY.** A store to an
-  escaped local is a schedule barrier for a pointer load, so `p = b->person;`
-  before the escaped stores hoists exactly the one load the original hoists;
-  using `p` for the second store too is much worse, because the original
-  really does reload after a store through the pointer.
+- **Cache a pointer field in a local FOR ONE STORE ONLY — but the MECHANISM
+  was wrong and is RETRACTED 2026-09-04.** It is COPY-PROPAGATION DISTANCE,
+  not a schedule barrier: all 140 interleavings of the surrounding statements
+  are byte-identical, and VC6 hoists the load straight over the escaped
+  stores. The cache only survives when a statement sits BETWEEN the assignment
+  and its single use; written immediately before that use it is propagated
+  away and measures exactly the same as no cache. Using the cached pointer for
+  a second store is still much worse, because the original really does reload
+  after a store through it.
 - **An order-independent flag store is a schedule lever whose sign FLIPS with
   the surrounding shape** — the same `b->flags |= 0x80;` had to sit above the
   subtractions while the y chain reassociated and below the seed stores once
@@ -1841,10 +1850,19 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   time — five arrays laying out A,B,C,D,E from ebp down without asm lay out
   E,D,C,B,A once one `__asm { mov eax, n }` is added). It is GLOBAL, not
   per-object. The underlying no-asm order is DESCENDING SIZE from ebp down, so
-  the asm order is ascending size. **Reference weight only pulls TOWARD ebp**
-  (adding straight-line refs moves an array forward; removing refs moves
-  nothing), and **block scope moves an aggregate exactly ONE position farther
-  from ebp and no farther** (nesting deeper is byte-identical). **Declaration
+  the asm order is ascending size — **by BYTE SIZE, not element count**
+  (`struct { int f0..f6; }[3]` is equivalent to `int[21]`), and **the asm
+  block's POSITION and COUNT are inert; only its presence matters.**
+  **Reference weight only pulls TOWARD ebp** (adding straight-line refs moves
+  an array forward; removing refs moves nothing). **Block scope is NOT worth
+  "one position" — CORRECTED 2026-09-04:** an 84-byte array in ONE block goes
+  past two 96-byte arrays, but the same name declared in TWO disjoint blocks
+  behaves like a function-level local, which is the configuration the earlier
+  measurement used. It is really a WEIGHT effect with a measured threshold,
+  and **references made only via `lea X` inside an `__asm` block carry LOW
+  weight**. On the real function, block scope moves an object exactly one
+  step, cutting ~24 references moves it exactly one step, and **the two do not
+  stack**. **Declaration
   order of locals is completely inert** for /O2 frame layout, with and without
   asm (all 24 permutations byte-identical). This applies to every function
   that contains inline asm, including anything sharing `tri3d.c`'s fixed-point
@@ -1883,8 +1901,10 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   the compound assignment in place on the shift's own web, and X deliberately
   NOT compound. Written `sy2 = sy + (oy - Get_YScroll())` the delta becomes a
   compiler temporary, wins the add-rank destination copy, and also blocks the
-  pointer hoist. Pair it with naming only the FIRST `b->person` read, since a
-  store to an escaped local is a schedule barrier for a pointer load. Both
+  pointer hoist. Pair it with naming only the FIRST `b->person` read — note
+  the mechanism there is copy-propagation DISTANCE, not a schedule barrier
+  (see the retraction above): the cache survives only with a statement between
+  the assignment and its use. Both
   file (ridecb3.c `Carousel_Tick`) sits on a three-cycle callee-saved rotation
   wall — "give the merged accumulator web ebx".
   **CORRECTED 2026-09-04: mechrides.c is NOT on that wall**, and an earlier
@@ -1974,8 +1994,23 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   into the delta — the two halves are one switch and nothing sits on both
   sides across ~400 variants.
 
-- **OPEN CONFLICT on the add-destination tie-break between two named locals —
-  MEASURE IT, do not assume.** The RANK is agreed and solid: (1) an inline
+- **RESOLVED 2026-09-04 (third and final revision) — the add-destination
+  tie-break between two named locals is EMISSION ORDER, not definition order
+  and not read order.** Both earlier readings are refuted. The decisive
+  experiment held read order constant (the same local is the left operand of
+  both the difference and the sum in every variant) and varied only definition
+  order across four builds; **the destination flipped in BOTH directions**, so
+  it is neither first- nor last-defined. The invariant: **VC6 copies the
+  DIFFERENCE's left operand into a fresh register, and whichever of {sum,
+  difference} is emitted SECOND takes the remaining operand's register.**
+  Definition order enters only by changing which local sits in which register
+  and hence which operation the scheduler puts first. An intermediate
+  "last-defined-wins" record (from a two-build experiment on another site) is
+  withdrawn. Caveat that survives all three revisions: at most sites the rule
+  is UNTESTABLE — the destination is already the rank-1 inline memory operand
+  so the two-named-locals case never arises, and commutative sums are fully
+  canonicalised (all 24 orderings of a four-term sum and all 6 of a three-term
+  one compile identically). Original text of the conflict, for the record: The RANK is agreed and solid: (1) an inline
   memory reference is loaded into the destination and never folded, (2) a
   compiler temporary, (3) a named local. The tie-break BETWEEN two named
   locals is disputed by two lanes that each measured directly:
@@ -2004,6 +2039,134 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   callee-saved register, leaving eax live at the next global load and changing
   its encoding (5-byte `A1` form against 6-byte). **That one byte is
   diagnostic of the wrong web split.**
+
+- **`Draw3DPersonModel`: three real source-shape errors found by reading the
+  disassembly, 981 -> 687 (matchfull 44.3% -> 52.0%, mnemonic LCS 96%,
+  offset-blind LCS 707 -> 820).** (1) A corner array's element 0 is a
+  WHOLE-STRUCT COPY (`box[0] = fr->bmin;` — `mov eax,esi` plus three moves
+  through eax), which is what breaks VC6's CSE of that field with a later sum.
+  (2) **A transpose must read `p->matrix[k]` DIRECTLY, not through a pointer
+  local** — `mt[k] = mp[j]` makes VC6 emit `add edi,0x58` and lose the base,
+  where the original emits `lea eax,[edi+0x58]`, stores it to both pointer
+  homes and keeps the base in edi (worth 239 alone). (3) A vertex pointer is
+  RECOMPUTED from the index as the FIRST statement of the loop body, so the
+  original has no increment in its loop tail and strength-reduces it to a
+  `lea`.
+- **The original's scalar frame slots are in strictly DESCENDING reference
+  count from ebp down** (17,16,16,15,13,12,12,12,11 | 9,8,7 | 4,4,4 | 3,3,3,2)
+  — an independent check on any frame hypothesis.
+- **A frame layout can be proved unreachable by REFERENCE PROFILE.** For
+  `Draw3DPersonModel` the per-slot profile is identical to the original's,
+  slot for slot, 79 slots each — so no weight argument can separate the two
+  layouts, and ~195 of the remaining 687 are instructions differing only in
+  `[ebp-N]`. 15 block-scope subsets, declaration order, statement order and
+  splitting into three separate objects all fail; only a merged 180-byte
+  object reproduces the array order, and that is not credible source.
+
+- **An inline helper CANNOT create a second constant temp.** Six forms of a
+  `static __inline` zero-clearing helper — including an `int` zero parameter
+  and the zero argument first — are byte-identical to plain stores: VC6
+  inlines, forward-substitutes the constant and re-CSEs it into the
+  function-wide zero web BEFORE allocation.
+- **Variable identity is not a lever in either direction** — merging two names
+  into one is as inert as splitting one into two (which was already recorded).
+- **VC6 does not hoist a store to an address-taken local above a call**, so a
+  statement cannot be moved down past a call to recover an earlier store pair.
+- **Methodological: an INVARIANT permrank permutation across a wide variant
+  space is itself the signal that the block under the microscope is the wrong
+  place to look.** On `Carousel_Tick` the permutation `bpdibxsi` held across
+  ~130 variants and only moved when the body was structurally destroyed —
+  and both builds have identical webs, references and live ranges, so the
+  allocator's INPUT is the same and only its preference order differs.
+- **A register-blind distance of 3 against a strict 67 identifies the honest
+  body** (`UpdateRiverTile`): its whole residual is one sunk `push ebx`,
+  because the original keeps a value as ONE web rematerialised on the loop
+  back edge while we split it.
+
+- **VC6 NORMALISES source statement order completely for a loop body's arm
+  blocks.** Three independent restructurings of `RenderView` — a goto-to-end
+  for the else arm, a goto-to-end for a 239-instruction arm, and a fully
+  inverted guard — all produced BYTE-IDENTICAL objects. **A misplaced block can
+  only be bought with register allocation or branch shape, never with
+  statement order.**
+- **The split prologue is a push-SINKING decision, not a register-preference
+  one — and the previously recorded cause for `RenderView` is FALSIFIED.** The
+  note had claimed the geometry block's demand for esi/edi pushes the gate
+  constants into ebx/ebp; in every split-breaking variant the register
+  ASSIGNMENT is identical to the original and only the push PLACEMENT changes.
+  The trigger is one statement: one division moving ahead of the other.
+  **Diagnose a split prologue by printing the four callee-saved push indices,
+  not by asking which register holds what.**
+- **Detecting an ABSENT named local:** two loads of the same pointer field
+  with no call between them but with intervening global stores prove there is
+  no named local, since a named local is not aliased by those stores and
+  would have been loaded once. That is how `RenderFullMap`'s `spr` local was
+  identified as wrong (removing it also stops the value taking a callee-saved
+  register the original keeps for something else).
+- **`x = x + a + b` versus `x += a + b` is a no-op** (VC6 canonicalises); what
+  moves the schedule is naming the sub-expressions in temps in the original's
+  computation order.
+- **Two functions are now known to be propped up by COMPENSATING ERRORS**, so
+  their headline numbers understate the work left: `RenderView`'s 381 has +10
+  instructions in one region cancelling -11 in another (fixing the limits
+  alone improves region total 99 -> 88 and offset-blind 228 -> 187 while
+  raising strict to 817), and `StepSchoolCar`'s former "351/351" was two extra
+  instructions cancelling two missing ones. **Check for this before trusting
+  any converged-looking count.**
+
+- **The one-web y chain's non-rotation cost is a PENTIUM STALL-FILL, and it
+  is unstoppable from source.** All four rides emit `sub eax,edx` then
+  `add <sy>,eax`, and writing it that way reproduces those indices exactly and
+  keeps the byte length — but VC6 then fills the partial-register stall after
+  `mov ax,[cfg+0x22]` with a hoisted load the original leaves unfilled. Block
+  splits before and after the compound, both `if` values, all four
+  subtraction seams and all six orderings are byte-identical at that cost;
+  only a volatile read stops it, and that costs the frame.
+- **A one-pointer aggregate (`struct { T* p; } dd;`) is NOT exempt from
+  enregistration** — it CSEs to one register copy exactly like a plain pointer
+  local, so it cannot buy a load-at-each-use. **`static __inline` seed helpers
+  add no IR tuples at a store site** — a two-argument seed call is
+  byte-identical to the two stores written out.
+
+- **Four negatives that close whole families of attempt:** two distinct
+  STRUCT TYPES over one object value-number as ONE lvalue, so no cast can
+  create the "two differently-typed objects" a same-width-conversion barrier
+  needs (extends the union result); the empty `if (x) { }` is
+  dead-code-eliminated and CANNOT extend a temp's live range into the
+  allocator — it is a fold and block-split knob only; an inlined two-return
+  helper does NOT create two reaching definitions (VC6 folds it before
+  layout); and an inline wrapper round a call does NOT make its argument an
+  un-coalesced temporary (the argument is forward-substituted).
+- **A strict-count RISE with a register-blind FALL is the honest direction.**
+  `WW_AnyBlokeInRect` was moved from 6 to 12 strict deliberately: the
+  6-scoring body produced 30 instructions and 67 bytes — one short of the
+  original in both — with a mis-scheduled `mov eax,1`, while `return 0;` gives
+  31/31 instructions, 68/68 bytes, identical blocks and branch offsets, and
+  **register-blind distance 0**, every mismatch being one eax/ecx swap.
+  Return-coalescing would also have ELIDED the `xor eax,eax` the original
+  emits. Mechanism measured: the race is decided by the LOOP-LOCAL TEMP's
+  reference count (0 or 1 in-loop compares gives the cursor eax, 2 gives the
+  temp), and adding cursor references does not buy it back.
+
+- **In an isometric pair, the SOURCE ORDER OF THE TWO PRODUCTS decides which
+  is emitted first, and that decides the whole register cascade.** Sum-first
+  gives `lea t,[a+b]` with no copy; difference-first gives `mov t,a / add a,b
+  / sub t,b`. This is what unlocked the two-web X chain in
+  `TempleSlide_Update` (72 -> 56) after the webs themselves had been right for
+  a round. In `StepSchoolCar` the same job is done by the order of the two
+  `>>= 9` statements rather than the products — and that shift order is the
+  ONE construct that moves its otherwise-invariant permutation, which is the
+  diagnostic saying the projection block was the wrong place to look.
+- **The frame slots of two address-taken scalars filled by ONE out-param call
+  follow their first RVALUE USE, not declaration order.** With the sum first,
+  one is read first and takes the lower slot, so the call emits its two `lea`s
+  the other way round. Swapping declarations, block-scoping and a pre-read
+  probe are all inert.
+- **The partial-sum aggregate barrier transfers across files, but only in one
+  shape:** a non-address-taken `Pos` whose SECOND field also holds a two-term
+  sum closed indices in three different functions across two files. A
+  one-term second field is inert, and the same barrier applied to the paired
+  axis is usually catastrophic.
 
 Recorded so they are not re-derived; several cost hundreds of measured variants:
 

@@ -968,7 +968,38 @@ char CheckFocussedIcon(void)
  * unknown lever.  RECOMMENDATION: retire this function at 67 of 68
  * instructions / 169 of 171 bytes with the residual documented, as
  * `UpdateControllerFromMouseData` was.  Semantics are correct and the body
- * is index-for-index identical outside index 46. */
+ * is index-for-index identical outside index 46.
+ *
+ * 2026-09-04 (fifth lane) -- THE TWO-WAY TEST IS INDEPENDENTLY CONFIRMED, and
+ * the strongest remaining "make it a temporary" lever is now measured and
+ * inert.  RETIREMENT ENDORSED.
+ *  - Re-verified against the disassembly by listing every branch target in the
+ *    body (0x475661, 0x475672, 0x475684, 0x475692, 0x47569a, 0x4756d1):
+ *    0x4756aa is not among them, so its block's only predecessor is the
+ *    fall-through of `jne` at 0x4756a8 -- NO PHI.  eax is defined at 0x47569d,
+ *    read at 0x4756a3 and 0x4756aa, and redefined by the call at 0x4756ad with
+ *    nothing else live in it across that span -- NO INTERFERENCE.
+ *  - NEW NEGATIVE: wrapping the call so the argument becomes an
+ *    INLINE-EXPANSION TEMPORARY -- `static __inline int ObjCost(ObjDef* o)
+ *    { return GetObjCost(o); }` at both call sites, at the p->obj site only,
+ *    and a `NodeCost(ObjNode* q)` form that does the field read inside the
+ *    helper -- does NOT produce the copy.  All three are 22 strict / 68
+ *    instructions and LOSE a byte (169 vs the base's 170), because VC6
+ *    forward-substitutes the helper's argument before allocation.  That was
+ *    the last untried member of the "the pushed value is a temporary, not a
+ *    symbol" family, which is what the corpus rank rules would have predicted
+ *    as the cause.  Also re-measured and byte-identical: a `(ObjDef*)(void*)`
+ *    same-width cast on the argument, and a named `b = p->obj` local for the
+ *    pushed value.
+ *  - Note for the record: the ORIGINAL pushes the SECOND call's argument
+ *    straight out of ebx (a named local, `a = n->obj`) and only the FIRST
+ *    call's -- the CSE'd `p->obj` expression -- through a copy.  That is the
+ *    exact reverse of the recorded "VC6 routes a compiler TEMP through a
+ *    register copy before a SPILL but not before a PUSH" rule, so this site
+ *    contradicts the rule rather than being explained by it.
+ * VERDICT: retire at 67 of 68 instructions / 169 of 171 bytes, on the same
+ * footing as `UpdateControllerFromMouseData` and `ValidateCursor`.
+ */
 // WIP-FUNCTION: LEGOLAND 0x00475630  (67 of 68 insns, 169B vs 171B; audit.py prints 68i/170B counting a pad byte. First diverging index 46: one missing `mov edx,eax` argument copy which has NEITHER a phi NOR interference behind it -- proposed for retirement, see note)
 void InsertChildIntoList(ObjDef* d)
 {

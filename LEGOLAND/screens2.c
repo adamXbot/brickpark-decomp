@@ -947,7 +947,34 @@ void InitNewSaveGamePOPUP(Icon* popup)
  * mechanical rather than empirical -- the hoist needs a loop-weighted use
  * count this straight-line function cannot reach, and the byte class needed
  * for ebx can only come from an emitted byte-class USE of the register, of
- * which every zero-cost candidate has now been eliminated. */
+ * which every zero-cost candidate has now been eliminated.
+ *
+ * PASS N+5 (2026-09-04, fifth lane).  Unchanged at 118; confirmed at its
+ * floor, plus ONE CORRECTION TO THE PLAYBOOK that came out of re-measuring it.
+ *  - docs/DECOMP.md records "Two or more zero stores visible together always
+ *    become `xor r,r` plus register stores.  An intervening aliasing store, a
+ *    surviving branch, a loop and address-taking do NOT split them; only a
+ *    CALL between them does."  THAT IS NOT TRUE FOR STORES TO ABSOLUTE-ADDRESS
+ *    GLOBALS.  This body's last two statements are `g_exit_7cb318 = 0;
+ *    g_exit_7cb310 = 0;` -- adjacent, no call between them, nothing else in
+ *    the block -- and VC6 emits two 10-byte `mov dword ptr [abs32], 0`
+ *    immediates (indices 112/113), not `xor r,r` plus two 6-byte register
+ *    stores, even though the register form would be four bytes SHORTER.  The
+ *    recorded rule was derived from stores to LOCALS/struct fields; for
+ *    globals the threshold is the same use count as the hoist (four), which
+ *    the lane-M micro-probes already measured.  So the rule should read: two
+ *    adjacent zero stores to LOCALS pair up; zero stores to globals do not,
+ *    they follow the constant-web use count.
+ *  - Re-read the original's three ebx uses to check the newest "one-use
+ *    callee-saved zero is reachable as a VARIABLE with two reaching
+ *    definitions live across a call" lever: they are 0x48f1ca
+ *    (`g_exit_big_popup = 0`, the non-big path), 0x48f2b2 and 0x48f2b8, all
+ *    plain dword stores of a compile-time zero, and the big path stores its 1
+ *    as an IMMEDIATE at 0x48f194 -- so `g_exit_big_popup` is NOT one variable
+ *    with two reaching defs, and there is no other candidate in the function.
+ *    The LFPiece_IsVisible shape is therefore unavailable here, which closes
+ *    the last open direction.  FLOOR.
+ */
 // WIP-FUNCTION: LEGOLAND 0x0048f0f0  (audit 119i/480B vs 119i/469B, mismatch 118; the real body is 116 instructions - only push ebx / xor ebx,ebx / pop ebx are missing, so every index is shifted by one and the three zero stores are immediates - see note)
 void InitExitCheckBox(int x, int y)
 {

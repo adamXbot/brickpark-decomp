@@ -2503,7 +2503,43 @@ extern void RemoveAllBlokesFromRide(RideDef* def, BPosW sq);     /* 0x0048a2e0 *
  *    INLINE LOADS AND THE GLOBAL WHEN EITHER OPERAND IS A NAMED SYMBOL --
  *    except for the FIRST such sum in a statement group, which keeps the
  *    byte either way.  That is why family (a) gets both sums right and
- *    family (b) only the first. */
+ *    family (b) only the first.
+ *
+ * 2026-09-04 (fifth lane).  Still 11; the fourth lane's "the two families
+ * are the same edit" conclusion is unchanged, and the residual is now
+ * stated as a pure SCHEDULER problem with the add-rank question settled.
+ *  - ADD-RANK CHECK.  The current recorded rank -- inline MEMORY reference
+ *    (loaded into the destination, never folded) > compiler temporary >
+ *    named local -- PREDICTS FAMILY (b), not the original: in
+ *    `<widened byte> + g_lf_footprint.v[2]` the global is an inline memory
+ *    reference (rank 1) and the widened byte is a temporary (rank 2), so
+ *    rank alone says `add ecx,eax`.  The original emits `add eax,ecx`.  So
+ *    at THIS site the rank rule is overridden by something else, and the
+ *    empirical rule recorded above (the byte wins while BOTH operands are
+ *    inline, the global wins as soon as EITHER is named) is the one to
+ *    trust.  Worth carrying to the disputed named-local tie-break: this is a
+ *    third context and it agrees with neither lane's tie-break.
+ *  - The schedule is INVARIANT under statement order in a stronger sense
+ *    than "canonicalises to 11": y-first (12) produces the SAME schedule
+ *    shape with x and y merely exchanged -- the store of the FIRST sum is
+ *    still emitted as soon as its value is ready (index 44) and `lea edi`
+ *    still lands after the `g_lftr_def` reload (index 50).  So no
+ *    permutation of these three statements can reach the original, which
+ *    defers the first store to index 50 and hoists `lea edi` to 45.
+ *  - Measured this round, all worse: the footprint copy placed between the
+ *    two origin stores (31), before both (34), and y-first with the copy
+ *    between (32) -- all three lose a byte (342/343) as well; `p->sq` read
+ *    into a named `BPosW` local for the call argument (63); a redundant
+ *    `(RideDef*)` cast on the copy source (byte-identical, 11).
+ *  - STATE: 102/102 instructions, 343/343 bytes, IDENTICAL INSTRUCTION
+ *    MULTISET, 11 of the 15 instructions in one block out of order.  Every
+ *    source-level knob measured over four passes (~190 variants) leaves the
+ *    schedule in one of exactly two states.  If this is to be closed it will
+ *    be by whatever moves VC6's scheduling-window boundary in integer code
+ *    -- and the recorded negative "upstream padding does NOT move a store's
+ *    schedule slot" says that is not reachable by adding tuples ahead of the
+ *    block.  Treat it as at its floor unless that negative is overturned.
+ */
 // WIP-FUNCTION: LEGOLAND 0x0040abf0  (89%, schedule of the origin/copy block, see note)
 void LFEntrance_Remove(RideElem* elem, BPosW sq, void* c)
 {

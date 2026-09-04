@@ -511,65 +511,74 @@ int WW_HasEntrance(void)
  * own square.  Positions are 24.8 world units, so `>> 8` is the tile.
  * ========================================================================== */
 
-/* RESIDUAL (6 of 31, first diverging index 24): everything but the literal
- * `xor eax,eax` of the fall-through exit.  The state of this function is a
- * clean, fully characterised DICHOTOMY, and both halves are one step away:
+/* RESIDUAL (12 of 31 strict, but register-blind edit distance 0): 31 of 31
+ * instructions, 68 of 68 bytes, the same six blocks, the same branch
+ * offsets, the same `pop edi / xor eax,eax / pop esi / ret` and
+ * `pop edi / mov eax,1 / pop esi / ret` exits.  EVERY mismatch is one
+ * EAX<->ECX swap: the original keeps the list cursor in EAX and the `>> 8`
+ * tile temp in ECX, this build has them the other way round.  Ranks 3, 4 and
+ * 5 agree exactly (edx = r, esi = r->left, edi = r->top), so the whole
+ * residual is "which of the two hottest webs wins EAX".
  *
- *   (a) `return (int)b;` (this body): 30 of 31 instructions, indices 0-23
- *       exact.  b's web flows into the return, so the list cursor is
- *       return-coalesced and takes EAX with the `>> 8` tile temp in ECX, as
- *       the original has them -- but VC6 then knows nothing about b's value
- *       at the two-predecessor exit (the entry `je` plus the fall-through of
- *       the bottom test) and materialises nothing, so the exit block is one
- *       instruction short and the success block's `mov eax,1` schedules
- *       before `pop edi` instead of between the two pops.
+ * 2026-09-04: the `return (int)b;` spelling that stood here (6 strict) has
+ * been REPLACED by this one, deliberately, and the number went UP.  That
+ * body coalesced b's web into the return so the cursor took EAX -- but with
+ * b return-coalesced VC6 knows the exit value is b, materialises NOTHING,
+ * and the body came out 30 instructions / 67 bytes, one instruction and one
+ * byte SHORT, with `mov eax,1` scheduled before `pop edi` instead of between
+ * the two pops.  Strict 6 with a register-blind distance of 2 against strict
+ * 12 with a register-blind distance of 0 is the project's own textbook
+ * signature of a COMPENSATING ERROR (docs/DECOMP.md: "a strict drop with a
+ * register-blind RISE"): it reproduced the right register through a
+ * mechanism the original demonstrably does NOT use, since return-coalescing
+ * would have elided the very `xor eax,eax` the original emits.  `return 0;`
+ * is also what every matched twin in this idiom writes.
  *
- *   (b) ANY literal zero (`return 0;`): 31/31 instructions, 68/68 bytes, the
- *       same blocks, the same branch offsets, the same
- *       `pop edi / xor eax,eax / pop esi / ret` and
- *       `pop edi / mov eax,1 / pop esi / ret` exits -- 12 mismatches that
- *       are ALL a pure EAX<->ECX swap.  With no return web, VC6 gives EAX to
- *       the first loop-local temp (the tile) and ECX to the loop-carried
- *       cursor.  Allocation order measured earlier: return-coalesced web,
- *       then loop-local temps by def order, then loop-carried values, then
- *       hoisted invariants (`and4`/`S1` in scratchpad/waterworks/sweep_ar*.py).
+ * MECHANISM, measured this round (new): the EAX/ECX race is decided by the
+ * TILE temp's reference count, not by any property of the cursor.
+ *   - no tile temp at all (fields compared inline)              -> cursor EAX
+ *   - one compare on the tile  (`if (x >= r->left)`)            -> cursor EAX
+ *   - two compares on the tile (`x >= r->left && x <= r->right`)-> tile EAX
+ * So at three in-loop reads the tile web outranks the loop-carried cursor
+ * and takes EAX; the original has the same three reads and still ranks the
+ * cursor first.  Adding references to the cursor does NOT buy it back (an
+ * extra `if (b->next == 0) return 0;` in the latch leaves it in ECX).
  *
- * So the whole residual is: make the cursor take EAX while the function
- * still returns a LITERAL zero.  Ruled out (~150 variants over three passes;
- * this pass's are scratchpad/waterworks/sw1.py .. sw4.py, run with
- * scratchpad/sweep1/varx.py):
- *  - form (b) is immune to everything tried: a cursor copy inside the loop,
- *    at function scope, or as a `for` init; an `unsigned` cursor with casts;
- *    one shared tile variable (function-scope or loop-scope, so the tile is
- *    one web with a longer live range); a `wx` temp before the shift; the
- *    rect edges hoisted into locals (24, worse); the loop rotated as
- *    `for (;;) { if (!b) return 0; ... }`; a `next` temp read first (32
- *    insns); a `found` result variable; `b = 0;` before `return (int)b`
- *    (constant-propagated, so it IS form (b)).
- *  - an explicit entry guard does not split the exits: `if (!b) return 0;`
- *    before the `while` is threaded into the loop test and lands on form (b);
- *    with a `do/while` it is NOT threaded and costs a `je`+`jmp` pair
- *    (32 insns, 22).
- *  - phantom tail uses of b (degenerate branch, ternaries, b^b, b-b, b&0,
- *    b*0, b - (Bloke*)0) are folded at the front end; `return (int)b >> 31`
- *    puts a `sar` in the missing instruction's slot (2 mismatches) but is not
- *    `return 0`; `r == 0 ? (int)b : 1` costs 2 instructions.
- *  - earlier passes: every loop form (while/for/do/for(;;)/goto/label/
- *    while(1)), cursor copies (local, register, volatile arg read, link-slot
- *    Bloke**, char*, unsigned), rect access forms (int*, locals, textual
- *    repeats, operand order), temp types/spellings, inline helpers (rect by
- *    value/ref, point test, walker, finder), result flags, threaded-away
- *    `if (b) return (int)b` arms, single-predecessor `return (int)b`
- *    (value-substituted to 0 early, so no coalescing), and
- *    `b = (Bloke*)1; goto done; ... b = 0; done: return (int)b` (split webs).
+ * Ruled out, ~170 measured variants over four passes (this pass:
+ * scratchpad/w7small/wb_*.c, wp_*.c, wd_*.c, wq_*.c, wr_*.c):
+ *  - every loop form: while, for, for(;;) with an inner `if (!b) return 0`,
+ *    goto/label, while(1), `if (b) { do .. while (b); }` (21), a
+ *    continue/break latch (21), `for (; b; b = b->next)`.
+ *  - every cursor spelling: a local copy, `register`, a `for` init, an
+ *    `unsigned` cursor, a link-slot `Bloke**`, a `next` temp read first.
+ *  - every tile spelling: one shared `t` for both axes (function- or
+ *    loop-scope), a two-step `wx` temp before the shift, textual repetition
+ *    of `(b->world.x >> 8)` (CSE'd back into one web), a `static __inline`
+ *    tile helper, `!(x < lo) && !(x > hi)`, nested ifs instead of `&&`.
+ *  - liveness tricks: `if (x) { }` after the loop and `if (x) { }` between
+ *    the two tests are both DEAD-CODE-ELIMINATED, so the empty-if is a
+ *    fold/block-split knob only -- it cannot extend a temp's live range into
+ *    the allocator.  (A useful negative: do not read the DrawPopUpMock
+ *    empty-if lever as a liveness lever.)
+ *  - result flags (`found` + break, `return b != 0`), `b = (Bloke*)1; break;`
+ *    with `return (int)b` (constant-threaded straight back to the old form),
+ *    phantom uses of b, and an explicit entry guard (threaded into the loop
+ *    test).
  *
- * The one lever class NOT yet found is anything that lowers the tile temp's
- * allocation priority below the loop-carried cursor's while a literal zero is
- * returned -- i.e. a use of the tile that makes it live out of the loop
- * without emitting code, or a use of the cursor that pulls it into EAX
- * (there is no eax-only instruction in this function: no mul, div or cdq).
- * Keep form (a): 6 beats 12. */
-// WIP-FUNCTION: LEGOLAND 0x00417e70  (30/31 instructions, 6 mismatches from index 24: the fall-through exit lacks the literal `xor eax,eax`; registers, blocks and branches all match)
+ * Corpus context: a scan of the exact bodies for this exact latch shape
+ * (`mov eax,[eax+K] / test eax,eax / jne <back>`) returns 33 functions
+ * (scratchpad/w7small/scan_walk.py).  Every one of them that also has a
+ * literal `xor eax,eax` is either a POINTER-returning finder (Road_FindAt,
+ * Pump_FindAt, LFPiece_FindAt, FindPathSquare, FindSchoolCarNear,
+ * GetGardenerWorkOrderAt, FindIcon, FindShadedColour, ...) whose cursor is
+ * genuinely return-coalesced on the success path, or a function whose
+ * loop-local temps sit inside a nested conditional and so never contend
+ * (JungleCruise_TryLaunchBoat 0x00432b90, the one int-returning example).
+ * There is NO matched witness anywhere in the corpus for "an unconditional
+ * three-read loop-local temp loses EAX to the loop cursor", which is exactly
+ * what this function needs.  That is the open question; nothing else about
+ * the body is. */
+// WIP-FUNCTION: LEGOLAND 0x00417e70  (31/31 instructions, 68/68 bytes, register-blind distance 0; 12 strict mismatches, ALL one EAX<->ECX swap between the list cursor and the tile temp)
 int WW_AnyBlokeInRect(Bloke* b, WinRect* r)
 {
     while (b) {
@@ -581,7 +590,7 @@ int WW_AnyBlokeInRect(Bloke* b, WinRect* r)
         }
         b = b->next;
     }
-    return (int)b;      /* b is NULL here: this is `return 0` (see above) */
+    return 0;
 }
 
 // FUNCTION: LEGOLAND 0x00417ec0

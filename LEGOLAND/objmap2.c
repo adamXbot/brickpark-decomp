@@ -1372,7 +1372,25 @@ static __inline int UidHit(Cell* c, ObjDef* def, int x, int y)
  *   no pointer-variable grouping can work; a volatile map pin on ONE
  *   horizontal probe is 17, on both 20 with register-blind distance ZERO, and
  *   a single shared volatile map pin is 75/471B.  Volatile reads of
- *   `m->width`/`m->height` cost 8-16 bytes and do not swap the pair. */
+ *   `m->width`/`m->height` cost 8-16 bytes and do not swap the pair.
+ *
+ * 2026-09-04 (fifth lane).  Unchanged at 20; state re-confirmed (191/191
+ * instructions, 477/477 bytes) and NOT re-ground, because the newest lever in
+ * the playbook does not reach it.  "A named local holding a CSE'd BYTE FIELD
+ * moves a callee-saved ranking that reference mutations cannot"
+ * (SpaceTower_Activate) needs a byte field the original keeps live across a
+ * jump table; the contended value here is the ZERO-EXTEND TEMP of
+ * `g_map->width` / `g_map->height`, which are 16-bit fields each read exactly
+ * ONCE per probe region and dead before the region's call, and naming them
+ * (`w`/`h` as `int` or as `unsigned short`) is already recorded above as
+ * byte-identical.  So the esi/edx question is not a ranking that a name can
+ * move; PASS 6's finding stands as the sharpest statement of it -- the
+ * colouring is decided by whether the ROW-TABLE load in the same region is
+ * movable, the volatile pin proves the colouring is reachable
+ * (register-blind distance ZERO, indices 0..108 and 112..190 exact), and its
+ * last four are the recorded hard floor of any volatile shim.  What is needed
+ * is a non-volatile way to make that one load unmovable.
+ */
 // WIP-FUNCTION: LEGOLAND 0x0048a3e0  (89.5%, left/right probes reload g_map at its use into edx, the original at the probe entry into esi)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {

@@ -1720,6 +1720,35 @@ extern CarRow  g_tower_car[4];                               /* 0x004b77a8 */
  * list opens [0, 1, 7, 15], the prologue.  That makes the remaining task
  * precise: find the spelling that keeps `tiley` in edx across the jump table
  * while case 3 re-reads it through the pointer in eax. */
+/* ROUND 9 (2026-09-04, unchanged at 138 / real 136).  The index-30 tie-break
+ * survived ~90 further spellings and they all reduce to one cause, now stated
+ * exactly: the SECOND `def` reload.  The original's back-to-back
+ * `mov edx,[esp+0x24]` / `mov ecx,[esp+0x24]` lets edx's copy DIE at
+ * `mov ebp,[edx+0xc]` (index 26), which is what leaves edx free for `tiley`
+ * and hands eax to the `lea` that rematerialises `tile`; ours keeps ONE copy
+ * live across both field reads, so the `lea` takes edx and `tiley` reuses the
+ * eax that `tx` has just freed.  Measured and all CSE'd back to a single
+ * load: a one-member `struct { RideDef* p; } dd;` (a one-pointer aggregate is
+ * NOT exempt from enregistration), `RideDef** dp = &def;` with `(*dp)->`,
+ * `(*(RideDef**)&def)`, a `def2 = def` copy, and the volatile read moved to
+ * base_x or applied to both.  Splitting the volatile read into its own
+ * statement (`d2 = *(RideDef* volatile*)&def;` and
+ * `by = (*(RideDef* volatile*)&def)->base_y;`) at each of the four head seams
+ * does not pin it at index 23 either (145-192); `elem->data` spelled at every
+ * use instead of a `def` local is 213 (195 with the shim).  The head's
+ * statement-order grid (six legal orders x four volatile placements) is
+ * 138-157, and empty-`if` block splits at all four head seams are byte-
+ * identical.  NEGATIVE worth recording because it frees a degree of freedom:
+ * spelling `tx` as `base[0]`, so the pair really is one 2-int array, is
+ * BYTE-IDENTICAL to the separate `tx` local in every combination of voldef
+ * and case-3 spelling -- the `int base[2]` frame object is right either way.
+ * `c3R_c8Y` with no volatile def read still measures real=103 strict=103
+ * under the IDENTITY permutation and is still NOT committed: its frame is
+ * `sub esp,0x14` against the original's 0x10 (`tiley` is spilled at its
+ * definition, index 31, and reloaded at index 33), and its case 8 -- indices
+ * 164-199, which read `tiley` from that slot instead of from edx -- is then
+ * wholly wrong, where the committed body's tail from 122 on is a pure 3-slot
+ * shift with no register differences. */
 // WIP-FUNCTION: LEGOLAND 0x0043bac0  (38%, 138/222; frame, block layout, the ebx/ebp cursor split and everything to index 22 exact -- see above)
 void SpaceTower_Activate(RideElem* elem)
 {
@@ -2714,6 +2743,37 @@ extern const int g_safari_end_off[8];                        /* 0x004b4ce4 */
  * three register attractors; none of the 32 keeps both the separate
  * subtractions and the original naming.  See the ROUND 8 paragraph in
  * SpinningBarrels_Activate for the full list of what else was measured. */
+/* ROUND 9 (2026-09-04, unchanged at 132).  The tail rotation is now pinned to
+ * a single load, and the one-web chain is the instrument that shows it:
+ *   - Committed body: real=132 strict=132 rb=15 (IDENTITY permutation).
+ *     One-web: real=131 strict=149 rb=6 (perm=bpdibxsi).  Under one-web the
+ *     REGISTER-BLIND structural residual over all 402 instructions is only
+ *     THREE sites: `mov edx,[esi+4]` (the `p` load) emitted at index 91 where
+ *     the original has it at 103, the `g_safari_zspr` load one slot out, and
+ *     the `mov byte [eax+0x35],0` / `lea eax,[edi+0xc]` pair at 121.
+ *     Everything else agrees register-blind.
+ *   - The `p` load's position is NOT reachable from source order, and this is
+ *     now exhaustive: all 140 interleavings of {the four subtractions,
+ *     `p = b->person`, `pos.x`, `pos.y`} that keep each axis in order are
+ *     BYTE-IDENTICAL (real 131 / strict 149 / rb 6, identical bad lists).
+ *     That also refutes the reason this note used to give for the cache: the
+ *     escaped `pos` stores are NOT a schedule barrier, VC6 hoists the load
+ *     straight over them.  What the cache turns on is COPY-PROPAGATION
+ *     DISTANCE -- `p = b->person;` immediately before its only use is
+ *     propagated away and measures 234 (one-web) / 227 (two-web), i.e.
+ *     exactly the same as no cache; with any statement in between it survives
+ *     and measures 131 / 132.  Also inert: a `static __inline void
+ *     SeedBnvPos(BnvPos*, int, int)` for the two seed stores, in both y-chain
+ *     shapes and with `p` on either side of it -- so the "arguments become
+ *     temporaries" lever adds no IR tuples at this site.
+ *   - Where the load lands is the stall after `mov ax,[cfg+0x22]` (a
+ *     partial-register write followed by a full-register read); the original
+ *     leaves that stall unfilled and emits the load at the next one, after
+ *     the second `sub eax,edx`.  Per the Pentium-scheduler lever in
+ *     docs/DECOMP.md that wants a no-code IR tuple EARLIER in the function,
+ *     not a different statement order in this block -- that is the next thing
+ *     to try, and this function is the cheapest place in the file to try it
+ *     because its structural residual is down to three sites. */
 // WIP-FUNCTION: LEGOLAND 0x00415220  (67%, 132/402; frame, byte length and the head exact, a tail register rotation remains -- see above)
 void SafariRide_Activate(RideElem* elem)
 {
@@ -3264,6 +3324,44 @@ extern char g_sbarrel_pathname[];                            /* 0x004b78b4 "BoxB
  * 231 / 283 / 294 / 300 on Barrels / Spider / Plane / Safari.  It is a block
  * split, so what it buys is a reassociation barrier, and no non-`if`
  * construct has been found that provides one. */
+/* ROUND 9 (2026-09-04, unchanged at 19).  The round-8c table was reproduced
+ * from scratch with an independent strict+permutation ranker
+ * (scratchpad/w7mech/w7.py) and every number matches exactly: Barrels
+ * 19 -> 17, Spider 15 -> 25, Plane 19 -> 29, Safari 132 -> 131, one-web
+ * perm=bpdibxsi in all four.  Three NEW results:
+ *   - The one-web chain is now confirmed to be the ORIGINAL's shape by
+ *     direct reading rather than inference: on all four rides the original
+ *     emits `sub eax,edx` (the `oy - yscroll` DELTA in a scratch register)
+ *     followed by `add <sy>,eax`, where the committed two-web body emits
+ *     `sub <sy>,edx` early and `add <sy>,eax` later.  What the one-web body
+ *     costs is ONE hoisted load filling the Pentium partial-register stall
+ *     after `mov ax,[cfg+0x22]` (write ax, read eax) -- `mov ecx,[esp+0x3c]`,
+ *     the screen.ox reload, on the Spider and the Plane.  The original leaves
+ *     that stall unfilled.  Measured and unable to stop the hoist (all on the
+ *     Spider under one-web, every cell exactly 25): an empty `if` BEFORE the
+ *     compound as well as after it and in all four seams of the subtraction
+ *     chain, both `if (sx2)` and `if (sy2)` spellings, and all six legal
+ *     orderings of the four subtractions.  A volatile read of `screen.ox` at
+ *     its use does stop it but costs the frame (294).
+ *   - So the strict count and the truth genuinely disagree here.  The
+ *     two-web body stays committed because one-web RAISES audit's number on
+ *     three of the four rides (34/40/44 against 19/15/19).
+ *   - The Safari is the exception worth recording: under one-web its
+ *     REGISTER-BLIND residual more than halves (normalised edit distance
+ *     15 -> 6) and its whole structural difference reduces to three sites.
+ *     See the ROUND 9 paragraph there.
+ * CORRECTION that applies to all four rides: the `p = b->person;` cache does
+ * NOT work because "a store to an escaped local is a schedule barrier for a
+ * pointer load".  It is not a barrier at all -- VC6 hoists `mov ecx,[esi+4]`
+ * straight above the `pos.x`/`pos.y` stores, and all 140 interleavings of
+ * {the four subtractions, `p`, `pos.x`, `pos.y`} that keep each axis in order
+ * are BYTE-IDENTICAL.  What the cache actually turns on is COPY-PROPAGATION
+ * DISTANCE: `p = b->person;` written immediately before its single use is
+ * propagated away and measures exactly the same as no cache at all (Safari
+ * 234 one-web / 227 two-web), while the same assignment with ANY statement
+ * between it and the use survives and measures 131 / 132.  A
+ * `static __inline void SeedBnvPos(BnvPos*, int, int)` for the two seed
+ * stores is byte-identical to writing them out, in both y-chain shapes. */
 // WIP-FUNCTION: LEGOLAND 0x0043c950  (95%, 19/362; frame, byte length and the whole y block exact -- see above)
 void SpinningBarrels_Activate(RideElem* elem)
 {
@@ -3595,6 +3693,31 @@ extern const int g_spider_end_off[8];                        /* 0x004b4ddc */
  * every one is 116 or 350.  See the ROUND 8 paragraph in
  * SpinningBarrels_Activate for the one-web/named-`ys` result, which restores
  * this function's callee-saved naming too and costs the flattening. */
+/* ROUND 9 (2026-09-04, unchanged at 15).  Re-derived independently with a
+ * combined strict + permutation ranker (scratchpad/w7mech/w7.py): the
+ * committed body is real=15 strict=15 rb=6 under the IDENTITY permutation.
+ *   - Cluster B (indices 87-97: the `or byte [esi+0x62],0x80` and the
+ *     `mov edx,[esi+4]` that the original schedules INTO the second
+ *     division's `sub`/`sar` latency gap) was re-swept as ALL 24 orderings of
+ *     {flag store, zsprite store, `pos.x`, `pos.y`} crossed with {f30 after
+ *     the zsprite store, f30 last} and with/without a `p = b->person` cache
+ *     -- 48 cells.  15 is the floor, and every cell that lifts ANY statement
+ *     above `pos.x = sx2 * 2;` costs the frame (0x3c -> 0x38, or 1232/1238
+ *     bytes) and measures 132-356.  NOTE the `p` cache placed BEFORE the pos
+ *     stores is 138 here, not inert; the earlier "inert" finding was for the
+ *     cache placed after them, which VC6 copy-propagates away entirely (see
+ *     the ROUND 9 paragraph in SpinningBarrels_Activate).
+ *   - Cluster A (73/75) is the family one-web chain, and the original's
+ *     shape really is `sub eax,edx` / `add ebx,eax`.  With the shift left in
+ *     its committed position and only the accumulation made compound
+ *     (`sy2 = (wx + wy) * th >> 9;` ... `sy2 += g_map_cfg->oy -
+ *     Get_YScroll();`) the byte length stays exact at 1228 and rb stays 6,
+ *     73/75 become exact -- but real goes 15 -> 25 because VC6 then hoists
+ *     `mov ecx,[esp+0x3c]` (screen.ox) into the partial-register stall the
+ *     in-place `sub` used to fill, shifting indices 75-89 by one.  About 40
+ *     further cells (block splits before AND after the compound, both `if`
+ *     values, all six subtraction orderings, a named `ys`, a volatile
+ *     screen.ox read) are all 25 or worse. */
 // WIP-FUNCTION: LEGOLAND 0x00416330  (96%, 15/376; frame, byte length, the y chain, case 7's movsx pair and case 13 exact -- see above)
 void SpiderRide_Activate(RideElem* elem)
 {
@@ -3900,6 +4023,14 @@ extern void* g_plane_tab2;                                   /* 0x0062fe8c */
  * one-web y chain measures 44 here and does NOT change case 7, which kills
  * the theory that the missing `oy - ys` scratch temp is what puts our
  * rotation a step behind inside a later case block. */
+/* ROUND 9 (2026-09-04, unchanged at 19).  Measured with the combined ranker:
+ * the committed body is real=19 strict=19 rb=8 under the IDENTITY
+ * permutation, and the one-web y chain measures real=29 strict=44 rb=8 with
+ * the three-cycle rename -- the Spider's result exactly, including the
+ * screen.ox load VC6 hoists into the partial-register stall the in-place
+ * `sub` had filled.  See the ROUND 9 paragraphs in SpiderRide_Activate and
+ * SpinningBarrels_Activate; this body is the Spider's twin in both remaining
+ * windows and everything ruled out there rules out here. */
 // WIP-FUNCTION: LEGOLAND 0x0043e410  (95%, 19/387; frame, head and y chain exact; byte length 1254 vs 1253 -- see above)
 void PlaneRide_Activate(RideElem* elem)
 {

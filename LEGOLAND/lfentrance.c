@@ -480,7 +480,30 @@ void LFQueue_AddRider(LFQueue* q, RiderNode* r)
  *    block's shape is fixed by pressure, not spelling; `unsigned` i,
  *    `short` n, `if (last == p1)`, the `BPosW` read-back, and int/uchar
  *    temps for the footprint bytes at one or all three sites (172-181; the
- *    int temps load a DWORD, which the original does not). */
+ *    int temps load a DWORD, which the original does not).
+ *
+ * 2026-09-04 (fifth lane, small-residual sweep).  No change; two negatives
+ * worth recording so they are not re-derived.
+ *  - The NEWEST recorded lever -- "a named local holding a CSE'd BYTE FIELD
+ *    moves a callee-saved ranking that reference mutations cannot"
+ *    (SpaceTower_Activate) -- DOES NOT TRANSFER HERE.  The obvious
+ *    candidates are the two CSE'd byte fields of the local key: `sq.b.y`
+ *    (three consumers: midy, a.y, the p3 y) and `sq.b.x` (two: a.x, the p3
+ *    x).  Naming either or both, as `int` or as `unsigned char`, is much
+ *    worse and diverges at index 0: 215 (sx), 237 (sy), 216 (both int), 233
+ *    (both uchar) against the 206 baseline, and the bodies lose 2-6
+ *    instructions.  The reason is structural: `sq` is ADDRESS-TAKEN (its
+ *    address goes to LFStation_FindAt), so the original genuinely re-reads
+ *    it from the frame at each site -- the SpaceTower lever needs a field
+ *    the original keeps live across a jump table, and this one is the
+ *    opposite case.
+ *  - Restating the tie precisely, since permrank now measures it: strict
+ *    206, best-callee-saved-permutation 187, and indices 0..61 are exact
+ *    under the single ebx<->ebp exchange.  So the ebx/ebp tie explains only
+ *    19 of the 206; the other 187 sit past index 62 and are the fold /
+ *    schedule residual described above.  Fixing the tie alone will NOT close
+ *    this function -- it is worth about 19 - and the two residuals should be
+ *    costed separately from here on. */
 // WIP-FUNCTION: LEGOLAND 0x0040a600  (20% by audit.py, 206/256 index mismatches, body 250 insns; st/p1 in the opposite callee-saved pair -- swap-blind the first 62 are exact)
 void LFEntrance_Add(RideElem* elem, const Pos* pos)
 {
@@ -777,7 +800,46 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
  *    208), a `const signed char* q = &def->qx` local (58), a volatile read
  *    of `b` (10) and of `b` placed last (64), and all 40 orders again with
  *    the tile address inlined into the tx/ty expressions instead of the
- *    `tile` local (188+ - the inlined address does not CSE with `tile`). */
+ *    `tile` local (188+ - the inlined address does not CSE with `tile`).
+ *
+ * 2026-09-04 (fifth lane).  Still 10; the previous lane's "the one thing to
+ * move is the POSITION OF THE `next` SPILL STORE" is CONFIRMED and the
+ * load-order theory is now definitively dead.
+ *  - `int qx = *(volatile signed char*)&def->qx;` as a NAMED local consumed
+ *    by the sum, with the original's statement order, emits qx FIRST
+ *    (index 14 `movsx ecx,[ebx+24h]`, exactly where the original has it) and
+ *    is STILL `add ecx,eax`, still 10, 672/673 bytes
+ *    (scratchpad/w7small/act_A1.c; act_A2.c is the same with our statement
+ *    order and scores identically).  A volatile load cannot be
+ *    forward-substituted, so this is the strongest available "separate web"
+ *    spelling -- and qx STILL takes ecx.  Conclusion: emission order does
+ *    not pick the register and neither does web separation; what picks it is
+ *    that ecx is free at qx's load.
+ *  - THE MECHANISM, stated exactly.  In the ORIGINAL, `next` occupies ECX
+ *    from its load (index 15) until its spill store (index 21), which
+ *    straddles qx's live range (14..22), so qx cannot have ecx and takes
+ *    edx; tx is then born after next dies and gets ecx, needing the
+ *    three-register `lea ecx,[edx+eax]`.  In EVERY body we can produce the
+ *    spill store lands immediately after the load run (index 18/19), ecx is
+ *    free when qx is loaded, qx coalesces into tx's ecx, and the sum is
+ *    `add ecx,eax` -- one byte shorter.  The target is therefore a source
+ *    shape that delays the `next` spill store past the `xor eax,eax /
+ *    mov al,[edi]` pair, i.e. one basic-block scheduling slot.
+ *  - Also measured this round and worse: `cur = r; r = r->next;` with `r`
+ *    as the spilled loop variable and `cur` in ebp (212, ESCAPES); the
+ *    `tile->key` 16-bit view with `(unsigned char)(w >> 8)` for the y byte
+ *    (213, ESCAPES); `((unsigned char*)&r->ride_id)[1]` for the y byte (10,
+ *    rb 7 -- byte-identical to the base); the tx sum written inline off
+ *    `((RideTile*)&r->ride_id)->b.x` with the tile local kept for y (206).
+ *  - Secondary observation for whoever picks this up: the original computes
+ *    the x group and the y group SEQUENTIALLY (`xor eax,eax / mov al,[edi] /
+ *    <spill> / lea ecx / xor edx,edx / mov dl,[edi+1] / add edx,ebx`) while
+ *    every body here hoists both `xor`s together
+ *    (`xor eax / xor edx / mov al / mov dl / add / add`).  That grouping is
+ *    the same "VC6 groups the two byte-field reads of one 2-byte object"
+ *    effect recorded for `key.b.x`/`key.b.y`, and breaking it is probably
+ *    the same edit as delaying the spill store.
+ */
 // WIP-FUNCTION: LEGOLAND 0x0040bf70  (95.5%, 222/222 insns; the tx sum is `add` not `lea`, which renames the 10-instruction preamble)
 void LFEntrance_Activate(RideElem* elem)
 {

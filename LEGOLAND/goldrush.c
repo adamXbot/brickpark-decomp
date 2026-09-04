@@ -1784,7 +1784,81 @@ extern void*      g_car_pal_c;       /* 0x0082c6bc  livery 1 */
  *    WITHOUT freeing ebp, i.e. something that keeps wy live past the sum; no
  *    zero-cost spelling of that exists (a third use of wy costs an instruction
  *    the original does not have). */
-// WIP-FUNCTION: LEGOLAND 0x00402780  (351 insns by audit's extent, 352 emitted, 1155 vs 1147 bytes, 320 mismatches; the projection register tie-break at index 19)
+/* ROUND OF 2026-09-04.  320 -> 319 strict, but the number that moved is the
+ * STRUCTURAL one: register+offset-blind LCS 311 -> 324 of 351 and ORIGINAL
+ * indices inside a differing region 69 -> 46 (permutation-aware "real"
+ * 318 -> 317).  With a body this displaced the index-for-index count is nearly
+ * meaningless -- 315+ of the mismatches are the same instructions at shifted
+ * positions -- so rank on the register-blind alignment, not on it.
+ * TWO CHANGES, both transferred from other files in this batch:
+ *  1. The `c->sx` sum's two leading addends written into the fields of a
+ *     non-address-taken `Pos` (the anim2.c BoatingSchool_DrawBoats lever).
+ *     x only: 320 -> 319, robl 311 -> 318, bad 69 -> 58.  Protecting the y sum
+ *     as well costs four strict (323) even though it reads better structurally
+ *     (robl 319-320); one aggregate for x alone is the Pareto point.
+ *  2. The order of the five statements between the second GetTileDimensions
+ *     and AdjustOffsetForViewMode: the two `sx` adjustments FIRST and adjacent,
+ *     then `sy`, then the two `off` fields.  All 60 legal orders were measured
+ *     (off.x must precede off.y); this one is robl 324 / bad 46, the best, and
+ *     it is also ordinary source.  The original's own EMISSION order is
+ *     sy, sx-(tw2+1)>>1, sx-scroll_x, off.x, off.y -- writing exactly that
+ *     scores robl 320 / bad 56, so VC6 reorders these freely and the emission
+ *     does not pin the source.
+ * MEASURED, BETTER ON STRICT, NOT SHIPPED: putting `sx -= g_scroll_x >> 8;`
+ * BETWEEN the two `off` assignments is 313 strict / real 310 / robl 320-321 /
+ * bad 54-56 (1155 bytes, closer than this build's 1159).  Splitting the two
+ * `off` field stores is not a line any human wrote, and it wins on the two
+ * metrics that a displacement distorts, so it stays out; record it here rather
+ * than re-finding it.
+ *
+ * THE PROJECTION TIE-BREAK AT 19 IS NOW UNDERSTOOD, AND IT IS THE SAME LEVER
+ * AS joust.c's TempleSlide_Update, running the OTHER WAY.  The original is
+ *      lea eax,[ebx+ebp] / mov edi,ebx / imul eax,th / sub edi,ebp /
+ *      imul edi,tw / sar eax,9 / mov ebp,eax
+ * -- the SUM emitted first, into a third register (so `lea`), and the diff
+ * built from a copy of wx; we emit `mov edi,ebx / sub edi,ebp / add ebp,ebx`,
+ * the diff first with the sum overwriting wy's register.  WHAT DECIDES IT IS
+ * THE ORDER OF THE TWO `>>= 9` STATEMENTS, not the order of the two products:
+ * with `sy >>= 9;` before `sx >>= 9;` (or the products written with the shift
+ * folded in) VC6 emits the sum first and produces the original's `lea` shape --
+ * robl 316-326, bad 42-63, the best structural numbers seen on this function --
+ * but the whole callee-saved assignment then rotates at index 8: `wy` takes
+ * ebx and `wx` edi where the original (and this build) have ebp and ebx, and
+ * the strict count goes to 326 with the first divergence moving from 19 to 8.
+ * All four positions of `sx >>= 9;` among the following statements collapse to
+ * the same result, so it is the ORDER of the two shifts and nothing else.
+ * The mechanism: `sy` is live from the sum, `wy` until the diff, so the two
+ * overlap; the original assigns `sy` the register `wy` is in (ebp) anyway and
+ * pays for it with `mov ebp,eax` at 27, which is why the sum has to be
+ * computed in a scratch.  Our build assigns `sy` a free register instead.
+ * A future round wanting this function should attack that: sum-first emission
+ * with `wy` still in ebp is the whole remaining difference at 19-34, and it is
+ * worth ~13 register-blind indices plus the two copies the original has and we
+ * do not (which is where most of the 12-byte overshoot lives).
+ * PERMRANK PERMUTATION INVARIANCE (the sibling-lane diagnostic, applied here).
+ * Across every variant that touches the projection block, the `c->s?` sums or
+ * the five-statement order -- roughly 80 builds -- the best callee-saved
+ * permutation stays `ebx->esi ebp->edi edi->ebx esi->ebp`.  It moves in exactly
+ * two places: the `>>= 9` shift-order family (to `ebx->ebp ebp->edi edi->ebx`)
+ * and the one statement order that splits the two `off` stores.  By the
+ * invariance rule that means the projection block itself is the WRONG place to
+ * look: the webs, references and live ranges are the same in all of those
+ * builds and only VC6's preference order differs.  The shift order is the one
+ * construct in this function that changes the allocator's input, which is why
+ * it is the lever recorded above.
+ * ADD-DESTINATION TIE-BREAK: not used here.  A controlled probe on joust.c's
+ * TempleSlide_Update (same isometric pair, read order held constant) shows the
+ * destination is decided by EMISSION ORDER, not by definition or read order --
+ * VC6 copies the difference's left operand into a fresh register and whichever
+ * of {sum, difference} is emitted second takes the remaining register.  That is
+ * consistent with this function: the original emits the sum first (`lea`), so
+ * its destination is a third register entirely.
+ * Also inert this round: `wx` read before `wy`; the products written as single
+ * statements with the shift folded in (identical to `sy >>= 9` first); the
+ * diff defined before the sum with either shift order (identical to the
+ * matching shift order); `off.x + g_map->origin_x + sx` operand order; and
+ * swapping the two `c->s?` stores. */
+// WIP-FUNCTION: LEGOLAND 0x00402780  (351 insns by audit's extent, 352 emitted, 1159 vs 1147 bytes, 319 mismatches, 317 surviving the best callee-saved permutation, register-blind LCS 324/351 with 46 original indices in a differing region; the projection register tie-break at index 19)
 void StepSchoolCar(SchoolCar* c)
 {
     /* `tw` doubles as the render depth key and `th` as the "this car did
@@ -1833,13 +1907,24 @@ void StepSchoolCar(SchoolCar* c)
     th = 0;
     GetRoadRecord(c->cur.x, c->cur.y);
     GetTileDimensions(&tw2, &th2);
-    sy -= g_scroll_y >> 8;
     sx -= (tw2 + 1) >> 1;
+    sx -= g_scroll_x >> 8;
+    sy -= g_scroll_y >> 8;
     off.x = g_car_images->dx[c->b8] >> 1;
     off.y = g_car_images->dy[c->b8] >> 1;
-    sx -= g_scroll_x >> 8;
     AdjustOffsetForViewMode((Offset*)&off);
-    c->sx = g_map->origin_x + off.x + sx;
+    /* The x sum's two leading addends written into the fields of a
+     * non-address-taken `Pos` is the anim2.c BoatingSchool_DrawBoats lever:
+     * it defeats forward substitution, so the source's addend order and the
+     * original's eax/ecx/edx rotation survive.  The y sum must stay flat --
+     * protecting it too costs four strict indices. */
+    {
+    Pos t;
+
+    t.x = g_map->origin_x;
+    t.y = off.x + sx;
+    c->sx = t.x + t.y;
+    }
     c->sy = g_map->origin_y + off.y + sy;
     tw = th2 + sy;
 

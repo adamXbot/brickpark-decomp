@@ -538,7 +538,90 @@ void Carousel_TickInstances(void)
  *    byte-identical to `sy2 = sy + (oy - Get_YScroll())`.
  * Data confirmed here: lpConfig (0x004bcbf4) is a POINTER, not a struct, and
  * MapConfig.ox/oy at +0x20/+0x22 are `unsigned short` (zero-extended) while
- * Get_XScroll/Get_YScroll return `short` (movsx). */
+ * Get_XScroll/Get_YScroll return `short` (movsx).
+ *
+ * PASS N+1 (2026-09-04, lane w7ticks).  NO CHANGE -- still 29 strict / 8 real,
+ * same first diverging index 86, same residual indices {123..127, 228, 229,
+ * 231}.  ~130 further variants, all measured with the permutation-aware
+ * ranker (scratchpad/w7ticks/pk.py, a parallel permrank; ~0.3 s per build, so
+ * these were cheap and the whole matrix is reproducible).
+ *
+ * THE HARD FACT THIS PASS ADDS: the permutation is INVARIANT.  Every single
+ * one of the ~130 variants -- including ones scoring 15, 22, 254, 274 and 293
+ * -- came back with permrank perm `bpdibxsi` (our ebx = the original's ebp,
+ * our ebp = its edi, our edi = its ebx).  Only four variants moved it at all,
+ * and all four are structurally destroyed bodies (>= 248 real).  Nothing that
+ * keeps the original's instruction sequence changes the colouring, which is
+ * why "one more spelling of the Y chain" is not the way in.
+ *
+ * NEWLY RULED OUT (all still exactly 29 strict / 8 real unless noted):
+ *   - THE FOUR NEW CROSS-LANE LEVERS, none of which reaches this wall:
+ *       * a named local holding a CSE'd byte field -- tried on every CSE'd
+ *         byte in the function: `rec->boarded` (`char nb = ++rec->boarded;`
+ *         and a block-scoped form), `b->b74`, `b->seat`, `b->action` fed to
+ *         the switch.  All 29/8, permutation unmoved.  (`nb` written as the
+ *         two-statement `nb = rec->boarded + 1; rec->boarded = nb;` is 36 and
+ *         an int `nb` is 188 -- both change case 5, neither the colouring.)
+ *       * spelling a memory operand INLINE rather than through a named temp:
+ *         `b->world.x` and/or `b->world.y` inline in both products (16 / 22 /
+ *         22 -- the loads move, the colouring does not).
+ *       * the add-destination RANK rule at every site in the block: X written
+ *         compound (`sx2 = sx; sx2 += ox - Get_XScroll();`), X reversed
+ *         (`sx + (ox - Get_XScroll())`), Y written flat
+ *         (`sy2 = oy - Get_YScroll() + sy2;`), the delta named on either
+ *         side.  ALL 29/8 -- none of them moves the colouring.
+ *   - BUT ONE SITE HERE DOES DECIDE THE DISPUTED TIE-BREAK, and the answer is
+ *     LAST-DEFINED-WINS.  `wx + wy` at index 96 has two named locals as its
+ *     operands and nothing else; `wx` is the read-first operand in BOTH
+ *     spellings because the difference `(wx - wy)` is written first either
+ *     way, so only the DEFINITION order varies:
+ *         wy = b->world.y; wx = b->world.x;   ->  add <wx's reg>, <wy's reg>
+ *         wx = b->world.x; wy = b->world.y;   ->  add <wy's reg>, <wx's reg>
+ *     The destination follows the local defined LAST, not the one read
+ *     first, and read-first-wins is therefore refuted at this site.  (The
+ *     original's `add ebx,edi` with ebx = `b->world.x` says its source
+ *     defines wy before wx, which is the order committed here.)
+ *   - the 24 orders of the four subtraction statements RE-RUN under permrank
+ *     (the old note recorded them as "all exactly 29"; they are also all
+ *     exactly 8 real, and the perm never moves) -- 18 of the 24 stay at 8, six
+ *     go to 20 and two to 33.
+ *   - the 24 orders of the four case-1 SETUP statements (screen =, wy =,
+ *     wx =, GetTileDimensions): the committed order is the unique minimum;
+ *     the next best is 13.
+ *   - VARIABLE IDENTITY IS NOT A LEVER (this is the cleanest new negative):
+ *     reusing `tx`/`ty` as `wx`/`wy`, `tx` as `sx`, `tx`/`ty` as `sy2`/`sx2`,
+ *     `seat` as `wy` -- all byte-identical to the separate-name forms or
+ *     worse (14).  VC6 allocates webs, and MERGING two names into one is as
+ *     inert as splitting one into two.
+ *   - block scope for {wx, wy, sx, sx2, sy2} (all five, the two screen
+ *     locals, the two world locals, `sx` alone), `register` on all five and
+ *     on each one alone, and ten declaration-order permutations: every one
+ *     byte-identical.
+ *   - volatile spellings and positions of the phantom home: the store moved
+ *     to five other points (15 / 16 / 35 / 35), `spill.y` as the target (9 --
+ *     one worse, it adds index 102), both slots stored (264), and no store at
+ *     all (274, which is what the phantom home is worth).
+ *   - case 7 (indices 228/229/231) attacked on its own with 30 variants:
+ *     direct field reads, one temp, doubled temps, `<< 1` / `+ x` / `2 * x`
+ *     mixed per site, `short` temps, a `short*` walk, per-axis nested blocks,
+ *     `int d[2]` and a `Vec3` carrier, a volatile read, a `pos2.z` filler.
+ *     The committed form is the minimum; the load order (descending
+ *     displacement, +0x3e before +0x3c) is VC6's canonical sort of two
+ *     structurally identical `movsx`+`shl` operands and nothing reverses it
+ *     without also reversing the stores.
+ * WHERE A FUTURE PASS SHOULD LOOK.  Not at case 1's source.  The four webs
+ * (wy, wx/sum/sy2, sx, sx2) have IDENTICAL reference counts and live ranges
+ * in both builds -- the emitted streams are instruction-for-instruction equal
+ * modulo the renaming over 86..122 and 128..138 -- so the allocator's INPUT
+ * is the same and only its choice differs.  Modelling both builds as
+ * "priority = refs / live-range length, first free register in a fixed
+ * preference order" fits the ORIGINAL exactly with the order (ebp, edi, ebx)
+ * and CANNOT be made to fit ours; so the preference order itself, or the
+ * priority key, is decided by something outside this switch arm.  The next
+ * experiment worth running is a diagnostic one: perturb case 5 or case 13
+ * (whose webs also live in ebx and ebp) and see whether case 1's colouring
+ * moves at all.  If it does, the driver is function-wide and case 1 is the
+ * wrong place to look. */
 // WIP-FUNCTION: LEGOLAND 0x0042c820  (378/378 instructions, 1225/1225 bytes and the whole frame map, audit mismatch 29/378 but only 8 modulo a renaming of the three callee-saved registers; first diff at index 86: the merged Y web takes the LAST callee-saved register instead of ebx -- the same wall as mechrides.c's four _Activate callbacks)
 void Carousel_Tick(RideElem* elem)
 {
@@ -1026,7 +1109,20 @@ int Balloonz_CarAtPlatform(char wheel, char half)
  * is already 1.  Re-measured: moving the `name` declaration to the end of the
  * block is byte-identical (confirming the declaration-order rule), and a
  * brace initialiser `{'B','l','o','k','e','?','?',0}` is far worse (623 --
- * it stores byte by byte).  Leave it at 5. */
+ * it stores byte by byte).  Leave it at 5.
+ *
+ * 2026-09-04, lane w7ticks -- the quick check the brief asked for, and it
+ * agrees: 5 strict, 5 real under permrank (perm = IDENTITY, so no register
+ * question is hiding here), register-blind 1.  Twenty more placements of the
+ * `name` declaration -- after each of the twelve inner declarations, at the
+ * top of the inner block, and in the outer block (9, worse) -- are all
+ * byte-identical, as are `*(int*)&name[0] = *(const int*)"Blok"` style
+ * explicit dword stores (VC6 canonicalises them to the same pair).  Five
+ * spellings of the rider-list read -- `RiderNode* r = item->riders;` as a
+ * declaration initialiser at four positions and at the outer level -- are
+ * likewise byte-identical; `while ((r = item->riders) != 0)` is 619.  The
+ * residual is one instruction of Pentium pairing (`mov eax,[edi+0xcc]` ahead
+ * of the first name store) with no C-visible handle.  Do not spend more. */
 // WIP-FUNCTION: LEGOLAND 0x0042aa90  (637/637 instructions and 1993/1993 bytes, audit mismatch 5/637, first diff at index 10: the two halves of the name[8] initialiser are scheduled one slot too early around the rider-list load)
 void Balloonz_Tick(RideElem* elem)
 {

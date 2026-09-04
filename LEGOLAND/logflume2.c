@@ -1324,7 +1324,25 @@ extern RideDef* g_lftr_def;             /* 0x004cbe30  LOG FLUME TRACK */
  * lever does not apply because the competitor here is a pointer, not a
  * second char.  Sibling LFTunnel_Place (0x0040f050, not yet ported) has the
  * IDENTICAL head shape with `add al, 6` instead of `add al, 2`, so whatever
- * closes this closes that too. */
+ * closes this closes that too.
+ *
+ * 2026-09-04 (fifth lane).  Unchanged at 45; not re-ground, but one
+ * correction to the note above, because it points the next lane at the wrong
+ * lever.  The note says "the two-way unsigned-char tie-break lever does not
+ * apply because the competitor here is a pointer, not a second char" -- that
+ * is wrong on its own evidence: the note's own analysis says X and Y are BOTH
+ * `unsigned char` locals and exactly one of them gets ebx while the other is
+ * spilled, which IS the recorded two-way tie-break ("An `unsigned char` local
+ * loses a two-way callee-saved tie-break to another `unsigned char` even with
+ * strictly more, loop-nested references; retyping the winner `int` flips
+ * it").  The 6 x 6 type cross-product recorded above did measure every type
+ * pairing, so the lever has been exercised even though it was mis-attributed
+ * -- but the framing matters for what to try next: the question is not "lower
+ * a char's rank against a pointer", it is "what separates two `unsigned char`
+ * locals in VC6's ranking", which is an OPEN question with a worked example
+ * elsewhere in the corpus and is worth attacking as a general rule rather
+ * than on this function.
+ */
 // WIP-FUNCTION: LEGOLAND 0x00410180  (111/111 insns, 344/341B, 45 by audit, 18 structural; the coupled x-store/kind-store swap the volatile shim forces)
 void LFDrop_Place(LFPiece* parent)
 {

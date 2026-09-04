@@ -1124,6 +1124,41 @@ void Mechanic_Build(Bloke* b)
  *    docs/DECOMP.md -- a dead instruction that is nonetheless emitted.  So
  *    the thing still to find is not a better way to spell the store; it is
  *    whatever keeps our const-1 web live into that arm at allocation time.
+ *
+ *    PASS N+6 (2026-09-04, fifth lane).  Unchanged at 82 / one instruction;
+ *    the MECHANISM is now read off the original completely, which narrows
+ *    the target further and rules out the whole "restructure the arm" class.
+ *    Read at 0x470750: `xor ebp,ebp / mov bp,[edx+16h]` puts the map HEIGHT
+ *    in ebp BEFORE the height compare, so on BOTH sides of that compare the
+ *    const-1 web's register is already clobbered.  The join at 0x4707ba has
+ *    three predecessors and none of them holds 1 in ebp, which is why place
+ *    rematerialises at 0x4707ca.  So the arm's `mov ebp,1` is NOT a value the
+ *    join needs -- it is the allocator treating the arm's `g_drag_lock = 1`
+ *    as a USE OF THE WEB (remat + `mov [mem],reg`) instead of folding it to
+ *    an immediate, and it can only have done that while the arm still had the
+ *    join as its successor.  In this build the `lock = 1` / `if (lock)` /
+ *    `if (lock)` chain is threaded before allocation, the arm becomes a
+ *    function-ending block, and the store folds.  Same compiler, same pass
+ *    order -- so the difference has to be in the IR the threading sees, and
+ *    nine more arm shapes do not change it (all still 3 `mov ebp,1` against
+ *    the original's 4):
+ *      `else { g_drag_lock = 1; goto tail; }` and the same with a named
+ *      `join:` label (66 strict but 677 bytes -- five too many); the join
+ *      duplicated inside the arm; `found = found;` after the store; the two
+ *      arms swapped (98); the tail written out TEXTUALLY in the arm
+ *      (`g_drag_lock = 1; SetWorkersPositionAtMouse(); return;`, and the same
+ *      with the `if (g_drag_lock)` guard kept) -- 66 strict / 677 bytes, VC6
+ *      emits the arm's copy without merging it; `else goto fail;` with the
+ *      join moved INSIDE the in-range block (133, and it collapses the web to
+ *      ONE `mov ebp,1` in the whole function).
+ *    CONCLUSION.  The residual is a single DEAD instruction that exists in
+ *    the original only because of the order in which that build's threading
+ *    and allocation happened to run on this CFG.  Every source shape that
+ *    reaches the original's code reaches it with the store folded, and the
+ *    only shapes that produce the register form add a real second consumer
+ *    (`g_icon_clicked = 1;` in the arm, +3 bytes).  Treat as AT ITS FLOOR:
+ *    184/184 instructions, 672/672 bytes, one wrong instruction at index 102
+ *    plus the known `cmp eax,edi`/`test eax,eax` at 166.
  */
 // WIP-FUNCTION: LEGOLAND 0x00470620  (184/184 insns, 672/672 bytes, 82 by audit but only 3 difflib-aligned, first diff at index 102; TWO defects only -- the dead `mov ebp,1` rematerialisation at 0x4707a3, whose absence shifts every later index and is the whole of the 82, and `cmp eax,edi` for `test eax,eax` at 0x470891; every other instruction is byte-identical)
 void CheckWorkerOnMouseStatus(WorkOrder* o)

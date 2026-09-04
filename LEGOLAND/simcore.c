@@ -955,7 +955,25 @@ static __inline Cell* RouteCellAt(Pos* p)
  *    Apply the same two-way test to `InsertChildIntoList` (fpui.c 0x475630,
  *    index 46) before assuming the two are one problem: if ITS copy sits at a
  *    join, or its source survives, that one is reachable and this one is
- *    not. */
+ *    not.
+ *
+ * 2026-09-04 (fifth lane).  Unchanged at 3.  The cross-check this note asks
+ * for HAS NOW BEEN RUN on `InsertChildIntoList` (fpui.c 0x475630) by a lane
+ * that owns both files, and it comes out the SAME WAY: its 0x4756aa is not a
+ * branch target (every target in that body was enumerated), so its block has
+ * one predecessor and there is no phi; and its eax is defined at 0x47569d,
+ * read twice, then redefined by the call, with nothing else competing, so
+ * there is no interference either.  Additionally, the strongest untried
+ * member of the "make the pushed value a temporary" family -- a
+ * `static __inline` wrapper round the call, which turns the argument into an
+ * inline-expansion temporary -- was measured there and is inert.
+ * CONSEQUENCE FOR THIS FUNCTION: the two sites are NOT one shared unknown
+ * waiting on a single lever; they are two independent instances of the same
+ * NEGATIVE result (neither mechanism present).  Nobody should keep paying for
+ * either on the theory that the other will pay for it.  RETIREMENT ENDORSED
+ * at 479 of 482 instructions, 1336/1336 bytes, three register-allocation
+ * instructions at indices 31/32/38.
+ */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)
 {

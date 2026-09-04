@@ -1312,7 +1312,139 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  * scheduler groups the loads), and 276 (case 5's `sp` load, above).
  * EVERY ONE of these is downstream of the same register cascade the two-web
  * form fixes. */
-// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1121/1122 bytes, audit mismatch 72/347 but only 15 of 347 original indices in a structurally differing region, all of them case 3's schedule plus one in case 5; first divergence 119)
+/* ROUND OF 2026-09-04 (fourth pass).  72 -> 57 strict, and the two-web reading
+ * of case 3 IS SHIPPED.  Metrics (permutation-aware ranking, scratchpad/
+ * w7joust/w7.py -- audit strict, "real" = mismatches surviving the best
+ * callee-saved permutation, register+offset-blind LCS, ORIGINAL indices inside
+ * a differing region):
+ *
+ *     metric                       was    now
+ *     audit strict                  72     57
+ *     real (permrank)               67     53
+ *     reg+offset-blind LCS         332    334   (of 347)
+ *     orig indices in a bad region  24     21
+ *     bytes                       1121   1124   (orig 1122)
+ *
+ * THE KEY: THE PREVIOUS ROUND'S TWO-WEB X CHAIN WAS RIGHT, AND WHAT BLOCKED IT
+ * WAS THE ORDER OF THE TWO PRODUCTS, NOT THE WEBS.  Written with the SUM
+ * FIRST the loop head does NOT rotate:
+ *      py = (wx + wy) * th >> 9;
+ *      px = (wx - wy) * tw >> 9;
+ *      *(volatile int*)&spill.x = px;
+ *      sx2 = g_map_cfg->ox - Get_XScroll() + px;
+ *      sy2 = g_map_cfg->oy - Get_YScroll() + py;
+ * With the DIFFERENCE first (every spelling the last round tried) `def->base_x`
+ * takes ebp, `sq` takes ebx, the two byte loads of `sq->b.x`/`sq->b.y` are
+ * hoisted together, `ty` can no longer be built in a byte-addressable register
+ * (`xor ebx,ebx / mov bl,[ebp+1]` becomes `xor eax,eax / mov al,[ebx+1] / mov
+ * ebp,eax`) and that one extra instruction displaces every later index:
+ * first=16, ESCAPES, 321.  Sum-first keeps indices 0..127 EXACT and buys the
+ * whole of 134..156: `mov edx,[g_map_cfg] / xor edi,edi / movsx ecx,ax /
+ * mov di,[edx+0x20] / sub edi,ecx / add edi,ebp` -- both `movsx` placements,
+ * both `g_map_cfg` loads and the X add with the DELTA as its destination.
+ * The Y chain had to become a second web too (`sy2 = delta + py`): with Y left
+ * compound the X delta lands in ebp instead of edi (65/robl 330 vs 61/robl
+ * 334).  That is the one place this build still contradicts the original,
+ * which has `add ebx,ecx` (Y's add destination is the WEB) at index 153.
+ * The full 2x2x2 matrix (product order x X one/two web x Y one/two web) was
+ * measured on this baseline: sum+x2+y2 61, sum+x2+y1 63, diff+x1+y1 73,
+ * diff+x1+y2 70, sum+x1+* 212-214, diff+x2+* 323-326 with ESCAPES.
+ *
+ * TWO MORE FROM RE-RUNNING SWEEPS THE LAST ROUND HAD RECORDED AS EXHAUSTED
+ * (the standing "re-run after any structural change" rule paid twice again):
+ *   A. All 120 orders of case 3's five trailing statements: the winner is now
+ *      pos.x, pos.y, `b->flags |= 0x80;`, zsprite, f30 -- i.e. the flag OR
+ *      ABOVE the two person stores, the opposite of the last round's winner,
+ *      and it agrees with the original, which emits `or byte [esi+0x62],0x80`
+ *      at 161, twelve slots before the zsprite store.  61 -> 58.
+ *   B. Case 5's cached `sp` byte moved one statement down, between the two
+ *      person stores.  58 -> 57, and 272/277/278 all go exact; the residual
+ *      there is now only the ecx/edx rotation (below).  Plain
+ *      `b->speed = b->saved_speed;` with no cache is 59 on this baseline.
+ *
+ * MEASURED AND REJECTED (better numbers, wrong model -- recorded so the next
+ * round does not "find" them again):
+ *   - `*(volatile int*)&spill.x = py;` (spill the Y value) scores 56/real 52/
+ *     bad 20.  It matches index 135 only because our px/py registers are the
+ *     original's swapped (orig X in ebp, Y in ebx; ours X in ebx, Y in ebp) --
+ *     a textbook compensating error.  The original spills the X value
+ *     (`imul ebp,[esp+0x28]` is the tw product).  NOT SHIPPED.
+ *   - Putting the Y chain textually before the X chain scores 60/robl 335, but
+ *     it swaps the two `Get_?Scroll` calls; `match.py` normalises call targets
+ *     so the swap does not show in the strict count.  Semantically wrong.
+ *
+ * ALSO INERT ON THIS BASELINE: all 24 orders of the four `-=` statements; every
+ * position of `b->b35 = 0;` and of the `GetUnitDepth` store; declaration order
+ * of wx/wy and of tw/th; reading wx before wy; `(wy + wx)`; `b->world.x` read
+ * inline in one or both products; `GetTileDimensions` before the world reads;
+ * a `px = tw;` pre-read; and (worse, first=17) tw/th as a two-int struct or
+ * array -- an aggregate moves the whole frame.
+ *
+ * A FOURTH CLOSE, from a lever imported from anim2.c: the two x adjustments
+ * `sx2 -= g_ts_rider_dx / 2; sx2 -= screen.ox;` summed in the fields of a
+ * non-address-taken `Pos` (`t.x = rider_dx/2; t.y = screen.ox; sx2 -= t.x+t.y`)
+ * -- BoatingSchool_DrawBoats' barrier against forward substitution.  57 -> 56,
+ * real 53 -> 52, robl 334 -> 335, bad 21 -> 19.  It is a codegen device, not a
+ * line anyone wrote, and it is shipped for the same reason DrawBoats' is: every
+ * metric moves the right way and the two spellings compute the same value.
+ * `sx2 -= a + b;` without the aggregate is inert (57), so the aggregate is
+ * doing the work, not the association.  The same barrier on the Y pair is 205
+ * (it breaks the Y web); the fields swapped is 57; `t.y + t.x`, the y pair
+ * moved above the block, and the two assignments interleaved are all 56; a
+ * three-field struct carrying the y half as well is 205.
+ *
+ * *** ADD-DESTINATION TIE-BREAK, RE-MEASURED UNDER CONTROL (2026-09-04). ***
+ * The earlier "read-first wins" measurement made in this file is WITHDRAWN, and
+ * so is "last-defined wins" as a description of THIS site: with the read order
+ * held constant (`wx` is the left operand of both the difference and the sum in
+ * every variant) and only the definition order of `wx`/`wy` varied, the
+ * destination flips in BOTH directions, so neither symbol rank predicts it.
+ * Probe: scratchpad/w7joust/tb.py + tbrun.py, four variants, window 128-134.
+ *     one web, `wy` defined first:  mov edi,ebx / sub edi,ebp / add ebp,ebx
+ *     one web, `wx` defined first:  mov edi,ebp / add ebp,ebx / sub edi,ebx
+ *     two web, `wy` defined first:  mov ebp,ebx / add ebx,edi / sub ebp,edi
+ *     two web, `wx` defined first:  mov ebp,edi / sub ebp,ebx / add ebx,edi
+ * In rows 1 and 4 the add's destination is `wy`'s register; in rows 2 and 3 it
+ * is `wx`'s.  The invariant is not definition order and not read order, it is
+ * EMISSION ORDER: VC6 copies the LEFT operand of the difference into a fresh
+ * register, and then whichever of {sum, difference} is emitted SECOND takes the
+ * remaining operand's register as its destination.  Sum emitted first (rows 2
+ * and 3) -> destination is `wx`, whose value the copy has already preserved;
+ * difference first (rows 1 and 4) -> the add comes second and clobbers `wy`.
+ * Definition order enters only by changing which local is in which register and
+ * hence which op the scheduler puts first.  Nothing shipped here rested on the
+ * withdrawn reading -- the two-web change above was measured directly -- and
+ * the loop-head rotation is NOT reachable from the definition order either
+ * (both two-web rows above are 324-325 with first=16).
+ *
+ * NEW LEVER RECORDED HERE: the frame slots of two address-taken scalars filled
+ * by ONE out-param call follow their first RVALUE USE, not their declaration
+ * order.  With the sum first `th` is read first and takes F+0x08, so
+ * `GetTileDimensions(&tw, &th)` emits `lea edx,[esp+0x20] / lea eax,[esp+0x24]`
+ * where the original has them the other way (indices 123/124).  Swapping the
+ * declarations, moving them into case 3's block scope and a `px = tw;` probe
+ * are all inert; only the order of the two products moves them.
+ *
+ * WHAT IS LEFT (21 original indices in a differing region, first divergence
+ * 119):
+ *   - 119/120: `wy` takes ebx and `wx` edi where the original has edi/ebx.
+ *     EVERYTHING else in case 3 follows from this one swap: it puts the sum in
+ *     a fresh register (`lea ebp,[edi+ebx]`) instead of overwriting wx's
+ *     (`mov ebp,ebx / add ebx,edi`), which costs indices 128..134 and forces
+ *     the extra `mov ebx,edi` copy of px, and it is why the Y add lands on the
+ *     delta at 153.  Nothing measured moves it (see the inert list).
+ *   - 123/124: the tw/th slot order, above.
+ *   - 156..172: the original interleaves `or flags`, the `g_ts_zspr` load and
+ *     the two `GetUnitDepth` constant pushes INTO the rider_dy division; ours
+ *     groups them.  All 120 tail orders and all 24 subtraction orders were
+ *     measured; this is what is left of them.
+ *   - 178/179, 181, 183..190, 270, 273..276: a GLOBAL ecx/edx phase shift --
+ *     wherever the original creates two scratch temps the first takes ecx and
+ *     ours takes edx (case 3's `xor ecx,ecx` seat / `lea edx,&pos`, case 5's
+ *     two `b->person` loads).  It also costs the original's reuse of eax for
+ *     BOTH `NewBNVPath` loads.  Worth attacking next: one temp too few or too
+ *     many earlier in the function would flip the whole rotation. */
+// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1124/1122 bytes, audit mismatch 56/347, 52 surviving the best callee-saved permutation, 19 of 347 original indices in a structurally differing region; first divergence 119)
 void TempleSlide_Update(RideElem* elem)
 {
     RideDef*   def = elem->data;
@@ -1336,6 +1468,8 @@ void TempleSlide_Update(RideElem* elem)
     int        wy;
     int        sx2;
     int        sy2;
+    int        px;
+    int        py;
 
     r = def->riders;
     while (r) {
@@ -1395,20 +1529,30 @@ void TempleSlide_Update(RideElem* elem)
                 wy = b->world.y;
                 wx = b->world.x;
                 GetTileDimensions(&tw, &th);
-                sx2 = (wx - wy) * tw >> 9;
-                sy2 = (wx + wy) * th >> 9;
-                *(volatile int*)&spill.x = sx2;
-                sx2 += g_map_cfg->ox - Get_XScroll();
-                sy2 += g_map_cfg->oy - Get_YScroll();
-                sx2 -= g_ts_rider_dx / 2;
-                sx2 -= screen.ox;
+                py = (wx + wy) * th >> 9;
+                px = (wx - wy) * tw >> 9;
+                *(volatile int*)&spill.x = px;
+                sx2 = g_map_cfg->ox - Get_XScroll() + px;
+                sy2 = g_map_cfg->oy - Get_YScroll() + py;
+                /* The two x adjustments summed in the fields of a
+                 * non-address-taken `Pos` -- anim2.c's DrawBoats barrier
+                 * against forward substitution.  Written as two `-=`, or as
+                 * one `-= a + b`, VC6 flattens them and schedules the pair
+                 * differently; the same barrier on the y pair costs 149. */
+                {
+                Pos t;
+
+                t.x = g_ts_rider_dx / 2;
+                t.y = screen.ox;
+                sx2 -= t.x + t.y;
+                }
                 sy2 -= g_ts_rider_dy / 2;
                 sy2 -= screen.oy;
                 pos.x = sx2 * 2;
                 pos.y = sy2 * 2;
+                b->flags |= 0x80;
                 b->person->zsprite = g_ts_zspr;
                 b->person->f30 = 1;
-                b->flags |= 0x80;
                 b->person->depth = GetUnitDepth(-1617664.875f, -1617913.0f);
                 b->b35 = 0;
                 b->bnvpath = NewBNVPath(g_ts_objsamples, 0,
@@ -1457,9 +1601,9 @@ void TempleSlide_Update(RideElem* elem)
                 BlokeWalkAnim(b);
                 BlokeSetFrame(b, 0);
                 b->flags &= ~0x80;
+                b->person->zsprite = 0;
                 {
                 unsigned char sp = (unsigned char)b->saved_speed;
-                b->person->zsprite = 0;
                 b->person->f30 = 0;
                 b->speed = sp;
                 }
