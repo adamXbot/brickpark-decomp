@@ -91,11 +91,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **44.9% exact, 51.3% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1544 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **45.7% exact, 53.0% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1554 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 589, ~25,500 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 37 |
+| unmatched callees | `python3 tools/callees.py` | 579, ~22,000 instructions |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 42 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
@@ -117,6 +117,31 @@ function is not a wasted wave** — it is where the mechanisms get named, and
 where wrong entries in `docs/DECOMP.md` get caught: roughly twenty recorded
 rules have now been corrected or withdrawn by the lane that measured them, most
 of them summaries rather than measurements.
+
+**WAVE TWELVE CHANGED THE STRATEGY, AND IT WORKED — read this before picking
+targets.** Waves eight to eleven ground the 37 partials and closed NOTHING in
+four waves; wave twelve wrote NEW functions from the §6C frontier instead and
+closed **ten**, 1834 instructions, moving coverage 44.9% -> 45.7% exact
+(51.3% -> 53.0% with partials) — the first coverage movement in six waves. Four
+lanes, four new files: `logflume3.c` (the LF set-piece placement family),
+`schoolcar2.c` (the manoeuvre choosers), `joust2.c` and `mappath.c` (the
+map/walk-path cluster). The frontier fell from 588 functions / ~25,500
+instructions to 579 / ~22,000.
+
+The arithmetic behind the pivot is simple and worth restating: the 37 partials
+are worth almost nothing in BYTES even if every one closed, while the frontier
+holds ~22,000 instructions of unwritten behaviour. Grinding a residual competes
+for the same lane-hours as writing a whole new function, and the new function
+almost always wins. **Default to the frontier; go back to a partial only when
+the §6B triage says its residual is STRUCTURAL.**
+
+Wave twelve also showed the two directions feed each other. Wave eleven had
+recorded `LFDrop_Place`'s EBX tie-break as forced and unreachable; a wave-twelve
+lane writing fresh siblings found the construct that flips it (one shared
+two-byte aggregate instead of two `unsigned char` locals — 164 of 217 down to 5
+on `LFTunnel_Place`), then tested the boundary and showed it does NOT transfer
+back to `LFDrop_Place`, and why. Writing new code in a family is often the
+cheapest way to solve an old residual in it.
 
 **Wave ten ran four Opus 5 lanes concurrently with no kills.** Both models
 work and lanes are model-agnostic; wave four ran on Opus 5 because the Fable

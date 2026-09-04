@@ -424,6 +424,165 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **A switch label sharing a jump-table entry may still be a SEPARATE case body
+  in the source.** VC6 merges two identical whole case blocks and points both
+  table entries at the survivor — which is indistinguishable in the disassembly
+  from `case A: case B:`, but is NOT the same in codegen, because the extra
+  block changes the merge candidate set and therefore the layout. On
+  `Joust_Update`, giving two labels their own bodies is worth **109 and two
+  missing instructions**, and aligned a loop's start index exactly. A third
+  label in the same switch IS genuinely shared (its own body costs 23), so
+  **this must be tested per label, not decided for the switch.**
+- **The busy-guard form decides which copy of a merged tail HOSTS it — and the
+  answer is per-body, never inheritable.** `if (b->state == 0) { switch ... }`
+  hosts merged call tails in the LAST case of each group;
+  `if (b->state != 0) goto endsw;` hosts them in the FIRST. Worth **153** on
+  `Joust_Update` — the entire block layout of half its switch.
+  `TempleSlide_Update` records the same lever with the OPPOSITE answer. Measure
+  both ways on every body; a recorded answer from a sibling is a hypothesis, not
+  a result.
+- **A string template copied into a local can be a struct assignment, not an
+  array initialiser.** `char name[9] = "manBox??";` pins the three-instruction
+  copy to the top of the function's IR, where an initialiser must go. Declaring
+  `static const struct { char c[9]; } k = {"manBox??"};` and writing `name = k;`
+  makes it a STATEMENT, placeable anywhere — which is where the original
+  schedules it. Worth 58, and it moved the first divergence from index 3 to 40.
+- **A negated condition keeps the test order but swaps the arms' layout.**
+  `if (!C) { A } else { B }` emits C's short-circuit tests unchanged with A
+  inline and B after; the positive form reverses that. A free way to move a
+  block without touching the condition.
+- **The original's `setcc` names the FALSE arm of the source ternary.**
+  `(s < 3 ? 0x0a : 0x14)` gives `setge / dec / and 0xfffffff6 / add 0x14`;
+  `(s >= 3 ? 0x14 : 0x0a)` gives `setl / and 0xa / add 0xa`. So read the
+  `setcc`'s condition, negate it, and that is the ternary's test as written.
+- **Arithmetic placed in a CALL ARGUMENT is evaluated before the callee's own
+  guard.** Calling a bounds-checked inline lookup as `FindInBounds(x, y - 5)`
+  puts `add eax,-5` BEFORE the `x >= 0` test; computing the offset into a local
+  first does not. Where an inline helper's guard sits after some arithmetic in
+  the original, the arithmetic was in the argument.
+- **Nest a lookup inside a call argument to keep the scratch rotation running
+  across inline expansions.** `Stop(GetLLSForLayer(g_layers, v->layer_a))` keeps
+  VC6's eax->ecx->edx rotation advancing across three consecutive expansions
+  (`eax,ecx | edx,eax | ecx,edx`); a helper that takes the layer number and
+  reads the global itself gets the first expansion right and then RESTARTS at
+  eax for the second and third. Where consecutive inline expansions should
+  rotate but do not, move the lookup into the argument.
+- **Initialiser ORDER decides where a spill store lands.** Three leading
+  initialisers: the one whose spill the original places last must be written
+  last, so its store falls after the others' `xor`s. Cheap to sweep, and it was
+  the difference between exact and not on `BsWater_Probe`.
+
+- **THE AGGREGATE RULE, consolidated 2026-09-05 after three lanes hit it from
+  different directions.** VC6 flattens an aggregate whose address is never
+  taken, so wrapping locals in a struct changes nothing about how the fields are
+  ACCESSED — they stay enregistered, no memory home is forced, and arrays,
+  padded structs and unions all scalarise identically. **But aggregate-ness
+  still decides PLACEMENT and ALLOCATION**, in two measured ways:
+  1. *Frame position.* Two `int` locals take the two LOWEST frame slots; the
+     same pair declared as one `Pos` takes the two HIGHEST. Worth 28 of 138 in
+     `BuildWalkPath`.
+  2. *The callee-saved tie-break between byte-typed locals.* Only EBX is
+     byte-addressable among the callee-saved registers, so where two byte-wide
+     values must both survive calls, one spills. Written as two scalars, VC6
+     gives EBX to whichever has fewer weighted references — the original's
+     choice only sometimes. Written as ONE two-byte aggregate, VC6 picks the
+     original's winner. On `LFTunnel_Place`: two scalars = 164 of 217 and the
+     wrong instruction count; `BPos c` = 5 of 217 at 680/680 bytes.
+  **It must be the SHARED aggregate.** `BPosW` and `unsigned char c[2]` are
+  byte-identical to `BPos`; TWO one-member structs behave exactly like two
+  scalars. And the aggregate fixes a separate-looking symptom for free: with
+  scalars VC6 sinks the last coordinate update into a trailing `if`, moving the
+  add past a call; as a struct member the store stays put.
+  **Scope, tested rather than assumed:** it does NOT transfer to
+  `LFDrop_Place`, where `c.x` still wins EBX. The distinguishing feature is that
+  in the functions where it works BOTH halves are updated at least once, whereas
+  in `LFDrop_Place` `c.x` is written once and never again. Wave eleven had
+  recorded that tie-break as forced and unreachable; it is reachable, just not
+  everywhere.
+- **Read a class/def global DIRECTLY at every use, not through a local
+  pointer.** On `LFCsaw_Place` replacing a `RideDef* def` local with two direct
+  reads of the global is 18 mismatches -> 0. A local pointer creates a web the
+  original does not have; the repeated global read is what VC6 emits when the
+  source simply names the global twice. Compare the rule above about a
+  duplicated expression versus a named local — same family, opposite of the
+  instinct to "cache it once".
+
+- **A free `volatile` read belongs at the DEFINITION site, not the use site —
+  VC6 will not hoist a volatile access across a store.** Placing the barrier at
+  the later USE reproduces the reload but leaves it scheduled after an
+  intervening `push`, one instruction off. Placing it on the value's own
+  ORIGINAL load — where the function loads anyway, so it costs nothing — is
+  exact. This is a sharpening of the free-volatile lever and it matters: in
+  `ClearCellForPath` the difference between the two placements is 166 versus
+  167 of 167, and leaving the CSE alive instead costs 36. Roughly 30
+  non-volatile spellings floored at 131.
+- **An aggregate local takes the TOP of the frame — and that is a lever even
+  when it scalarises.** Two `int` locals get the two LOWEST frame slots;
+  declaring the same pair as one `Pos` whose address is never taken moves them
+  to the two HIGHEST, worth 28 of 138 in `BuildWalkPath`. **This refines "VC6
+  flattens an aggregate whose address is never taken"** — the flattening
+  governs how the fields are ACCESSED (they stay enregistered, no memory home
+  is forced), but the declaration still changes where the pair LANDS in the
+  frame. So a struct wrapper is inert for access codegen and NOT inert for frame
+  position. Declaration order remains inert either way; it is the
+  aggregate-ness that moves them.
+- **A per-iteration update of two struct fields can be a whole-struct
+  assignment.** `cur.x += dx; cur.y += dy;` loads `cur.x` into a fresh
+  callee-saved register and accumulates into it. `t.x = dx + cur.x;
+  t.y = dy + cur.y; cur = t;` consumes both loads into dx's and dy's own
+  registers and writes the pair back as one copy — the original's shape, worth
+  9. All six operand orders and both `+=`/`=` spellings of the first form are
+  byte-identical, so this is NOT reachable by permuting the sum; only the
+  copy-through-a-temporary shape gets there.
+- **An expression spelled twice is not the same as a named local holding it.**
+  The CSE web VC6 builds for a duplicated allocation size lands in eax; routed
+  through a named `size` local the `lea` comes out on edx. Two bytes, and it was
+  the last two in `BuildWalkPath`. The recorded "constant carriers are always
+  propagated away" rule covers CONSTANTS; a duplicated computed expression is a
+  different case and the web's home differs.
+- **A guarded do/while and a counted `for` allocate differently.**
+  `if (i > 0) { p = ...; do { ... } while (--i); }` puts the accumulator in ebx
+  and the argument pointer in ebp; the equivalent counted `for` over the same
+  subscript swaps that pair, worth 12 instructions.
+
+- **Two `return K` sites with the same constant merge at the FIRST site, not the
+  last.** So a leading guard written as a plain `return 0;` pulls the merged
+  block to the top. Writing it `goto fail;` with `fail: return 0;` as the
+  function's final statement pins the merged block at the END, which is the
+  original's `je rel32` forward. Worth 190 -> 157 on `SchoolCarNextManoeuvre`.
+- **`if (a == 0 || b != c) return X;` EXILES the X block past the whole
+  function** — the short-circuit makes the arm its own block ending in a jump,
+  and the exile rule then applies. To put X back inline, split the test and jump
+  INTO the second `if`'s compound statement:
+  `if (a == 0) goto lbl; if (b != c) { lbl: return X; }` — because a single-test
+  `if (cond) return X;` always emits X as the test's fall-through. Worth
+  157 -> **0**, i.e. it closed the function. Two separate `if`s with two textual
+  returns costs 173; the `if (a && b) goto ok;` inversion is inert.
+- **An ARRAY of pointers reserves all its frame homes where separate scalars do
+  not.** `RoadRec* nb[3]` gives `sub esp,0x14` with 8 dead bytes and pushes
+  another local out into a dead argument slot; three plain pointer locals give
+  `sub esp,0xc` and put the WRONG local in the argument slot (50 mismatches).
+  Only the last element's slot is observable, so which index is which is not
+  recoverable from the disassembly — do not try. Note this does not contradict
+  "VC6 flattens an aggregate whose address is never taken": the array is
+  INDEXED, so its elements are addressed, and the homes are reserved.
+- **`if (r & 2) return A; return B;` and `(r & 2) ? A : B` are NOT the same
+  object.** Both become VC6's branchless bit trick, but the ternary computes the
+  complement into a fresh register (`mov al,bl / not al`) where the branchy
+  statement form does it in place (`not bl / movsx eax,bl`) — 18 strict and 3
+  bytes apart. About 20 type and cast spellings of the operand could not reach
+  it; only the statement form does. When a branchless sequence has one surplus
+  register move, try the other statement shape before touching types.
+- **A `switch`'s CASE ORDER is its block order.** On `SchoolCarNextManoeuvreHorn`
+  the original's layout is cases 1,4,5,3,6,7; writing them in the natural
+  1,3,4,5,6,7 costs 17. Read the block order off the original and write the
+  cases in that order.
+- **A constant store must be placed so it cannot hoist above a dead argument
+  slot's last read.** `flags = 0` assigned BEFORE a call floats up and takes the
+  slot; assigned after the call it stays put. Where a local lives in a dead
+  argument slot, the last read of that slot is a scheduling boundary for
+  anything that would occupy it.
+
 - **BEFORE recording "construct X is unreachable from C", scan `.text` for X.**
   An exhaustive sweep of spellings proves something about the spellings swept,
   not about the instruction. A recorded entry declared `add reg, -K`

@@ -120,7 +120,7 @@ extern void  PlayAppropriateBuildEffect(ObjDef* d, Pos* pos);   /* 0x00462d10 */
 extern int   AddObjectToBuildList(ObjDef* d, BPos bp);          /* 0x00450b90 */
 extern int   ClassAllowsObjects(ObjDef* d);                     /* 0x0045eab0 */
 extern int   ClassNeedsPath(ObjDef* d);                         /* 0x0045eaf0 */
-extern void  AddObjectToMap(ObjElem* obj, Pos* pos, unsigned int flags); /* 0x0045e080 */
+extern void  AddObjectToMapByCursor(ObjElem* obj, Pos* pos, unsigned int flags); /* 0x0045e080 */
 extern void  SetObjRectFlags(ObjElem* obj, Pos* pos, unsigned int flags);/* 0x0045dee0 */
 extern void  GetObjectDoorOffset(ObjDef* d, Pos* out);          /* 0x0045ea40 */
 extern void  UpdateEntranceTile(void);                          /* 0x00482a90 */
@@ -191,7 +191,7 @@ int BuildObject(ObjElem* obj, Pos* pos)
             return 0;
         UseBricks(GetObjCost(def));
         if (ClassAllowsObjects(def) || ClassNeedsPath(def))
-            AddObjectToMap(obj, pos, 0x20);
+            AddObjectToMapByCursor(obj, pos, 0x20);
         else
             SetObjRectFlags(obj, pos, 0x20);
         GetObjectDoorOffset(def, &door);
@@ -210,7 +210,7 @@ int BuildObject(ObjElem* obj, Pos* pos)
 
     UseBricks(GetObjCost(def));
     if (ClassAllowsObjects(def) || ClassNeedsPath(def))
-        AddObjectToMap(obj, pos, 0);
+        AddObjectToMapByCursor(obj, pos, 0);
     GetObjectDoorOffset(def, &door);
     door.x += pos->x;
     door.y += pos->y;

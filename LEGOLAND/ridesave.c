@@ -84,7 +84,7 @@ typedef struct RideDef {
 extern void Joust_A4(void);      /* 0x00407b50 */
 extern void Joust_AC(void);      /* 0x00408c00 */
 extern void Joust_8C(void);      /* 0x00408bc0 */
-extern void Joust_A8(void);      /* 0x00407c30 */
+extern void Joust_Update(void);  /* 0x00407c30 */
 extern void Joust_B0(void);      /* 0x00408580 */
 extern void Joust_Remove(void);  /* 0x00407ad0 */
 extern void Joust_Add(void);     /* 0x004079e0 */
@@ -99,7 +99,7 @@ void Joust_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_a4 = Joust_A4;
         def->cb_ac = Joust_AC;
         def->cb_8c = Joust_8C;
-        def->cb_a8 = Joust_A8;
+        def->cb_a8 = Joust_Update;
         def->cb_b0 = Joust_B0;
         def->cb_remove = Joust_Remove;
         def->cb_add = Joust_Add;
