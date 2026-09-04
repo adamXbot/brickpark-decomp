@@ -1858,7 +1858,99 @@ extern void*      g_car_pal_c;       /* 0x0082c6bc  livery 1 */
  * diff defined before the sum with either shift order (identical to the
  * matching shift order); `off.x + g_map->origin_x + sx` operand order; and
  * swapping the two `c->s?` stores. */
-// WIP-FUNCTION: LEGOLAND 0x00402780  (351 insns by audit's extent, 352 emitted, 1159 vs 1147 bytes, 319 mismatches, 317 surviving the best callee-saved permutation, register-blind LCS 324/351 with 46 original indices in a differing region; the projection register tie-break at index 19)
+/* ROUND OF 2026-09-04 (second pass).  Strict is unchanged at 319 -- with the
+ * body displaced by three instructions from index 19 that number is nearly
+ * meaningless here -- but every structural metric moved and TWO RECONSTRUCTION
+ * ERRORS were found and fixed:
+ *     metric                        was    now
+ *     real (permutation-aware)      317    317
+ *     register+offset-blind LCS     324    326   (of 351)
+ *     orig indices in a bad region   46     42
+ *     bytes                        1159   1153   (orig 1147)
+ *
+ * *** RECONSTRUCTION ERROR 1: `c->sx` was not a flat sum.  The original is
+ *      80 xor ecx,ecx / 81 mov cx,[edx+0x20] / 82 add ecx,eax / 84 add ecx,edi
+ * -- a FLAT three-term left-assoc chain in source order (origin_x, off.x, sx),
+ * identical in shape to `c->sy` two instructions later, which our flat source
+ * already reproduced.  The `Pos t` partial-sum barrier the previous round
+ * imported from anim2.c emitted the other tree (`lea ecx,[edx+edi] /
+ * add ecx,eax`) and was exactly where the global eax/ecx/edx phase first
+ * parted company: with the barrier the original's `mov edx,[0x4bcbf4]` at 77
+ * came out as `mov ecx,...`, and every scratch from there to the end of the
+ * function was one step round the three-cycle.  Plain
+ *      c->sx = g_map->origin_x + off.x + sx;
+ *      c->sy = g_map->origin_y + off.y + sy;
+ * puts indices 74-81 back in the original's registers and takes six bytes off.
+ * (Aggregating the y sum instead, or both, is 323; y-before-x is robl 321.)
+ * NOTE for the sibling anim2.c function this lever came from: DrawBoats' sums
+ * are FOUR-term and VC6 does reassociate those -- all 24 source orders of a
+ * four-term flat sum are byte-identical there -- so the barrier is still
+ * earning its keep in DrawBoats and only this three-term site was wrong.
+ *
+ * *** RECONSTRUCTION ERROR 2: the failed-move restore is a WHOLE-STRUCT
+ * assignment.  The original ends the `SchoolCarMayEnterSquare` failure path
+ *      223 mov eax,[saved.x]  224 mov edx,[swx]   225 mov ecx,[saved.y]
+ *      226 mov [ebx],eax      227 mov eax,[swy]   228 mov [esi+0x10],edx
+ *      229 mov [esi+0x14],eax 230 pop edi  231 pop esi
+ *      232 mov [ebx+4],ecx    233 pop ebp  234 pop ebx
+ * -- BOTH halves of `c->cur` through the one `&c->cur` (ebx) the call argument
+ * already materialised, the second of them after two of the pops.  That is an
+ * 8-byte struct assignment, not two field stores: written field-by-field VC6
+ * sends `.y` through `esi` and emits it before the pops.  `c->cur = saved;`
+ * placed FIRST in the block reproduces the sequence instruction for
+ * instruction (robl 324 -> 326, bad 45 -> 42); placed last it is robl 324, in
+ * the middle 322.  An explicit `CarPos* cur = &c->cur;` scores the same but is
+ * a less likely source line.  The SAVE side is genuinely field-by-field -- the
+ * original's two loads there use DIFFERENT bases ([esi+0x18] at 26 and
+ * [ebx+4] at 32) and sit six instructions apart, which a copy would not do;
+ * `saved = c->cur;` scores robl 329 / bad 39 but emits the two loads adjacent
+ * and through one base, so it is measured-better and NOT SHIPPED.
+ *
+ * *** THE NEXT LEVER, LOCATED PRECISELY: THE "DID SOMETHING" FLAG WANTS TO BE
+ * ITS OWN LOCAL.  Declaring a separate `int flag` instead of reusing `th`
+ * reproduces the original's tail EXACTLY -- `mov edi,1` at 265 and the
+ * `mov edi,[esp+0x10]` reload at 294, and the whole body comes out at
+ * 1147/1147 BYTES, the original's length to the byte, with bad regions 42 ->
+ * 41.  It is rejected only because it takes a FIFTEENTH frame slot
+ * (`sub esp,0x3c` where the original has 0x38), which moves every home and
+ * makes the first divergence 0.  The original's flag SHARES frame E-0x38 with
+ * the first `GetTileDimensions`' height out-param (it stores 0 there at index
+ * 45 and reloads it at 294), so the two are lifetime-coloured together -- and
+ * that cannot happen while `&th` is taken, because an address-taken local is
+ * live function-wide.  Reusing `th` as we do gets the HOME right and the
+ * register wrong; a separate local gets the register right and the home wrong.
+ * Tried and did NOT merge the two slots: `th` alone in a block scope around
+ * the projection, `flag` alone in a block scope running to the end, and both.
+ * A separate `int depth` for the render key (the other `tw` reuse) is 326 and
+ * also grows the frame.  Fourteen frame slots are otherwise all accounted for
+ * (th, tw2, th2, swx, swy, off[2], saved[2], tx, ty, ctx[3]) with `tw` in the
+ * dead argument slot, so the fifteenth has to come from a sharing, not from a
+ * spare.  THIS IS THE HIGHEST-VALUE THING LEFT IN THIS FUNCTION.
+ *
+ * RE-RUN ON THE NEW BASELINE: all 60 legal orders of the five statements
+ * between the second GetTileDimensions and AdjustOffsetForViewMode (the
+ * shipped order is still the best at robl 326 / bad 42; the three orders that
+ * split the two `off` stores are 313 strict but robl 322 / bad 52 -- the same
+ * compensating error the last round recorded); the whole `>>= 9` shift-order
+ * family (`sy >>= 9` first is now robl 328 / bad 39, better than this build
+ * structurally, but 326 strict with the callee-saved rotation at index 8 and
+ * six bytes longer, so still not shipped); `wx` read first; the products with
+ * the shifts folded in (identical to the matching shift order); the tile
+ * dimensions read before the world reads (328).
+ *
+ * WHAT IS LEFT (42 original indices, first divergence 19):
+ *   - 19-40, the projection emission order.  Unchanged and fully understood:
+ *     our register ASSIGNMENT is already the original's (wx=ebx, wy=ebp,
+ *     sx=edi, sy=ebp); only the emission order differs, and the one construct
+ *     that flips it (the order of the two `>>= 9`) also rotates the whole
+ *     callee-saved assignment at index 8.
+ *   - 53-63, the order of the three `-=` adjustments inside the scroll block.
+ *   - 83/93/94, `tw = th2 + sy` -- the original emits it AFTER the `c->sy`
+ *     store into a register that store has just freed (`lea eax,[edx+ebp]`);
+ *     ours emits it before, in place on th2's register.  Moving the source
+ *     line above `c->sy` is robl 319; moving it after the switch is 322.
+ *   - 265/293/294/340, the flag, above. */
+// WIP-FUNCTION: LEGOLAND 0x00402780  (351 insns by audit's extent, 1153 vs 1147 bytes, 319 mismatches, 317 surviving the best callee-saved permutation, register-blind LCS 326/351 with 42 original indices in a differing region; the projection emission order at index 19 and the flag's frame home)
 void StepSchoolCar(SchoolCar* c)
 {
     /* `tw` doubles as the render depth key and `th` as the "this car did
@@ -1913,18 +2005,12 @@ void StepSchoolCar(SchoolCar* c)
     off.x = g_car_images->dx[c->b8] >> 1;
     off.y = g_car_images->dy[c->b8] >> 1;
     AdjustOffsetForViewMode((Offset*)&off);
-    /* The x sum's two leading addends written into the fields of a
-     * non-address-taken `Pos` is the anim2.c BoatingSchool_DrawBoats lever:
-     * it defeats forward substitution, so the source's addend order and the
-     * original's eax/ecx/edx rotation survive.  The y sum must stay flat --
-     * protecting it too costs four strict indices. */
-    {
-    Pos t;
-
-    t.x = g_map->origin_x;
-    t.y = off.x + sx;
-    c->sx = t.x + t.y;
-    }
+    /* BOTH sums are flat three-term left-assoc chains in the original
+     * (`xor ecx,ecx / mov cx,[edx+0x20] / add ecx,eax / add ecx,edi`), and a
+     * flat source reproduces both in source order.  The `Pos t` aggregate this
+     * used to carry emitted the other tree (`lea ecx,[edx+edi] / add ecx,eax`)
+     * and was where the global eax/ecx/edx phase first parted company. */
+    c->sx = g_map->origin_x + off.x + sx;
     c->sy = g_map->origin_y + off.y + sy;
     tw = th2 + sy;
 
@@ -1975,10 +2061,17 @@ void StepSchoolCar(SchoolCar* c)
         c->cur.x = (c->wx + 0x10000) >> 16;
         c->cur.y = (c->wy + 0x10000) >> 16;
         if (SchoolCarMayEnterSquare(&c->cur, &saved) == 0) {
-            c->cur.x = saved.x;
+            /* A WHOLE-STRUCT restore, not two field stores: the original
+             * emits both halves through the one `&c->cur` the call argument
+             * already materialised (`mov [ebx],eax` ... `mov [ebx+4],ecx`,
+             * the second after two of the pops), which is what an 8-byte
+             * struct assignment lowers to.  Written field-by-field VC6 sends
+             * `.y` through `esi` instead.  The SAVE side above is genuinely
+             * field-by-field -- there the original's two loads use different
+             * bases and sit eight instructions apart. */
+            c->cur = saved;
             c->wx = swx;
             c->wy = swy;
-            c->cur.y = saved.y;
             return;
         }
     }

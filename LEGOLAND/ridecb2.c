@@ -1156,8 +1156,74 @@ extern SeatOfs g_jc_seat_ofs[];      /* 0x004b72b0 */
  *      CONCLUSION: the original's late `mov esi,[ebp+8]` is a SCHEDULING
  *      consequence of the colouring, not evidence of a late source read.  A
  *      future pass should stop trying to reproduce it by statement placement.
+ *
+ * PASS N+2 (2026-09-04, lane w8rides).  NO CHANGE (208 strict / 205 real /
+ * register-blind 17), but the residual is now APPORTIONED and the colouring
+ * question is answered as far as source can answer it.
+ *
+ *  (a) THE SHAPE IS ALREADY RIGHT ALMOST EVERYWHERE.  Register-blind distance
+ *      is 17 of 354, so ~190 of the 208 are the ONE eax/ecx swap and nothing
+ *      else: case 0 and case 1 are instruction-for-instruction identical to
+ *      the original with `st` renamed ECX->EAX and {key word, switch index,
+ *      seat} renamed EAX->ECX, and case 3 likewise.  The 17 genuinely
+ *      different instructions are, in full:
+ *        4  the head schedule (our `mov esi,[ebp+8]` hoisted to index 112);
+ *        8  case 0's tx/ty cluster, whose core is the `b->ty` add DESTINATION
+ *           (original `add edx,ebp` -- the shift temp -- against our
+ *           `add eax,edx` -- the table value) and, downstream of it, the
+ *           original's extra `mov ecx,edx` at index 189, which is the ONE
+ *           instruction our body is short (353 against 354);
+ *        2  the `b->dir8` / `b->action = 7` store pair, emitted dir8-first by
+ *           the original and action-first by us;
+ *        2  case 3's `b->x = world.x; b->y = world.y;` -- the original hoists
+ *           BOTH loads above the `b->flags &= ~0x80` and then does both
+ *           stores, we interleave;
+ *        1  case 4/5's `shl,8` then `+0x80`: `add ecx,0x80` in place against
+ *           our `lea eax,[ecx+0x80]`.
+ *      Every one of those five is downstream of the same eax/ecx decision.
+ *
+ *  (b) EMISSION ORDER IS DEFINITIVELY NOT THE LEVER -- re-run loosely and
+ *      INSPECTED this time rather than scored.  With
+ *      `st = *(JcStation* volatile*)&g_jc_stations;` the global load really is
+ *      emitted at index 110 exactly as the original does, and `next` is pushed
+ *      to 111 -- and `st` STILL colours EAX while `next` takes ECX.  The same
+ *      holds with the volatile moved onto `inst->next` instead.  In BOTH
+ *      builds the FIRST-EMITTED load takes ECX, so the tempting rule
+ *      "first emitted wins ECX" is false: allocation precedes scheduling and
+ *      is not observable from the emitted order at all.
+ *
+ *  (c) NEWLY RULED OUT (all measured this pass, baseline 208/205/rb17):
+ *      `next = inst->next;` read AFTER the search loop (209); `next` last in
+ *      the head (224); `key` first (224); the search comparing `inst->key.w`
+ *      inline with `key` copied afterwards (237); the search as a `for` with
+ *      `st = g_jc_stations` in the initialiser (BYTE-IDENTICAL); `st`
+ *      assigned last of the four head statements (BYTE-IDENTICAL).
+ *      `b = inst->bloke;` after the search loop was re-measured and again
+ *      reproduces the original's index-122 `mov esi,[ebp+8]` exactly while
+ *      flipping ebx/ebp -- and `st` is STILL EAX there, so that statement is
+ *      not the colouring lever either (228, rb 18).
+ *  (d) TWO RECONSTRUCTION-ERROR HYPOTHESES TESTED AND REFUTED.  Case 3's
+ *      load/load/store/store is NOT a whole-struct copy: writing it as
+ *      `*(Pos*)&b->x = world;` is BYTE-IDENTICAL to the two field stores, so
+ *      the original's hoist is a scheduling artefact of the colouring, not a
+ *      `b->pos = world;` in the source.  And computing the move line into an
+ *      `int` temp so `b->action = 7;` precedes `b->dir8 = ...` textually does
+ *      NOT flip the emitted store order -- it costs 3 bytes and takes
+ *      register-blind 17 -> 20.
+ *
+ *  WHY THE COLOURING CANNOT BE MOVED FROM SOURCE.  Both webs carry
+ *  loop-weighted references (`st` four inside the station search, the key/seat
+ *  web one there plus its defs inside case 0's five-slot find loop), the
+ *  reference counts are equal to the original's, the live ranges are equal,
+ *  and neither statement order nor loop form nor an extra name changes either.
+ *  Our build sits one notch above the priority threshold the original's build
+ *  sits below, and the input the allocator sees is identical -- which is the
+ *  project's standing diagnostic for "the block under the microscope is the
+ *  wrong place to look", except that here there is no other block: the rest of
+ *  the function is exact.  RECOMMENDED FOR RETIREMENT on the same basis as
+ *  UpdateControllerFromMouseData.
  */
-// WIP-FUNCTION: LEGOLAND 0x00435750  (354/354 insns, 208 mismatches, first diff at index 110: loop-2 `st` colours to EAX and `seat`/case-1 `i` to ECX, the reverse of the original; measured to be a WEIGHT threshold on `st`'s reference count, and the b-after-search read the original needs flips the zero/inst pair between EBX and EBP)
+// WIP-FUNCTION: LEGOLAND 0x00435750  (354/354 insns, 208 mismatches / 205 real / register-blind 17, first diff at index 110: loop-2 `st` colours to EAX and `seat`/case-1 `i` to ECX, the reverse of the original -- ~190 of the 208 are that ONE swap, cases 0/1/3 being otherwise instruction-for-instruction exact; emission order is proven not to be the lever and the reference counts and live ranges match the original's)
 void JungleCruise_Tick(void)
 {
     ObjDef*    def = g_jc_station_cls;

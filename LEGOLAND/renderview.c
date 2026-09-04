@@ -407,6 +407,97 @@ static __inline void EmitObjectSprite(SpriteDesc* desc, Pos at, int key,
  * audit.py mismatch = 381.
  *
  * ===========================================================================
+ * ROUND w8: NOTHING CHANGED HERE.  The body is unchanged from round w7 and
+ * still mismatches 381 with the split prologue intact.  What this round adds
+ * is (a) the exact mechanism of the split-prologue bit, which round w7 also
+ * got wrong, and (b) a further eleven ruled-out families.  Read this before
+ * touching the geometry block again.
+ * ===========================================================================
+ *
+ * *** ROUND w7'S CORRECTION IS ITSELF WRONG: THE REGISTER ASSIGNMENT DOES
+ * CHANGE. ***  w7 says "in every split-breaking variant the register
+ * ASSIGNMENT is identical to the original and only the push PLACEMENT
+ * changes".  Disassemble one and it is not so.  Committed / original:
+ *      64 mov ebp,[g_scroll_x]   sx in ebp
+ *      70 movsx edi,ax           th in edi
+ *      73 movsx ebx,cx           tw in ebx      75 idiv ebx
+ * A split-breaking variant (qx moved ahead of qy):
+ *      64 mov ebx,[g_scroll_x]   sx in EBX
+ *      70 movsx edi,ax           th in edi
+ *      73 movsx ebp,dx           tw in EBP      75 idiv ebp
+ * -- sx and tw SWAP between ebx and ebp.  esi/edi are unchanged in both (the
+ * gate's 1 and 0, and then reused for g_scroll_y and th).
+ *
+ * *** AND IT IS NOT "SINKING" EITHER.  VC6 PUTS EXACTLY TWO PUSHES IN THE
+ * ENTRY HOLES; THE BIT IS WHICH PAIR GETS THEM. ***  The original pushes
+ * esi at 5 and edi at 7 -- BEFORE their own definitions, which are `xor
+ * edi,edi` at 15 and `mov esi,1` at 21 -- interleaved into the four `view`
+ * fills, and pushes ebx at 58 and ebp at 60, interleaved into SetClipping's
+ * argument push.  A broken variant pushes ebx at 5 and ebp at 7 and esi at
+ * 15, edi at 21 -- i.e. esi/edi now land exactly where their definitions are
+ * and ebx/ebp take the two entry holes, even though ebx/ebp are not defined
+ * until 64/73.  Both bodies place two pushes early and two late; the order of
+ * the four pushes is (esi,edi,ebx,ebp) in the original and (ebx,ebp,esi,edi)
+ * in every broken variant.  So the diagnostic remains "print the four push
+ * indices", but the thing being decided is the ORDER of the callee-saved
+ * pushes -- i.e. which pair of values is allocated first -- not whether a
+ * push sinks.
+ *
+ * *** THE GEOMETRY ORDER THE DISASSEMBLY ACTUALLY IMPLIES ***, for whoever
+ * gets the bit: sx (64-65), th (70), tw (71-73), qx (72-75), hw (76,78),
+ * hh (79,81 -- `inc edi / sar edi,1`, destroying th's register after th is
+ * spilled at 77), sy (82-83, `sar esi,8` then `sub esi,edi`), rx (85-87),
+ * th reloaded into ebx (88), qy (89-93), ry (94-98), tile.x (99-100),
+ * tile.y (101); then ylimit (162-167) and xlimit (168-172) after the switch,
+ * ylimit FIRST.  Note that qx and rx are NOT adjacent in the original -- hw,
+ * hh and sy are computed between them -- and that `hh` comes out as an
+ * in-place `inc/sar` on th's register only because th is the SPILLED divisor;
+ * with th in a register (our case) it is `lea r,[th+1] / sar r,1`.  That is a
+ * consequence of the divisor order, not an independent lever.
+ *
+ * RULED OUT THIS ROUND
+ *   - 23 geometry orders with `qx` before `qy`, with both limits late, with
+ *     xlimit late and ylimit in the block, with xlimit in the block at six
+ *     different positions, and with `sx` hoisted to first: EVERY one of them
+ *     reports pushes=ebx@5 ebp@7 esi@15 edi@21.  Only orders with `qy`
+ *     before `qx` AND xlimit still in the block keep esi@5 edi@7 ebx@58
+ *     ebp@60.  (Generator: scratchpad/w8renderview/rvgeo.py, which takes a
+ *     permutation string with a `|` separating the in-block statements from
+ *     the ones emitted immediately before the row loop.)
+ *   - the documented "post-guard inner scope" route to a deferred prologue:
+ *     wrapping the whole geometry block plus the row loop in a `{ }` after
+ *     SetClipping, with sh/sw/sx/sy/th/tw/hw/hh/qx/qy/rx/ry/quad/px/py/
+ *     xlimit/ylimit/rowy declared inside it, is BYTE-IDENTICAL both on the
+ *     committed order and on a broken one (scratchpad/w8renderview/rvsc.py).
+ *   - eleven respellings applied on top of a qx-early order, all of which
+ *     leave pushes=ebx@5 ebp@7: `hh` from `sh`; `th = (int)sh`; `tw =
+ *     (int)sw`; `hw`/`hh` split into two statements; `hh = th; hh = (hh+1)
+ *     >> 1;` (aimed at the original's in-place `inc/sar`); `sy` split into
+ *     two statements; dividing by `sh`; no named `sx` (the shift spelled at
+ *     both uses); no named `sy` likewise.  (scratchpad/w8renderview/rvt.py.)
+ *   - `at.x = hx + tb.left; at.y = hy + tb.top;` (the original's add
+ *     destination is hx's register, 721 `add esi,edx`) at each of the three
+ *     sites and at all of them: BYTE-IDENTICAL.  VC6 canonicalises `a + b`,
+ *     so the add-destination lever recorded in DECOMP.md does not reach this
+ *     site from the operand order alone.
+ *   - all 15 interleavings of `mode = desc->mode;` into the ctx_build /
+ *     ctx_normal field fills (the original emits it BETWEEN the `.obj` and
+ *     `.kind` stores, 663 between 660-662 and 665).  Moving it out of first
+ *     position in the ctx_normal arm takes register-blind 206 -> 149, a
+ *     56-slot jump, but the LCS region total stays at 99, mnemonic-only stays
+ *     at 45, offset-blind goes 228 -> 229/230 and strict costs 2-6.  With the
+ *     ranking measure flat and strict worse it is read as an alignment
+ *     artefact of the register-blind LCS, and NOT applied.  If a later round
+ *     moves the geometry block, re-run it -- it is the only thing in the
+ *     function that moves a blind measure by that much.
+ *
+ * STILL TRUE, AND STILL THE INSTRUCTION FOR THE NEXT ROUND: the best
+ * structural state ever measured is scratchpad/w7renderview/
+ * geo_abcjdefghlikmno.c (region total 88, offset-blind 187, split prologue
+ * kept, strict 817).  ADOPT IT THE MOMENT THE +10 REGION AT ours[98:108] IS
+ * FIXED, and not before.
+ *
+ * ===========================================================================
  * ROUND w7: THE PROLOGUE-SPLIT BLOCKER, MEASURED PROPERLY.  Nothing below was
  * changed -- this round found no variant it believed in that did not cost
  * more strict than it bought structurally -- but the blocker is now pinned
@@ -688,7 +779,7 @@ static __inline void EmitObjectSprite(SpriteDesc* desc, Pos at, int key,
  * geo.py (topological search over the geometry block), try_.py (textual
  * variant runner).
  * ------------------------------------------------------------------------- */
-// WIP-FUNCTION: LEGOLAND 0x0045b180  (903/903 insns, mismatch=381; ONE lever short -- `qx = sx / tw` must precede `qy` to win ebx, and that move un-sinks the ebx/ebp pushes)
+// WIP-FUNCTION: LEGOLAND 0x0045b180  (903/903 insns, mismatch=381; deadlocked on ONE bit -- `qx = sx / tw` must precede `qy` to win ebx, and that move swaps sx/tw between ebx/ebp and un-sinks their pushes)
 void RenderView(void)
 {
     Cell*       visible[3000];
@@ -1430,23 +1521,240 @@ static __inline void TileBoundsAt(int tx, int ty, TileBounds* out)
     GetTileBounds(&p, out);
 }
 
-/* Project a tile's world-pixel corner onto the minimap.  The original adds the
- * scroll offset INTO the TileBounds (the stores back into tb.left/tb.top are
- * visible at every one of the seven call sites), so these take a pointer. */
-static __inline int FullMapX(TileBounds* t, int scale_x)
+/* Project a tile's world-pixel corner onto the minimap.
+ *
+ * The scroll offset is added INTO the TileBounds -- the stores back into
+ * tb.left/tb.top are visible at every one of the nine call sites -- but it is
+ * a SEPARATE statement, not part of the projection: `tb` is address-taken, so
+ * the g_fm_cw/g_fm_ch stores that follow it at four of the sites may alias it
+ * and VC6 cannot hoist a scroll add written inside FullMapX/FullMapY past
+ * them.  Doing so emitted a second load/store pair of tb.left and tb.top at
+ * every sprite site; splitting it out is worth 77 structural slots.  See item
+ * 1 of the round-w8 note above RenderFullMap. */
+static __inline void FullMapScroll(TileBounds* t)
 {
     t->left += (g_scroll_x >> 8);
+    t->top += (g_scroll_y >> 8);
+}
+
+static __inline int FullMapX(TileBounds* t, int scale_x)
+{
     return ((t->left - g_fm_ox) * scale_x) >> 16;
 }
 
 static __inline int FullMapY(TileBounds* t, int scale_y)
 {
-    t->top += (g_scroll_y >> 8);
     return (((t->top - g_fm_oy) * scale_y) >> 16) + g_fm_cy;
 }
 
 /* -------------------------------------------------------------------------
  * 0x004567a0 -- the overview-map draw callback (see the write-up above).
+ *
+ * ===========================================================================
+ * ROUND w8 (894 -> 847 strict, and EVERY structural measure improved with it:
+ * region total 594 -> 498, register+offset-blind 311 -> 266, offset-blind
+ * 468 -> 403, mnemonic-only 280 -> 236, bytes 4199 -> 4223 (original 4225)).
+ * Five reconstruction errors were found by reading the original instruction
+ * by instruction; no codegen-lever grinding was involved in any of them.
+ * ===========================================================================
+ *
+ * 1. *** THE SCROLL OFFSET IS ADDED TO `tb` BEFORE g_fm_cw/g_fm_ch ARE SET,
+ *    NOT INSIDE FullMapX/FullMapY. ***  Worth 77 structural slots and 53
+ *    strict on its own -- by far the biggest single win of the round.
+ *    `tb` is ADDRESS-TAKEN (it is GetTileBounds' out parameter), so a store
+ *    to a GLOBAL may alias it and VC6 may not move a `tb.left` update across
+ *    one.  At the roads site the original emits
+ *        617 sub ecx,0x33          tb.left += HalfOffset(-0x66)
+ *        619 add ecx,edx           tb.left += g_scroll_x >> 8
+ *        621 sub eax,0x2c          tb.top  += HalfOffset(-0x58)
+ *        624 add eax,edx           tb.top  += g_scroll_y >> 8
+ *        622/626 the two stores back into tb
+ *        628-633 g_fm_cw = s_lights->w; g_fm_ch = s_lights->h;
+ *        629/636 the projection multiplies
+ *    -- ONE store per field, both adjustments folded in, and the g_fm_*
+ *    stores strictly after them.  With the scroll add living inside
+ *    FullMapX/FullMapY (i.e. at the PrintScaledSprite argument, after the
+ *    g_fm_* stores) VC6 cannot hoist it past those stores, so it emitted a
+ *    SECOND load/store pair of tb.left and tb.top at every one of the four
+ *    sprite sites.  The same [adjust, store, g_fm_*, project] order holds at
+ *    the single-sprite tail (962-974 vs 975-981 vs 982-1000) and in the ILF
+ *    loop (1068-1082 vs 1083-1086 vs 1096-1106).
+ *    FIXED BY: FullMapX/FullMapY are now PURE (no mutation), and a
+ *    `static __inline void FullMapScroll(TileBounds*)` is called explicitly
+ *    at each of the nine projection sites, immediately after the HalfOffset
+ *    adjustments and before the g_fm_cw/g_fm_ch stores.
+ *    Measured alternatives: folding the scroll into the same statement
+ *    (`tb.left += HalfOffset(sd.dx) + (g_scroll_x >> 8);`) is 12 worse;
+ *    putting FullMapScroll BEFORE the HalfOffset adjustments is 10 better on
+ *    the region total and 26 better on the big-block measure but 13 worse on
+ *    mnemonic-only and 13 worse on strict -- and the disassembly says
+ *    HalfOffset first (964/966 before 969/972), so it is NOT applied.
+ *
+ * 2. *** THE TRACK ARM'S THREE GetTileBounds CALLS SHARE ONE NAMED `Pos`,
+ *    AND THE `if (link)` SITE DOES NOT MUTATE `tile`. ***  All three write
+ *    the SAME slot, frame +0x48 (which is low in the frame -- the named-local
+ *    region -- not in the top-of-frame inline-temporary pool the other four
+ *    Pos sites use), and all three COPY their coordinates in:
+ *        746 mov eax,[esp+0x2c] / 747 mov ecx,[esp+0x30]   (tile.x, tile.y)
+ *        748 mov [esp+0x48],eax / 753 mov [esp+0x54],ecx   (the copy)
+ *        785 mov eax,[esp+0xec] / 791 mov ecx,[esp+0xf0]   (p1.x, p1.y)
+ *        788/795 into the same +0x48 slot
+ *        888 mov edx,[esp+0x2c] / 890 add edx,-0xa / 892 mov [esp+0x48],edx
+ *        889 mov eax,[esp+0x30] / 896 mov [esp+0x54],eax
+ *    The third one reads `tile.x` and writes `tile.x - 0xa` into the COPY, so
+ *    the older note's "the original really does mutate `tile.x` in place" is
+ *    WRONG and is hereby retracted.  Reverting this edit costs 70 structural
+ *    slots (498 -> 568), so it is the second-biggest item of the round.
+ *
+ * 3. *** MoveToEx TAKES THE p1 PROJECTION AND LineTo THE `tile` PROJECTION --
+ *    OURS HAD THEM SWAPPED. ***  esi/edi carry the FIRST (tile) projection
+ *    (784 `mov esi,eax`, 790 `mov edi,ecx`) and are what the stick sprite
+ *    uses (851 `mov edx,esi`, 855 `push edi`) AND what LineTo is given
+ *    (881 `push edi` / 882 `push esi` / 884 call).  ebp and +0x74 carry the
+ *    SECOND (p1) projection (821 `mov ebp,eax`, 830 `mov [esp+0x74],ecx`)
+ *    and are what MoveToEx is given (872 `mov edx,[esp+0x74]` / 877 `push
+ *    ebp` / 879 call).  So the original draws the segment from the far end
+ *    back to the base and then on to the neighbour.  Worth 4.
+ *
+ * 4. *** PASS 4 MAKES ONE 20-BYTE CELL COPY, NOT TWO. ***  The original has
+ *    exactly THREE `rep movsd` in the whole function (indices 202, 350, 526),
+ *    one per pass; we had four, because `c = *chain` and the by-value
+ *    `CellMarkTest(*chain)` each made one.  `CellMarkTest(c)` collapses them.
+ *    NOTE THE COST, because it is a real regression that has to be paid back:
+ *    the original's two Cell slots are +0x54 (passes 1 and 2, coalesced) and
+ *    +0xf4 (pass 4, 20 bytes at the very top of the frame), i.e. the pass-4
+ *    cell does NOT share with the pass-1/2 one; with a single copy ours
+ *    shares at +0x60 and the frame loses 20 bytes.  Every attempt to keep
+ *    both properties failed -- see RULED OUT below.
+ *
+ * 5. *** THE ROADS AND SINGLE-SPRITE SITES GET THEIR POOLED `Pos` BACK. ***
+ *    The two "FRAME BALLAST" demotions round w7 added (building the Pos in
+ *    the function-level `tile`) are gone; the original pools a Pos at both
+ *    (`lea eax,[esp+0xdc]` at 690 for the single sprite, the +0xd4 slot at
+ *    599/610 for roads).  They only existed to buy back the 20 bytes item 4
+ *    now frees.  Reverting either costs 4-7 on register-blind.
+ *
+ * FRAME: 0xfc, and the original is 0xf8 -- FOUR bytes over, and that is the
+ * one property round w7 had right and this round does not.  The arithmetic:
+ * w7's 0xf8 = correct-shape 0x110 minus 20 (the duplicate Cell copy that
+ * should not exist) minus 2x8 (the two Pos demotions that should not exist);
+ * this round removes all three wrongs and lands 4 over.  The missing 4-byte
+ * saving was NOT found: dropping the `cls` local entirely (spelling
+ * `def->ctx` at all five comparisons, the cb call and the e_track_hp test)
+ * leaves the frame at 0xf8 unchanged and trades register-blind 475 -> 462
+ * for offset-blind 468 -> 541, so it is not it either.
+ *
+ * ===========================================================================
+ * THE BLOCK LAYOUT: NOW REDUCED TO ONE BINARY DECISION.  READ THIS FIRST.
+ * ===========================================================================
+ * 303 of the remaining 498 structural slots are still the one displacement,
+ * in three regions: orig[953:1117] (164), orig[714] vs ours[774:866] (92) and
+ * orig[710:711] vs ours[724:771] (47).  Round w8's contribution is to explain
+ * the layout completely.
+ *
+ * *** VC6 LAYS BLOCKS OUT BY TRACE, WITH A LIFO PENDING STACK. ***  Walk the
+ * fall-through chain from the current block; every conditional's TARGET is
+ * pushed on a stack; when the trace ends (an unconditional jmp or a `continue`
+ * jump) pop the stack and start the next trace there.  Label the chain-loop
+ * blocks
+ *      B0  the `test dh,4` block          CB  the callback arm
+ *      J   the desc/sprite/ILF tests      SS1 the single-sprite head
+ *      NEG the HalfOffset negative arm    SD  the sd fill
+ *      TRK the track arm                  SS2/SSJ the single-sprite tail
+ *      ILF the ILF loop                   L   the loop latch (`continue`)
+ * ORIGINAL: trace B0 -> CB -> J -> SS1 -> NEG (jmp), pushing TRK(660),
+ * SD(671), ILF(687), SS2(702); pop SD, pop TRK, pop SS2 (-> SSJ), pop ILF,
+ * then L.  That is exactly 707, 715, 954, 1006, 1117.
+ * OURS: trace B0 -> CB, which ENDS with `jmp J`; pop SD; SD falls through to
+ * J -> SS1 -> NEG; pop SS2 -> SSJ; pop ILF; pop TRK; then L.  That is exactly
+ * what we emit.
+ * *** SO THE ENTIRE 303-SLOT RESIDUAL IS ONE BIT: WHICH ARM OF
+ * `if (def->flags & 0x400)` FALLS THROUGH INTO THE JOIN. ***  In the original
+ * the THEN arm (CB) falls through and the ELSE arm (SD) is sunk past J, SS1
+ * and NEG and jumps BACKWARD to J at index 680 -- which is the middle of the
+ * block [679 mov ebx,eax][680 test ebx,ebx].  In ours the else arm falls
+ * through and the then arm jumps forward.  Nothing else about the layout is
+ * wrong: get that bit and TRK, SS2, ILF and L all follow from the model.
+ *
+ * ===========================================================================
+ * RULED OUT THIS ROUND (all measured at this round's baselines)
+ * ===========================================================================
+ * ON THE LAYOUT BIT.  Eleven spellings of the descriptor selection, none of
+ * which moves the sd fill after the join (the layout signature to watch is
+ * scratchpad/w8renderview/lay.py, which prints the index of the sd fill, the
+ * join, and the track arm's first/last instruction):
+ *   - `desc = &sd;` hoisted above the `if` with the else arm doing only the
+ *     three field stores;  - the arms inverted (sd as the then arm);
+ *   - an `else if (def != 0) {...} else { }` empty trailing arm;
+ *   - `if (cb != 0) desc = cb(...); else continue;`;
+ *   - `if (desc == 0) continue;` duplicated into BOTH arms;
+ *   - a two-case `switch (def->flags & 0x400)`;
+ *   - `if (!(flags & 0x400)) goto plain; ... plain: ...; goto have_desc;`
+ *     with the label OUTSIDE the if body (VC6 inverts the branch polarity and
+ *     lays the sd fill out FIRST, at index 667 -- the mirror image);
+ *   - the same goto form with `have_desc:` INSIDE the if body and the sd fill
+ *     textually after the whole `if` (byte-identical to the committed file);
+ *   - the same again spelled as if/else with `goto have_desc` in the else
+ *     (byte-identical);
+ *   - the sd fill through a `static __inline SpriteDesc* FillPlainDesc(...)`
+ *     (byte-identical);
+ *   - a `?:` with a comma expression for the fill (+2 structural, no move).
+ *   VC6 emits [test][arm1][jmp join][arm2][join] for EVERY one of them: the
+ *   arm that falls through is always the one written first, and the join
+ *   always follows arm2.  Source shape cannot express the original's layout.
+ * THE TAIL-DUPLICATION ROUTE IS REAL BUT DOES NOT MERGE.  Writing the WHOLE
+ *   remainder of the loop body textually in both arms DOES sink the sd fill
+ *   past the join (signature sd=876 > join=690, and the big-displacement
+ *   measure falls 320 -> 173), but VC6's cross-jump does not merge the two
+ *   copies: the body grows from 1154 to 1339 instructions.  The reason is
+ *   visible in the output -- in the sd arm VC6 forwards the just-stored
+ *   `sd.sprite` into the `desc->sprite == 0` test (`test esi,esi`) and folds
+ *   `desc == 0` on `&sd`, so the two copies are not identical machine code.
+ *   A shorter duplication (down to a shared `goto ilf_loop;`) sinks the block
+ *   too (sd=757 > join=682) and still does not merge (1233 instructions).
+ *   The original's join at 680 is a genuinely SHARED block, not a merge
+ *   artefact.  Whoever picks this up: the bit is decided before layout, so it
+ *   has to come from register allocation or from a CFG shape not yet tried.
+ * ON THE CELL COPY.  Two by-value expansions of `*chain` in ADJACENT
+ *   statements DO share one pool temporary (adding `CellObj(*chain)` next to
+ *   `CellMarkTest(*chain)` keeps the copy count at four), but six expansions
+ *   spread over the loop body do NOT: routing every pass-4 cell read through
+ *   `CellObj`/`CellBaseX`/`CellBaseY` by-value helpers and deleting `c`
+ *   entirely gives NINE `rep movsd` and a 0x15c frame.  Reading `chain->obj`
+ *   / `chain->base.x` directly while keeping `CellMarkTest(*chain)` gives the
+ *   right copy count (three) but the pool temp then coalesces with the
+ *   pass-1/2 cell (frame 0xe4) and costs 4 structural slots and 10 strict.
+ * ALSO MEASURED AND NOT APPLIED: `g_fm_cw` before `g_fm_ch` in the ILF loop
+ *   (the original's emitted order, 1084 before 1086) is identical on every
+ *   structural measure and 4 bytes worse; three spellings of the ILF loop
+ *   (`while` with the count expression in the condition, a `for`, and a
+ *   second textual copy of the `desc->sprite + 8` read for the `sprites[i]`
+ *   load) are all BYTE-IDENTICAL, so the original's loop-top `mov eax,[eax]`
+ *   -- it keeps `desc->sprite + 8` as a loop-carried ADDRESS and re-loads the
+ *   pointer through it every iteration, where we forward the value from the
+ *   bottom test -- is not reachable by respelling the loop; FullMapScroll
+ *   writing `top` before `left` costs 29; moving FullMapScroll before the
+ *   HalfOffset pair at the roads site costs 13.
+ *
+ * Tooling added this round, in scratchpad/w8renderview/:
+ *   m.py     one line per variant: structural region total, the >=30-slot
+ *            "big" part of it, strict, all four blind measures, byte count,
+ *            FRAME SIZE, first divergence, ESCAPES and the callee-saved push
+ *            indices -- the single command to rank anything;
+ *   lay.py   the block-layout signature (sd fill / join / track arm indices)
+ *            for the original and any variant, which is what reduced the
+ *            residual to the one bit above;
+ *   cfg.py / cfgc.py  predecessor+successor maps with instruction indices for
+ *            the original and for a compiled variant -- this is how the trace
+ *            model was derived;
+ *   dumpo.py the original with index, address and resolved branch targets;
+ *   mk.py    named textual edits and their combinations;
+ *   rvgeo.py / rvsc.py / rvt.py  RenderView geometry-order, scope and
+ *            spelling variants;
+ *   fm2.py   frame slot map (note: laneG/fm.py's esp simulation does not
+ *            model __stdcall callees popping their own arguments, so every
+ *            slot it reports after the first COM/import call is wrong; the
+ *            offsets in this note were read off the disassembly by hand).
  *
  * ===========================================================================
  * ROUND w7 (strict 881 -> 894, but EVERY structural measure improved and the
@@ -1796,7 +2104,7 @@ static __inline int FullMapY(TileBounds* t, int scale_y)
  *              graph -- this is what found RenderView's ordering.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004567a0  (1161/1161 insns, mismatch=894; chain-loop BLOCK LAYOUT -- 311 of 601 structural slots are one 164-instruction displacement)
+// WIP-FUNCTION: LEGOLAND 0x004567a0  (1161/1161 insns, mismatch=847; the residual is ONE layout bit -- 303 of 498 structural slots: the original's 0x400 else-arm is sunk past the join, see the note)
 void RenderFullMap(void)
 {
     Elem*       e_track;
@@ -1895,6 +2203,7 @@ void RenderFullMap(void)
             tcode = g_map_rows[y][x].tile;
             set = g_tile_info[tcode].set;
             TileBoundsAt(x, y, &tb);
+            FullMapScroll(&tb);
             mx = FullMapX(&tb, scale_x);
             my = FullMapY(&tb, scale_y);
             if ((c.flags & 0x10) && (c.flags & 0x80)) {
@@ -1964,6 +2273,7 @@ void RenderFullMap(void)
     tile.y = 0;
     tile.x = 0;
     GetTileBounds(&tile, &tb);
+    FullMapScroll(&tb);
     mx = FullMapX(&tb, scale_x);
     my = FullMapY(&tb, scale_y);
     while (tobj) {
@@ -1980,9 +2290,10 @@ void RenderFullMap(void)
     for (chain = GetFirstRenderObject(); chain; chain = GetNextRenderObject(chain)) {
         bpos = chain->base;
         c = *chain;
-        if (CellMarkTest(*chain)) {
+        if (CellMarkTest(c)) {
             TileBoundsAt((c.base.x & ~7) + 4, (c.base.y & ~7) + 4, &tb);
             i = ((c.base.y >> 3) << 5) + (c.base.x >> 3);
+            FullMapScroll(&tb);
             g_map_marks[i].x = FullMapX(&tb, scale_x);
             g_map_marks[i].y = FullMapY(&tb, scale_y);
         }
@@ -2000,16 +2311,13 @@ void RenderFullMap(void)
                 continue;
             if ((road->kind & 0xf) != 5)
                 continue;
-            /* FRAME BALLAST, not the original's shape: the original pools a
-             * Pos here (its `lea eax,[esp+0xd4]` at index 610).  Dropping the
-             * named `spr` above costs an 8-byte spill home, and with the
-             * chain loop's blocks laid out the way VC6 lays ours out that is
-             * the only way back to the original's 0xf8 frame.  See the note. */
-            tile.x = bpos.x;
-            tile.y = bpos.y;
-            GetTileBounds(&tile, &tb);
+            /* Pooled Pos, as the original has here (its `lea eax,[esp+0xd4]`
+             * at index 610).  Round w7's "frame ballast" demotion of this
+             * site is gone; see item 5 of the round-w8 note above. */
+            TileBoundsAt(bpos.x, bpos.y, &tb);
             tb.left += HalfOffset(sd.dx);
             tb.top += HalfOffset(sd.dy);
+            FullMapScroll(&tb);
             g_fm_cw = s_lights->w;
             g_fm_ch = s_lights->h;
             PrintScaledSprite(s_lights,
@@ -2023,6 +2331,7 @@ void RenderFullMap(void)
         if (cls == e_track || cls == e_track_h || cls == e_track_h0
             || cls == e_track_hp || cls == e_castle) {
             Pos   p1;
+            Pos   tp;
             float h0, h1;
             int   link;
 
@@ -2039,12 +2348,18 @@ void RenderFullMap(void)
                     h0 = 0.0f;
                 if (h1 < 0.0f)
                     h1 = 0.0f;
-                GetTileBounds(&tile, &tb);
+                tp.x = tile.x;
+                tp.y = tile.y;
+                GetTileBounds(&tp, &tb);
                 tb.top += HalfOffset(-(int)h0);
+                FullMapScroll(&tb);
                 x0 = FullMapX(&tb, scale_x);
                 y0 = FullMapY(&tb, scale_y);
-                GetTileBounds(&p1, &tb);
+                tp.x = p1.x;
+                tp.y = p1.y;
+                GetTileBounds(&tp, &tb);
                 tb.top += HalfOffset(-(int)h1);
+                FullMapScroll(&tb);
                 mx = FullMapX(&tb, scale_x);
                 my = FullMapY(&tb, scale_y);
                 if (cls != e_track_hp) {
@@ -2059,12 +2374,14 @@ void RenderFullMap(void)
                 PushRenderingStatusAndUnlockVideoSurface();
                 g_draw_surface->vtbl->GetDC(g_draw_surface, &hdc);
                 old = SelectObject(hdc, pen);
-                MoveToEx(hdc, x0, y0, 0);
-                LineTo(hdc, mx, my);
+                MoveToEx(hdc, mx, my, 0);
+                LineTo(hdc, x0, y0);
                 if (link) {
-                    tile.x = tile.x - 0xa;
-                    GetTileBounds(&tile, &tb);
+                    tp.x = tile.x - 0xa;
+                    tp.y = tile.y;
+                    GetTileBounds(&tp, &tb);
                     tb.top += HalfOffset(-(int)h0);
+                    FullMapScroll(&tb);
                     LineTo(hdc, FullMapX(&tb, scale_x),
                            FullMapY(&tb, scale_y));
                 }
@@ -2097,17 +2414,12 @@ void RenderFullMap(void)
         if (desc->sprite == 0)
             continue;
         if (!(*(unsigned int*)((char*)desc->sprite + 0x10) & 0x8000)) {
-            /* FRAME BALLAST, like the roads site above -- and round w7
-             * corrected the older claim that used to stand here: the original
-             * pools a Pos at ALL FOUR of this loop's TileBoundsAt sites
-             * (`lea` of 0xd4 roads, 0xdc HERE, 0xe4 mark grid, 0xa0 ILF), so
-             * building the Pos in the function-level `tile` is wrong at every
-             * one of them.  Two of the four have to be demoted anyway to hold
-             * the original's 0xf8 frame; which two does not matter (all the
-             * choices measure within 1).  See the note above. */
-            tile.x = bpos.x;
-            tile.y = bpos.y;
-            GetTileBounds(&tile, &tb);
+            /* Pooled Pos, as the original has here (its `lea eax,[esp+0xdc]`
+             * at index 690).  The original pools one at ALL FOUR of this
+             * loop's TileBoundsAt sites -- 0xd4 roads, 0xdc HERE, 0xe4 mark
+             * grid, 0xa0 ILF -- and round w8 restored the two that round w7
+             * had demoted to the function-level `tile` as frame ballast. */
+            TileBoundsAt(bpos.x, bpos.y, &tb);
             {
                 int gdx = desc->dx;
                 int gdy = desc->dy;
@@ -2115,6 +2427,7 @@ void RenderFullMap(void)
                 tb.left += HalfOffset(gdx);
                 tb.top += HalfOffset(gdy);
             }
+            FullMapScroll(&tb);
             g_fm_cw = ((Sprite*)desc->sprite)->w;
             g_fm_ch = ((Sprite*)desc->sprite)->h;
             PrintScaledSprite((Sprite*)desc->sprite,
@@ -2139,6 +2452,7 @@ void RenderFullMap(void)
             TileBoundsAt(bpos.x, bpos.y, &tb);
             tb.left += HalfOffset(desc->dx) + HalfOffset(lo.x);
             tb.top += HalfOffset(desc->dy) + HalfOffset(lo.y);
+            FullMapScroll(&tb);
             g_fm_ch = layer->h;
             g_fm_cw = layer->w;
             PrintScaledSprite(layer,

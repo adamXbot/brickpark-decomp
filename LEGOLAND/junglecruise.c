@@ -931,6 +931,31 @@ extern unsigned char g_jc_river_tiles[16][25];               /* 0x004b72e4 */
  *   - walking the table a row at a time (`t += 5` in the outer increment with
  *     `t[j]` inside): 110.
  */
+/* PASS w8rides (2026-09-04).  NO CHANGE (27 strict / 23 real / register-blind
+ * 2).  The committed body is CONFIRMED as the better one on every metric,
+ * which settles a doubt the paragraphs above leave open.
+ *  - Re-measured side by side: committed 27 strict / 23 real / rb 2, honest
+ *    (both key stores before the call) 67 / 59 / rb 3.  The honest form is
+ *    worse register-blind too, not just strictly, so the "it is the honest
+ *    source, we keep the other one only because audit counts strict" framing
+ *    should be softened: by the structural metric the committed shape is also
+ *    the closer one.
+ *  - The whole register-blind residual is exactly TWO movements: our
+ *    `mov byte [esp+0x13],bl` (key.b.y) sits at index 16 where the original
+ *    has it at 10, and our `mov ecx,[esp+0x1c]` (x) sits at index 54 where
+ *    the original has it at 52.  Everything else in 116 instructions is the
+ *    ebx<->ebp swap the permutation search already prices at 4.
+ *  - NEWLY RULED OUT: an `unsigned char yb = (unsigned char)y;` written at
+ *    the top and stored into key.b.y before the call -- BYTE-IDENTICAL to the
+ *    plain honest form (67), so a narrowing temp is not a way to keep `y` in
+ *    ebx while moving the store; `t = g_jc_river_tiles[mask];` hoisted above
+ *    the JcWater_FindAt call to give ebx an early definition and stop the
+ *    `push ebx` sinking (111, rb 11 -- it defines ebx early but reschedules
+ *    the whole head); and writing the key as one union word,
+ *    `key.w = x | (y << 8)`, before the call (113, rb 9, and 4 bytes short).
+ *  - So the "why does the original's `y` deserve a callee-saved register"
+ *    question stands, and the answer is not reachable by narrowing the temp,
+ *    by seeding ebx earlier, or by writing the key as a word. */
 // WIP-FUNCTION: LEGOLAND 0x00436dc0  (116/116 insns, 367/367B, 27 by audit; ebx<->ebp tie-break + one store position)
 void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
 {
@@ -1460,8 +1485,69 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * definition order, or the original's head has a shape that reorders the
  * definitions without moving the computations -- and no such shape has been
  * found in two passes.  The two-attractor structure recorded above is intact.
+ *
+ * PASS N+2 (2026-09-04, lane w8rides) -- RESIDUAL RE-APPORTIONED.  The 112 is
+ * NOT one problem.  An index-for-index read of the whole body splits it:
+ *     31  the two `b->sx`/`b->sy` sums and the AdjustBlokePosition sums
+ *         (indices 111-148) -- the ox/oy addend-order wall described above;
+ *     22  the loop-A overlay block (247-268);
+ *     59  the loop-B overlay block (360-377) AND ITS CONSEQUENCE: from index
+ *         378 to the end (`xor edx,edx` of the `next:` guard through the
+ *         epilogue) ours is a pure THREE-SLOT SHIFT of the original, every
+ *         instruction identical, because the loop-B overlay lays its blocks
+ *         out in the other order.  Those 44 tail mismatches are free the
+ *         moment the overlay layout is right.
+ * So the overlay layout, not the sum order, is 81 of the 112 -- and it is one
+ * single phenomenon appearing twice.
+ *
+ * THE OVERLAY LAYOUT, EXACTLY.  Both loops end each iteration with
+ *   `if (i != 0) { if (i != K) goto skip; code = frame+X; } else code = frame+Y;`
+ *   `PrintSprite(sprites[code & 0xff], b->sx, b->sy, 0, 0);`
+ * with (K,X,Y) = (2,0x20,0x10) in loop A and (1,0x10,0x20) in loop B.  Both
+ * builds emit the same five instructions for the two arms; they differ ONLY in
+ * which arm carries the `jmp`:
+ *     original  [then: mov/add 0x20] -> FALLS INTO the shared PrintSprite ->
+ *               loop tail -> loop exit ... then the else arm (mov/add 0x10 +
+ *               `jmp` BACK into the shared block) is EXILED past the end of
+ *               the loop's fall-through trace.  In loop A that puts it between
+ *               the two loops (0x433091); in loop B it puts it AFTER THE
+ *               FUNCTION'S `ret` (0x4332ab, indices 419-421).
+ *     ours      [then: mov/add 0x20 + jmp] [else: mov/add 0x10] [shared block]
+ *               -- i.e. VC6 emits then, else, merge, always in that order.
+ * The original's shape is a TRACE layout: then-arm, merge, and everything the
+ * merge falls into, emitted first; the else arm emitted last as a cold block.
+ * NEWLY RULED OUT for reaching it (17 spellings, all of which collapse to just
+ * THREE distinct objects -- 112, 115 or ~200):
+ *   - `goto print_a;` at the end of the then arm with the else arm written as
+ *     straight-line fall-through into a labelled print (the documented "goto
+ *     target laid out before the fall-through block" lever): BYTE-IDENTICAL to
+ *     the baseline, in loop A alone, loop B alone and both.
+ *   - the PrintSprite call written out in BOTH arms so VC6 must cross-jump:
+ *     199 and ESCAPES.  VC6 does cross-jump, but it glues the merged tail to
+ *     the arm that comes LAST in source order and turns the FIRST into the
+ *     jmp -- the exact mirror of the original, every time.
+ *   - the same with a trailing `goto skip;` in the then arm so the trace can
+ *     continue into the loop tail (four variants): 201, all ESCAPES.
+ *   - `if (i==0) A else if (i==K) B`, `if (i==0) A else {guard; B}`, a
+ *     `switch (i)`, a default-then-override (`code = frame+Y;` before the if),
+ *     the reversed default, `i != 0 && i != K` with a ternary addend, and an
+ *     `if (i == 1) goto skip;` pre-guard: 115, 115, 203, 204, 204, 202, 205.
+ *   - THE REACHABILITY PROBE: the `for` loop closed, the seat-0 arm written
+ *     TEXTUALLY AFTER the loop and re-entered with a `goto` back INTO the loop
+ *     body (legal C, and the only creation order that could put the block
+ *     after the loop tail): VC6's front end normalises it back into the plain
+ *     if/else and emits 115, the same object as the natural `if (i==0)` form.
+ * CONCLUSION ON THIS CLUSTER: VC6 SP3 at /O2 /Gy /Gd emits [then][else][merge]
+ * for a two-armed assignment feeding a shared call, and NOTHING in the source
+ * moves the else arm out of line -- not goto direction, not duplication, not
+ * a switch, not a jump into the loop.  The original's exiled cold block is
+ * therefore evidence that its translation unit was NOT laid out by this pass
+ * ordering, and 81 of the 112 mismatches are downstream of that one fact.
+ * That makes this function a RETIREMENT CANDIDATE: the remaining 31 (the
+ * ox/oy addend order) was already exhausted over three passes, and the 81 is
+ * now shown to be unreachable from source rather than merely unfound.
  */
-// WIP-FUNCTION: LEGOLAND 0x00432d00  (422/422 insns, 1457/1466B, 112 by audit / 44 structural; the ox/oy addend order and two PrintSprite scheduling clusters)
+// WIP-FUNCTION: LEGOLAND 0x00432d00  (422/422 insns, 1457/1466B, 112 by audit / 110 real / register-blind 25; apportioned 31 = the ox/oy addend order + 81 = the overlay block layout, whose 44-mismatch tail is a pure 3-slot shift -- VC6 emits [then][else][merge] where the original exiles the else arm past the loop, and 17 spellings collapse to three objects)
 void JungleCruise_UpdateRiverAnim(int mode)
 {
     Pos     scr;

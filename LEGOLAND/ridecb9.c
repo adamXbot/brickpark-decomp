@@ -317,6 +317,26 @@ void* memset(void*, int, unsigned int);
  * listed, is that we emit the g_jc_stations load and the `lea` scratch base
  * where the original emits `xor ecx,ecx` and the late `o` load -- i.e. the
  * same single missing construct, just moved ten instructions later. */
+/* PASS w8rides (2026-09-04).  NO CHANGE (15 strict, 15 real under the
+ * IDENTITY permutation, register-blind 8).  Read fresh against the original
+ * the residual is ONE window, indices 32-53, and it is exactly the trade the
+ * marker names, now stated as a fact about the ORIGINAL rather than about our
+ * choice: the original needs eax for the `o` argument (`mov eax,[esp+0x14]`
+ * at index 47, `push eax` at 49, both scheduled INTO the rider clears at
+ * 48/50/51), so its function-wide zero web cannot survive there and VC6
+ * rematerialises a SECOND zero, `xor ecx,ecx` at index 42, purely to carry
+ * the three `mov [esi+0x30/0x34/0x38],ecx` stores.  That is a register-
+ * pressure event inside the scheduler, not a construct: there is no source
+ * expression whose value is "a zero that must not be the zero already in
+ * eax".  Our memset spelling instead materialises a base pointer
+ * (`lea ecx,[esi+0x30]` hoisted all the way to index 32) and keeps the zero
+ * in eax, which is why the `o` load slides down to index 51.  The corpus
+ * scan, the 2450-point placement search and the whole memset family recorded
+ * above are consistent with that reading and it explains why they all land on
+ * either 15 (base wrong, zero right) or 102 (base right, zero wrong): those
+ * are the only two assignments a single zero web permits, and the original
+ * has two zero webs.  RECOMMENDED FOR RETIREMENT on that basis -- 15 of 141
+ * with the byte length and instruction count already exact. */
 // WIP-FUNCTION: LEGOLAND 0x00434f90  (141/141 insns, 438/438 bytes, 15 by audit; first diff at index 32 -- one allocator decision: the original clears the riders off esi from a rematerialised `xor ecx,ecx` while keeping `o` in eax, our memset buys the eax and pays a `lea` base, plain stores buy the base and pay the eax)
 void JungleCruise_Add(void* o, Pos* p)
 {

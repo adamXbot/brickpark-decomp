@@ -2089,14 +2089,19 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   inverted guard — all produced BYTE-IDENTICAL objects. **A misplaced block can
   only be bought with register allocation or branch shape, never with
   statement order.**
-- **The split prologue is a push-SINKING decision, not a register-preference
-  one — and the previously recorded cause for `RenderView` is FALSIFIED.** The
-  note had claimed the geometry block's demand for esi/edi pushes the gate
-  constants into ebx/ebp; in every split-breaking variant the register
-  ASSIGNMENT is identical to the original and only the push PLACEMENT changes.
-  The trigger is one statement: one division moving ahead of the other.
-  **Diagnose a split prologue by printing the four callee-saved push indices,
-  not by asking which register holds what.**
+- **The split prologue: BOTH earlier explanations are wrong (corrected twice).**
+  It is not "the geometry block demands esi/edi", and it is not "push sinking
+  with an identical register assignment" — the assignment DOES change (two
+  values swap between ebx and ebp in every split-breaking variant). What VC6
+  actually does is put exactly TWO pushes in the entry holes among the leading
+  fills and two later; the original pushes one pair BEFORE their own
+  definitions and the other pair late, while every broken variant pushes the
+  other pair first. **The bit being decided is the ORDER of the four
+  callee-saved pushes, i.e. which pair is allocated first.** Diagnose by
+  printing the four push indices AND which register holds what — neither alone
+  is enough. Ruled out: 23 geometry orders, the post-guard inner-scope route
+  (byte-identical), eleven respellings on top of the best order, and all 15
+  interleavings of one field fill.
 - **Detecting an ABSENT named local:** two loads of the same pointer field
   with no call between them but with intervening global stores prove there is
   no named local, since a named local is not aliased by those stores and
@@ -2167,6 +2172,145 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   sum closed indices in three different functions across two files. A
   one-term second field is inert, and the same barrier applied to the paired
   axis is usually catastrophic.
+
+- **ALLOCATION PRECEDES SCHEDULING — that door is shut.** Tested loosely on
+  `JungleCruise_Tick`: with a volatile pin the contested global load really is
+  emitted at the original's exact index, and the value STILL takes the wrong
+  register. So no amount of moving an emission point can change a colouring.
+  This retires the whole "get the load to the original's index" family.
+- **VC6 always emits `[then][else][merge]`, and that makes some block layouts
+  UNREACHABLE.** `UpdateRiverAnim`'s original lets one arm fall into the
+  shared call and EXILES the other past the end of the loop's fall-through
+  trace (in one loop between the two loops, in the other AFTER the function's
+  `ret`). 17 spellings collapse to three objects: the goto-target lever is
+  byte-identical; writing the call in both arms makes VC6 cross-jump but it
+  always glues the merged tail to the LAST arm and exiles the FIRST — the
+  exact mirror; and a reachability probe with a `goto` back into the loop body
+  is normalised by the front end into the plain if/else. **81 of that
+  function's 112 is therefore unreachable, not unfound.**
+- **A residual can be MISAPPORTIONED — re-derive the breakdown before
+  attacking it.** That same function's note had blamed "addend order plus two
+  scheduling clusters"; in fact 44 of the mismatches are a pure three-slot
+  shift of instruction-identical code, a consequence of the block layout, and
+  the sums account for only 31.
+- **CROSS-FILE TWIN, and it is VC6's canonical form:** `Carousel_Tick`
+  indices 228-231 and `SpiderRide_Activate` 195-198 are byte-for-byte the same
+  difference — two `movsx` off +0x3c/+0x3e, descending emission, `shl edx,1` /
+  `add eax,eax` split — arrived at from two independently written sources. 39
+  spellings across the two files all tie or ESCAPE. Treat it as one problem.
+- **THE COLLECTIVE TARGET — where the next pass should go.** `SpiderRide`
+  87-97, `SpinningBarrels` 113-132, `PlaneRide` 86-96 and 212-219,
+  `SafariRide` 86-124 and `Carousel_Tick` 123-127 are all the SAME
+  slot-placement window: VC6 and the original disagreeing about which free
+  slot a constant push or an independent load falls into, with identical
+  instructions and registers either side. No individual lever found, but
+  **whoever cracks it collects five functions at once** — a better use of a
+  lane than any one of them alone.
+- **Two negatives worth keeping:** a load/load/store/store pair is NOT
+  necessarily a whole-struct copy (`*(Pos*)&b->x = world;` was byte-identical
+  and did not explain it), and a same-difference rewrite that holds the byte
+  length in one function can run 17-19 bytes OVER in its sibling — so a
+  cross-ride transfer must be re-measured, never assumed.
+
+- **CHECK EVERY `__asm` OPERAND NAME AGAINST MASM'S RESERVED WORDS — this
+  found a live correctness bug.** In `Draw3DPersonModel` a local named `cr2`
+  passed to a fixed-point macro expanded to `__asm { mov cr2, eax }`; MASM
+  resolved the bare name to the CONTROL REGISTER and emitted the privileged
+  `0f 22 d0`. The local was never written, and the following comparison read
+  an uninitialised dead-argument slot. **The shipped body would have faulted
+  at ring 3.** Reserved names to avoid: `cr0`-`cr4`, `dr0`-`dr7`, `tr3`-`tr7`,
+  `st`, and the segment names. Signature in a `/FAc` listing: `0f 22 d0
+  mov cr2, eax` where you expected `mov DWORD PTR _x$[ebp], eax`. Swept the
+  tree 2026-09-04: the only other reserved-name local is an `st` in
+  schoolcar.c, which is never an `__asm` operand and whose file is fully
+  exact, so no other live instance exists — but re-run the sweep whenever a
+  new `__asm` file appears.
+- **A 12-byte STRUCT COPY is not the same lever as three field assignments.**
+  The copy makes VC6 pin the source address in one register and dereference it
+  (`mov ebx,ecx` then `[ebx]`/`[ebx+4]`/`[ebx+8]`); field-wise assignment folds
+  the first field into the scaled address and emits no copy. It also decides
+  WHICH field survives in a register, and it reproduced an a/b pool-slot swap
+  between two loops. Diagnostic: a multiset diff of the block showing the body
+  short by exactly two `mov R,R`.
+- **A commutative operand order that "canonicalises" under one fetch shape can
+  become LOAD-BEARING under another — re-test association after any structural
+  change.** `(z+x)` versus `(x+z)` had been inert for months and, once a
+  struct copy replaced field-wise fetches, was worth ~180 mismatches: the
+  wrong order loads the fields into the wrong registers and forces a reload
+  the original reuses.
+- **Block scope on an ADDRESS-TAKEN ARRAY is an ALIAS lever, not only a frame
+  lever.** At function level VC6 will not hoist a load through an unrelated
+  pointer above a store into the array; moving the declaration into the loop
+  restored the original's three-deep software pipeline at four sites. Depth
+  and extent of the block are inert (one block spanning both loops, one per
+  loop, and a deeper block are byte-identical), and block-scoping plain
+  scalars is completely inert.
+- **VC6 emits integer `mov`s for a float member copy**, so a `float` member
+  and an `int` member read through a cast are byte-identical — the field type
+  is not observable at such a site.
+
+- **VC6'S BLOCK LAYOUT ALGORITHM, recovered: trace with a LIFO pending
+  stack.** Follow the fall-through chain; push every conditional's target onto
+  a stack; when a trace ends, POP. The model predicts both the original's
+  layout and ours exactly on a 1161-instruction function, from the same input
+  — so a layout residual reduces to which arm of one conditional falls through
+  into the join. On `RenderFullMap` that single bit accounts for a 303-slot
+  residual: the original's then-arm falls through and the else-arm is sunk
+  past three later blocks, jumping BACKWARD into the middle of a two-
+  instruction pair. Ruled out for that bit: eleven spellings of the selection
+  (hoisted pointer, inverted arms, empty trailing `else`, guarded early break,
+  duplicated test, a two-case `switch`, two `goto` forms, an inline filler, a
+  `?:` with a comma) — VC6 emits `[test][arm1][jmp join][arm2][join]` for every
+  one. Full tail duplication DOES sink the block but the copies never merge,
+  because VC6 forwards a just-stored field into the else arm's tests; the
+  original's join is genuinely shared, not a merge artefact.
+- **`RenderFullMap`: five reconstruction errors, 894 -> 847 with every
+  structural measure improving** (region total 594 -> 498, register+offset-
+  blind 311 -> 266, bytes 4199 -> 4223 of 4225). (1) The scroll offset is
+  added to the bounds BEFORE the cell-size globals, not inside the projection
+  helpers — worth 77 structural slots, because the bounds struct is
+  address-taken so a store to a GLOBAL may alias it and VC6 cannot move a
+  field update across one; the wrong placement emitted a second load/store
+  pair at all four sprite sites. (2) Three calls share ONE named `Pos`, and
+  the last reads a field and writes the adjusted value into the COPY — which
+  retracts an earlier note's "the original really does mutate it in place".
+  (3) Two projections were swapped between two API calls. (4) There is ONE
+  20-byte cell copy, not two (the original has exactly three `rep movsd`).
+  (5) Two "frame ballast" demotions from the previous round are removed — the
+  original pools a `Pos` at those sites too. **Cost stated honestly: the frame
+  is now 4 bytes over, because the previous exact frame size was the correct
+  shape minus three things that do not exist.**
+
+- **VC6 fully REASSOCIATES a FOUR-term flat sum but leaves a THREE-term one
+  in SOURCE ORDER.** All 24 source orders of a four-term sum are
+  byte-identical, sorted by descending definition point; a three-term sum
+  keeps what you wrote. **This is why the partial-sum aggregate barrier is
+  right in one function and wrong in its sibling** — apply it only to
+  four-term sums. Getting this wrong was a committed error in `StepSchoolCar`
+  (the barrier emitted `lea ecx,[edx+edi] / add ecx,eax` where the original
+  has the flat `xor ecx,ecx / mov cx,[..] / add ecx,eax / add ecx,edi`), and
+  it was exactly where the whole-function scratch phase parted company.
+- **A one-step eax/ecx/edx phase can be fixed by caching a REAL value in a
+  local** — one that is an actual load, such as an indexed global, not a
+  rename of an existing value (which VC6 copy-propagates). Worth 27 indices in
+  `TempleSlide_Update`, running as a clean three-cycle through two whole
+  switch cases.
+- **Whole-struct assignment versus field-by-field is visible in the BASE
+  REGISTER:** an 8-byte struct store goes through one materialised pointer,
+  while field stores let VC6 pick a different base per field — and the struct
+  form can place the second store AFTER two of the epilogue pops. A save and
+  its matching restore can legitimately differ: one field-by-field (two loads
+  on different bases), the other a whole-struct copy.
+- **Where the split-shift form applies (`sx >>= 9; sy >>= 9;` as separate
+  statements), the PRODUCT order stops mattering entirely and only the SHIFT
+  order does** — confirmed independently in two functions.
+- **"Re-test committed shims" paid again:** once an unrelated phase error was
+  fixed, a previously winning `unsigned char` cache became wrong and the
+  plain field read beat it. **A shim earns its place only against the current
+  baseline.**
+- **A constant frame SHIFT can make the strict count meaningless:** in
+  `AnimApplyPart` indices 22-216 are identical instruction for instruction
+  under a uniform +4 offset, so the 182 massively overstates the distance.
 
 Recorded so they are not re-derived; several cost hundreds of measured variants:
 

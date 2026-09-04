@@ -621,7 +621,45 @@ void Carousel_TickInstances(void)
  * experiment worth running is a diagnostic one: perturb case 5 or case 13
  * (whose webs also live in ebx and ebp) and see whether case 1's colouring
  * moves at all.  If it does, the driver is function-wide and case 1 is the
- * wrong place to look. */
+ * wrong place to look.
+ *
+ * PASS w8rides (2026-09-04).  NO CHANGE (29 strict / 8 real / register-blind
+ * 3), but the diagnostic the paragraph above asks for HAS NOW BEEN RUN, and
+ * it comes back negative.
+ *
+ *  THE DRIVER IS NOT FUNCTION-WIDE.  Case 13 was perturbed four ways -- the
+ *  two `b->world` shifts swapped, `tx` hoisted above `ty`, the two
+ *  `b->target` stores swapped, and both target shifts moved below the two
+ *  world shifts.  Two of the four change case 13's own emitted code (the
+ *  world swap adds four mismatches at 317/318/323/324, the target swap six at
+ *  315-320), so the perturbation really did reach the allocator.  Case 1's
+ *  colouring did not move a hair in ANY of them: identical best permutation
+ *  `bpdibxsi`, identical first divergence at index 86, identical residual set
+ *  {123, 124, 125, 126, 127, 228, 229, 231}.  So the answer to the question
+ *  this note posed is "no": disturbing another switch arm whose webs live in
+ *  the same two callee-saved registers does not shift case 1 at all.  With
+ *  the allocator's input already shown identical to the original's, there is
+ *  now no block left that source can reach -- neither case 1 (invariant over
+ *  ~130 variants) nor a neighbour (invariant over these four).
+ *
+ *  CLUSTER (c) IS A TWIN, AND THE TWIN IS ALSO STUCK.  Indices 228/229/231
+ *  are byte-for-byte the same phenomenon as SpiderRide_Activate's indices
+ *  195/196/198 in mechrides.c -- same two `movsx` off +0x3c/+0x3e, same
+ *  descending emission order, same `shl edx,1` / `add eax,eax` split, same
+ *  three-index residual -- reached from two independently written source
+ *  spellings.  Nine further spellings were measured on the SpiderRide side
+ *  this pass (pre-doubled temps in both store orders, plain field reads in
+ *  both orders, `+ x`, `<< 1`, a second temp pair, a reversed temp
+ *  declaration order); every one either ties at the same residual or
+ *  ESCAPES.  Together with the 30 already measured here that is 39 spellings
+ *  across two functions and two lanes, so the descending `movsx` sort with
+ *  `add` for the second doubling should now be treated as VC6's canonical
+ *  form for two structurally identical `movsx`+double+store pairs, and this
+ *  cluster as unreachable rather than unfound.
+ *
+ *  RECOMMENDED FOR RETIREMENT.  8 real mismatches in 378 instructions, in
+ *  two clusters, both now shown invariant under everything source can
+ *  express. */
 // WIP-FUNCTION: LEGOLAND 0x0042c820  (378/378 instructions, 1225/1225 bytes and the whole frame map, audit mismatch 29/378 but only 8 modulo a renaming of the three callee-saved registers; first diff at index 86: the merged Y web takes the LAST callee-saved register instead of ebx -- the same wall as mechrides.c's four _Activate callbacks)
 void Carousel_Tick(RideElem* elem)
 {
@@ -1123,6 +1161,12 @@ int Balloonz_CarAtPlatform(char wheel, char half)
  * likewise byte-identical; `while ((r = item->riders) != 0)` is 619.  The
  * residual is one instruction of Pentium pairing (`mov eax,[edi+0xcc]` ahead
  * of the first name store) with no C-visible handle.  Do not spend more. */
+/* PASS w8rides (2026-09-04): not worked, per the lane brief (three-lane
+ * exhausted).  Re-measured only: 5 strict, 5 real under the IDENTITY
+ * permutation, and register-blind distance 1 -- the whole residual is a
+ * single scheduling window at indices 10-14 with no register difference
+ * anywhere in 637 instructions.  Nothing here for a colouring or a
+ * reconstruction pass to hold on to. */
 // WIP-FUNCTION: LEGOLAND 0x0042aa90  (637/637 instructions and 1993/1993 bytes, audit mismatch 5/637, first diff at index 10: the two halves of the name[8] initialiser are scheduled one slot too early around the rider-list load)
 void Balloonz_Tick(RideElem* elem)
 {

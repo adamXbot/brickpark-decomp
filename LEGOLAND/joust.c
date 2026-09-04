@@ -1444,7 +1444,100 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  *     two `b->person` loads).  It also costs the original's reuse of eax for
  *     BOTH `NewBNVPath` loads.  Worth attacking next: one temp too few or too
  *     many earlier in the function would flip the whole rotation. */
-// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1124/1122 bytes, audit mismatch 56/347, 52 surviving the best callee-saved permutation, 19 of 347 original indices in a structurally differing region; first divergence 119)
+/* ROUND OF 2026-09-04 (fifth pass).  56 -> 29, and every metric moved with it:
+ * real (mismatches surviving the best callee-saved permutation) 52 -> 25,
+ * register+offset-blind LCS 335 -> 338 of 347, ORIGINAL indices inside a
+ * differing region 19 -> 14, bytes 1124 -> 1123 (orig 1122).  EVERYTHING FROM
+ * INDEX 173 TO THE END IS NOW EXACT; the residual is one register cascade in
+ * case 3, listed at the bottom.
+ *
+ * *** RECONSTRUCTION ERROR 1: A MISSING LOCAL FOR THE PATH NAME (18 indices).
+ * The original is
+ *      177 mov eax,[esi+4]        180 fstp [eax+0x3c]
+ *      178 xor ecx,ecx            181 mov cl,[esi+0x36]     <- seat in ECX
+ *      179 lea edx,[esp+0x4c]                               <- &pos in EDX
+ *      185 mov eax,[ecx*4+0x4b4f08]   187 push eax
+ *      188 mov eax,[0x4cbfb8]         190 push eax          <- eax REUSED
+ * and we had the seat in edx and `&pos` in ecx, which left ecx free early and
+ * let the scheduler hoist the `g_ts_objsamples` load into it instead of
+ * reusing eax.  That one-step eax/ecx/edx phase difference then ran through
+ * the WHOLE of cases 4 and 5 as a clean three-cycle (ours eax/ecx/edx where
+ * the original has edx/eax/ecx) and cost indices 178, 179, 181, 183-185,
+ * 187-188, 190, 197-198, 206-207, 213, 215, 220-222, 239, 241, 247, 249, 270,
+ * 273-274 -- 27 of the 56, none of them reachable from case 3's projection
+ * (measured: the mismatch count at index >= 195 is 18 for EVERY projection
+ * variant, and 148-152 for the ones that displace the body).
+ * The fix is one ordinary source line: the rider's path name read into a local
+ *      path = g_ts_path_names[b->seat];
+ * immediately BEFORE the NewBNVPath call.  It shortens the seat temp's live
+ * range to a single statement, which is what puts it in ecx.  Position is
+ * load-bearing and was swept: after `b->b35 = 0;` is 31, before it 34, at the
+ * top of the tail 46, above the flag OR 44.  A cached `int seat` instead of
+ * the path pointer also fixes the phase but costs eight indices (42); caching
+ * `g_ts_objsamples` as well is 58; caching the path AND the seat is 29 (inert
+ * on top).  `&pos` in a local pointer and `objs`-style caches are inert.
+ *
+ * *** RECONSTRUCTION ERROR 2: case 5's saved_speed shim is no longer needed.
+ * With the phase corrected the plain source line is the best AND the simplest:
+ *      b->person->zsprite = 0;
+ *      b->person->f30 = 0;
+ *      b->speed = (unsigned char)b->saved_speed;
+ * 31 -> 29, robl 337 -> 338, bad 16 -> 14, and indices 275/276 go exact.  The
+ * `unsigned char sp` cache that the previous round shipped between the two
+ * person stores is now WORSE (31), and reading it first is 34.  A standing
+ * rule earning its keep: re-test every committed shim after a structural
+ * change.
+ *
+ * RE-RUN ON THE NEW BASELINE AND STILL THE OPTIMUM: the whole product-order x
+ * X-web x Y-web matrix (2x2x2, plus the split-shift form -- with the two
+ * `>>= 9` written separately the PRODUCT order stops mattering entirely and
+ * only the SHIFT order does, exactly as goldrush.c's StepSchoolCar found:
+ * `px >>= 9` first == the old "difference-first" point at 79/robl 325,
+ * `py >>= 9` first == this build); all 24 orders of the four `-=` adjustments
+ * (best plain order 30, so the `Pos t` barrier is still worth exactly one
+ * index and every metric agrees); all 60 orders of case 3's five trailing
+ * statements with the two person stores kept in order (this one is the best);
+ * `wx` defined first (29 but robl 337); `Pos w = b->world;` as a struct copy
+ * (29/337); `&b->world` through a pointer (34); the world reads inline (34);
+ * GetTileDimensions before the world reads (34); `(wy + wx)` (inert).
+ *
+ * NEW AND INERT: the local NAMES are irrelevant even across cases -- px/py or
+ * sx2/sy2 renamed onto case 5's `sx`/`sy` or the loop head's `tx`/`ty`, or all
+ * four collapsed, are byte-identical (VC6 numbers by first use in the
+ * optimised IR, so merging two disjoint names does NOT merge their webs); the
+ * two Get_?Scroll results in locals (322, ESCAPES); `g_map_cfg->ox`/`oy` in
+ * locals (326, ESCAPES); a third use of `wy` after the products (328,
+ * ESCAPES); `tw`/`th` copied into a second pair (inert); explicit temps for
+ * the sum, the difference or both (inert); `screen.oy` read into a local
+ * before or inside the chains (inert).
+ *
+ * MEASURED, BETTER ON STRICT, STILL NOT SHIPPED: `*(volatile int*)&spill.x =
+ * py;` (spilling the Y value) is 27/real 24/bad 13 with robl unchanged.  It is
+ * the same compensating error the fourth round rejected -- our px/py sit in
+ * the original's registers SWAPPED, so spilling the wrong value matches index
+ * 135 by accident.  The original spills the X value (`imul ebp,[esp+0x28]` is
+ * the tw product).
+ *
+ * WHAT IS LEFT (14 original indices in a differing region, first divergence
+ * 119) IS ONE CASCADE, all of it downstream of a single register tie-break:
+ *   - 119/120: `wy` takes ebx and `wx` edi where the original has edi/ebx.
+ *     From that follow 123/124 (the tw/th frame homes swap), 128-135 (the
+ *     original builds the DIFFERENCE from a copy of wx and the SUM in place --
+ *     `mov ebp,ebx / add ebx,edi / sub ebp,edi` -- while we build the sum
+ *     fresh with a `lea` and the difference in place, then need an extra
+ *     `mov ebx,edi` to carry px past Get_XScroll), 142/148 (px's and
+ *     screen.oy's registers), 153/155/156 (the Y add lands on the delta
+ *     instead of the web) and 161-172 (because our sy2 ends up in ECX rather
+ *     than ebx, the `g_ts_zspr` load cannot be hoisted into ecx and the flag
+ *     OR / person load / zsprite load are emitted after the two `pos` stores
+ *     instead of interleaved into the rider_dy chain).
+ *   - The diff-first source (which alone gets index 120 and the tw/th homes
+ *     right, as the 79-point variants show) rotates the LOOP HEAD instead:
+ *     `sq` moves to ebx and `def->base_x` to ebp, first divergence 16 and
+ *     ESCAPES.  So case 3's projection and the loop head's allocation are
+ *     coupled, and the next round should attack the pair together rather than
+ *     re-sweeping case 3 alone. */
+// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1123/1122 bytes, audit mismatch 29/347, 25 surviving the best callee-saved permutation, 14 of 347 original indices in a structurally differing region; first divergence 119)
 void TempleSlide_Update(RideElem* elem)
 {
     RideDef*   def = elem->data;
@@ -1470,6 +1563,7 @@ void TempleSlide_Update(RideElem* elem)
     int        sy2;
     int        px;
     int        py;
+    const char* path;
 
     r = def->riders;
     while (r) {
@@ -1555,8 +1649,14 @@ void TempleSlide_Update(RideElem* elem)
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617664.875f, -1617913.0f);
                 b->b35 = 0;
-                b->bnvpath = NewBNVPath(g_ts_objsamples, 0,
-                                        g_ts_path_names[b->seat],
+                /* The rider's path name read into a local BEFORE the call is
+                 * what puts the seat's zero-extend in ecx and `&pos` in edx:
+                 * it shortens the seat temp's live range to one statement and
+                 * lets VC6 reuse eax for BOTH of NewBNVPath's pointer loads.
+                 * Without it the whole eax/ecx/edx phase of cases 4 and 5 is
+                 * one step out (18 indices). */
+                path = g_ts_path_names[b->seat];
+                b->bnvpath = NewBNVPath(g_ts_objsamples, 0, path,
                                         -1617664.875f, -1617913.0f, &pos);
                 BNVPath_SetDFrame(b, b->bnvpath, 0);
                 UpdateBlokeFromBNVPath(b, b->bnvpath);
@@ -1602,11 +1702,8 @@ void TempleSlide_Update(RideElem* elem)
                 BlokeSetFrame(b, 0);
                 b->flags &= ~0x80;
                 b->person->zsprite = 0;
-                {
-                unsigned char sp = (unsigned char)b->saved_speed;
                 b->person->f30 = 0;
-                b->speed = sp;
-                }
+                b->speed = (unsigned char)b->saved_speed;
                 switch (b->seat) {
                 case 0:
                     ofs.ox = -0x280;

@@ -1749,6 +1749,26 @@ extern CarRow  g_tower_car[4];                               /* 0x004b77a8 */
  * 164-199, which read `tiley` from that slot instead of from edx -- is then
  * wholly wrong, where the committed body's tail from 122 on is a pure 3-slot
  * shift with no register differences. */
+/* PASS w8rides (2026-09-04).  NO CHANGE (138 strict / 136 real /
+ * register-blind 14).  Confirmations and one newly closed door:
+ *  - The first divergence is still index 23, still the SECOND back-to-back
+ *    `mov ecx,[esp+0x24]`.  Read against ours the whole head difference is
+ *    just this: the original reloads `def` TWICE up front (edx at 22, ecx at
+ *    23) so edx dies at `mov ebp,[edx+0xc]` and is free for `tiley`, leaving
+ *    eax for the `lea` that rematerialises `tile`; ours reloads `def` once at
+ *    22 and once at 31, so the `lea` takes edx and `tiley` takes eax.  BOTH
+ *    builds emit two reloads -- the difference is only where the second one
+ *    lands, and the ROUND-9 volatile experiments already showed the
+ *    allocation is fixed before the schedule.
+ *  - NEWLY MEASURED: the case-3 / case-8 `tiley` grid re-run with the
+ *    re-read spelled `tile->b.y` rather than `RIDE_TILE(r)->b.y`.  c3R with
+ *    voldef 212, c3R without 213, c3R+c8R 214, c3Y+c8R 211, and all four
+ *    ESCAPE the extent at 704-711 bytes against 698.  Dropping the volatile
+ *    `def` read alone is 163 (register-blind 15).  So the committed
+ *    combination remains the only one that holds both the frame and the byte
+ *    length, and the promising `c3R_c8Y no-voldef` 103 recorded in ROUND 8c
+ *    is reachable ONLY through the `RIDE_TILE(r)` spelling -- it is not a
+ *    property of re-reading the field. */
 // WIP-FUNCTION: LEGOLAND 0x0043bac0  (38%, 138/222; frame, block layout, the ebx/ebp cursor split and everything to index 22 exact -- see above)
 void SpaceTower_Activate(RideElem* elem)
 {
@@ -2774,6 +2794,42 @@ extern const int g_safari_end_off[8];                        /* 0x004b4ce4 */
  *     not a different statement order in this block -- that is the next thing
  *     to try, and this function is the cheapest place in the file to try it
  *     because its structural residual is down to three sites. */
+/* PASS w8rides (2026-09-04).  NO CHANGE (132 strict, 132 real under the
+ * IDENTITY permutation, register-blind 15).  Two things are now settled.
+ *
+ *  (1) THE RESIDUAL IS ONE CLUSTER PLUS A SCRATCH ROTATION.  Register-blind
+ *      distance is 15 of 402 and a full seven-register permutation search
+ *      (scratch AND callee-saved) puts the residual at 60, with the winning
+ *      scratch map a THREE-CYCLE eax->edx->ecx->eax.  So roughly half the 132
+ *      is one rotation of the scratch registers through the whole tail, not
+ *      132 different instructions.  The structural part is indices 86-124:
+ *      the original interleaves GetUnitDepth's two float-constant pushes
+ *      (0xc9c582b0 at index 86, 0xc9c57bd8 at 89 -- thirty instructions
+ *      before the call at 116) into the x/y chains, and hoists
+ *      `mov edx,[esi+4]` into the second division's latency gap at 103; we
+ *      emit the pushes at 101/107 and the `b->person` load at 91.  This is
+ *      the same phenomenon as SpiderRide's 87-97 and SpinningBarrels'
+ *      125-133 windows: VC6 and the original disagree about WHICH free slot a
+ *      constant push or an independent load falls into, with identical
+ *      instructions and identical registers either side.
+ *
+ *  (2) THE COMPOUND Y CHAIN IS DECISIVELY WRONG HERE.  The original's index
+ *      91 is `sub eax,edx` = `g_map_cfg->oy - Get_YScroll()` as ONE
+ *      difference, then `add ebx,eax`; ours splits it (`sub ebx,edx` then
+ *      `add ebx,eax`).  That invites the SpiderRide ROUND-10 compound
+ *      rewrite, and it must not be taken: TEN spellings of it were measured
+ *      and they collapse to just TWO objects, 249 and 236, both far worse
+ *      than 132 AND both 17-19 bytes over the original's 1292.
+ *      `sy2 = g_map_cfg->oy - Get_YScroll() + sy;`, `sy2 = sy + (oy - ysc)`,
+ *      `sy2 = sy; sy2 += oy - ysc;`, `sy2 = sy + oy - ysc;` and the first two
+ *      without the empty-`if` flatten breaker are ALL ONE OBJECT at 249;
+ *      hoisting the call into its own `int ysc = Get_YScroll();` statement
+ *      first, in four arrangements, is ONE OBJECT at 236.  The byte blow-out
+ *      is the tell: making the difference compound moves the Get_YScroll call
+ *      inside the sum's evaluation and the whole case-0 frame reshuffles.  So
+ *      the single-`sub` shape the original has is NOT reachable by spelling
+ *      the expression compound at this site, unlike SpiderRide where the same
+ *      rewrite at least holds the byte length. */
 // WIP-FUNCTION: LEGOLAND 0x00415220  (67%, 132/402; frame, byte length and the head exact, a tail register rotation remains -- see above)
 void SafariRide_Activate(RideElem* elem)
 {
@@ -3362,6 +3418,21 @@ extern char g_sbarrel_pathname[];                            /* 0x004b78b4 "BoxB
  * between it and the use survives and measures 131 / 132.  A
  * `static __inline void SeedBnvPos(BnvPos*, int, int)` for the two seed
  * stores is byte-identical to writing them out, in both y-chain shapes. */
+/* PASS w8rides (2026-09-04).  NO CHANGE (19 strict, 19 real under the
+ * IDENTITY permutation, register-blind 6).  Characterised rather than moved:
+ * the whole residual is ONE slot-placement window, indices 113-132, and it is
+ * the family signature.  The original leaves the register the `cdq` frees
+ * idle and re-uses eax serially (`sar / sub edi,eax / mov eax,[esp+0x44] /
+ * sub edi,eax / mov eax,[g_barrels_ofs2.oy]`); we fill that slot with the
+ * screen.oy load and then have to place the two GetUnitDepth float-constant
+ * pushes (0xc9c5848e, 0xc9c58012) two and one slots earlier than the original
+ * does.  Same instructions, same registers, same byte length, three slots of
+ * rotation.  SpiderRide_Activate's 87-97, SafariRide_Activate's 86-124 and
+ * Carousel_Tick's 123-127 are the same window in the same shape, which is why
+ * a fix on any one of them should be tried on all four at once.  Nothing new
+ * was measured here this pass; the ROUND 6/9 grids already cover the source
+ * spellings and the family evidence says the lever, if it exists, is not in
+ * this arm's source. */
 // WIP-FUNCTION: LEGOLAND 0x0043c950  (95%, 19/362; frame, byte length and the whole y block exact -- see above)
 void SpinningBarrels_Activate(RideElem* elem)
 {
@@ -3718,6 +3789,37 @@ extern const int g_spider_end_off[8];                        /* 0x004b4ddc */
  *     further cells (block splits before AND after the compound, both `if`
  *     values, all six subtraction orderings, a named `ys`, a volatile
  *     screen.ox read) are all 25 or worse. */
+/* PASS w8rides (2026-09-04).  NO CHANGE (15 strict, 15 real under the
+ * IDENTITY permutation, register-blind 6).  The residual is now split three
+ * ways and one third of it is proved to be a cross-file twin:
+ *   73/75    cluster A, the y chain (`sub eax,edx` / `add ebx,eax` against
+ *            our `sub ebx,edx` / `add ebx,eax`) -- see the ROUND 10
+ *            paragraph; unchanged.
+ *   87-97    the original schedules `or byte [esi+0x62],0x80`,
+ *            `mov edx,[esi+4]` and `mov eax,[g_spider_tab3]` INTO the two
+ *            division latency gaps of the x/y chains; we emit them as a
+ *            block after `mov [esp+0x50],ebx`.  Same instructions, same
+ *            registers, three slots apart.
+ *   195/196/198  case 7's `pos2` pair.
+ * CASE 7 IS THE SAME BUG AS Carousel_Tick 0x0042c820 (ridecb3.c) AT ITS
+ * INDICES 228/229/231 -- identical instructions, identical field offsets
+ * (+0x3c then +0x3e), identical `shl edx,1` / `add eax,eax` split, identical
+ * three-index residual, reached from two independently written sources.  Nine
+ * more spellings measured HERE this pass, on top of the 30 measured there:
+ *   `int px = f*2; int py = g*2;` with `pos2.y=py; pos2.x=px;`   224 ESCAPES
+ *   the same with `pos2.x=px; pos2.y=py;`                        224 ESCAPES
+ *   the same with a second pair of doubled temps                 224 ESCAPES
+ *   `int px=f; int py=g; pos2.y=py*2; pos2.x=px*2;`               17
+ *   plain `pos2.x = b->ride_dx*2; pos2.y = b->ride_dy*2;`         17
+ *   the same with the stores swapped                              19
+ *   `py` declared before `px` (committed body otherwise)           15 (tie)
+ *   `px + px` / `py + py`                                         15 (tie)
+ *   `px << 1` / `py << 1`                                         15 (tie)
+ * So VC6 sorts the two `movsx` into DESCENDING displacement order and picks
+ * `add` for whichever doubling lands in eax, and nothing in the source
+ * reverses either without also reversing the stores.  Treat 195/196/198 as
+ * unreachable.  With cluster A also settled, the honest floor for this body
+ * is the 87-97 scheduling window plus these three. */
 // WIP-FUNCTION: LEGOLAND 0x00416330  (96%, 15/376; frame, byte length, the y chain, case 7's movsx pair and case 13 exact -- see above)
 void SpiderRide_Activate(RideElem* elem)
 {
@@ -4031,6 +4133,17 @@ extern void* g_plane_tab2;                                   /* 0x0062fe8c */
  * `sub` had filled.  See the ROUND 9 paragraphs in SpiderRide_Activate and
  * SpinningBarrels_Activate; this body is the Spider's twin in both remaining
  * windows and everything ruled out there rules out here. */
+/* PASS w8rides (2026-09-04).  NO CHANGE (19 strict, 19 real under the
+ * IDENTITY permutation, register-blind 8, and still one byte long at
+ * 1254/1253).  The residual splits into the same two family windows:
+ * indices 86-96 (the x/y chain slot placement, as in SpiderRide 87-97) and
+ * indices 212-219, where the original delays `or byte [esi+0x62],0x80` until
+ * AFTER both `mov ecx,[esp+0x34]` / `mov edx,[esp+0x38]` reloads and we emit
+ * it immediately after the call.  Both are slot placement with identical
+ * instructions and identical registers either side; the ROUND 6/7 grids
+ * already swept the source order of the flag store and the `pos2` pair, so
+ * this arm's source is not where the lever is.  The extra byte is inside the
+ * 212-219 window, not a systematic encoding difference. */
 // WIP-FUNCTION: LEGOLAND 0x0043e410  (95%, 19/387; frame, head and y chain exact; byte length 1254 vs 1253 -- see above)
 void PlaneRide_Activate(RideElem* elem)
 {
