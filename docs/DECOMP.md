@@ -424,6 +424,107 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **FROM THE PARALLEL SESSION `fable-b` (13 of 18 exact; full evidence in
+  `docs/lanes/fable-b*.md`). The strongest, folded here:**
+  - **A shared tail that RELOADS locals from the frame proves every arm left
+    them in memory — force it with a volatile STORE through a cast in every
+    arm.** Written naturally, VC6 keeps the values in registers, DUPLICATES
+    the ten-instruction tail into every switch arm and emits 85 instructions
+    for a 66-instruction function; `*(int volatile*)&p.x = e;` in each arm
+    makes the arms end identically, VC6 cross-jumps them into ONE tail, and it
+    is 66/66 with the arm layout and the `ja` default exact. Passing the pair
+    by value, an inline reader helper and a `goto` join all stay at 85.
+  - **Two written-out copies of a tail merge only if INSTRUCTION-identical,
+    and store-forwarding of a just-stored global defeats that.** One arm
+    forwards (`push edi`) where the other reloads (`mov ecx,[head]`), so no
+    merge. A volatile STORE does NOT stop the forwarding, nor does an array
+    view at the same offset. What works: a PAIR of volatile reads hoisted into
+    locals in the original's load order — with only one of the two volatile,
+    the loads cannot both hoist above the first push, and a single inline
+    volatile read is always emitted FIRST in its block regardless of statement
+    position (that last fact is the whole residual of `UpdateSampleSource`).
+  - **`xor <callee-saved>,<same> / mov eax,<it>` proves a two-predecessor
+    JOIN, never a straight-line `v = 0; return v;`.** VC6's constant
+    propagation is global: `L: head = 0; return head;` as the last statement
+    becomes `xor eax,eax` cross-jumped into a neighbouring `return 0` and the
+    block VANISHES (124 -> 117), surviving every disguise (`return head = 0`,
+    a cast, `memset`, `head = prev` where `prev` is known zero, a label or
+    `goto` split). Also: VC6 lays cold blocks in source-generation order, and a
+    single-predecessor `goto` target is generated INLINE with the branch that
+    reaches it — moving the label to the end of the function does not move
+    the code.
+  - **A `while` loop's condition is whichever test VC6 leaves in the LATCH;
+    the peeled copy doubles as the enclosing `if`.** `if (key < cur->key) {
+    while (key < cur->key) { if (!cur->prev) break; cur = cur->prev; } }` —
+    the redundant re-test is the point: VC6 peels it, the peeled copy IS the
+    `if`'s compare, and the `else if` reuses its flags. The other way round
+    (`while (cur->prev) { advance; if (key >= cur->key) break; }`) peels the
+    NULL test and costs three per arm (83 vs 77/77); `for (;;)`, `do/while`
+    and backward `goto`s are all normalised to the wrong-way form. Read the
+    latch off the original to find which test the loop was written on.
+  - **A search's failure arm as the `else` of `if (p)` keeps ONE copy;
+    `if (!p) { ...; return; }` emits TWO** — the loop-exhausted edge proves
+    `p == 0`, VC6 folds the test on that path and duplicates the block rather
+    than jumping (10 instructions, `UnlinkGardenerOrder`).
+  - **An aggregate local blocks reuse of a DEAD PARAMETER's home slot.** Two
+    plain `int`s let VC6 home the spilled one in the freed argument slot and
+    collapse the frame to `push ecx`; as one `Pos` it takes a fresh slot and
+    the frame is the original's `sub esp,8` (11 of 64, the only residual).
+    Counterpart of "two argument slots reused as locals keep an 8-byte frame":
+    when the original's frame is bigger by exactly one spilled scalar, that
+    scalar was inside an aggregate.
+  - **An ASCENDING array walk anchors its induction variable on the LAST field
+    touched; a DESCENDING one on the FIRST — and the spelling must follow the
+    anchor.** Up: the pointer starts at `&wob[i].y` and stores through
+    `[eax-4]/[eax]`; only two per-field assignments produce that (a
+    whole-struct copy, a `*p++` walk and a y-then-x pair all anchor on `.x`).
+    Down: `[eax]/[eax+4]`, which is the whole-struct assignment. Measure per
+    loop, by direction. From the read side: a const-table cursor must be a
+    POINTER, and sometimes a BIASED one — `const int* spot = &tbl[0].y;` read
+    as `spot[-1]/spot[0]` and stepped `spot += 2` is exact where every
+    `const Pos*` spelling is 2 or worse.
+  - **A duplicated cursor-advance block beats the `&&` that would merge it.**
+    Two guards each ending in `continue` give the original's two inline
+    copies AND the extra references that rank the locals into edi/ebx; one
+    `&&` guard emits a single shared miss block reached by `jne`, seven
+    instructions short (19 of 70). The exile rule's other side.
+  - **Naming the intermediate POINTER (`d = e->data;`), not the value, advances
+    the scratch rotation** — a `short`/`unsigned short` value local does not,
+    an `int` one is worse, and a volatile read of the pointer is
+    byte-identical to the named pointer (on that body the free-volatile trick
+    and the named pointer are the same lever). The twin with ONE compare needs
+    no local: **the first counter-example to "twins share their residual index
+    for index"** — they share source and diverge exactly where register
+    pressure differs.
+  - **"Restore, then test" is a named call result.** `ok = SaveGameWrite(...);
+    ev->time += g_now; if (!ok) return 0;` schedules the restore between the
+    call and `test eax,eax`; `if (!SaveGameWrite(...))` puts the `add` after
+    the branch. **Two arms calling the same function are two textual calls,
+    not a ternary argument** — each arm's own `add esp,4` is the tell.
+    **`memset` the whole struct then store the one non-zero field** gives
+    `rep stosd` followed by the lone store after the pushes.
+  - **`test byte ptr [mem],1` on byte +3 of a word is `& 0x100` on the
+    `unsigned short`**, not `& 1` on a byte field (the byte field costs a load
+    and slides ahead of a pending `add esp`); the read side of the recorded
+    `|= 0x100` narrowing. **Reading two fields into locals BEFORE an
+    intervening call is what puts them in callee-saved registers** (inline in
+    the later expressions: loaded after the call, one push fewer, 58 of 74).
+    **VC6 homes an address-taken out-pointer pair in the caller's incoming
+    argument slots** once both parameters are root-copied — read `[esp+N]` by
+    push depth or it looks like a wild write into the caller's frame.
+  - **`sete al / test al,1` is `((x == 0) & 1) == 0`, and the `== 0` half is a
+    LAYOUT lever** (success inline, failure to the ONE trailing `return 0`;
+    `if ((...) & 1) goto fail;` inverts and parks the failure block mid-body).
+    **`sub esp,N` with `mov [esp+k],imm` stores and no matching `add esp` is
+    a local aggregate initialiser** (`WinRect dst = { 0, 0, 640, 480 };`), not
+    an argument list. **`mov esi,[__imp__X] / call esi` in a loop needs no
+    construct** — VC6 hoists the IAT load itself.
+  - **Two near-identical if/else arms were written out IN FULL, error handler
+    and tail included — the layout is the proof.** A shared block sandwiched
+    between two arms was written twice (VC6 cross-jumps the copies and parks
+    the survivor after the first loop); written once, it lands between the
+    arms and each arm loses its own inline guard (90 vs 92/92).
+
 - **Two lockstep cursors: spell them the SAME way to let VC6 eliminate one
   induction variable; spell one as a subscript and the other as a walk to keep
   both.** This is the REACHABLE half of the recorded "`sub esi,ecx` +
@@ -1080,10 +1181,14 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   bytes apart. About 20 type and cast spellings of the operand could not reach
   it; only the statement form does. When a branchless sequence has one surplus
   register move, try the other statement shape before touching types.
-- **A `switch`'s CASE ORDER is its block order.** On `SchoolCarNextManoeuvreHorn`
-  the original's layout is cases 1,4,5,3,6,7; writing them in the natural
-  1,3,4,5,6,7 costs 17. Read the block order off the original and write the
-  cases in that order.
+- **A JUMP-TABLE `switch`'s CASE ORDER is its block order.** On
+  `SchoolCarNextManoeuvreHorn` the original's layout is cases 1,4,5,3,6,7;
+  writing them in the natural 1,3,4,5,6,7 costs 17. Read the block order off
+  the original and write the cases in that order. *(Qualified 2026-09-05: when
+  VC6 lowers a small switch to a COMPARE CHAIN — `sub eax,0 / dec / dec` — the
+  layout follows the case VALUES and source order is inert: all six orders of
+  `BuildPTPRoute`'s three cases, an equivalent `if / else if` chain and a
+  hoisted call result are byte-identical, block layout included.)*
 - **A constant store must be placed so it cannot hoist above a dead argument
   slot's last read.** `flags = 0` assigned BEFORE a call floats up and takes the
   slot; assigned after the call it stays put. Where a local lives in a dead
@@ -3399,7 +3504,13 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   else arm end in a `jmp` is CROSS-JUMPING:** write both arms out in full with
   a common tail; VC6 merges the common suffix, glues it to the THEN arm and
   rewrites the ELSE arm's copy into a backward jump into the middle of the
-  then arm's straight-line code. A source `goto` survives only when it crosses
+  then arm's straight-line code. *(Clarified 2026-09-05: "THEN arm" here is
+  not a source-position rule — in these cases the else arm is EXILED, so the
+  then arm is the copy that falls through into the join. The general rule,
+  reconciled from four measurements, is that the fall-through copy survives
+  and the copy in a jump arm is merged away; in a plain if/else chain that is
+  the LAST arm. A parallel-session note read this entry as contradicting the
+  last-arm entries; it does not.)* A source `goto` survives only when it crosses
   a LOOP boundary — otherwise the front end normalises it into a plain if/else
   and inverts it.
 - **TOOLING BUG that had corrupted earlier frame readings: reset esp to the

@@ -91,11 +91,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **49.5% exact, 57.7% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1631 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **49.9% exact, 58.3% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1644 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 568, ~15,500 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 55 |
+| unmatched callees | `python3 tools/callees.py` | 561, ~14,500 instructions |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 60 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
@@ -151,6 +151,11 @@ survives", not "first site"), and one open tooling defect: the extent walker
 under-bounds a function whose middle contains a rotated loop's entry `jmp`
 (`Coaster3D_BuildPieceGeometry` can never print `[OK]` until it is fixed; see
 the DECOMP entry).
+
+**Parallel scope B merged (2026-09-05): 13 of 18 exact** (`savechunks2.c`,
+`workorder3.c`, `ridemisc.c` 6 of 6, `sysmisc.c`), zero conflicts again;
+levers in `docs/lanes/fable-b*.md`, folded into DECOMP. Coverage 49.5% ->
+49.9% exact. Two scopes, two clean merges: the pattern is established.
 
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier
