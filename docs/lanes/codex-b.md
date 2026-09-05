@@ -69,9 +69,11 @@ diverging index or residual. Counts come from the complete-body extent audit.
   both repeatedly delete their global list head until empty.
 - **Best value**: station +40 is compared against zero and the running maximum;
   `working_only` requires a non-null route at +08. This is not a capacity field.
-- **By-value position**: food-service removal passes x/y to removal, then x to
-  `RemoveAllBlokesFromRide`, then the address of the stack position to money FX.
-  The second call's original `[esp+18]` is entry+8 after four pushes, hence x.
+- **Packed-square removal ABI**: food-service removal takes a packed map square
+  in one stack slot (low two bytes x/y), then a separate cursor pointer.
+  Removal receives both; `RemoveAllBlokesFromRide` gets the square, and money
+  FX gets its stack address. Independent callee review caught an initial
+  misleading two-int Pos interpretation despite normalized code equality.
 - **Sound record offsets**: FX entries are 12 bytes with sample at +8, matching
   `audiomisc.c`'s loader. Confirmed absolute reads at 004b8718 and indexed
   004b8770, not merely relocation-normalized audit equality.
@@ -138,3 +140,107 @@ marker `FUNCTION` for every row; no divergent index/residual. `/W3` clean.
   old void declarations. ACM/DirectSoundCreate imports are stdcall direct
   thunks, not dllimport indirect calls (verified against the PE import table).
   CRT names retain established aliases; memset/strcpy/strcat inline here.
+
+## UI/help/report checkpoint
+
+`uimisc.c`: 35/35 functions, 795 instructions. Every row is 100%, audit
+`[OK]` yes, committed marker `FUNCTION`; no diverging index or residual.
+`/W3` is warning-free. All three files together: **60 exact, 1424 instructions**.
+
+| Address | Name | Instructions |
+| --- | --- | ---: |
+| 004714a0 | ResetInfoPopUp | 11 |
+| 00471d60 | ResetToolIcons | 12 |
+| 0046df30 | ClipToIcon | 12 |
+| 0046f330 | IconHitTest | 13 |
+| 0046b4f0 | NewScriptStep | 13 |
+| 00459820 | EndLevel | 14 |
+| 0046fbc0 | IndicatorInput | 14 |
+| 004730f0 | PU_CloseInput | 15 |
+| 0046d340 | ShowObjectHelp | 15 |
+| 0046d230 | ShowIdHelp | 16 |
+| 004731a0 | PU_DeleteInput | 16 |
+| 004733b0 | PU_PrevInput | 17 |
+| 0046de50 | GetIconBounds | 17 |
+| 004993c0 | ThawGameClock | 17 |
+| 0046b200 | ScriptEventDue | 17 |
+| 00473310 | PU_ToolA | 21 |
+| 0046d280 | ShowHelpPopup | 21 |
+| 0046d460 | UnlinkIcon | 22 |
+| 0046d4a0 | UnlinkIcon2 | 22 |
+| 0046c5c0 | KillHelpText | 22 |
+| 00473360 | PU_NextInput | 23 |
+| 0046d4e0 | DeleteIcon | 23 |
+| 0046b520 | FreeScriptStep | 25 |
+| 00444200 | SaveReport | 28 |
+| 00444260 | LoadReport | 30 |
+| 00474130 | GetTypedChar | 30 |
+| 0046b6b0 | ShowScriptStepText | 30 |
+| 004733f0 | PU_GardenerInput | 31 |
+| 00473460 | PU_MechInput | 31 |
+| 004585c0 | KillCurrentScreen | 32 |
+| 00490b20 | ReportNextPageInput | 32 |
+| 0048a790 | RestoreFreePlaySelections | 38 |
+| 0048ac60 | FreePlayAcceptInput | 38 |
+| 00490aa0 | UpdateReportPageIcons | 38 |
+| 00490970 | ReportAcceptInput | 39 |
+
+### UI mechanics, quirks and levers
+
+- **RestoreFreePlaySelections** replaces the placeholder `FreePlayInit_48a790`.
+  It replays chosen class icons in groups 200/500/400/300 with a bulk-update
+  latch suppressing individual sounds. It assumes the lookup yields a valid
+  row and the icon has an input callback; those unchecked dereferences remain.
+- **Report index**: `g_rep_page` is a 1-based starting LINE index (1,15,29),
+  not a page ordinal. Buttons advance by 14; previous is disabled at <=1,
+  next when start+14 exceeds line count. Narration gets start/14.
+- **Report close** frees UI/text, optionally plays the queued movie, destroys
+  speech, thaws the clock, resumes singly paused samples and resets help.
+  The sample-resume operation is separate from `PauseCurrentTrack`.
+- **Save/load report** preserves the opaque 160-byte report block and a relative
+  appraisal deadline, with -1 meaning no deadline. Failed reads can partially
+  mutate global state; no rollback added. Returning the named failed result
+  reproduces the original bare early returns.
+- **Help ownership**: ShowScriptStepText creates a kind-1, priority-2 event.
+  Copy mode retains the step string; transfer mode nulls the step's string
+  and sets event flags to 0x20. KillHelpText frees goals, object-help events,
+  script events and the step list, then clears both step pointers.
+- **Help hover**: playing narration suppresses target changes; the object/id
+  variants still mark help requested on that path. Forced popup accepts only
+  a new valid id. UI press/hold uses bits 1/4; release actions use bit 2.
+- **Icon unlink quirk**: the focus comparison is against the successor, not the
+  removed node. The separate FreeIcon destructor also clears focus for the
+  removed node. Tail globals can point at a list-head link slot; casts retain
+  the original sentinel convention. A null deletion on an empty list is not
+  guarded in the original and would dereference null; reproduced.
+- **Named next pointer closes DeleteIcon**: the simple prev->next loop was
+  23i/56B with nine strict mismatches. A free volatile head read was inert;
+  naming `next = prev->next` inside the loop changes the allocation web,
+  restoring 23i/57B exactly without extra reads.
+- **Read order closes GetTypedChar**: evaluating current key state before the
+  previous-state bit (even though VC6 schedules the previous byte first) adds
+  the original EBX web. Previous-first was 29i/80B, current-first is 30i/81B
+  exact. Return int/char and a free volatile state read did not close it.
+  Its private previous-state array is 00668de4, NOT GetInputChar's 00668da8.
+  Last newly pressed mapped key wins; -10 becomes ':'.
+- **Clock ambiguity retained**: the wall-clock offset is clear, but ThawGameClock
+  also adds `[008119a4]-[0079a89c]` to 0079a8a0. Other files call 008119a4
+  `g_detail`/`g_ms_flags`; this lane preserves the full-width read and calls
+  the second pair auxiliary rather than inventing timer semantics.
+- **Naming/prototypes**: DeleteIcon keeps the scope/screens3 name for 0046d4e0
+  (iconui's older declaration is RemoveIcon). No duplicate definition is added.
+  RestoreFreePlaySelections is the sole body for 0048a790. Callback input
+  pointers retain the four-argument ABI where the original forwards all four.
+  Existing declaration aliases remain untouched in accordance with the scope.
+
+## Verification and handoff
+
+- Full-file audits of all three assigned files: 60 `[OK]`, zero rejected/WIP
+  functions, equal full instruction/byte extents and no escaping branches.
+- Each new translation unit compiles warning-free at /W3 /O2 /Gy /Gd.
+- Scope branch contains only the three new C files and this lane note; no
+  existing C files, tools, integration docs, binaries or assets were changed.
+- Independent read-only review completed for all 60 bodies' absolute globals,
+  callback targets, callees, strings, field offsets and vtable slots. It caught
+  the packed-square removal interpretation described above; after correction
+  no further actionable findings remained.

@@ -26,9 +26,9 @@ extern void KillSprite(void* sprite); /* 0x00497bd0 */
 extern void AddBasicObject(RideElem* elem, Pos* pos); /* 0x0045efe0 */
 extern void Set_UserFlags(int x, int y, int flags); /* 0x00461730 */
 extern void KillMoneySFX(void); /* 0x00453930 */
-extern void StandardRemoveObject(RideElem* elem, int x, int y); /* 0x0045f220 */
-extern void RemoveAllBlokesFromRide(RideDef* def, int square); /* 0x0048a2e0 */
-extern void StopMoneySFX(Pos* pos); /* 0x004539a0 */
+extern void StandardRemoveObject(RideElem* elem, unsigned int square, void* cursor); /* 0x0045f220 */
+extern void RemoveAllBlokesFromRide(RideDef* def, unsigned int square); /* 0x0048a2e0 */
+extern void StopMoneySFX(unsigned int* square); /* 0x004539a0 */
 extern void PlayInstanceOfSample(void* sample, int a, int b, SoundSource* src); /* 0x00496d20 */
 extern unsigned int rand(void); /* 0x0049e4b2 */
 extern void FreeBinV(void* bnv); /* 0x0044dd60 */
@@ -179,11 +179,12 @@ void Restaurant2_Destroy(void)
 }
 
 // FUNCTION: LEGOLAND 0x004312c0
-void FoodService_Remove(RideElem* elem, Pos pos)
+void FoodService_Remove(RideElem* elem, unsigned int square, void* cursor)
 {
-    StandardRemoveObject(elem, pos.x, pos.y);
-    RemoveAllBlokesFromRide(elem->data, pos.x);
-    StopMoneySFX(&pos);
+    /* Low two bytes of square are x/y; cursor is a separate third argument. */
+    StandardRemoveObject(elem, square, cursor);
+    RemoveAllBlokesFromRide(elem->data, square);
+    StopMoneySFX(&square);
 }
 
 // FUNCTION: LEGOLAND 0x00436160
