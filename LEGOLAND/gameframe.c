@@ -66,7 +66,7 @@ extern int          g_game_mode;         /* 0x008119b4  0 quit, 1 map screen, 2 
 extern int          g_cur_screen;        /* 0x0080ff84 */
 extern int          g_screen_mode;       /* 0x0080ff88 */
 extern int          g_map_ready;         /* 0x00667c7c  a park is running */
-extern int          g_sel_def;           /* 0x00667c58  class under the cursor */
+extern struct SelDef* g_sel_def;         /* 0x00667c58  class under the cursor */
 extern int          g_castle_placed;     /* 0x0079a8d0 */
 extern void*        g_freeplay_db;       /* 0x00667c4c  the loaded level database */
 extern int          g_map_loading;       /* 0x00667cd8  suppress render-order rebuilds */
@@ -112,6 +112,8 @@ extern void* malloc(unsigned int size);                                /* 0x0049
 extern void  free(void* p);                                            /* 0x0049e4d0 */
 extern char* strcpy(char* dst, const char* src);
 #pragma intrinsic(strcpy)
+extern void* memset(void* p, int c, unsigned int n);
+#pragma intrinsic(memset)
 
 /* Unmatched callees, declared with the placeholder names the tree uses. */
 extern void  sub_457870(int);                                          /* 0x00457870 (Codex-F) */
@@ -123,6 +125,114 @@ extern void  sub_46cb20(void);                                         /* 0x0046
 extern void  sub_483090(void);                                         /* 0x00483090 */
 extern void  sub_49cfc0(void);                                         /* 0x0049cfc0  frees the object lists */
 extern void  sub_474ed0(void);                                         /* 0x00474ed0 */
+
+/* GameFrame's callees. */
+extern void  InitOptionSamples(void);                                  /* 0x00492830 */
+extern void  ResumePausedSamples(void);                                /* 0x00492850 */
+extern void  DeletePlayableSamples(void* def);                         /* 0x00492b90  0 = all */
+extern void  InitMapScreen(void);                                      /* 0x00456300 */
+extern void  KillMapScreen(void);                                      /* 0x00456370 */
+extern void  DisableInfoPopUPIcons(void);                              /* 0x00471580 */
+extern void  DisableSidePanelIcons(void);                              /* 0x00475e90 */
+extern void  EnableSidePanelIcons(void);                               /* 0x00475ed0 */
+extern void  SetInGameIconHandlers(void);                              /* 0x00474880 */
+extern void  SetWaitSpriteRect(int x, int y);                          /* 0x00466360 */
+extern void  ClearWaitSprite(void);                                    /* 0x004663c0 */
+extern int   LoadGame(const char* path);                               /* 0x0047e980 */
+extern void  InitGameInterface(int a);                                 /* 0x004749d0 */
+extern void  KillHelpText(void);                                       /* 0x0046c5c0 */
+extern void  UpdateSoundVols(void);                                    /* 0x00495a90 */
+extern void  InitScreens(char screen);                                 /* 0x00458640  declared int elsewhere; this caller pushes a byte */
+extern void  ReadGameButtons(void);                                    /* 0x00452460 */
+extern void  PlayMovie(const char* name, int a, int b);                /* 0x004771f0 */
+extern void  UpdateHelpBar(void);                                      /* 0x0046d110 */
+extern void  MapScreenFrame(void);                                     /* 0x00459360 (scope Q) */
+extern void  sub_498b40(void);                                         /* 0x00498b40 */
+extern void  sub_4969d0(void);                                         /* 0x004969d0 */
+void InGameFrame(void);                                                /* 0x00458ee0 below */
+
+extern int          g_map_screen_pending; /* 0x008119bc  open the map screen this frame */
+extern int          g_map_screen_leave;   /* 0x0080ff70  close it this frame */
+extern int          g_park_start_pending; /* 0x00667c64  start a park this frame */
+extern int          g_game_load_pending;  /* 0x00667c80  ... by loading a saved game */
+extern int          g_ms_options_dirty;   /* 0x00667c78 */
+extern int          g_sim_frame;          /* 0x008119a4 */
+extern int          g_level_end_has_movie;/* 0x00832bac */
+extern char         g_level_end_movie[];  /* 0x008100c0 */
+extern int          g_icons2_mode;        /* 0x00668e38 */
+extern const char*  g_dbg_where;          /* 0x00667c40 */
+extern void*        g_icon_handler1;      /* 0x006687bc */
+extern void*        g_icon_handler2;      /* 0x006687c0 */
+extern int          g_cur_save_slot_wide; /* 0x0080ffe4  CurProfile+0x44 read as a dword */
+extern const char g_str_sfx[];            /* 0x004b9160 "SFX" */
+extern const char g_str_save_fmt[];       /* 0x004b9164 "%s\%dsave%d.sav" */
+extern const char g_str_profiles[];       /* 0x004b9174 "profiles" */
+
+/* InGameFrame's types, callees and globals. */
+typedef struct Pos { int x, y; } Pos;
+typedef struct BlitCtx { int a, b, c; } BlitCtx;          /* PrintSprite's 5th argument, {1, 0, 0} here */
+typedef struct HelpRect { int left, top, right, bottom; } HelpRect;
+/* The class record under the cursor: its name at +0x78 and, at +0xc4, a
+ * pointer whose first dword is the object ShowObjectHelp describes. */
+typedef struct SelDef {
+    char   pad00[0x78];
+    char*  name;        /* +0x78 */
+    char   pad7c[0x48];
+    void** obj;         /* +0xc4 */
+} SelDef;
+
+extern void  HandleRideAI(void);                                       /* 0x0048a0f0 */
+extern void  DoMapAI(void);                                            /* 0x00462ef0 */
+extern void  ControlPeople(void);                                      /* 0x00450990 */
+extern void  ControlWorkers(void);                                     /* 0x0049a070 */
+extern void  CheckWorkerOnMouseStatus(int a);                          /* 0x00470620 */
+extern void  ProcessBuildingTimes(void);                               /* 0x00450c80 */
+extern void  ProcessDamage(void);                                      /* 0x00463580 */
+extern void  ResetHitInfo(void);                                       /* 0x00485ef0 */
+extern void  RenderView(void);                                         /* 0x0045b180 */
+extern void  ProcessInGameHelp(void);                                  /* 0x0046cf60 */
+extern void  DrawPopUpInfo(void);                                      /* 0x004724a0 */
+extern void  RenderIcons2(unsigned short g1, unsigned short g2, unsigned short g3); /* 0x0046f010 */
+extern void  HTBubbleHelp(HelpRect* r, char* text, int font);          /* 0x004557c0 */
+extern char* GetString(int id);                                        /* 0x00498f50 */
+extern void  ShowIdHelp(int id);                                       /* 0x0046d230 */
+extern void  ShowObjectHelp(void* obj);                                /* 0x0046d340 */
+extern char* GetVisitorName(void* b);                                  /* 0x00482ba0 */
+extern void  KillAdvisorHelp(void);                                    /* 0x0046ce20 */
+extern void  UpdateFocussedIconPtr(void);                              /* 0x004700a0 */
+extern char  CheckFocussedIcon(void);                                  /* 0x0046f4c0 */
+extern void  RenderWorkerOnMouse(void);                                /* 0x004708c0 */
+extern int   IsLShiftDown(void);                                       /* 0x00474070 */
+extern int   IsRShiftDown(void);                                       /* 0x00474080 */
+extern void  sub_46f100(int group);                                    /* 0x0046f100 */
+extern void  sub_46ee00(void);                                         /* 0x0046ee00 */
+extern void  sub_46cff0(void);                                         /* 0x0046cff0 */
+extern int   sub_482cb0(int value);                                    /* 0x00482cb0 */
+extern void  sub_455fc0(HelpRect* r, char* text, int font, int a);     /* 0x00455fc0  HTBubbleHelp with an extra arg */
+extern void  sub_450a40(int value);                                    /* 0x00450a40 */
+extern void  sub_4632b0(void);                                         /* 0x004632b0 */
+extern void  sub_44db90(void);                                         /* 0x0044db90  the appraisal-due tick */
+void HandleMapClick(void);                                             /* 0x00457a70 below */
+
+extern int          g_drag_lock;          /* 0x00668954  a worker is on the mouse */
+extern int          g_hit_type;           /* 0x004bdd00 */
+extern int          g_icon_value;         /* 0x004bdd04 */
+extern int          g_hit_cell;           /* 0x004bdd08 */
+extern void*        g_ci_interface_bg;    /* 0x00668e68  InterfaceBG.lls */
+extern int          g_edit_mode;          /* 0x008119b0 */
+extern Pos          g_gfx_point;          /* 0x00813a44 */
+extern int          g_mouse_ev2;          /* 0x00813ac4  bit 2 = held */
+extern int          g_icon_clicked;       /* 0x00667c48 */
+extern void*        g_focussed_icon;      /* 0x006687d0 */
+extern int          g_show_capacity;      /* 0x00832994 */
+extern const char g_str_ai[];             /* 0x004b91e4 "AI" */
+extern const char g_str_process_stuff[];  /* 0x004b91d4 "ProcessStuff" */
+extern const char g_str_zoning[];         /* 0x004b91cc "Zoning" */
+extern const char g_str_rendering[];      /* 0x004b91c0 "Rendering" */
+extern const char g_str_in_game_help[];   /* 0x004b91b0 "In Game Help" */
+extern const char g_str_appraisals[];     /* 0x004b91a4 "Appraisals" */
+extern const char g_str_appraisals_over[];/* 0x004b9194 "Appraisals Over" */
+extern const char g_str_exiting[];        /* 0x004b9180 "Exiting GameProc" */
 
 /* Version-resource imports, declared WITHOUT dllimport: the original calls
  * them through the thunks at 0x0049e3a0..0x0049e3ac. */
@@ -273,4 +383,270 @@ void ReadExeVersionString(char* out)
     VerQueryValueA(buf, g_str_version_key, (void**)&str, &len);
     strcpy(out, str);
     free(buf);
+}
+
+/* One frame of the game, whatever mode it is in. First the pending mode
+ * changes (open/close the map screen, start a park -- from a saved game or
+ * fresh), then the mode's own frame, then the game buttons and the level-end
+ * state machine. Returns 0 only from mode 0, which ends the main loop. */
+// FUNCTION: LEGOLAND 0x00458c00
+int GameFrame(void)
+{
+    char path[256];
+
+    sub_498b40();
+    if (g_map_screen_pending != 0) {
+        FreezeGameClock();
+        InitOptionSamples();
+        g_icon_handler1 = 0;
+        g_icon_handler2 = 0;
+        g_ui_flags &= ~0x20;
+        InitMapScreen();
+        DisableInfoPopUPIcons();
+        DisableSidePanelIcons();
+        g_map_screen_pending = 0;
+    } else if (g_map_screen_leave != 0) {
+        ResumePausedSamples();
+        g_icon_handler1 = 0;
+        g_icon_handler2 = 0;
+        g_ui_flags |= 0x20;
+        KillMapScreen();
+        SetInGameIconHandlers();
+        EnableSidePanelIcons();
+        g_map_screen_leave = 0;
+        ThawGameClock();
+    } else if (g_park_start_pending != 0) {
+        FreezeGameClock();
+        ResetGameClock();
+        ResetSaveTimer();
+        g_icon_handler1 = 0;
+        g_icon_handler2 = 0;
+        g_castle_placed = 0;
+        g_ms_options_dirty = 1;
+        InitOptionSamples();
+        if (g_game_load_pending != 0) {
+            DeletePlayableSamples(0);
+            sprintf(path, g_str_save_fmt, g_str_profiles, g_cur_profile.profile_slot,
+                    g_cur_save_slot_wide & 0xff);
+            SetWaitSpriteRect(0, 0);
+            LoadGame(path);
+            g_game_load_pending = 0;
+            ClearWaitSprite();
+            InitGameInterface(0);
+            SetInGameIconHandlers();
+        } else {
+            KillHelpText();
+            StartPark();
+        }
+        UpdateSoundVols();
+        g_park_start_pending = 0;
+        g_pending_state = 0;
+        g_game_mode = 3;
+        SetInGameIconHandlers();
+        ThawGameClock();
+    }
+
+    switch (g_game_mode) {
+    case 2:
+        SetPointer(5);
+        InitScreens(g_screen_mode);
+        break;
+    case 3:
+        if (g_ms_options_dirty != 0) {
+            ResumePausedSamples();
+            g_ms_options_dirty = 0;
+        }
+        InGameFrame();
+        break;
+    case 1:
+        MapScreenFrame();
+        break;
+    case 0:
+        return 0;
+    }
+
+    if (g_park_start_pending == 0) {
+        g_dbg_where = g_str_sfx;
+        sub_4969d0();
+        ReadGameButtons();
+        g_sim_frame++;
+        if (g_pending_state != 0 && g_game_mode == 3) {
+            if (g_level_end_has_movie != 0) {
+                SetPointer(0);
+                PlayMovie(g_level_end_movie, 1, 1);
+                g_level_end_has_movie = 0;
+                SetPointer(5);
+            }
+            if (g_pending_state != 3) {
+                if (g_pending_state == 1)
+                    g_map->level++;
+                sub_48a750();
+                BeginParkLoad();
+                g_icons2_mode = 1;
+                g_game_mode = 2;
+                g_cur_screen = -1;
+                g_screen_mode = 6;
+            } else {
+                g_icons2_mode = 0;
+                g_game_mode = 2;
+                g_cur_screen = -1;
+                g_screen_mode = 1;
+                BeginParkLoad();
+            }
+        }
+        UpdateHelpBar();
+    }
+    return 1;
+}
+
+/* The frame from the building timers to the bubble help, inlined into
+ * InGameFrame after its guard: the callee-saved pushes belong here. */
+static __inline void InGameFrameBody(BlitCtx* ctx)
+{
+    HelpRect rect;
+    int      hit;
+
+    g_dbg_where = g_str_process_stuff;
+    ProcessBuildingTimes();
+    ProcessDamage();
+    hit = g_hit_type;
+    g_dbg_where = g_str_zoning;
+    SetPointer(5);
+    ResetHitInfo();
+    g_dbg_where = g_str_rendering;
+    PushRenderingStatusAndLockVideoSurface();
+    RenderView();
+    if ((hit & 0x100) || (g_ui_flags & 0x1000))
+        HandleMapClick();
+    {
+        int value, cell;
+
+        hit = g_hit_type;
+        value = g_icon_value;
+        cell = g_hit_cell;
+        PrintSprite(g_ci_interface_bg, 0, 0, 0, ctx);
+        sub_46f100(0x2c3);
+        sub_46ee00();
+        g_dbg_where = g_str_in_game_help;
+        ProcessInGameHelp();
+        DrawPopUpInfo();
+        RenderIcons2(0x2c3, 0, 0);
+        sub_46cff0();
+        if (g_ui_flags & 0x1000) {
+            g_hit_type = hit;
+            g_icon_value = value;
+            g_hit_cell = cell;
+        }
+    }
+    hit = g_hit_type;
+    if (hit & 0x100) {
+        if (g_edit_mode == 0 || g_edit_mode == 2) {
+            int edit = g_edit_mode;
+            rect.left = g_gfx_point.x;
+            rect.top = g_gfx_point.y - 10;
+            rect.right = g_gfx_point.x;
+            rect.bottom = g_gfx_point.y;
+            if (edit == 0) {
+                switch (hit) {
+                case 0x103:
+                    SetPointer(8);
+                    if (g_sel_def) {
+                        HTBubbleHelp(&rect, g_sel_def->name, 2);
+                        ShowObjectHelp(*g_sel_def->obj);
+                    }
+                    break;
+                case 0x10a:
+                    HTBubbleHelp(&rect, GetString(0xd4), 2);
+                    ShowIdHelp(0xd4);
+                    SetPointer(8);
+                    break;
+                case 0x10b:
+                    HTBubbleHelp(&rect, GetString(0xd2), 2);
+                    ShowIdHelp(0xd2);
+                    SetPointer(7);
+                    break;
+                case 0x10c:
+                    HTBubbleHelp(&rect, GetString(0xd3), 2);
+                    ShowIdHelp(0xd3);
+                    SetPointer(7);
+                    break;
+                case 0x10d:
+                    HTBubbleHelp(&rect, GetString(0x7e4), 2);
+                    ShowIdHelp(0x7e4);
+                    SetPointer(8);
+                    break;
+                case 0x308:
+                    HTBubbleHelp(&rect, GetString(0x92), 2);
+                    ShowIdHelp(0x92);
+                    SetPointer(8);
+                    sub_450a40(g_icon_value);
+                    break;
+                case 0x307:
+                    HTBubbleHelp(&rect, GetString(0x90), 2);
+                    ShowIdHelp(0x90);
+                    SetPointer(8);
+                    sub_450a40(g_icon_value);
+                    break;
+                case 0x306:
+                    sub_455fc0(&rect, GetVisitorName((void*)g_icon_value), 2, sub_482cb0(g_icon_value));
+                    SetPointer(8);
+                    sub_450a40(g_icon_value);
+                    break;
+                default:
+                    SetPointer(7);
+                    break;
+                }
+            } else {
+                if (g_sel_def) {
+                    HTBubbleHelp(&rect, g_sel_def->name, 2);
+                    ShowObjectHelp(*g_sel_def->obj);
+                }
+            }
+        }
+    }
+}
+
+/* One frame of the running park, phase by phase in g_dbg_where: the AI, the
+ * building/damage timers, the render (with the click handler on a button or
+ * a drag), the interface overlay and popup, the bubble help for whatever the
+ * mouse is over (by hit type, or by the selected class in edit mode 2), the
+ * appraisal tick, the focussed icon, and the flip. The hit triple is saved
+ * around the overlay render during a drag. */
+// FUNCTION: LEGOLAND 0x00458ee0
+void InGameFrame(void)
+{
+    BlitCtx ctx;
+
+    ctx.a = 1;
+    memset(&ctx.b, 0, 8);      /* a sub-object memset: its zero fill is not a constant-web use */
+    g_dbg_where = g_str_ai;
+    HandleRideAI();
+    DoMapAI();
+    ControlPeople();
+    ControlWorkers();
+    if (g_drag_lock)
+        CheckWorkerOnMouseStatus(0);
+    InGameFrameBody(&ctx);
+    if (g_hit_type == 5 && (g_mouse_ev2 & 2)) {
+        KillAdvisorHelp();
+        g_icon_clicked = 1;
+    }
+    g_dbg_where = g_str_appraisals;
+    sub_44db90();
+    g_dbg_where = g_str_appraisals_over;
+    UpdateFocussedIconPtr();
+    if (!(g_ui_flags & 0x1000) && !g_icon_clicked) {
+        if (g_focussed_icon && !g_drag_lock)
+            SetPointer(6);
+        CheckFocussedIcon();
+    }
+    if (g_drag_lock)
+        RenderWorkerOnMouse();
+    PopRenderingStatus();
+    if (g_show_capacity) {
+        if (IsLShiftDown() || IsRShiftDown())
+            sub_4632b0();
+    }
+    RenderingComplete();
+    g_dbg_where = g_str_exiting;
 }
