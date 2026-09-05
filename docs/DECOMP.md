@@ -424,6 +424,44 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **FROM THE PARALLEL SESSION `codex-e` (44 of 44 exact — the seven ride
+  state machines and the coaster's last callees; evidence in
+  `docs/lanes/codex-e.md`).** Folded:
+  - **The two-byte `memcmp` intrinsic is the SEARCH shape, not the LOOP
+    shape.** In the four rotary-ride `StepMachine`s it introduced a `lea` of
+    `rider+0xc` and shifted everything after (33/33/39/32); a scalar
+    `rec->tile.key == rider->tile.key` closes all four, with the loop
+    re-reading each key at the original sites and no volatile. So: `memcmp`
+    for a record SEARCH (`*_FindRecord`), scalar compare inside a tick loop.
+  - **A two-value ternary for a byte revolution reset**: `rand()%2 ? 4 : 3`
+    gives `setne al` then a 32-bit `add eax,3`; `(rand()%2 != 0) + K` does the
+    add in `al` — one mismatch and a byte each.
+  - **The order of two groups of clears decides which register is the live
+    zero**: the tower's four height clears must precede the four car flag
+    clears so EBX is the zero register before any mask operation (20 at
+    unchanged 56i/175B). Same family as "where a shared register is freed
+    decides which carries the zero".
+  - **A common tail written AFTER the join, not inside the guard, keeps the
+    original SPLIT cleanup** (`add esp,4` then `add esp,8`) and VC6 duplicates
+    the final call itself; inside the guard the cleanups merge into
+    `add esp,0xc` (18 -> 0).
+  - **Read an aliased field into a byte local BEFORE either record store**
+    (`lls->frames` -> one `AL` load, store, `dec al`, store across five cars;
+    a second read after the first store reloads through the alias — 97).
+  - **A named float local keeps a pending argument's dead-slot spill/reload**
+    where `f(route, g(route))` writes the x87 return straight over it. **Name
+    the image length before initialising the counter, then compute
+    `end = p + length`** — the pointer addition then follows the counter's
+    zero. **A bit test needs an `int` local AND a boolean branch**
+    (`int flags = *(signed char*)&n->flags; if (flags & 1) return 1;
+    return 0;` -> `movsx / and eax,1`; every other spelling narrows to
+    `mov al`) — confirms the recorded `Route_IsClosed` rule.
+  - Second independent warning this round: **normalised matches do not prove
+    global identities.** A whole-struct assignment passed 19i/105B with zero
+    mismatches while loading `a/b/c` instead of `b/c/d` at three sites; twelve
+    relocations were mismapped. Check relocations wherever several same-sized
+    globals are read or stored in one body.
+
 - **Two arrays indexed by ONE variable versus one array indexed by an OFFSET
   expression is a codegen decision worth 300 instructions.**
   `g_seg_first[a]` / `g_seg_second[a]` (two link-time bases, one index
@@ -926,12 +964,11 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 - **`if (s == 0) A(); if (s != 0) B();` as two separate `if`s gives ONE call
   site for B** with the first test's non-zero edge threaded into it — the
   shape of both `Control*` worker ticks. An `if/else` emits two.
-- **TOOLING DEFECT, second instance:** `MatMul` (0x00426120) is 40
-  instructions / 103 bytes, but instruction 9 jumps forward over the loop
-  reload and the extent walker stops there, reporting `orig=10i/28B` and
-  ESCAPES against a complete, zero-mismatch body. Same class as
-  `Coaster3D_BuildPieceGeometry`. Both sit as WIPs at 100% until the walker
-  treats a forward `jmp`'s own target as crossing it. Also a data-quality
+- **TOOLING DEFECT, second instance — FIXED with the first (see above):**
+  `MatMul` (0x00426120) is 40 instructions / 103 bytes; instruction 9 jumps
+  forward over the loop reload and the walker used to stop there, reporting
+  `orig=10i/28B` and ESCAPES against a complete, zero-mismatch body. With the
+  fix it audits `[OK]` at its full extent. Also a data-quality
   catch from the same session: `coaster.c`'s extern comment
   `/* 0x004299a30 -> ... */` carries a malformed nine-digit address, which is
   why `callees.py` listed 0x004299a3 (instruction 8 of 0x00429990) as a
@@ -1440,9 +1477,15 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 - **Hoist a shared multiple into ONE local and derive the other from it**
   (`six = 6*s; ... 3*six`): 75 -> 53 on `InitTrackTopology`, where hoisting
   both into their own locals is worse (80).
-- **TOOLING DEFECT, open: `audit.py`/`match.py`'s extent walker stops at an
-  unconditional `jmp` that no EARLIER branch crosses — but a rotated loop's
-  entry `jmp` in the middle of a function is exactly that.** The walker ignores
+- **TOOLING DEFECT — FIXED 2026-09-05 (`_loop_entry` in `tools/match.py`):
+  the extent walker stopped at an unconditional `jmp` that no EARLIER branch
+  crossed — but a rotated loop's entry `jmp` in the middle of a function is
+  exactly that.** The walker now peeks past a forward `jmp`'s target for a
+  branch back into the skipped region and, if one exists, treats the `jmp` as
+  a loop entry; a tail-jmp wrapper never satisfies that test. `MatMul` went
+  from a truncated 10i/28B ESCAPES to 40i/103B exact and was promoted;
+  `Coaster3D_BuildPieceGeometry` is now bounded at 143i/528B. Original text
+  of the defect follows.** The walker ignores
   the jmp's OWN forward target, under-bounds the function, and then reports
   ESCAPES against the truncated extent. `Coaster3D_BuildPieceGeometry`
   (0x004284d0) can never print `[OK]` until this is fixed, although ours

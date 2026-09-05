@@ -218,6 +218,29 @@ def _table_targets(d, secs, op_str, lo, hi):
     return out
 
 
+def _loop_entry(insns, addr_index, i, tgt):
+    """True if the forward `jmp` at insns[i] (target tgt) is a rotated loop's
+    entry: walking on from tgt, some direct branch met before the first `ret`
+    targets the skipped region (jmp_end, tgt) -- the loop body. A tail-jmp
+    wrapper never satisfies this: nothing reached from another function's
+    entry branches back into the padding before it."""
+    lo = insns[i].address + insns[i].size
+    k = addr_index.get(tgt)
+    if k is None:
+        return False
+    for j in range(k, min(k + 4000, len(insns))):
+        y = insns[j]
+        if y.mnemonic == "ret":
+            return False
+        if y.mnemonic.startswith("j"):
+            m = re.match(r"^0x([0-9a-f]+)$", y.op_str.strip())
+            if m:
+                t = int(m.group(1), 16)
+                if lo <= t < tgt:
+                    return True
+    return False
+
+
 def true_extent(d, secs, rva):
     """(instruction count, byte length) of the original function at rva.
 
@@ -285,6 +308,16 @@ def true_extent(d, secs, rva):
             if m:
                 tgt = int(m.group(1), 16)
                 if x.mnemonic == "jmp" and x.address >= furthest:
+                    if tgt > x.address and not external(tgt) and _loop_entry(insns, addr_index, i, tgt):
+                        # A forward jmp over a block that a later conditional
+                        # branch jumps BACK into is a rotated loop's entry
+                        # (`jmp cond; body: ...; cond: ...; jcc body`), not the
+                        # end of the function. MatMul (0x00426120) and
+                        # Coaster3D_BuildPieceGeometry (0x004284d0) were both
+                        # truncated at such a jmp, reported ESCAPES against the
+                        # truncated extent, and could never print [OK].
+                        furthest = max(furthest, tgt)
+                        continue
                     return i + 1, sum(k.size for k in insns[:i + 1])
                 if not external(tgt):
                     furthest = max(furthest, tgt)
