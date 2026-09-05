@@ -424,6 +424,82 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **A COMMUTATIVE SUM OF TWO CALLS IS EVALUATED LATER-DECLARED-CALLEE FIRST,
+  so the externs' DECLARATION ORDER decides the call order (scope O,
+  2026-09-05).** `PrimeMovieAudio` (0x00476bf0): `end = AVIStreamLength(a) +
+  AVIStreamStart(a)` AND `AVIStreamStart(a) + AVIStreamLength(a)` both call
+  Start first while Length is declared before Start; declaring Start first
+  makes both call Length first, which is the original. The instruction gate
+  is blind to it (47/47 either way) — `relocs.py` reported the swapped callee
+  targets. Splitting the sum into two statements fixes the order but swaps
+  the edi/esi roles of the two locals (42 of 47); a named temporary is worse
+  (34). The one known case where the ORDER of extern declarations (not their
+  types) is a lever. Thunk identities were confirmed from the import table
+  with pefile, not inferred from use.
+- **The relocation gate catches reconstruction errors the instruction gate
+  passes — run it on every exact body (scope O).** `StartMovieAudio`
+  (0x00476910) was 197/197 storing `si.dwLength`; the original stores
+  `si.dwSampleSize` (+0x30). Same-sized field, same instruction, wrong
+  identity.
+- **`switch` on a global keeps a stored constant register-backed through the
+  join that an `if` gets jump-threaded across (scope O).** `MovieTicks`
+  (0x00476680): after `if (!QPF) g_mode = 1; else { g_mode = 2; ... }`, an
+  `if (g_mode != 2)` — on the global or on a local copy — is threaded (the
+  stores become immediates, 20 of 30); `switch (g_mode) { case 2: ...;
+  default: ... }` keeps `mov eax,1 / mov [g],eax` and `sub eax,2 / je`,
+  30/30.
+- **A value that must take a callee-saved register without crossing a call
+  is assigned BEFORE the call, and VC6 rematerialises the constant after it
+  (scope O).** `UpdateMovieAudio` (0x00476d20): `count = 11` after the stop
+  call gives count eax and the frame argument esi, with edi's push sunk to
+  the loop (324 of 344); `count = 11` anywhere before the `frame % blocks`
+  division (which needs eax) gives count esi, frame edi, both pushes at the
+  guards (342–343); the exact statement order `pos = ...; restart = 1;
+  count = 11; block = frame % blocks; restart_pos = ...` puts the
+  rematerialised `mov esi,0xb` where the original has it, 344/344. Using
+  the count as the loop's own counter homes it in memory from the start
+  (315).
+- **A byte scanned in a `do ; while (buf[i++] != '\r' && i < size);` is a
+  compiler temporary and stays out of the scratch pool; a named `char c`
+  takes ecx and shifts every later register (scope O).** `LoadTextFileLines`
+  (0x00490680): named temp 62 of 86 (the file handle moves to edi, `max`
+  into a pushed ebx); the empty do-while with the test in the latch lands
+  the temp in ebx (the handle's register, restored each iteration as the
+  original does), `lines` in ecx, `max` in edx, 86/86; a `while` with the
+  same test peels the first compare (60 of 88).
+- **A global read at every use plus a local copy taken BEFORE the guard is
+  the CSE'd load-then-copy shape `mov eax,[g] / test eax,eax / mov ebp,eax /
+  je / lea esi,[eax*4]` (scope O).** `MarkPathSquareReachable`
+  (0x004829c0): `n = g; if (n) { malloc(n*4); memcpy(.., n*4) }` fuses the
+  webs, `mov ebp,[g] / test ebp,ebp / lea esi,[ebp*4]`, and as a side effect
+  loses edi's prologue push (the flag RMW takes esi; the memcpy gets a local
+  `push edi / pop edi` bracket): 40 of 51 at the original's byte length. `n
+  = g` inside `if (g)` with `size = g * 4`: 51 of 52. `n = g` BEFORE `if (g)`
+  with `size = g * 4`: 52/52. Guarding on `n` instead of `g`: back to 40.
+- **All-subscript lockstep cursors on one index reproduce a MIXED anchoring
+  — one row cursor anchored at +2, the other at +0 with its +1 store taken
+  off the first cursor plus a loop-invariant difference (scope O).**
+  `BlitDIBToScreen` (0x00465850): `src[x]`, `d0[2*x]`, `d1[2*x]`,
+  `d0[2*x+1]`, `d1[2*x+1]` in a `for (x = 0; x < w; x++)` gives the
+  original's `[edx]`, `[ecx-2]`, `[ecx+ebp]`, `[ecx]` with the source in
+  edi and the column count (a compiler temp) in memory: 66 -> 100 of 113.
+  Walking pointers in any of eight store orders spill the source pointer and
+  anchor the rows the other way (55–66). Three more steps closed it: the
+  DIB's `h`/`w` read BEFORE the surface toggle's global store (a load through
+  the pointer cannot rise above it; 100 -> 105), an explicit countdown `cnt
+  = y + 1` from the `y = h - 1` that also positions the last DIB row (the
+  original's `lea edx,[ebp-1]` kept across the top fill and `inc edx` at the
+  loop head; -> 113/113), and a `short` pixel temp (`unsigned short` narrows
+  the 565 mask to 0xffe0 against the original's 0xffffffe0; `int` promotes
+  the load, 46 of 115).
+- **Two smaller ones from scope O.** A struct wrapper `struct { long
+  fmtsize; AviStreamInfo si; } f;` pins the address-taken scalar BELOW the
+  0x8c aggregate (`StartMovieAudio`, the one displacement of 196 of 197);
+  as two locals VC6 put the aggregate at the bottom whatever the declaration
+  order. A local copy of a global that is later multiplied keeps it in a
+  callee-saved register across the call between (`blocks =
+  g_movie_audio_scale; ... Create(fmt, bpb * blocks)` -> `mov ebx,[scale] /
+  imul ecx,ebx`; reading the global at the multiply reloads it, 187 of 197).
 - **RELOCATION IDENTITY IS NOT CHECKED BY THE GATE; `tools/relocs.py` checks
   it (scope L, merged 2026-09-05).** `verify.py`/`audit.py` normalise every
   absolute operand, so a body that names the wrong same-sized global, the

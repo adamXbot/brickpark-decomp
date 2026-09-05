@@ -91,10 +91,10 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **59.5% exact, 70.5% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2383 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **60.2% exact, 71.1% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2404 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 91, ~4,700 instructions — 46 of them game code (2,564 insns: Codex-F's 27 and scope O's 19), the rest CRT/import thunks |
+| unmatched callees | `python3 tools/callees.py` | 99, ~4,600 instructions — 47 of them game code (2,023 insns: Codex-F's 27, and the 20-function tier scope O's files declare, 721 insns), the rest CRT/import thunks |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 73 |
 | **unmatched functions, whole binary** | `python3 tools/inventory.py` (scope N) | **867: 703 live (41,523 insns, 70% of the unmatched bytes), 164 dead, one 8,085-instruction body** — `docs/lanes/scope-n.md` |
 
@@ -248,6 +248,30 @@ DECOMP). `integrate.sh` and §4 now run `relocs.py` per file. **Four fixes are
 DEFERRED to the owning scopes' merges — apply them at the quiet-tree gate the
 moment F and H land, then `relocs.py --all` must report zero MISMATCH lines:**
 
+**Scope O merged (2026-09-05): 21 of 21 exact, +1,290 instructions, coverage
+59.5% -> 60.2%.** The tier K exposed — `pathmask2.c` (cursor path tile,
+entrance flood fill, rider seek), `movie3.c` (RES text and keyword files,
+the narration ring drain, the build-menu grant, the per-level reset, the
+doubled movie blit) and `movie2.c` (the PCM/ADPCM movie audio stream through
+AVIFile + ACM into a KLIBAUDIO buffer, the movie clock) — plus two
+undeclared siblings (`SetHintTextPrefix`, `SetMovieVolume`). **The relocation
+gate earned its place twice**: `StartMovieAudio` stored `dwLength` where the
+original stores `dwSampleSize`, and `PrimeMovieAudio`'s `AVIStreamEnd` sum
+called Start before Length — both zero-mismatch at the instruction gate,
+both caught by `relocs.py` and fixed. The second exposed a lever new to the
+corpus: **VC6 evaluates a commutative sum of two calls later-declared-callee
+first, so extern DECLARATION ORDER decides the call order** (both operand
+orders emit identical code; splitting the sum swaps two registers). Also
+new: `switch` on a global keeps a stored constant register-backed through
+a join that an `if` gets jump-threaded across; a count assigned BEFORE a call
+it does not otherwise cross takes a callee-saved register and is
+rematerialised after the call; all-subscript lockstep cursors on one index
+reproduce the original's mixed cursor anchoring (the blit, 66 -> 100 of 113
+in one step). Levers with numbers in `docs/lanes/scope-o.md`, folded into
+DECOMP below. The merge exposed the next tier: 20 game-code callees, 721
+instructions (`ParseKeywordSections` 194, `CollectPathSquareNeighboursCounted`
+127, `RefillNarrationRing` 102, `NewScriptEvent` 91, ...), all named.
+
 - `mechrides.c` (scope F) `PlaneRide_Create` 0x0043dda0 i34-36: the three
   stores go to distinct destination globals 0x0062fe84/88/8c, not back into
   the source pointers `g_plane_bnv0/1/2` (0x0062fe90/94/78). Declare three
@@ -275,9 +299,10 @@ Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed),
 `SCOPE_P_game_frame.md` and `SCOPE_Q_game_main.md` (the startup spine — the
 frame dispatcher, the in-game frame, the map click handler, the main loop —
 cut from the inventory's groups 16 and 17 on 2026-09-05). Running: F (this
-machine), G, H, O (19 new functions K exposed). Merged since: N
-(`tools/inventory.py` and `docs/lanes/scope-n.md`, 2026-09-05; no C, no
-existing tool touched). Tree-wide `relocs.py --all` after this checkpoint:
+machine), G, H. Merged since: N (`tools/inventory.py` and
+`docs/lanes/scope-n.md`, 2026-09-05; no C, no existing tool touched) and O
+(21 of 21 exact — the 19 K exposed plus two undeclared siblings — three new
+files, 2026-09-05; `docs/lanes/scope-o.md`). Tree-wide `relocs.py --all` after this checkpoint:
 2,383 checked, 17 mismatched positions, all in the four deferred functions.
 
 **The runtime spec exists (scope J, merged 2026-09-05).** `docs/RUNTIME_SPEC.md`
@@ -628,7 +653,7 @@ turned one fix into four repeatedly.
 — 867, of which 703 are live (41,523 instructions) and 164 are dead code the
 linker kept — with how each is reached, its nearest matched neighbour and 31
 address-ordered candidate groups of ~1,200 instructions. `callees.py --by-file`
-sees only the 46 that matched code declares. Cut new scopes from the groups:
+sees only the 47 that matched code declares. Cut new scopes from the groups:
 P and Q took 16 and 17 (the startup spine); 24–27 are one neighbourhood
 reached through the level-database keyword table at `0x004bb6f8`; cut 22
 before 21 (61 calls); groups 3–7 hold most of the dead code, so cut only

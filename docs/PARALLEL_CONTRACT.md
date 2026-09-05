@@ -11,8 +11,8 @@ M) and every one merged with zero conflicts.
 A matching decompilation of LEGOLAND (Windows, 2000, VC6 SP3, `/O2 /Gy /Gd`).
 Human-written C in `LEGOLAND/*.c` must compile to reproduce
 `original/legoland.exe` function-by-function. Status at the time of writing
-(2026-09-05, evening): **2383 exact functions, 73 partials, 59.5% of game code
-matched exactly (70.5% with partials).** No game binary or asset is ever committed (`original/` and
+(2026-09-05, evening): **2404 exact functions, 73 partials, 60.2% of game code
+matched exactly (71.1% with partials).** No game binary or asset is ever committed (`original/` and
 `gamedata/` are gitignored).
 
 ## Read these first (in this order)

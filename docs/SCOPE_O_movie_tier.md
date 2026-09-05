@@ -1,6 +1,6 @@
 # Scope O — the movie-player tier: audio stream, DIB blit, keyword files (2026-09-05)
 
-> **Status: CLAIMED 2026-09-05 (Claude session, this machine).** Branch `scope/O`. Notes: `docs/lanes/scope-o.md`.
+> **Status: DONE — 21 of 21 exact (the 19 below plus two undeclared siblings), merged into `main` 2026-09-05.** Branch `scope/O`. Notes: `docs/lanes/scope-o.md`.
 > Object prefix `/tmp/so_`. Any agent. Unrelated to `SCOPE_CODEX_F.md`.
 
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
