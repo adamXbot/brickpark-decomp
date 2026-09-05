@@ -89,4 +89,46 @@ FUNCTION markers, with no first divergence or residual.
   original eax:edx aggregate return; heap destruction and caller prototypes
   retain cdecl. Existing callers and headers are unchanged.
 
+
+## simcore2.c — complete
+
+All ten functions pass audit, matchfull 100%, warning-free compilation and
+relocated-byte verification (21 address relocations). Every row is FUNCTION;
+no divergence or residual remains. Scope names are retained: existing visitor,
+mood and route-search callers establish their roles.
+
+| Address | Name | Instructions | Match | Audit [OK] | Marker |
+| --- | --- | ---: | ---: | --- | --- |
+| 0x004776c0 | `AddClosedNode` | 5 | 100% | Yes | FUNCTION |
+| 0x00477980 | `RouteTurnCost` | 8 | 100% | Yes | FUNCTION |
+| 0x004700c0 | `IsWatchedBloke` | 10 | 100% | Yes | FUNCTION |
+| 0x00482d30 | `GetBlokeMood` | 16 | 100% | Yes | FUNCTION |
+| 0x0044eae0 | `UpdateBlokeStay` | 17 | 100% | Yes | FUNCTION |
+| 0x004779a0 | `RouteStepAxis` | 18 | 100% | Yes | FUNCTION |
+| 0x00477790 | `RemoveOpenNode` | 19 | 100% | Yes | FUNCTION |
+| 0x00477680 | `RouteInBounds` | 25 | 100% | Yes | FUNCTION |
+| 0x00482df0 | `AdjustMood` | 27 | 100% | Yes | FUNCTION |
+| 0x0044ea50 | `SpawnVisitor` | 28 | 100% | Yes | FUNCTION |
+
+- Route nodes use a shared intrusive link. `RemoveOpenNode` unconditionally
+  reads the found node's next pointer: absent targets and empty lists retain
+  the original null dereference. Bounds checks use unsigned 16-bit map
+  dimensions promoted into signed comparisons. Axis cost is 0 when the
+  bitmasks overlap, 4 otherwise; step classification distinguishes x/y/diagonal.
+- Mood uses signed shorts and table-scaled signed division by 100, clamped
+  to [-30000, 30000]; event indices are unchecked. Classification thresholds
+  yield 3, 10 or 2. Stay updates snapshot flags before incrementing the timer,
+  and request long-term action 3 only when flag 8 is clear and time is up.
+- Visitor spawning waits at least 30 ticks and checks the current limit.
+  Capacity/allocation failures keep accumulating time. Success resets time,
+  draws independent 0..7 timing phases, sets walk delay 1, then initializes AI.
+- Nine bodies closed on first compile. `RouteStepAxis` needed a free volatile
+  read of x1: 17i/42B becomes the original 18i/44B, retaining an independent
+  subtraction/test and its scratch-register allocation. Reusing parameter
+  variables was inert. All actual relocation bytes also agree.
+- Existing call-site prototypes remain untouched. `AdjustMood` returns the
+  sign-extended stored short, although some callers discard its result.
+  The retired `RequestRoute` notes were read, including alias-kill and
+  live-range findings; its body is outside this lane and unchanged.
+
 Remaining files are in progress.
