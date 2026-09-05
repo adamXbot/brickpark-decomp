@@ -91,11 +91,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **49.9% exact, 58.3% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1644 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **51.2% exact, 59.7% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1684 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 561, ~14,500 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 60 |
+| unmatched callees | `python3 tools/callees.py` | 539, ~12,900 instructions |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 65 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
@@ -156,6 +156,15 @@ the DECOMP entry).
 `workorder3.c`, `ridemisc.c` 6 of 6, `sysmisc.c`), zero conflicts again;
 levers in `docs/lanes/fable-b*.md`, folded into DECOMP. Coverage 49.5% ->
 49.9% exact. Two scopes, two clean merges: the pattern is established.
+
+**Wave fifteen (2026-09-05): 40 more exact in four lanes — the best round yet,
+and coverage passes HALF: 49.9% -> 51.2% exact.** `logflume6.c` 7 of 7 (the
+log flume subsystem is now complete), `screencb3.c`+`fpui4.c` 14 of 15,
+`goldrush3.c`+`ridemisc2.c` 10 of 11, `coaster4.c`+`schoolcar5.c` 9 of 12. The
+frontier is down to 539 functions / ~12,900 instructions from 588 / ~25,500
+when the pivot began four rounds ago. Two cautions came out of it: size is NOT
+evidence of twinning (two 121-instruction functions shared nothing), and a
+twin's block layout is a hypothesis, not an inheritance — diff first, always.
 
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier

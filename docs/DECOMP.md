@@ -424,6 +424,162 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **`rep stosd` is NOT proof of `memset`.** VC6 SP3 turns a constant-count
+  array fill into `rep stosd` even when the fill value is a non-zero ADDRESS
+  constant: `for (i = 0; i < 0x400; i++) tab[i] = &fallback;` is
+  `mov ecx,400h / mov eax,OFFSET / mov edi,OFFSET / rep stosd`
+  (`CoasterShades_Init`, exact first try).
+- **A strength-reduced record cursor is anchored at the field with the MOST
+  references; ties break to the LAST reference; and offset 0 never wins from
+  a `->` or subscript access.** All six read orders of a three-field row
+  measured on `InitTrackDrawModes`: three orders anchor at +8, three at +4;
+  only a DUPLICATED `e->in` reference reaches +0, and it permutes the loads.
+  Confirmed forward on `ZBuffer_RunCommand`: writing `edge[i].side` in BOTH
+  arms anchors that cursor at +4, naming `c->v[i].y` three times anchors the
+  other at +2 — 16 of 53 together. Refines "VC6 biases the IV to the MIDDLE
+  of the accessed offsets": it is the reference count, not the midpoint.
+- **A struct copy from a global whose fields were just assigned constants lets
+  VC6 constant-fold the FIRST field read back through the `rep movsd`.**
+  `g_base = g_tmpl; g_base.m[0] *= 0.5f;` becomes one
+  `mov [m0], 0x3f4d3a3f`. ONE free volatile read on that field defeats it
+  (the original loads there anyway); `memcpy` and an inline `Half(float*)`
+  helper still fold. The whole residual of `Coaster3D_ResetScene`. Same
+  mechanism as "struct-copy forward-propagation picks the FIRST field read".
+- **Declaring a list-walk pointer in EACH ARM'S OWN SCOPE splits its web and
+  flips the callee-saved ranking.** As one function-level local it out-ranks
+  the `out` parameter and swaps esi/edi through 24 instructions (36 of 60,
+  register-blind 0); two block-scope declarations give `out` esi, and VC6
+  still hoists the shared load above the branch. 60/60 (`WriteCoasterNodes`).
+  Scope as a ranking lever, from the other direction.
+- **Explicit parentheses stop VC6 reassociating FP constants.**
+  `(int)x * 0.2 * 5.0f` folds `0.2 * 5.0` to exactly 1.0 and emits NEITHER
+  multiply; `((int)x * 0.2) * 5.0f` keeps both (94 -> 104 on
+  `DrawSupportShadow` — and the cast placement there is an original bug: it
+  truncates to whole units instead of snapping to the 5-unit grid). **A
+  double-typed intermediate pools the second constant as a double**
+  (`fmul qword`) where the float-typed one gives `fmul dword ptr [5.0f]` and
+  also swaps which operand of the following adds is `fld`ed (106 vs 111/111).
+- **"Float source order is the REVERSE of `fld` order" does not reach an
+  accumulator site.** `acc += step`, `acc = acc + step` and `acc = step + acc`
+  are byte-identical (all `fld step / fadd acc`); only a free volatile read of
+  `acc` puts the `fld` on `acc`. **An embedded assignment `c = pa - (m = e) *
+  a;` is what produces `fst` (store-and-keep)** rather than `fstp` + `fld`.
+- **A snapshot handed to a float callee must be a RAW DWORD with an `int`
+  prototype.** As `float` locals the snapshots get stack homes, the loop
+  counter takes edi and 17 instructions move; as ints they take edi/ebx across
+  the call and the counters spill, matching the original (`Route_StepFree`).
+  Related: **a context field zeroed as an `int` merges with `i = 0` into one
+  hoisted zero register**; typed `float` and zeroed with `0.0f` it keeps both
+  stores immediate and the guard `test eax,eax`.
+- **Two tables pushed as `push OFFSET` are ARRAYS, not pointer variables** —
+  declared as `void*` scalars the call loads their contents and costs four
+  instructions.
+
+- **A `Pos` by-value parameter where the caller declares two ints — third
+  confirmation, new mechanism.** Same `__cdecl` ABI, but as an aggregate
+  member `tile.y` becomes the DESTINATION SYMBOL of its own sum (`add edx,ecx`
+  not `add ecx,edx`) and the `mov ecx,edx` argument copy comes back: 33 of 56
+  -> 0 of 57 on `Restaurant1_WalkToSeatSpot` after ~60 other variants. The
+  caller's four-int extern is left alone. So the by-value `Pos` is three
+  levers in one — left-to-right schedule, an extra definition for the
+  rotation, and the destination-symbol rule for its fields.
+- **A coordinate pair computed into ONE `Pos` aggregate LOCAL, not straight
+  into the struct fields.** Written into `b->target.x`/`.y` directly, VC6
+  completes and stores x before it even loads `node.y` (20 of 60); as two
+  plain ints it hoists both parameter loads and grabs EBX (63 instructions);
+  as one aggregate it evaluates x, y, both shifts, both stores — exact
+  (`WalkPath_Advance`). The aggregate placement rule from the value side.
+- **Name the intermediate POINTER into a const table**
+  (`PanSlot* s = &g_pan_slots[b->pan];`) to get the original's `lea` plus
+  scaled-subscript pair while VC6 still re-derives the other field as a
+  subscript: 6 -> 0 on `MoveToPanEdge`, and it transferred to
+  `StandUpFromPan` first try. **A flat `int` table versus a struct array is a
+  scaling lever**: `[eax*4 + disp32]` with the index scaled by 6 is
+  `const int tbl[]`; a 24-byte struct array scales by 3 and addresses
+  `[eax*8 + disp32]`, one instruction short.
+- **A float read into a local EARLY is what schedules its `fld` early.** Read
+  at the use site the `fld` sinks 20 indices and VC6 pre-scales the index into
+  a register (`shl eax,3` + `[eax+base]`); as a local it stays at index 7 with
+  `[ecx*8+base]`. 22 -> 6. Same family as "values that must survive a call
+  have to be NAMED LOCALS read before it" — read at their use sites they load
+  after the call and VC6 pushes one callee-saved register fewer (confirmed
+  again on `Restaurant1_WalkToSeatSpot`, indices 1..7).
+- Negative, measured on `GoldRush_KneelAtPan` (95 variants): **a store cannot
+  migrate across a call, so a field store AFTER a call proves the source
+  statement is there — but making the stored value SURVIVE the call in a
+  callee-saved register (one web from load, across `__ftol`, to store and
+  argument copy) is not reachable from C.** The closest point (58/58, right
+  prologue and store positions, 26 mismatches) needs a local plus a volatile
+  read and was not adopted.
+
+- **The zero-web THRESHOLD is between three and five literal zeros — and
+  below it, the placement of a `rep movsd` decides.** `BoatingSchool_Update`
+  has three literal zeros: with the struct copy interleaved among them VC6
+  hoists `xor esi,esi` (esi is pushed for the copy anyway) into a chain
+  store's slot (32 of 46); finishing the store chain BEFORE the copy leaves all
+  three as immediates (46/46). Its sibling with FIVE zeros carries the zero
+  register in the original. Sharpens "VC6 hoists a constant zero into a
+  callee-saved register only when that register is pushed anyway": the push is
+  necessary, the count decides, and near the threshold a copy's position tips
+  it.
+- **The push-sinking rule needs ONE `return K` in the guarded block, not
+  two.** `return 2;` in both inner arms puts `push esi` back in the real
+  prologue and forces `mov al,[esp+8] / test al,2`; an if/else with a single
+  trailing `return 2;` lets VC6 tail-duplicate the epilogue itself and both
+  pushes sink (55/55, `BuildObjectIconInput`). Sharpens the wave-fourteen entry.
+- **Walk a list through its head GLOBAL to get the 5-byte accumulator-form
+  store.** A local cursor with `g_head = p;` stores from a register (6 bytes);
+  ~20 loop spellings floored one byte long. `while (g_head) { next =
+  g_head->next; free(g_head); g_head = next; }` makes VC6 forward the
+  just-stored head into eax and `mov [imm32],eax` falls out — exact.
+- **A named sum BLOCKS VC6's algebra.** `step += limit - (base + step)`
+  written inline folds to `step = limit - base`, merges two clamp blocks and
+  loses four instructions; `t = base + step; if (t < limit) step += limit - t;`
+  keeps the original's unsimplified `sub/add` pair. The temporary prevents an
+  optimisation here rather than enabling one — the mirror of "a named local is
+  not a duplicated expression".
+
+- **Size is NOT evidence of twinning — diff first.** `Sub_411680` and
+  `Sub_411810` are both 121 instructions and share nothing but a boat pointer
+  (`LFBoat_Advance` vs `LFBoat_Fall`). And **a twin's block layout is a
+  hypothesis, not an inheritance**: `LFPiece_HasCursor` needs
+  `if (s == 0) { one } else { walk }`, the INVERSE of its twin
+  `LFPiece_HasRider` (41 -> 49 of 49). Same-size and same-family both earn a
+  diff, not a copy.
+- **Block-scoped `int tw, th;` — one pair per block — is what homes BOTH in the
+  dead argument slots;** one function-scope pair homes only `tw` and shifts
+  the whole frame. Worth 98 of 299 on `LFBoat_Draw`. The scope decides the
+  colouring, so declare the out-params where they are used.
+- **A by-value `Pos` argument takes one more register DEFINITION than
+  `(int, int)`, and that definition advances the scratch rotation for the rest
+  of the function.** Closed the last 17 of 299 on `LFBoat_Draw`; all four
+  `(int, int)` operand orders are byte-identical, so it is unreachable by
+  permuting sums. Extends the `LFRun_Tick` entry (there the payoff was the
+  left-to-right SCHEDULE; here it is the ROTATION).
+- **Naming a pointer that a call kills pins a callee-saved register AND the
+  frame.** `Person3D* person = b->rider->person;` took `LFBoat_Draw` 132 -> 48.
+  The named pointer is reloaded once and kept; inline it is re-derived after
+  every call.
+- **A free volatile read can be used to REMOVE a CSE**, not only to advance a
+  rotation: `*(LFPiece* volatile*)&b->piece->fwd` at a guard keeps `fwd` out
+  of a register and drops a fourth callee-saved push (66 -> 63 instructions).
+- **An uninitialised float local reads as an `fld` of a live local's slot in a
+  loop preheader.** `gap = z;` before the loop schedules the `fld` one early
+  and the exit `fstp` two late; leaving `gap` uninitialised is exact (an
+  original bug reproduced — the `||` guard makes it unreachable).
+- **`if ((nz = a + b) > K)` — an assignment fused into a float condition —
+  emits `fst` + `fcomp`; two statements emit `fstp` + `fld` + `fcomp`.**
+- **A two-case `switch` is not `if / else if`**: `dec/je/dec/jne` with case 2
+  as the fall-through, against `cmp eax,1 / jne` with the opposite block order
+  and a different register for the three `= 1` stores.
+- **VC6 DOES reassociate a float chain of two literals, and a two-step float
+  local blocks it:** `(t - 2.0f) * 0.5f * 120.0f` folds to `* 60.0f`; a local
+  holding the first step keeps both multiplies (worth 2 at two sites). The
+  same local also picks `fiadd` over `fild` + `faddp`.
+- **The packed `{u8,u8}` dword-plus-mask idiom applies to a `BPosW` LOCAL**,
+  not just a by-value parameter slot. **`bp = b->piece;` placed BEFORE a flags
+  test splits `test byte ptr [mem],K` into `mov al,[mem] / ... / test al,K`.**
+
 - **FROM THE PARALLEL SESSION `fable-b` (13 of 18 exact; full evidence in
   `docs/lanes/fable-b*.md`). The strongest, folded here:**
   - **A shared tail that RELOADS locals from the frame proves every arm left
@@ -877,10 +1033,16 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   - **The order of `p->next = head;` against a neighbouring field store decides
     where the head LOAD lands, not the store** — the stores stay in the
     compiler's order either way. Measured on two allocation sites.
-  - Negative, recorded so it is not re-derived: **induction-variable emission
-    order in a loop latch is not reachable by source ordering** (`inc ebp`
-    second vs fourth; twenty variants, the first-use hypothesis disproved;
-    `strict == rb == ob`).
+  - Negative, recorded so it is not re-derived — **but body-specific, not
+    general (corrected 2026-09-05)**: **induction-variable emission order in a
+    loop latch was not reachable by source ordering on `BsWater_SetTile`**
+    (`inc ebp` second vs fourth; twenty variants, the first-use hypothesis
+    disproved; `strict == rb == ob`). On `ZBuffer_RunCommand` it IS reachable:
+    `key[i].idx = i;` written LAST among the three stores gives the original's
+    `inc esi / add eax,0x30 / add ecx,8 / add edx,8` where written first it
+    gives `inc / add ecx / add edx / add eax` — 24 orders measured, that one
+    closed the function. Sweep the store order before accepting a latch-order
+    residual as a floor.
 
 - **A pending cdecl `add esp` cannot cross a branch join — so a shared tail
   containing a CALL proves the tail was written TWICE in the source.**

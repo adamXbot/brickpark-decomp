@@ -487,9 +487,9 @@ void LFAnim_LoadRefs(void* set, LFQueue* q)
  * The `if (b)` at the top can never be false -- `b` is `run + idx*36 + 0x40`
  * -- but VC6 cannot know that, so the test and its shared epilogue are real.
  * ======================================================================== */
-extern void Sub_411810(LFBoat* b);                              /* 0x00411810 */
-extern int  Sub_40bab0(LFRun* run, int idx);                    /* 0x0040bab0 */
-extern int  Sub_411680(LFBoat* b);                              /* 0x00411680 */
+extern void LFBoat_Fall(LFBoat* b);                              /* 0x00411810 */
+extern int  LFRun_BoatHasRoom(LFRun* run, int idx);                    /* 0x0040bab0 */
+extern int  LFBoat_Advance(LFBoat* b);                              /* 0x00411680 */
 extern int  Sub_411650(LFBoat* b);                              /* 0x00411650 */
 
 /* The driver record; only the release byte this function bumps is named. */
@@ -511,15 +511,15 @@ void LFBoat_Step(LFRun* run, int idx)
 
     if (b) {
         if (b->flags & 2) {
-            Sub_411810(b);
+            LFBoat_Fall(b);
             return;
         }
         if (b->flags & 1) {
             if (b->piece->fwd == 0)
                 return;
-            if (!Sub_40bab0(run, idx))
+            if (!LFRun_BoatHasRoom(run, idx))
                 return;
-            if (!Sub_411680(b))
+            if (!LFBoat_Advance(b))
                 return;
             b->piece = b->piece->fwd;
             if (Sub_411650(b)) {
@@ -540,9 +540,9 @@ void LFBoat_Step(LFRun* run, int idx)
         }
         b->state--;
         if (b->state < 0) {
-            if (!(run->flags & 1) && b->piece->fwd != 0 && Sub_40bab0(run, idx)) {
+            if (!(run->flags & 1) && b->piece->fwd != 0 && LFRun_BoatHasRoom(run, idx)) {
                 b->flags |= 1;
-                if (Sub_411680(b)) {
+                if (LFBoat_Advance(b)) {
                     b->piece = b->piece->fwd;
                     if (b->piece == run->f0c->fwd && b->rider) {
                         b->rider->bloke->free_flag++;
