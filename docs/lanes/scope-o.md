@@ -1,5 +1,15 @@
 # Scope O — the movie-player tier (`pathmask2.c`, `movie3.c`, `movie2.c`)
 
+**Result: 21 of 21 exact — all 19 functions of the brief plus two
+undeclared siblings (`SetHintTextPrefix` 0x00490770, `SetMovieVolume`
+0x004771e0), ≈1,290 instructions, in three new files.** Every function
+prints `[OK]`, all three files are `/W3` clean, and `relocs.py` matches
+every resolvable relocation (349 of 350; the one unresolved position is
+the 1000.0f literal in `MovieTicks`, a floating-point constant the tool
+cannot bind). Two identity errors the instruction gate passed were caught
+by the relocation gate and fixed (`StartMovieAudio`'s dwSampleSize field,
+`PrimeMovieAudio`'s swapped stream calls).
+
 Branch `scope/O`, object prefix `/tmp/so_`, baseline `main` at `3fa59569`
 (2026-09-05). Brief: `docs/SCOPE_O_movie_tier.md`. Gate per file:
 `audit.py` ends `PASS` with every function `[OK]`, `/W3 /O2 /Gy /Gd` clean,
@@ -61,7 +71,7 @@ five-argument `PrintSprite` (the base tile still goes through `PrintSpriteAt`).
   `& 0xff`, reverse-order `dec/je` switch chain) transfers unchanged to its
   five-argument twin (81/81 first try).
 
-## `LEGOLAND/movie3.c` — 9 of 10 exact (+1 undeclared twin)
+## `LEGOLAND/movie3.c` — 10 of 10 exact (+1 undeclared twin)
 
 | address | name | insns | bytes | audit | relocs | marker committed |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -74,20 +84,20 @@ five-argument `PrintSprite` (the base tile still goes through `PrintSpriteAt`).
 | 0x004983a0 | `ReadDecodedNarration` | 46 | 128 | [OK] | 9/9 | `// FUNCTION: LEGOLAND 0x004983a0` |
 | 0x004784c0 | `ResetLevelGlobals` | 60 | 265 | [OK] | 40/40 | `// FUNCTION: LEGOLAND 0x004784c0` |
 | 0x00490680 | `LoadTextFileLines` | 86 | 184 | [OK] | 7/7 | `// FUNCTION: LEGOLAND 0x00490680` |
-| 0x00465850 | `BlitDIBToScreen` | 113 (ours 111) | 331 (ours 320) | [WIP] | — | `// WIP-FUNCTION: LEGOLAND 0x00465850  (59.5%, 66/111 vs 113 insns; allocation -- see note)` |
+| 0x00465850 | `BlitDIBToScreen` | 113 | 331 | [OK] | 9/9 matched, 0 mismatches, 0 unresolved | `// FUNCTION: LEGOLAND 0x00465850` |
 
-`BlitDIBToScreen`: structure right (surface toggle, gap split, top fill,
-bottom-up rows doubled two pixels by two rows with the 555->565 shift,
-bottom fill); the first divergence is at index 8 and everything after it is
-allocation. Its note lists the residual (w/h in ebx/ebp swapped, the source
-cursor spilled where the original spills the column count, the second-row
-cursor anchored at +2 by us and the first-row by the original) and the
-measured-inert spellings: four row-loop forms, four store orders in both
-subscript and `*d++` forms, the pixel temp as int/unsigned (worse) versus
-short/unsigned short, and the top-fill count. Two spellings that DID move
-it: the surface toggle written before the DIB reads (esi=row, edi=dib in
-the prologue, 56 -> 61) and an up-counting `for (x = 0; x < w; x++)` for the
-column loop (61 -> 66, the count becomes a compiler temporary in memory).
+`BlitDIBToScreen` closed last, from 35 of 116 to 113/113 in five steps,
+each one lever (the note above its marker has the numbers): the surface
+toggle written before the DIB reads gave the prologue its esi=row/edi=dib
+roles (56 -> 61); an up-counting column loop made the column count a
+compiler temporary (61 -> 66); ALL SUBSCRIPTS ON ONE INDEX in the inner
+loop (`src[x]`, `d0[2*x]`, `d1[2*x+1]`, ...) — the lockstep-cursor lever —
+reproduced the original's mixed anchoring (66 -> 100); reading `h` and `w`
+BEFORE the toggle's store let the two loads precede it (100 -> 105); and an
+explicit countdown `cnt = y + 1` from the `y = h - 1` that positions the
+last DIB row gave the `inc` from `h - 1` and the memory countdown
+(-> 113/113). Inert or worse along the way: four row-loop forms, four
+store orders in subscript and `*d++` forms, int/unsigned pixel temps.
 
 ### Names given for the first time (movie3.c)
 

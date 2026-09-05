@@ -454,20 +454,34 @@ int LoadTextFileLines(const char* path, char** lines, int max)
  *  BlitDIBToScreen -- double a 16-bit DIB onto the locked video surface
  * ========================================================================= */
 
-/* WIP.  113 instructions in the original; this spelling is 66 of 111 aligned.
- * Structure is right (toggle, gap split, top fill, bottom-up rows doubled
- * two pixels by two rows with the 555->565 shift, bottom fill) and the
- * prologue's esi=row / edi=dib roles landed once the surface toggle was
- * written before the DIB reads; what remains is allocation: the original
- * gives w ebx and h ebp (ours the reverse), keeps the source cursor in edi
- * with the column countdown in memory (ours spills the cursor), and anchors
- * the second-row cursor at +2 while walking the first row at +0 (ours the
- * reverse).  Measured inert: the row loop as for(h), for(h-1..-1),
- * guarded do/while and for(0..h) (the guarded do/while with y = h - 1
- * hoisted above the top fill is what puts inc-from-h-1 in the right place);
- * the pixel temp as int/unsigned (worse, 46) versus short/unsigned short;
- * store orders d0/d1 interleaved either way and the *d++ forms. */
-// WIP-FUNCTION: LEGOLAND 0x00465850  (59.5%, 66/111 vs 113 insns; allocation -- see note)
+/* FOUR LEVERS, measured on this body (113 instructions):
+ *
+ * 1. THE INNER LOOP IS ALL SUBSCRIPTS ON ONE INDEX (`src[x]`, `d0[2*x]`,
+ *    `d1[2*x]`, `d0[2*x+1]`, `d1[2*x+1]`) -- lockstep cursors spelled the
+ *    same way, so VC6 keeps one walking cursor for the second row anchored
+ *    at +2 (`ecx` = row1 + 2), one for the first row at +0 (`edx`), the
+ *    first row's +1 store off the second row's anchor plus a loop-invariant
+ *    `row0 - row1` in ebp, and the source in edi with the column COUNT (a
+ *    compiler temporary) in memory.  Walking pointers (`*p++`, `d0 += 2`)
+ *    in any store order spill the source pointer instead and anchor the
+ *    rows the other way round: 55-66 of ~111 across twelve spellings.
+ * 2. `h` and `w` are read from the DIB BEFORE the surface toggle is stored:
+ *    a load through `dib` cannot be hoisted above a store to a global, so
+ *    with the toggle first the two loads land after it (105 vs 113).
+ * 3. The row loop is an explicit countdown `cnt = y + 1` from the `y = h - 1`
+ *    that also positions the last DIB row -- the original's `lea edx,[ebp-1]`
+ *    kept across the top fill and the `inc edx` at the loop head.  A
+ *    `while (y-- != 0)` latch keeps `y` itself in the frame (100 of 114);
+ *    `for (y = h; ...)` and `for (y = h - 1; y != -1; ...)` test h or -1
+ *    instead of the original's `test ebp,ebp`.
+ * 4. The pixel temp is a `short`: `unsigned short` narrows the 565 mask to
+ *    0xffe0 (the original ands with 0xffffffe0); `int`/`unsigned` promote
+ *    the load (46 of 115).
+ *
+ * The rows advance as `row = row1 + pitch` and the bottom fill starts from
+ * `row1 + pitch` after the loop: with a zero-height DIB that reads an
+ * uninitialised `row1`, as the original does. */
+// FUNCTION: LEGOLAND 0x00465850
 void BlitDIBToScreen(BitmapInfoHeader* dib)
 {
     int             w;
@@ -476,18 +490,18 @@ void BlitDIBToScreen(BitmapInfoHeader* dib)
     int             top;
     int             bottom;
     unsigned short* src;
-    unsigned short* p;
     unsigned char*  row;
     unsigned char*  row1;
     unsigned short* d0;
     unsigned short* d1;
     int             x;
     int             y;
+    int             cnt;
     short           pix;
 
-    g_last_blit_bits = (g_last_blit_bits != g_ddsd_bits) ? g_ddsd_bits : 0;
     h = dib->height;
     w = dib->width;
+    g_last_blit_bits = (g_last_blit_bits != g_ddsd_bits) ? g_ddsd_bits : 0;
     gap = g_level_cfg->height - 2 * h;
     top = gap / 2;
     bottom = gap - top;
@@ -499,27 +513,25 @@ void BlitDIBToScreen(BitmapInfoHeader* dib)
         row += g_ddsd_pitch;
     }
     if (h != 0) {
+        cnt = y + 1;
         do {
             row1 = row + g_ddsd_pitch;
             if (w > 0) {
-                p = src;
                 d0 = (unsigned short*)row;
                 d1 = (unsigned short*)row1;
                 for (x = 0; x < w; x++) {
-                    pix = *p++;
+                    pix = src[x];
                     if (g_screen_depth == 2)
                         pix = (pix & 0x1f) | ((pix & ~0x1f) << 1);
-                    d0[0] = pix;
-                    d1[0] = pix;
-                    d0[1] = pix;
-                    d1[1] = pix;
-                    d0 += 2;
-                    d1 += 2;
+                    d0[2 * x] = pix;
+                    d1[2 * x] = pix;
+                    d0[2 * x + 1] = pix;
+                    d1[2 * x + 1] = pix;
                 }
             }
             row += 2 * g_ddsd_pitch;
             src -= w;
-        } while (y-- != 0);
+        } while (--cnt);
     }
     row = row1 + g_ddsd_pitch;
     for (x = bottom; x > 0; x--) {
