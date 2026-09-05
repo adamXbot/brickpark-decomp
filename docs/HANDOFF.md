@@ -91,11 +91,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **51.2% exact, 59.7% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1684 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **52.2% exact, 60.9% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1724 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 539, ~12,900 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 65 |
+| unmatched callees | `python3 tools/callees.py` | 517, ~11,900 instructions |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 69 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
@@ -165,6 +165,16 @@ frontier is down to 539 functions / ~12,900 instructions from 588 / ~25,500
 when the pivot began four rounds ago. Two cautions came out of it: size is NOT
 evidence of twinning (two 121-instruction functions shared nothing), and a
 twin's block layout is a hypothesis, not an inheritance — diff first, always.
+
+**Wave sixteen (2026-09-05): 40 more exact, coverage 51.2% -> 52.2%.**
+`sysmisc3.c`+`screencb4.c` 13 of 13, `bswater2.c` 8 of 8 (the boating-school
+boat mover complete, including its 294-instruction leg stepper),
+`logflume7.c`+`goldrush4.c`+`fpui5.c` 10 of 11, `coaster5.c`+`schoolcar6.c` 9
+of 12. A THIRD hand-written-assembly site was identified on three independent
+proofs (`ZBuffer_FillPoly`, 0x00423350, after the four `tri3d.c` rasterisers).
+Two callee externs were found to be misnamed by their callers (an ICM error
+reporter declared as a loader; a .TSF unloader declared as ODF) and are kept as
+named for resolution, flagged in `sysmisc3.c`'s header.
 
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier

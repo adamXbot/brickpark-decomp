@@ -424,6 +424,163 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **`ZBuffer_FillPoly` (0x00423350) is partly hand-written assembly — a third
+  asm site after the four `tri3d.c` rasterisers.** Three independent proofs:
+  an EBP frame in an `/O2` file; `xchg ebx,eax` (0x93) and `add ebx,1` where
+  VC6 always emits `inc`; and a `jns/jmp` pair where `js` alone would do. The
+  boundary is visible in VC6's post-`__asm` reloads. Recorded as a WIP with
+  the proofs; the same triage applies to any body showing those signatures.
+- **An address-taken out-param local declared in the BLOCK where it is used
+  takes a dead argument slot; at function level it takes a frame slot and
+  pushes a float temporary into the argument slot instead.** All 24
+  declaration orders inert; all six with block scope exact — the last 8 of
+  `TrackJoinPieces`. Third instance of scope-decides-the-slot.
+- **Make a cursor the callee's OUT-PARAMETER (`&cur`) to stop VC6 enregistering
+  it** in a fourth callee-saved register: 66 of 79 -> 8, and it freed ebx for
+  a float's dword copy. **A named pointer INTO a sub-record (`&p->cls->part`)
+  produces `add eax,0x3c` while folding the first read into `[eax+0x3c]`**; a
+  pointer to the outer struct does not.
+- **`i <= N-1` versus `i < N` on a strength-reduced table cursor is `jle`
+  against `&tbl[N-1]` versus `jl` against `&tbl[N]`** — the one instruction
+  between exact and not in three loops.
+- **`fsub st(3)` (against a value already on the x87 stack) needs a DISTINCT
+  variable AND a free volatile read at the copy;** `acc = saved;` is
+  copy-propagated and folds to `fsub dword ptr [mem]`, six bytes longer (all
+  eight subsets of three such reads measured). **A free volatile read of a
+  memory-homed loop variable at a multiply frees a callee-saved register for a
+  hoisted global** — 86 -> 46 and the whole instruction count.
+- Negative, measured at two sites (`Route_StepFree`, `Route_StepToPieceEnd`):
+  **the shared `lea` base register for a three-scalar snapshot group is
+  unreachable from C** — pointer, array, walking-cursor, struct-copy and
+  volatile spellings all fold back to `esi + disp`. **`row` and `ylast`
+  holding each other's frame homes** (`ZBuffer_FillPoly`) survived 135
+  statement orders, 11 declaration orders and six volatile reads — the
+  dead-argument-slot tie-break as a floor.
+- Mechanics worth knowing across the coaster: the route's physics object is an
+  **RK4 solver descriptor** (nodes 0, 1/2, 1/2, 1; weights 1/6, 1/3, 1/3, 1/6)
+  over a car-shaped state vector; a piece boundary is landed by BISECTION
+  (~16 probes, each restoring the whole train); `TrackJoint`'s +0x00 is a
+  four-way DIRECTION bit, not a height (coaster.c's name corrected in
+  `coaster5.c`, offsets untouched); and `if (i == 0x1d) i = 0x1d;` in
+  `FastRSqrt_InitTables` is a breakpoint hook the developers left in.
+
+- **A missing callee-saved push is a LIVE-VALUE deficit, not an allocation
+  problem.** `LFPath_Point` was 64 instructions with three pushes; naming
+  `j = i + 1` BEFORE the branch (used one way per arm) made five values live
+  across the join and `ebp` appeared — 69/69, byte-exact. When the original
+  has one more push than you do, look for a value that should be computed
+  before the split rather than inside each arm.
+- **`n - i - 1` and `n - 1 - i` are different objects.** Variable-first
+  subtracts into a copy of `n` and folds the `-1` into a `-8` displacement, so
+  ONE `path->n` read serves both arms; constant-first must materialise `n-1`.
+  Related: **a loop guard comparing `i + 1` against a count, with no decrement
+  anywhere, proves the source counted from `i + 1`** — the `j < n - 1` spelling
+  materialises `n-1` and rebuilds the whole surrounding allocation.
+- **A `switch` whose cases 1 and 2 share a body and whose case 3 is separate
+  lowers to a RANGE chain** (`test/jle`, `cmp 2/jle`, `cmp 3/jne`), not a jump
+  table — VC6 clusters the sorted values into [1..2] and [3..3] and lays the
+  last cluster inline. An `if (k == 1 || k == 2)` chain gives `cmp eax,1 / je`
+  instead, so the range test is the tell. And **a jump-table bound can reuse
+  the outer case constant** (`cmp ecx,eax / ja` against the register still
+  holding 3), which is why the bounds check is unsigned.
+- **Two globals whose parallel arrays are walked in lockstep must be ONE
+  struct** — confirmed at a new site from BOTH symptoms: as separate externs
+  VC6 builds two induction variables, keeps the count in a register, reloads
+  the PARAMETER from its slot each iteration and pulls in a fourth push for a
+  hoisted zero; as one object it runs a single cursor and reloads the count
+  (the alias kill). 59i/172B -> 53i/155B (`RemoveNewObjectMarker`).
+- **VC6 anchors a strength-reduced cursor on the element indexed by the PLAIN
+  induction variable, and the anchor drags the counter's placement with it.**
+  `spr[j-1] = spr[j]` and `spr[j] = spr[j+1]` both anchor on `spr[j]`. Renaming
+  to fix the anchor makes the other index a DERIVED IV, which moves the copy
+  below the guard, sinks the `inc` to the end of the body and turns a `lea`
+  into a `mov`. Named pointers, lockstep spellings and free volatiles do not
+  separate the two decisions — the anchor and the schedule are one. (The
+  5-mismatch residual of `RemoveNewObjectMarker`, ~40 builds.)
+- **`while (strlen(p))` under `#pragma intrinsic(strlen)` needs no compare**:
+  the inlined `not ecx / dec ecx` leaves the length in the flags, so guard and
+  latch are a bare `je`/`jne`. **`test byte ptr [reg-4], al` with `al == 1` is
+  a fused return constant** — the `mov eax,1` in a preheader is the `return 1`
+  value materialised early and reused as the flag mask.
+- **`if (param == arr[i])` versus `if (arr[i] == param)`** decides
+  `cmp reg,mem` versus `cmp mem,reg` — same length, one mismatch, readable off
+  the listing (third instance of the compare-operand-order rule).
+
+- **An 8-byte struct RETURN must be the ACCUMULATOR of any sum added to it.**
+  `p.x += (...) << 8;` keeps the return's own eax/edx as the `add` destination
+  and leaves the y half untouched in edx across the whole x block.
+  `b->target.x = p.x + (...)` — and its reversed operand order, byte-identical
+  — makes the shifted sum the destination, forces a `mov ebp,edx` to save p.y,
+  and is one instruction long. The whole residual of `SpaceTower_StepAnim`;
+  19 spellings measured.
+- **"Read a class/def global directly at every use" has a STORE-ORDERING
+  caveat.** As a named `RideDef* def` local the pointer takes a SCRATCH
+  register and pushes the tile byte onto edx; as VC6's own CSE temporary it
+  takes EBP — the original's choice. But that CSE only survives if both sums
+  are computed BEFORE either store to the object being written; with the
+  stores interleaved the global is reloaded (16 mismatches). Compute, then
+  store.
+- **A three-way choice: nested `if` versus an `else if` chain decides WHICH
+  arm is inline.** `if (dy == 0) A; else if (dx >= 0) B; else C;` puts A inline
+  and exiles B and C. When the original's inline arm is C, only
+  `if (dy != 0) { if (dx < 0) C; else B; } else { A; }` produces it — and it
+  lays the two cold blocks in the original's order too (`BsBoat_StepLeg`).
+- **`for (i = 0, n = 0; ...)` — the comma operator orders the two `xor`s**
+  (counter first, then accumulator); `n = 0;` as its own preceding statement
+  reverses the pair. **A 16-bit compare's operand order is readable off the
+  listing**: `cell->owner.w != st->key.w` gives `cmp cx,[ebx]`; the other way
+  round gives `cmp [ebx],cx`.
+- **The aggregate/dead-parameter-slot rule, confirmed forward and worth the
+  whole frame.** Two `turn` deltas as plain `int`s let VC6 home the spilled one
+  in the freed `b` argument slot and the frame vanishes; as one `Pos` it takes
+  a fresh slot and the frame is the original's `sub esp,8` — every instruction
+  after index 0 was shifted by one until that changed (`BsBoat_StepLeg`, 294).
+  And a caution on the zero-web threshold: eighteen literal zeros in
+  `Restaurant2_NewRecord` hoist `xor ebx,ebx` as expected, far past it.
+- **Tooling note:** `matchfull.py` over-reports a function whose `ret` is
+  followed by a `.rdata` jump table (295/301 for `BsBoat_StepLeg`); `audit.py`
+  bounds it correctly (294/294). Trust the gate.
+
+- **An explicit `& 0xff` and a `(unsigned char)` cast are different objects —
+  the REVERSE of the recorded char-local narrowing rule.** `PaintPathRect`'s
+  parity step is `neg dl / sbb edx,edx / add edx,2 / and edx,0xff`: the ternary
+  is evaluated 32-bit and narrowed AFTER. Either cast spelling (a byte local or
+  a cast at the use) propagates the byte width BACKWARDS into `sbb dl,dl` +
+  `movzx` — 2 wrong at identical length. `step & 0xff`, `(unsigned)step & 0xff`
+  and an `unsigned short` intermediate all reproduce the original. Related:
+  **`x + y` must stay an `int` to become its own induction variable** — as an
+  int VC6 strength-reduces it into `lea esi,[eax+edi] / inc esi` and pushes a
+  fourth callee-saved register; narrowed to a byte it recomputes
+  `bl = dl / add bl,al` every iteration, three instructions short.
+- **A value that must survive a call in a callee-saved register cannot be a
+  FIELD of an address-taken aggregate.** Reading two shifted scrolls back out
+  of a by-address `Pos` costs two reloads and merges the `add esp,8` into the
+  epilogue (36 of 42); as two plain `int` locals assigned INTO the `Pos` they
+  take esi/edi across the call and it is exact (`RenderGroundLayer`).
+  Corollary: two reads of the same u16 global field do NOT CSE across a store
+  to the address-taken aggregate — read the field back
+  (`view.right = g->view_w + view.left`) for the original's single load.
+- **Inlining a two-argument helper on two byte fields of one pointer:**
+  `CellAt(at->x, at->y)` makes the POINTER the first IR temporary and it takes
+  eax; hoisting the fields into `int x, y` locals first pushes the pointer down
+  the rotation to ecx, where the original has it (7 of 41 at identical length).
+  The rotation is set by which value is the first temporary.
+- **Independent statements come out reversed** (second measurement): the two
+  `sub`s of `SetPathSquareDistance`, and the two `imul`s that follow them, are
+  emitted opposite to source order, while the `a*a + b*b` sum's operand order
+  is inert. **`or ah,1` / `or dh,2` on a DWORD flags global is `|= 0x100` /
+  `|= 0x200`** — the u16 byte-narrowing extended to a 32-bit destination.
+  **A counted loop bounded by a LOCAL gets a down-counter with no reload;
+  bounded by a STRUCT FIELD it reloads every iteration and counts up** — both
+  in one file (`FreeAnim3D` / `LLIDB_UnLoadODFData`).
+- **Caller-side extern types, two more instances, do not align:**
+  `g_path_tile_base` needs `unsigned short*` in `sysmisc3.c` (the original's
+  `add dx,[ebx]` is a 16-bit add) where pathsq.c declares `int*`; and two
+  functions are MISNAMED by their callers' externs and kept so for resolution —
+  0x0047b7b0 is not a loader but an ICM error reporter (a six-arm switch
+  raising `MessageBoxA`), and 0x0047cdd0 unloads .TSF, not ODF, so LLIDB
+  element type 0x40 is .TSF. Flagged in `sysmisc3.c`'s header.
+
 - **`rep stosd` is NOT proof of `memset`.** VC6 SP3 turns a constant-count
   array fill into `rep stosd` even when the fill value is a non-zero ADDRESS
   constant: `for (i = 0; i < 0x400; i++) tab[i] = &fallback;` is
