@@ -4,15 +4,15 @@ Inventory: all183 tracked `LEGOLAND/*.c` files at baseline `f22f7cc7fa95f2d5740f
 
 ## World
 
-Primary page: [world.md](world.md). 35 source files; 27 documented, 8 partial.
+Primary page: [world.md](world.md). 35 source files; 28 documented, 7 partial.
 
 | Source file | Status | Boundary |
 | --- | --- | --- |
-| [bigsim.c](../../LEGOLAND/bigsim.c) | partial | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [blokeai.c](../../LEGOLAND/blokeai.c) | partial | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [blokelist.c](../../LEGOLAND/blokelist.c) | partial | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [blokemisc.c](../../LEGOLAND/blokemisc.c) | partial | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [bnvmove.c](../../LEGOLAND/bnvmove.c) | partial | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
+| [bigsim.c](../../LEGOLAND/bigsim.c) | partial | Simulation/category contracts recovered; low-level Bloke dispatch handlers include unrecovered state7 completion. |
+| [blokeai.c](../../LEGOLAND/blokeai.c) | partial | All26 high-level slots identified; low-level table and several high-level handler bodies remain external. |
+| [blokelist.c](../../LEGOLAND/blokelist.c) | partial | Appearance and lifecycle recovered; first-name and surname table contents remain external. |
+| [blokemisc.c](../../LEGOLAND/blokemisc.c) | partial | Departure-score ring recovered; numeric score bucket thresholds remain external. |
+| [bnvmove.c](../../LEGOLAND/bnvmove.c) | partial | MoveLine input units conflict with ride callers; low-level arrival/state7 completion body remains absent. |
 | [buildtick.c](../../LEGOLAND/buildtick.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [loadmap.c](../../LEGOLAND/loadmap.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [map.c](../../LEGOLAND/map.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
@@ -21,7 +21,7 @@ Primary page: [world.md](world.md). 35 source files; 27 documented, 8 partial.
 | [mapobj.c](../../LEGOLAND/mapobj.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [mappath.c](../../LEGOLAND/mappath.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [maprestore.c](../../LEGOLAND/maprestore.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
-| [misc3.c](../../LEGOLAND/misc3.c) | partial | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
+| [misc3.c](../../LEGOLAND/misc3.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [money.c](../../LEGOLAND/money.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [objdoor.c](../../LEGOLAND/objdoor.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [objmap.c](../../LEGOLAND/objmap.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
@@ -33,9 +33,9 @@ Primary page: [world.md](world.md). 35 source files; 27 documented, 8 partial.
 | [pathsq.c](../../LEGOLAND/pathsq.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [pathtile2.c](../../LEGOLAND/pathtile2.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [posstep.c](../../LEGOLAND/posstep.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
-| [power.c](../../LEGOLAND/power.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
-| [simcore.c](../../LEGOLAND/simcore.c) | partial | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [simcore2.c](../../LEGOLAND/simcore2.c) | partial | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
+| [power.c](../../LEGOLAND/power.c) | partial | Pool rules recovered; full65-entry name/power table is external, with only examples decoded. |
+| [simcore.c](../../LEGOLAND/simcore.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
+| [simcore2.c](../../LEGOLAND/simcore2.c) | partial | Visitor thresholds and state transitions recovered; Bloke+7c physiological meaning conflicts with food/ride callers. |
 | [workers.c](../../LEGOLAND/workers.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [workers2.c](../../LEGOLAND/workers2.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
 | [workers3.c](../../LEGOLAND/workers3.c) | documented | Recovered layouts, placement/path/staff rules, decoded tables and faults consolidated. |
@@ -50,53 +50,53 @@ Primary page: [persistence.md](persistence.md). 6 source files; 0 documented, 6 
 
 | Source file | Status | Boundary |
 | --- | --- | --- |
-| [profiles.c](../../LEGOLAND/profiles.c) | partial | Stream layout documented; unknown payload meanings and unverified reader/writer or profile interpretations remain. |
-| [savechunks.c](../../LEGOLAND/savechunks.c) | partial | Stream layout documented; unknown payload meanings and unverified reader/writer or profile interpretations remain. |
-| [savechunks2.c](../../LEGOLAND/savechunks2.c) | partial | Stream layout documented; unknown payload meanings and unverified reader/writer or profile interpretations remain. |
-| [savegame.c](../../LEGOLAND/savegame.c) | partial | Stream layout documented; unknown payload meanings and unverified reader/writer or profile interpretations remain. |
-| [savegame2.c](../../LEGOLAND/savegame2.c) | partial | Stream layout documented; unknown payload meanings and unverified reader/writer or profile interpretations remain. |
-| [saveprof.c](../../LEGOLAND/saveprof.c) | partial | Stream layout documented; unknown payload meanings and unverified reader/writer or profile interpretations remain. |
+| [profiles.c](../../LEGOLAND/profiles.c) | partial | Packed profile layout recovered; thirty-name-bytes-plus-flags versus32-name-bytes remains unresolved. |
+| [savechunks.c](../../LEGOLAND/savechunks.c) | partial | Worker/order/script payloads mapped; script writer framing and some raw field meanings remain unknown. |
+| [savechunks2.c](../../LEGOLAND/savechunks2.c) | partial | Event-list format recovered; external string writer prevents resolving the reader/writer framing conflict. |
+| [savegame.c](../../LEGOLAND/savegame.c) | partial | Container and flattened visitor fields mapped; meanings of selected raw saved fields remain unknown. |
+| [savegame2.c](../../LEGOLAND/savegame2.c) | partial | Path/build/terrain and string reader recovered; string writer framing remains external. |
+| [saveprof.c](../../LEGOLAND/saveprof.c) | partial | Profile block+43 corrected; name/flag region interpretation remains unresolved. |
 
 ## Assets
 
-Primary page: [assets.md](assets.md). 30 source files; 11 documented, 19 partial.
+Primary page: [assets.md](assets.md). 30 source files; 23 documented, 7 partial.
 
 | Source file | Status | Boundary |
 | --- | --- | --- |
-| [anim2.c](../../LEGOLAND/anim2.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [audio2.c](../../LEGOLAND/audio2.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [audio3.c](../../LEGOLAND/audio3.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [audio4.c](../../LEGOLAND/audio4.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [audiomisc.c](../../LEGOLAND/audiomisc.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [blokeanim.c](../../LEGOLAND/blokeanim.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [bnvpath.c](../../LEGOLAND/bnvpath.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [data2.c](../../LEGOLAND/data2.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [data3.c](../../LEGOLAND/data3.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
+| [anim2.c](../../LEGOLAND/anim2.c) | partial | Texture remap and transport behavior recovered; referenced boat artwork/seat table values remain external. |
+| [audio2.c](../../LEGOLAND/audio2.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [audio3.c](../../LEGOLAND/audio3.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [audio4.c](../../LEGOLAND/audio4.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [audiomisc.c](../../LEGOLAND/audiomisc.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [blokeanim.c](../../LEGOLAND/blokeanim.c) | partial | Frame-control rules recovered; animation/model table contents depend on external data. |
+| [bnvpath.c](../../LEGOLAND/bnvpath.c) | partial | Path/orientation behavior recovered; unused bytes in20-byte BNV vertices have no established meaning. |
+| [data2.c](../../LEGOLAND/data2.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [data3.c](../../LEGOLAND/data3.c) | partial | LOC texture/context fixups recovered; complete texture-name capacity and opaque context fields remain unknown. |
 | [lifecycle.c](../../LEGOLAND/lifecycle.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
 | [listdel.c](../../LEGOLAND/listdel.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
 | [llidb.c](../../LEGOLAND/llidb.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
 | [llidb_load.c](../../LEGOLAND/llidb_load.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
-| [llidb_odf.c](../../LEGOLAND/llidb_odf.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [loaders.c](../../LEGOLAND/loaders.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [llidb_odf.c](../../LEGOLAND/llidb_odf.c) | partial | ODF load and registration order recovered; finalizer and normal-path initializer ownership remain external. |
+| [loaders.c](../../LEGOLAND/loaders.c) | partial | LoadPos records mapped; first three raw scalars are not interpreted by the loader and asset variants conflict. |
 | [memdb.c](../../LEGOLAND/memdb.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
-| [music.c](../../LEGOLAND/music.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [person3d.c](../../LEGOLAND/person3d.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
+| [music.c](../../LEGOLAND/music.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [person3d.c](../../LEGOLAND/person3d.c) | partial | Morph/person rendering contract recovered; some person/model field meanings and external assets remain unknown. |
 | [res.c](../../LEGOLAND/res.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
-| [rin.c](../../LEGOLAND/rin.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [sweep1.c](../../LEGOLAND/sweep1.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [sweep2.c](../../LEGOLAND/sweep2.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [sweep3.c](../../LEGOLAND/sweep3.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [sweep4.c](../../LEGOLAND/sweep4.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
-| [sweep5.c](../../LEGOLAND/sweep5.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
+| [rin.c](../../LEGOLAND/rin.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [sweep1.c](../../LEGOLAND/sweep1.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [sweep2.c](../../LEGOLAND/sweep2.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [sweep3.c](../../LEGOLAND/sweep3.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [sweep4.c](../../LEGOLAND/sweep4.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
+| [sweep5.c](../../LEGOLAND/sweep5.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
 | [sysmisc.c](../../LEGOLAND/sysmisc.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
 | [sysmisc2.c](../../LEGOLAND/sysmisc2.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
 | [sysmisc3.c](../../LEGOLAND/sysmisc3.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
-| [sysstubs.c](../../LEGOLAND/sysstubs.c) | partial | Recovered loading/format/lifecycle contracts consolidated. Remaining external tables, unnamed fields, large-body details or legacy stand-in tails are identified on the page. |
+| [sysstubs.c](../../LEGOLAND/sysstubs.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
 | [util.c](../../LEGOLAND/util.c) | documented | Recovered loading/format/lifecycle contracts consolidated. |
 
 ## Transport
 
-Primary page: [transport.md](transport.md). 30 source files; 19 documented, 11 partial.
+Primary page: [transport.md](transport.md). 30 source files; 17 documented, 13 partial.
 
 | Source file | Status | Boundary |
 | --- | --- | --- |
@@ -106,13 +106,13 @@ Primary page: [transport.md](transport.md). 30 source files; 19 documented, 11 p
 | [coaster.c](../../LEGOLAND/coaster.c) | partial | Partial: allocated piece tail and some class descriptors unnamed |
 | [coaster3d.c](../../LEGOLAND/coaster3d.c) | partial | Partial: full model templates not decoded |
 | [coaster4.c](../../LEGOLAND/coaster4.c) | partial | Partial: external model tables; draw-order direction pairs decoded |
-| [coaster5.c](../../LEGOLAND/coaster5.c) | documented | Documented recovered rules; external class masks remain |
+| [coaster5.c](../../LEGOLAND/coaster5.c) | partial | Partial: recovered rules documented; class masks remain external |
 | [coaster6.c](../../LEGOLAND/coaster6.c) | documented | Documented recovered rules; asset substitutions depend on model data |
 | [coastermath.c](../../LEGOLAND/coastermath.c) | documented | Documented recovered interfaces and edge behaviour |
 | [jcroute.c](../../LEGOLAND/jcroute.c) | documented | Documented |
-| [junglecruise.c](../../LEGOLAND/junglecruise.c) | partial | Partial: 16×25 artwork table and complete decoration layouts external/unnamed |
+| [junglecruise.c](../../LEGOLAND/junglecruise.c) | partial | Partial: artwork external; decoration removal views recovered, larger allocation unknown |
 | [lfentrance.c](../../LEGOLAND/lfentrance.c) | documented | Documented |
-| [lfmisc.c](../../LEGOLAND/lfmisc.c) | documented | Documented relevant transport helpers |
+| [lfmisc.c](../../LEGOLAND/lfmisc.c) | documented | Documented |
 | [logflume.c](../../LEGOLAND/logflume.c) | partial | Partial: external overlay offsets and image tables |
 | [logflume2.c](../../LEGOLAND/logflume2.c) | partial | Partial: class geometry rectangles are asset-derived |
 | [logflume3.c](../../LEGOLAND/logflume3.c) | documented | Documented recovered floor plans; dimensions follow ODF footprints |
@@ -129,60 +129,60 @@ Primary page: [transport.md](transport.md). 30 source files; 19 documented, 11 p
 | [schoolcar5.c](../../LEGOLAND/schoolcar5.c) | documented | Documented |
 | [schoolcar6.c](../../LEGOLAND/schoolcar6.c) | documented | Documented |
 | [schoolcar7.c](../../LEGOLAND/schoolcar7.c) | partial | Partial: LMS payload schema remains opaque |
-| [schoolcar8.c](../../LEGOLAND/schoolcar8.c) | documented | Documented recovered helpers; external asset tables remain |
+| [schoolcar8.c](../../LEGOLAND/schoolcar8.c) | partial | Partial: recovered helpers documented; three seat-x values/spacing remain external |
 
 ## Attractions
 
-Primary page: [attractions.md](attractions.md). 27 source files; 9 documented, 18 partial.
+Primary page: [attractions.md](attractions.md). 27 source files; 16 documented, 11 partial.
 
 | Source file | Status | Boundary |
 | --- | --- | --- |
-| [castleobj.c](../../LEGOLAND/castleobj.c) | partial | Partial: adapter/layout documented; coaster geometry belongs with transport |
+| [castleobj.c](../../LEGOLAND/castleobj.c) | documented | Documented adapter/layout and recovered geometry across this page and [transport.md](transport.md#5-coaster-graph-physics-rendering-and-save) |
 | [catapult.c](../../LEGOLAND/catapult.c) | partial | Partial: mechanics recovered; external layer/landing table values absent |
-| [goldrush.c](../../LEGOLAND/goldrush.c) | documented | Documented recovered scripts/tables; pan-drift prose conflict flagged |
-| [goldrush2.c](../../LEGOLAND/goldrush2.c) | documented | Documented recovered scripts/tables; pan-drift prose conflict flagged |
-| [goldrush3.c](../../LEGOLAND/goldrush3.c) | documented | Documented recovered scripts/tables; pan-drift prose conflict flagged |
-| [goldrush4.c](../../LEGOLAND/goldrush4.c) | documented | Documented recovered scripts/tables; pan-drift prose conflict flagged |
+| [goldrush.c](../../LEGOLAND/goldrush.c) | documented | Documented recovered scripts/tables; pan-offset arithmetic reconciled below |
+| [goldrush2.c](../../LEGOLAND/goldrush2.c) | documented | Documented recovered scripts/tables; pan-offset arithmetic reconciled below |
+| [goldrush3.c](../../LEGOLAND/goldrush3.c) | documented | Documented recovered scripts/tables; pan-offset arithmetic reconciled below |
+| [goldrush4.c](../../LEGOLAND/goldrush4.c) | documented | Documented recovered scripts/tables; pan-offset arithmetic reconciled below |
 | [interfaces.c](../../LEGOLAND/interfaces.c) | documented | Documented provider roles and formats; stale field names reconciled below |
-| [joust.c](../../LEGOLAND/joust.c) | partial | Partial: rider/cycle mechanics recovered; external BNV data required |
-| [joust2.c](../../LEGOLAND/joust2.c) | partial | Partial: rider/cycle mechanics recovered; external BNV data required |
+| [joust.c](../../LEGOLAND/joust.c) | partial | Partial: recovered rider/cycle mechanics documented; Temple Slide walk/end threshold bytes remain external |
+| [joust2.c](../../LEGOLAND/joust2.c) | partial | Partial: recovered rider/cycle mechanics documented; Temple Slide walk/end threshold bytes remain external |
 | [mechrides.c](../../LEGOLAND/mechrides.c) | partial | Partial: rider machines and layouts recovered; several vehicle-machine helpers remain externs |
 | [ridecb1.c](../../LEGOLAND/ridecb1.c) | partial | Partial: missing contents of cafe/waiter and some seat tables |
-| [ridecb2.c](../../LEGOLAND/ridecb2.c) | partial | Partial: recovered callback contracts and faults; transport page supplies full routes/vehicles |
+| [ridecb2.c](../../LEGOLAND/ridecb2.c) | documented | Documented recovered callback contracts, faults and [transport routes/vehicles](transport.md); boating queue coordinates remain external |
 | [ridecb3.c](../../LEGOLAND/ridecb3.c) | partial | Partial: missing contents of cafe/waiter and some seat tables |
 | [ridecb4.c](../../LEGOLAND/ridecb4.c) | partial | Partial: missing contents of cafe/waiter and some seat tables |
-| [ridecb5.c](../../LEGOLAND/ridecb5.c) | partial | Partial: recovered callback contracts and faults; transport page supplies full routes/vehicles |
-| [ridecb6.c](../../LEGOLAND/ridecb6.c) | partial | Partial: recovered callback contracts and faults; transport page supplies full routes/vehicles |
-| [ridecb7.c](../../LEGOLAND/ridecb7.c) | partial | Partial: recovered callback contracts and faults; transport page supplies full routes/vehicles |
-| [ridecb8.c](../../LEGOLAND/ridecb8.c) | partial | Partial: recovered callback contracts and faults; transport page supplies full routes/vehicles |
-| [ridecb9.c](../../LEGOLAND/ridecb9.c) | partial | Partial: recovered callback contracts and faults; transport page supplies full routes/vehicles |
+| [ridecb5.c](../../LEGOLAND/ridecb5.c) | documented | Documented recovered callback contracts, faults and [transport routes/vehicles](transport.md); boating queue coordinates remain external |
+| [ridecb6.c](../../LEGOLAND/ridecb6.c) | documented | Documented recovered callback contracts, faults and [transport routes/vehicles](transport.md); boating queue coordinates remain external |
+| [ridecb7.c](../../LEGOLAND/ridecb7.c) | documented | Documented recovered callback contracts, faults and [transport routes/vehicles](transport.md); boating queue coordinates remain external |
+| [ridecb8.c](../../LEGOLAND/ridecb8.c) | documented | Documented recovered callback contracts, faults and [transport routes/vehicles](transport.md); boating queue coordinates remain external |
+| [ridecb9.c](../../LEGOLAND/ridecb9.c) | documented | Documented recovered callback contracts, faults and [transport routes/vehicles](transport.md); boating queue coordinates remain external |
 | [ridemisc.c](../../LEGOLAND/ridemisc.c) | partial | Documented for recovered contracts; partial external animation tables |
 | [ridemisc2.c](../../LEGOLAND/ridemisc2.c) | partial | Documented for recovered contracts; partial external animation tables |
 | [ridemisc3.c](../../LEGOLAND/ridemisc3.c) | partial | Documented for recovered contracts; partial external animation tables |
 | [rides.c](../../LEGOLAND/rides.c) | partial | Documented for recovered contracts; partial external animation tables |
 | [ridesave.c](../../LEGOLAND/ridesave.c) | documented | Documented provider roles and formats; stale field names reconciled below |
-| [waterworks.c](../../LEGOLAND/waterworks.c) | documented | Documented; contradictory garden fallback prose flagged |
+| [waterworks.c](../../LEGOLAND/waterworks.c) | documented | Documented; garden fallback prose reconciled against callbacks |
 | [westtown.c](../../LEGOLAND/westtown.c) | documented | Documented scripts, door state and overlay ordering |
 | [westtown2.c](../../LEGOLAND/westtown2.c) | documented | Documented scripts, door state and overlay ordering |
 
 ## Presentation
 
-Primary page: [presentation.md](presentation.md). 55 source files; 28 documented, 27 partial.
+Primary page: [presentation.md](presentation.md). 55 source files; 38 documented, 17 partial.
 
 | Source file | Status | Boundary |
 | --- | --- | --- |
-| [bighelp.c](../../LEGOLAND/bighelp.c) | partial | Partial: controller and event contracts documented; 59-entry character map and cheat strings remain external |
-| [bigrender.c](../../LEGOLAND/bigrender.c) | partial | Partial: formats/dispatch/bugs documented; specialized type-3 inner painters and cursor segment shapes are not fully specified |
-| [bigscreens.c](../../LEGOLAND/bigscreens.c) | partial | Partial: layout/transition contracts documented; marker and control-position extern tables remain incomplete |
+| [bighelp.c](../../LEGOLAND/bighelp.c) | partial | Partial; source gap: full 59-entry character map and cheat strings remain external |
+| [bigrender.c](../../LEGOLAND/bigrender.c) | partial | Partial; source gaps: external type-3 painters and cursor-segment pixel shapes |
+| [bigscreens.c](../../LEGOLAND/bigscreens.c) | partial | Partial; source gap: marker and control-position extern tables remain incomplete |
 | [fpui.c](../../LEGOLAND/fpui.c) | documented | Documented |
-| [fpui2.c](../../LEGOLAND/fpui2.c) | partial | Partial: rules/layouts documented; all 133 costs are not decoded in these headers |
-| [fpui3.c](../../LEGOLAND/fpui3.c) | partial | Partial: rules/layouts documented; all 133 costs are not decoded in these headers |
-| [fpui4.c](../../LEGOLAND/fpui4.c) | partial | Partial: rules/layouts documented; all 133 costs are not decoded in these headers |
-| [fpui5.c](../../LEGOLAND/fpui5.c) | partial | Partial: rules/layouts documented; all 133 costs are not decoded in these headers |
+| [fpui2.c](../../LEGOLAND/fpui2.c) | partial | Partial; source gap: the full 133-price table is not decoded |
+| [fpui3.c](../../LEGOLAND/fpui3.c) | partial | Partial; source gap: the full 133-price table is not decoded |
+| [fpui4.c](../../LEGOLAND/fpui4.c) | partial | Partial; source gap: the full 133-price table is not decoded |
+| [fpui5.c](../../LEGOLAND/fpui5.c) | partial | Partial; source gap: the full 133-price table is not decoded |
 | [gpu.c](../../LEGOLAND/gpu.c) | documented | Documented |
 | [iconui.c](../../LEGOLAND/iconui.c) | documented | Documented |
-| [input.c](../../LEGOLAND/input.c) | partial | Partial: controller and event contracts documented; 59-entry character map and cheat strings remain external |
-| [input2.c](../../LEGOLAND/input2.c) | partial | Partial: controller and event contracts documented; 59-entry character map and cheat strings remain external |
+| [input.c](../../LEGOLAND/input.c) | partial | Partial; source gap: full 59-entry character map and cheat strings remain external |
+| [input2.c](../../LEGOLAND/input2.c) | partial | Partial; source gap: full 59-entry character map and cheat strings remain external |
 | [layers.c](../../LEGOLAND/layers.c) | documented | Documented |
 | [layervis.c](../../LEGOLAND/layervis.c) | documented | Documented |
 | [mapscreen.c](../../LEGOLAND/mapscreen.c) | documented | Documented |
@@ -191,31 +191,31 @@ Primary page: [presentation.md](presentation.md). 55 source files; 28 documented
 | [mapscreen4.c](../../LEGOLAND/mapscreen4.c) | documented | Documented |
 | [math3d.c](../../LEGOLAND/math3d.c) | documented | Documented with corrected scroll-unit and sort-order descriptions |
 | [panelui.c](../../LEGOLAND/panelui.c) | documented | Documented |
-| [popup.c](../../LEGOLAND/popup.c) | partial | Partial: layout, kinds and bugs documented; inconsistent ride/work-order interpretation retained |
-| [popup2.c](../../LEGOLAND/popup2.c) | partial | Partial: layout, kinds and bugs documented; inconsistent ride/work-order interpretation retained |
+| [popup.c](../../LEGOLAND/popup.c) | partial | Partial; ride/work-order labels reconciled; popup-entry producer remains absent |
+| [popup2.c](../../LEGOLAND/popup2.c) | partial | Partial; ride/work-order labels reconciled; popup-entry producer remains absent |
 | [powerhelp.c](../../LEGOLAND/powerhelp.c) | documented | Documented |
 | [printlist.c](../../LEGOLAND/printlist.c) | documented | Documented with corrected list interpretation |
 | [rect.c](../../LEGOLAND/rect.c) | documented | Documented with corrected scroll-unit and sort-order descriptions |
 | [render2.c](../../LEGOLAND/render2.c) | documented | Documented |
-| [render3.c](../../LEGOLAND/render3.c) | partial | Partial: formats/dispatch/bugs documented; specialized type-3 inner painters and cursor segment shapes are not fully specified |
-| [render4.c](../../LEGOLAND/render4.c) | partial | Partial: pipeline, tables, geometry and bugs documented; large gather/clip bodies retain reconstruction residuals |
-| [renderinit.c](../../LEGOLAND/renderinit.c) | partial | Partial: pipeline, tables, geometry and bugs documented; large gather/clip bodies retain reconstruction residuals |
+| [render3.c](../../LEGOLAND/render3.c) | partial | Partial; source gaps: external type-3 painters and cursor-segment pixel shapes |
+| [render4.c](../../LEGOLAND/render4.c) | documented | Documented; explicit WIP boundaries in the audit |
+| [renderinit.c](../../LEGOLAND/renderinit.c) | documented | Documented; explicit WIP boundaries in the audit |
 | [renderlist.c](../../LEGOLAND/renderlist.c) | documented | Documented with corrected list interpretation |
-| [renderview.c](../../LEGOLAND/renderview.c) | partial | Partial: pipeline, tables, geometry and bugs documented; large gather/clip bodies retain reconstruction residuals |
+| [renderview.c](../../LEGOLAND/renderview.c) | documented | Documented; explicit WIP boundaries in the audit |
 | [screen.c](../../LEGOLAND/screen.c) | documented | Documented |
-| [screencb.c](../../LEGOLAND/screencb.c) | partial | Partial: callback roles, cross-subsystem layouts and bugs documented; ride pages supply full simulation mechanics |
-| [screencb2.c](../../LEGOLAND/screencb2.c) | partial | Partial: callback roles, cross-subsystem layouts and bugs documented; ride pages supply full simulation mechanics |
-| [screencb3.c](../../LEGOLAND/screencb3.c) | partial | Partial: callback roles, cross-subsystem layouts and bugs documented; ride pages supply full simulation mechanics |
-| [screencb4.c](../../LEGOLAND/screencb4.c) | partial | Partial: callback roles, cross-subsystem layouts and bugs documented; ride pages supply full simulation mechanics |
-| [screencb5.c](../../LEGOLAND/screencb5.c) | partial | Partial: callback roles, cross-subsystem layouts and bugs documented; ride pages supply full simulation mechanics |
-| [screencb6.c](../../LEGOLAND/screencb6.c) | partial | Partial: callback roles, cross-subsystem layouts and bugs documented; ride pages supply full simulation mechanics |
-| [screencb7.c](../../LEGOLAND/screencb7.c) | partial | Partial: callback roles, cross-subsystem layouts and bugs documented; ride pages supply full simulation mechanics |
-| [screens2.c](../../LEGOLAND/screens2.c) | partial | Partial: layout/transition contracts documented; marker and control-position extern tables remain incomplete |
-| [screens3.c](../../LEGOLAND/screens3.c) | partial | Partial: layout/transition contracts documented; marker and control-position extern tables remain incomplete |
+| [screencb.c](../../LEGOLAND/screencb.c) | documented | Documented; [attractions](attractions.md) and [transport](transport.md) supply shared ride mechanics |
+| [screencb2.c](../../LEGOLAND/screencb2.c) | documented | Documented; [attractions](attractions.md) and [transport](transport.md) supply shared ride mechanics |
+| [screencb3.c](../../LEGOLAND/screencb3.c) | documented | Documented; [attractions](attractions.md) and [transport](transport.md) supply shared ride mechanics |
+| [screencb4.c](../../LEGOLAND/screencb4.c) | documented | Documented; [attractions](attractions.md) and [transport](transport.md) supply shared ride mechanics |
+| [screencb5.c](../../LEGOLAND/screencb5.c) | documented | Documented; [attractions](attractions.md) and [transport](transport.md) supply shared ride mechanics |
+| [screencb6.c](../../LEGOLAND/screencb6.c) | documented | Documented; [attractions](attractions.md) and [transport](transport.md) supply shared ride mechanics |
+| [screencb7.c](../../LEGOLAND/screencb7.c) | documented | Documented; [attractions](attractions.md) and [transport](transport.md) supply shared ride mechanics |
+| [screens2.c](../../LEGOLAND/screens2.c) | partial | Partial; source gap: marker and control-position extern tables remain incomplete |
+| [screens3.c](../../LEGOLAND/screens3.c) | partial | Partial; source gap: marker and control-position extern tables remain incomplete |
 | [scroll.c](../../LEGOLAND/scroll.c) | documented | Documented with corrected scroll-unit and sort-order descriptions |
 | [scrolltick.c](../../LEGOLAND/scrolltick.c) | documented | Documented with corrected scroll-unit and sort-order descriptions |
-| [softblit.c](../../LEGOLAND/softblit.c) | partial | Partial: formats/dispatch/bugs documented; specialized type-3 inner painters and cursor segment shapes are not fully specified |
-| [softblit2.c](../../LEGOLAND/softblit2.c) | partial | Partial: formats/dispatch/bugs documented; specialized type-3 inner painters and cursor segment shapes are not fully specified |
+| [softblit.c](../../LEGOLAND/softblit.c) | partial | Partial; source gaps: external type-3 painters and cursor-segment pixel shapes |
+| [softblit2.c](../../LEGOLAND/softblit2.c) | partial | Partial; source gaps: external type-3 painters and cursor-segment pixel shapes |
 | [sprite.c](../../LEGOLAND/sprite.c) | documented | Documented |
 | [sprite2.c](../../LEGOLAND/sprite2.c) | documented | Documented |
 | [sprite_override.c](../../LEGOLAND/sprite_override.c) | documented | Documented |
@@ -225,7 +225,7 @@ Primary page: [presentation.md](presentation.md). 55 source files; 28 documented
 | [tilehelp.c](../../LEGOLAND/tilehelp.c) | documented | Documented with corrected scroll-unit and sort-order descriptions |
 | [tri3d.c](../../LEGOLAND/tri3d.c) | documented | Documented with corrected ramp allocation layout |
 | [uimisc.c](../../LEGOLAND/uimisc.c) | documented | Documented |
-| [wndenv.c](../../LEGOLAND/wndenv.c) | partial | Partial: controller and event contracts documented; 59-entry character map and cheat strings remain external |
+| [wndenv.c](../../LEGOLAND/wndenv.c) | partial | Partial; source gap: full 59-entry character map and cheat strings remain external |
 
 ## Supplementary references
 

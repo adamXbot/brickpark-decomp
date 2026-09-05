@@ -1,22 +1,29 @@
 # Scope J verification
 
-Baseline: `f22f7cc7fa95f2d5740f89f4b53ae2624cc9e474`; branch `scope/J`; review date 2026-09-05. This is a documentation check, not runtime, compiler or original-binary validation. [Scope restrictions](../SCOPE_J_runtime_spec.md)
+Baseline: `f22f7cc7fa95f2d5740f89f4b53ae2624cc9e474`; branch `scope/J`; completion review date 2026-09-05. This verifies the documentation deliverable required by [Scope J](../SCOPE_J_runtime_spec.md). No compiler or original-game execution was run.
 
-## Checks and results
+## Requirement completion
 
-- **Inventory:** compared the coverage table against `git ls-files 'LEGOLAND/*.c'`. All183 sources appear once as primary rows, and each has a source citation on its assigned page. Coverage is94 documented and89 partial.
-- **Links:** resolved every relative Markdown file target and Markdown heading fragment in the index and runtime pages. No missing target or anchor remains.
-- **Formatting:** checked unescaped pipe counts in each Markdown table and ran `git diff --check`. No malformed table row or whitespace error remains.
-- **Registration audit:** independently compared618 final direct assignments across screen, interfaces, ridesave and castle providers. All matched; the alternate library table was checked separately. All628 linked function-name/address pairs matched source definitions. Two power-station add callbacks retain declaration names and addresses because their bodies are absent.
-- **Named mechanics:** presence checks cover15 required topics, including boat size, TrackJoint, RK4, CSP, z commands, visitor thresholds, Gold Rush drift, Joust freeze, Balloonz, footer/caption faults, pan slots, one-way roads, bisection and the flume parent-null defect. This checks discoverability; it does not prove those mechanics correct.
-- **Scope isolation:** all changed paths are `docs/RUNTIME_SPEC.md` or Markdown below `docs/runtime/`. No C, tool, shared report or unrelated worktree file was changed. No compiler ran.
+All183 tracked C files have a primary specification entry. The completion pass reviewed the recovered headers, decoded tables, behavior and original-bug notes, and WIP boundaries; parallel subsystem reviews closed recoverable omissions. The five required categories—layouts, rules/state machines, tables/constants, original bugs and callback slots—are accounted for in the [core](core-audit.md), [transport](transport-audit.md), [attraction](attractions-audit.md) and [presentation](presentation-audit.md) audits. The18 lane notes and the named format/callback/host references are indexed in [coverage](coverage.md).
 
-The inventories and independent audit are reproducible from the [coverage rows](coverage.md) and [callback source links](callbacks.md). The worktree and staged plan are recorded in the [work log](WORKLOG.md).
+“Partial” in source coverage identifies remaining source evidence limits, including absent table values, opaque fields or missing external bodies. It does not mean that a documentation section was deferred. Cross-page ownership, native service calls and historical matching residuals alone do not make the recovered contract partial. The per-file reasons replace the first pass's broad generic labels. [Coverage definitions](coverage.md), [outstanding boundaries](../RUNTIME_SPEC.md#outstanding-recovery-boundaries)
+
+## Reproducible gate
+
+The complete read-only Python gate is published in [checks.md](checks.md). It passes on the completed documentation:
+
+- Every local Markdown destination and heading anchor resolves; table column counts and Git whitespace checks pass.
+- All183 tracked C sources occur exactly once as primary coverage rows and are cited on their primary pages.
+- All628 linked callback function names and virtual addresses match source definitions. All618 final direct class-slot assignments match the four registration providers; the three alternate library registrations were reviewed separately. Two power-station add handlers retain declaration names/addresses because their bodies are absent. [Callback matrix](callbacks.md)
+- Source fingerprints recorded in audit rows match the current tree. Twelve named-topic presence checks pass; these check discoverability, not behavior equivalence.
+- Every changed path is `docs/RUNTIME_SPEC.md` or Markdown below `docs/runtime/`. No C, tool, shared report or unrelated worktree file is changed.
+
+The independent audits additionally check subsystem section order, decoded table cardinalities, source-ledger membership and selected arithmetic invariants. The attraction review verified seven invariants, including one-based seat displacement, pan offsets, tower serializer aliases, Restaurant2 table overlap, cafe seat coverage, Joust timing and Balloonz platforms. Transport checked road/topology counts and all31 WIP notes. Presentation checked all55 source fingerprints and12 WIP notes. Their detailed results are recorded in the linked audits.
 
 ## Skeptical review corrections
 
-An independent review of the assembled documentation caught and corrected the ODF DLL/custom branching, worker-save removal predicate and direction of position copying, two movement direction encodings, and LoadPos scalar interpretation. A second pass corrected the library exception to the omitted-callback rule. The callback audit found no omitted direct registrations or incorrect linked implementation names. [Callbacks](callbacks.md), [persistence](persistence.md), [world](world.md), [assets](assets.md)
+The first review corrected ODF DLL/custom branching, worker-save removal and position copying, movement direction encodings, LoadPos scalar interpretation and the library null-clearing exception. The completion review then reconciled MapStats count offsets, BuildWalkPath interpolation, MoveLine units/completion limits, destructive narration pause, popup work-order payloads, two-bit z commands, fatal tiled rendering, carousel discharge, temple-slide allocation, Restaurant2 index/queue behavior, zero-based saved BNV references, school-car speed limits and transport geometry/raster tables. These corrections are source-linked beside their contracts and in the [disagreement register](../RUNTIME_SPEC.md#reconciled-disagreements).
 
-Numerical spot checks covered WorkerSave, COMP framing/opcodes, BNV/RIN offsets and morph-face layout. The subsystem authors separately checked transport, attraction and presentation source coverage and citations. Remaining uncertain interpretations, external data and incomplete recovered behavior are retained in the [main disagreement register](../RUNTIME_SPEC.md#reconciled-disagreements) and [source coverage](coverage.md).
+The gate initially caught a missing primary-page citation for sweep1; the completed palette contract restores that citation. This confirms the source-coverage check can fail rather than merely counting rows. Final checks were rerun after integration. The worktree and staged review are recorded in [WORKLOG.md](WORKLOG.md).
 
-These checks establish an internally navigable, scoped evidence document. They do not establish save compatibility, visual parity, complete table recovery or execution equivalence with the original game.
+The documentation work is complete for this source snapshot. Save compatibility, pixel parity, full external-data recovery and execution equivalence remain untested, as required by the documentation-only scope.

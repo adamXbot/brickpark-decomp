@@ -15,6 +15,8 @@ LLIDB elements are20 bytes: name`+0`, image/file name`+4`, type/flags`+8`, parse
 | `.ilf` / `.csp` | u16 count, u16 type, length/name, count×signed dword dx/dy pairs, count×length/sprite names; **both loaders read offsets and double them in memory** | [llidb_load.c](../../LEGOLAND/llidb_load.c) |
 | `.odf` | Builds`0xd0` ObjDef, resolves sprite/icon/build sprite/child, retains English/record0 localization, then standard callbacks, library-or-custom branch and external finalize; see the callback index for the DLL-failure fallback | [llidb_odf.c](../../LEGOLAND/llidb_odf.c) |
 
+The tile-info table at `0x00801f40` has eight-byte entries `{set pointer, u16 code, u16 padding}`; the code is not a full dword despite the shared header's older declaration. `LoadMapTiles` reserves slot0, loads `MAPPING 1`, `BASIC TILES 1`, `NORMAL PATH TILES`, and the four scroll-arrow cursors; the basic set supplies the default ground sprite and the path set supplies `0x00832bf0`. [maprestore.c](../../LEGOLAND/maprestore.c), [pathtile2.c](../../LEGOLAND/pathtile2.c)
+
 ### Rules
 
 Lookups are case-insensitive. Registration deduplicates by name, grows pages as needed, and initializes observed element fields; do not assume unwritten data fields are already null. Lazy load tests loaded bit1 and dispatches type masked with`0xfff0`: `0x10/0x1010` ODF,`0x20` TSM,`0x40` TSF,`0x400` ILF,`0x2000` CSP;`0x200/0x800` have no backing file. Class use additionally marks bit4 and loads its sibling even if the primary load failed. [llidb.c](../../LEGOLAND/llidb.c), [memdb.c](../../LEGOLAND/memdb.c), [saveprof.c](../../LEGOLAND/saveprof.c)
@@ -83,6 +85,13 @@ Render3DPerson clips a160×120 window, selects the locked surface target and tem
 
 Position tables rotate matrices90° aroundY at load without changing positions. RIN draws slots in reverse file order and interleaves eligible riders before each sprite. BNV path scale is`49152/(near-far)`; initial position is caller's, recalc1, delta frame0. BNV placement normalizes orientation rows, sums eight vertices, derives cell coordinates and writes slope/height before orientation. [loaders.c](../../LEGOLAND/loaders.c), [rin.c](../../LEGOLAND/rin.c), [bnvmove.c](../../LEGOLAND/bnvmove.c), [bnvpath.c](../../LEGOLAND/bnvpath.c)
 
+BINV frame-list nodes include their next link at `+08`, after count/head at `+00/+04`; `GetBinVFrame` walks that link. Internal offsets relocate from the file base, and null offsets remain null. RIN sprite names are NUL-terminated strings read byte by byte, expanded as `<directory>\<name>.lls`; every frame contains one integer slot index per sprite. The reverse draw walk sets each layer's LLS frame to the selected RIN frame before drawing. [rin.c](../../LEGOLAND/rin.c)
+
+`LoadPalette` skips an eight-byte header and packs256 RGB triples into16-bit colors, using565 only for screen selector2 and555 otherwise. `LoadColourTable` discards an18-byte TGA header, reads256 BGR entries and the32,768-byte15-bit-to-palette-index lookup, builds a no-collapse DirectDraw palette and a parallel RGB555 table. These two palette input layouts are different. [rin.c](../../LEGOLAND/rin.c)
+
+`GetNearestColour` uses RGB555 as an index into the palette lookup for display mode0, returns RGB555 directly for mode1 and RGB565 for mode2; other modes return0. The corresponding transparent values are `0xfe`, `0x3ff` and `0x7ff`. RGB555 allocates five bits per channel; RGB565 allocates six to green. [sweep1.c](../../LEGOLAND/sweep1.c)
+
+
 ### Tables, disagreements and original bugs
 
 Light is`{-0x1800,-0x5000,0x3000}`, window centring anchors80/90, depth scale`0x40000000 / ((zmax-zmin)>>5)`. Palette loading is256 RGB triples after an8-byte header, packed565 for depth selector2 and555 otherwise. `colours.tga` has18-byte header,256 BGR entries, then`0x8000` RGB555→palette-index bytes. [person3d.c](../../LEGOLAND/person3d.c), [rin.c](../../LEGOLAND/rin.c)
@@ -99,9 +108,12 @@ Animation instances and BNV paths are consumed by ride activation/render callbac
 
 ### Data structures
 
-Sample definitions and playable instances share56-byte records: next0, refcount4, fade8, SoundSource16 bytes at c (`kind,obj,x,y`), flags u16 at1c, definition/alias parent28, DirectSound buffer2c, owned heap buffers30/34. Instances link to the root definition and duplicate its buffer. Source kinds are0 none,1 Bloke,2 map ref,3 level xy. [audio2.c](../../LEGOLAND/audio2.c), [audio3.c](../../LEGOLAND/audio3.c), [sysstubs.c](../../LEGOLAND/sysstubs.c)
+Sample definitions and playable instances share56-byte records: next0, refcount4, fade8, SoundSource16 bytes at c (`kind,obj,x,y`), flags u16 at1c, padding1e, due time20, callback24, definition/alias parent28, DirectSound buffer2c, owned heap buffers30/34. Instances link to the root definition and duplicate its buffer. Source kinds are0 none,1 Bloke,2 map ref,3 level xy. [audio2.c](../../LEGOLAND/audio2.c), [audio3.c](../../LEGOLAND/audio3.c), [sysstubs.c](../../LEGOLAND/sysstubs.c)
 
 IMT uses state`0x004bf778`, event`0x0079a6a0`, command`a6a4`, argument`a6a8`, current theme`a6ac`. MIDI track is28 bytes: owner0, length4, data8, cursor c, unused10, time14, active/pending shorts18/1a. Narration retains source WAV/PCM formats, ACM stream/header and source/decoded buffers. [sysmisc2.c](../../LEGOLAND/sysmisc2.c), [audio4.c](../../LEGOLAND/audio4.c), [music.c](../../LEGOLAND/music.c)
+
+MidiFile is24 bytes: tick scale`+00`, tempo`+04`, clock`+08`, track count short`+0c`, track-pointer array`+10`, playing short`+14`. Loading consumes the big-endian MThd fields, computes `division × 20000`, loads each MTrk buffer, links each track to its owner and initializes tempo to`0x100`. The track reader leaves fields other than its length/data/active and later owner unspecified until playback. `PlayMIDI` publishes the file as current, clears its clock, sets playing, and resets every track's clock/position with active/pending set1. Header tags, read results and allocations are not validated here. [music.c](../../LEGOLAND/music.c), [audio4.c](../../LEGOLAND/audio4.c)
+
 
 ### Rules
 
@@ -109,7 +121,15 @@ Playable start requires ready system, nonnull instance and nonnull definition. L
 
 Explicit sample volume0..100 maps to `(volume-100)*32`; UI slider conversion instead spans-4000..0 with its bottom snapped to-10000. Fade detaches source and sets fading state; kind0 matches unsourced records,1 matches object,2/3 positions. Definition deletion destroys instances, its heap blocks, master buffer, then record. Narration preparation does not start playback; `ResumeCurrentTrack` starts the prepared stream. MIDI reads its integer fields big-endian. [audio3.c](../../LEGOLAND/audio3.c), [audio4.c](../../LEGOLAND/audio4.c), [music.c](../../LEGOLAND/music.c)
 
+`PauseCurrentTrack` actually destroys speech: it stops playback, unprepares/closes ACM, closes the file, destroys the audio buffer, frees source/decoded/format allocations and clears state. Narration preparation first tries `speech\<name>`, then that path under the resource root; it refuses while speech is active. It decodes blocks of ten source block-align units to16-bit PCM with the original channel count/rate, prepares ACM, creates a`0xa000`-byte playback buffer, applies speech volume and sets state1. Preparation and resumable playback must not be conflated with this destructive “pause.” [audio4.c](../../LEGOLAND/audio4.c)
+
+DirectMusic band and motif playback queues secondary segments on the next measure (`0x2080`). Template playback composes with activity0; shaped playback uses ten measures, shape2, activity3, no intro/end. Both set999 repeats and play on the next measure (`0x2000`), then release the composed segment. Blending uses the same shaped composition and auto-transition flags`0x2022`, releasing both resulting references. These wrappers require music instance/ready state but ignore composition/playback failure results. The composition engine and media content remain external; its wrapper parameters are fully recorded here. [music.c](../../LEGOLAND/music.c)
+
+
 Music mailbox opcodes1 stop,3 transition theme,4 theme; states1/2 setup,5/6 queued,7 running. Theme normally wraps signed `%5`, but state5/6 posts raw input. Sound init runs window→samples→music; shutdown samples→music. Input shutdown keyboard→mouse→DirectInput. MIDI init starts timer before opening output and teardown kills timer before closing output. Music setup can report success after thread creation failure. [sysmisc2.c](../../LEGOLAND/sysmisc2.c), [lifecycle.c](../../LEGOLAND/lifecycle.c), [audiomisc.c](../../LEGOLAND/audiomisc.c), [sysstubs.c](../../LEGOLAND/sysstubs.c), [util.c](../../LEGOLAND/util.c)
+
+MIDI initialization requests a20ms periodic timer at10ms resolution and opens the MIDI mapper with no callback, then reports success regardless of those API results. Game-map teardown releases its23-entry FX table while leaving the cached `CASTLE OBJ` element owned by LLIDB. Sample-system teardown returns0 when already down; on the active path it releases and clears the interface before clearing the ready flag, so a reentrant release can still observe the system as ready. [lifecycle.c](../../LEGOLAND/lifecycle.c), [util.c](../../LEGOLAND/util.c)
+
 
 ### Tables, constants, bugs and callbacks
 
@@ -117,10 +137,12 @@ Viewport for sound is config`+10/+12`, not outer screen dimensions`+0/+2`. Unkno
 
 DirectDraw presents software-rendered images; fullscreen mode tries16bpp then8bpp, classifying display mode as0=8bit,1=555,2=565. Present runs sprite animation/cursor, enforces28ms minimum frame period, blits a640×480 window, retries once after surface loss, then updates frame accounting. Clock reads frozen-held/current system ticks minus epoch; blink toggles every512ms. `Rand_Max(max)` is CRT rand modulo(max+1), so it is inclusive and retains modulo bias; `Rand_Tween(lo,hi)` shifts that result. [sysmisc.c](../../LEGOLAND/sysmisc.c), [util.c](../../LEGOLAND/util.c)
 
-The debug heap prepends16 bytes, with last11 tag characters and a decimal line field, or an all-tag string allocation; `_msize` drives accounting. `__DEBUG_TAG` deliberately leaves an orphan marker allocation. Whole-list deletion assumes next at the first dword. Some legacy sweep bodies explicitly contain **stand-in tails beyond an early return**; they are not gameplay specifications. Their undecoded tails remain partial even if an old comment advertises a normalized prefix match. [memdb.c](../../LEGOLAND/memdb.c), [listdel.c](../../LEGOLAND/listdel.c), [sweep1.c](../../LEGOLAND/sweep1.c), [sweep5.c](../../LEGOLAND/sweep5.c)
+The debug heap prepends16 bytes, with last11 tag characters and a decimal line field, or an all-tag string allocation; `_msize` drives accounting. `__DEBUG_TAG` deliberately leaves an orphan marker allocation. Whole-list deletion assumes next at the first dword. The sweep2/sweep5 comments retain historical warnings about **stand-in tails beyond an early return**. In this baseline the named anchor helpers are only declarations, with no calls in those files. The warning therefore does not prove that their present small bodies contain fabricated tails. Empty functions and prefix-only provenance still cannot establish a missing larger behavior; treat the warning as a source-history limit rather than an invented gameplay rule. [memdb.c](../../LEGOLAND/memdb.c), [listdel.c](../../LEGOLAND/listdel.c), [sweep2.c](../../LEGOLAND/sweep2.c), [sweep5.c](../../LEGOLAND/sweep5.c)
 
 Other leaf services expose counter/clip/volume/instance state without defining larger algorithms. The original platform seams include DirectDraw, DirectInput, DirectSound, DirectMusic/WinMM, Indeo/AVI and Win32; a portable implementation needs replacements but no specific replacement architecture is prescribed by the recovered sources. [sweep2.c](../../LEGOLAND/sweep2.c), [sweep3.c](../../LEGOLAND/sweep3.c), [sweep4.c](../../LEGOLAND/sweep4.c), [sysstubs.c](../../LEGOLAND/sysstubs.c), [BINARIES.md](../BINARIES.md)
 
 The build FX table at`0x004b9228` has23 twelve-byte records `{name,pad,sample}`. Class flag`0x40000` selects effect1; otherwise flag`0x80000` selects effect0 when `0x200000` is also set, or `rand()%5+3` (indices3…7) without it; other classes select0. First-name table sizes are90 and83, surname table107; their string contents remain external. [mapinit.c](../../LEGOLAND/mapinit.c), [loaders.c](../../LEGOLAND/loaders.c), [blokelist.c](../../LEGOLAND/blokelist.c)
 
 `LoadPos` only establishes three raw four-byte scalars followed by nine matrix floats; this loader does not interpret the first triple. A float-position interpretation requires further consumer evidence. [loaders.c](../../LEGOLAND/loaders.c)
+
+The remaining schema boundaries are unused bytes in each20-byte BNV vertex, opaque LOC context fields and texture-name capacity, and person/model fields whose meanings are not established by these views. Animation, boat artwork and seat tables declared without values still require their external data. Completed leaf and audio-wrapper contracts do not become partial solely because they call native services; historical matching status is tracked separately. [bnvpath.c](../../LEGOLAND/bnvpath.c), [data3.c](../../LEGOLAND/data3.c), [person3d.c](../../LEGOLAND/person3d.c), [blokeanim.c](../../LEGOLAND/blokeanim.c), [anim2.c](../../LEGOLAND/anim2.c)

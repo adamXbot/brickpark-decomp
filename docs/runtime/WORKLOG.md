@@ -20,3 +20,12 @@ The scope-specific documentation-only brief takes precedence over the shared com
 - Stage 2 passed: parallel transport, attraction and presentation syntheses completed; core/world, persistence and asset contracts consolidated. Every tracked C file has one primary coverage row.
 - Stage 3 passed: index, disagreement register and callback reference integrated. The final automated check resolved2,343 local links across11 Markdown files, matched183 coverage rows to Git, and found no table/anchor/required-topic errors. Independent callback review matched618 direct assignments and628 linked name/address pairs.
 - Stage 4 review passed: corrected ODF branching, worker-save semantics, direction encodings, raw LoadPos scalars and library null-clearing after independent review. Remaining uncertainties are visible in the main index. Documentation-only whitespace and scope checks passed. Commit and branch push follow this review; their outcome is reported with the delivered revision.
+
+## Completion audit and PR plan
+
+1. Compare every deliverable requirement with the committed specification; inspect the current main-branch delta and existing PR state. Pass when the target and source baseline are explicit and every requirement has an audit owner.
+2. Independently audit recovered headers, decoded tables, original-bug notes and declared coverage gaps. Add any omitted recoverable material; leave only source-level unknowns. Pass when each review records concrete findings and resolutions.
+3. Run reproducible link, table, source-inventory, callback and allowed-path checks on the final documents. Review the complete PR diff against current main. Pass when checks have no errors and all findings are resolved or explicitly identified as source limitations.
+4. Commit and push the completed documentation, then create or update a pull request targeting main. Pass when the remote PR points to the final branch commit and reports no merge conflict.
+
+Scope J completion means consolidation of recoverable source evidence with explicit unknowns, as required by the brief; it does not mean inventing missing game behavior or declaring the original decompilation complete.
