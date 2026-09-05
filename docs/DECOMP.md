@@ -424,6 +424,132 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **FROM THE PARALLEL SESSION `scope-q` (12 of 17 exact — the session and
+  main loop, the map-screen frame, level state, the cursor segment fills;
+  evidence in `docs/lanes/scope-q.md`).** Folded:
+  - **A one-case `switch` compiles to `sub eax,K / jne`; `if (x == K)` to
+    `cmp`.** `KillFrontEndScreenIfActive` 2/4 -> 5/5.
+  - **A called copy `(dst, src, n)` followed by `dst[n-1] = 0` is
+    `strncpy`.** Written as `memcpy` under `#pragma function(memcpy)` it is
+    byte-identical AND passes `relocs.py`, because the address comment was
+    the author's own. Scope O declared the same CRT address as `strncpy`
+    and the CRT body at 0x004a0110 tests each byte for NUL. **A wrong callee
+    NAME with the right address annotation is invisible to the relocation
+    gate; cross-file name agreement at the merge is what catches it.**
+  - **A `volatile` flag polled by a wait loop keeps its first load below the
+    merged argument cleanup**: `RunGame` 120/121 with `int g_music_disabled`
+    (the load hoists above `add esp,0x20`), 121/121 with the `volatile`
+    musicthread.c already declares. Evidence the original header had it.
+  - **Count the pending pushes before reading a frame offset.**
+    `MapScreenFrame`'s `lea ecx,[esp+8]` looked like `&ctx.sub` until the
+    `push 5` of the preceding `SetPointer(5)` (cleaned up only at the merged
+    `add esp,0x18`) was counted: it is `&ctx`, the whole {1, 0, 0} record. A
+    probe with distinct constants settles such questions in one compile.
+  - **Two zero stores plus three zero pushes across calls form a
+    callee-saved zero web (an extra `push esi`); `memset(&ctx.sub, 0, 8)`
+    does not.** 63/98 -> 101/102; the memset's zeros go through scratch eax
+    and the pushes and a later `clip.left = 0` become immediates.
+  - **A three-call tail duplicated into an early arm is kept as a copy**
+    (`SetPointer(6); UpdateFocussedIconPtr(); PopRenderingStatus();
+    RenderingComplete(); return;` then the same three calls after the if);
+    written once, the arm jumps to the shared copy. BL05's two-call
+    threshold read from above.
+  - **A block-scoped aggregate initialiser stores at the use site with
+    immediates**: `ClipRect clip = { 0, 0x20, 0x280, 0x174 };` declared
+    inside the branch gives the four immediate stores interleaved with the
+    `GetClipping(&saved)` setup (FR06 from the branch side).
+  - **`i = n; while (i--)` is the trip-count idiom that keeps `i` and
+    derives the counter as `i + 1`**: `mov eax,[h] / inc / mov ecx,eax /
+    dec / test ecx / je / inc / mov [h],eax` (`i = h + 1`) and `mov ecx,eax /
+    dec eax / test ecx / lea edi,[eax+1]` (`while (h--)` on the parameter).
+    `for (i = h; i != 0; i--)` folds the dance to `test eax,eax`; `i >= 0`
+    gives a `jl` guard.
+  - **VC6 SP3 idiom-recognises a constant-trip fill loop into `rep stosd`**
+    (12 `unsigned short` stores of one value: `mov si,ax / shl esi,0x10 /
+    mov si,ax / mov ecx,6 / rep stosd`) though it never unrolls; the
+    original's 16 and 32 explicit `mov word ptr` stores need explicit
+    assignments (or an initialiser).
+  - **Nesting shows in the failure edges**: `FindObjDoorTile`'s "no
+    entrance" branch jumps to the final `return 1`, so the exit check is
+    INSIDE the entrance block; sequential ifs hoist the shared `pos` load
+    above the first test.
+  - **`if (!c) return (int)c;` gives `test eax,eax / jne / ret` with no
+    `xor`** — the tested register is the return value (`DoorTileStep`).
+  - **A `Pos` struct copy loads both fields before either use**; separate
+    `int` temporaries interleave the loads (79 vs 82/89).
+  - **Two `LLElem*` out-pointer locals: the first declared takes the lowest
+    slot** (`ResetLevelObjects`, first compile); the nested map clear
+    `for (y..) for (x..) g_map_rows[y][x].f0c = 0` with `unsigned short`
+    dimensions gives the `jbe` guard, `movzx`-then-`jl` latch, per-pass
+    global reloads and the `[edx+ecx-8]` pre-incremented addressing.
+  - **Measured negative — a switch default arm the layout will not give.**
+    The cursor fills' kind chain (`sub eax,0 / je / dec / je / dec / je`)
+    falls through, in the original, into a CLONED exit epilogue for the
+    default, then case 1 (`jmp`) and case 2 adjacent to the shared loop;
+    ours inverts the last test to `jne end` and places case 2 first.
+    Seventeen spellings identical (default first/last/absent, `return`/
+    `break`/`goto`, empty defaults, dead stores, case order, loops inside or
+    outside the switch, `h++; while (h--)`); the shape `dec / je / four pops
+    / add esp / ret` occurs in no other function of the binary. Both fills
+    (`DrawCursorSegmentB` 94%, `A` 77%) wait on this one block decision.
+  - **Measured negative — a latch store sunk below the compare.**
+    `TallyBuildFootprints`: the original reloads the counter, loads the
+    bound, cleans up, increments, compares, then stores; ours stores before
+    the bound load in eight spellings (`++`, `+= 1`, `= x + 1`, while form,
+    `int[2]`, reversed compare); a separate register counter costs 50.
+- **FROM THE PARALLEL SESSION `scope-o` (21 of 21 exact — the movie-player
+  tier: the AVI audio stream, the DIB blit, the keyword and text files, the
+  cursor path tile; evidence in `docs/lanes/scope-o.md`).** Folded:
+  - **A global read at every use plus a local copy taken BEFORE the guard
+    fuses the test and size webs**: `MarkPathSquareReachable` `n = g;`
+    before `if (g)` with `size = g * 4` 52/52; the copy inside the `if` 51;
+    `if (n)` on the copy 40 of 51 and edi's prologue push lost.
+  - **DECLARATION ORDER of two externs decides which of two calls in a
+    commutative sum is made first** (`PrimeMovieAudio`: `Length(a) +
+    Start(a)` calls Start first when Length is declared first); the
+    instruction gate is blind to it, `relocs.py` sees the swapped targets;
+    splitting the sum swaps the edi/esi roles (42 of 47).
+  - **`switch` on a global keeps a stored constant register-backed through
+    the join** (`MovieTicks`: `if (g != 2) return GetTickCount();` after the
+    two arms is jump-threaded with immediate stores, 20 of 30; `switch (g)
+    { case 2: ...; default: ... }` keeps `mov eax,1 / mov [g],eax` + `sub
+    eax,2 / je`, 30/30).
+  - **One textual `return K` per constant** (`EnsureObjectClassLoaded`
+    26 -> 27/27); **the arm that must fall through is the one WITHOUT the
+    exile-able tail** (`MarkElemAvailable` 31 -> 43/43 by inverting the
+    test); **a guarded body with `return 0` falling through exiles the
+    early return** (`StopMovieAudio` 33 -> 36/36); **adjacent store order**
+    (`ResetLevelGlobals` 59 -> 60/60, the u16 copy before the zero store).
+  - **A byte temp must be a compiler temporary to stay out of the scratch
+    pool**: `do ; while (buf[i++] != '\r' && i < size);` (`LoadTextFileLines`
+    86/86; naming the byte moves every register role, 62 of 86; the peeled
+    `while` 60 of 88).
+  - **A local copy of a global read once keeps it in a register across the
+    call that follows** (`StartMovieAudio` 187 -> 197/197); **frame pinning
+    with one struct** `{ long fmtsize; AviStreamInfo si; }` puts the scalar
+    below the 0x8c aggregate (two locals put the aggregate at the bottom
+    regardless of order, 196 of 197).
+  - **A count that must take a callee-saved register is assigned BEFORE
+    the call it does not otherwise cross** (`UpdateMovieAudio` 324 ->
+    344/344; the exact placement `pos = ..; restart = 1; count = 11; block =
+    frame % blocks;` puts the rematerialised `mov esi,0xb` after the restart
+    store); a loop-counter count homes in memory (315); `else if (count ==
+    0) return 1;` pins `push esi` where `if (count != 0) { loop; restart }`
+    then one `return 1` sinks both pushes; the partial-block ACM arm keeps
+    only `need = bpb - leftover` (keeping `have` spills, 264 of 350); the
+    silence fill is two `memset`s under `if (bits == 8)`.
+  - **`BlitDIBToScreen` 66 -> 113/113 in five steps**: the surface toggle
+    written before the DIB reads; an up-counting column loop (the count
+    becomes a compiler temporary in memory); ALL SUBSCRIPTS ON ONE INDEX in
+    the inner loop (66 -> 100); the DIB's h/w read before the toggle's store
+    (a load through a pointer cannot rise above a global store); an explicit
+    countdown `cnt = y + 1` from the `y = h - 1` that positions the last row.
+  - **The relocation gate caught two identity errors the instruction gate
+    passed** (`StartMovieAudio`'s dwSampleSize field, `PrimeMovieAudio`'s
+    swapped stream calls). `DrawCursorPathTile` is render5.c's
+    `DrawPathTileOverlay` shape with five arguments (81/81 first try); the
+    word key compare is RC01's `memcmp(&p->key, inst, 2) == 0` (16/16).
+
 - **RELOCATION IDENTITY IS NOT CHECKED BY THE GATE; `tools/relocs.py` checks
   it (scope L, merged 2026-09-05).** `verify.py`/`audit.py` normalise every
   absolute operand, so a body that names the wrong same-sized global, the

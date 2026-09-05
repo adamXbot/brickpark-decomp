@@ -2,17 +2,17 @@
 
 Every `docs/SCOPE_*.md` brief points here. This is the part that is the same
 for every session; a scope file adds only its files, its function table and
-what is specific to it. Fifteen scopes have been run under these rules by Claude
+what is specific to it. Eighteen scopes have been run under these rules by Claude
 and Codex agents (`SCOPE_FABLE_A`..`D`, `SCOPE_CODEX_A`..`E`, E, I, J, K, L,
-M) and every one merged with zero conflicts.
+M, N, O, Q) and every one merged with zero conflicts.
 
 ## What this project is
 
 A matching decompilation of LEGOLAND (Windows, 2000, VC6 SP3, `/O2 /Gy /Gd`).
 Human-written C in `LEGOLAND/*.c` must compile to reproduce
 `original/legoland.exe` function-by-function. Status at the time of writing
-(2026-09-05, evening): **2383 exact functions, 73 partials, 59.5% of game code
-matched exactly (70.5% with partials).** No game binary or asset is ever committed (`original/` and
+(2026-09-05, night): **2416 exact functions, 77 partials, 60.4% of game code
+matched exactly (71.6% with partials).** No game binary or asset is ever committed (`original/` and
 `gamedata/` are gitignored).
 
 ## Read these first (in this order)

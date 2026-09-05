@@ -1,6 +1,6 @@
 # Scope Q — the main loop, the map-screen frame, level state and cursor segments (2026-09-05)
 
-> **Status: OPEN, unclaimed.** Branch `scope/Q`. Notes: `docs/lanes/scope-q.md`.
+> **Status: DONE — 12 of 17 exact, 4 WIP with residuals named, the dead 291-instruction overlay decoded and not attempted; merged into `main` 2026-09-05 (integrator session).** Branch `scope/Q`. Notes: `docs/lanes/scope-q.md`.
 > Object prefix `/tmp/sq_`. Any agent. Cut from group 17 of the whole-binary
 > inventory (`docs/lanes/scope-n.md`, Appendix A) minus `0x00460f50`, which
 > scope O owns as `DrawCursorPathTile`. Its sibling is `SCOPE_P_game_frame.md`

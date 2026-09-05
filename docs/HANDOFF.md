@@ -91,11 +91,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **59.5% exact, 70.5% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2383 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **60.4% exact, 71.6% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2416 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 91, ~4,700 instructions — 46 of them game code (2,564 insns: Codex-F's 27 and scope O's 19), the rest CRT/import thunks |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 73 |
+| unmatched callees | `python3 tools/callees.py` | 113, ~5,200 instructions (every merge exposes another tier; O and Q declared the newest — use `tools/inventory.py` for the real list) |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 77 |
 | **unmatched functions, whole binary** | `python3 tools/inventory.py` (scope N) | **867: 703 live (41,523 insns, 70% of the unmatched bytes), 164 dead, one 8,085-instruction body** — `docs/lanes/scope-n.md` |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
@@ -231,6 +231,26 @@ frontier's 1-17-instruction tail)** and scope I (the UI/system/render
 partials: one close, two improvements, twelve measured floors). Ten parallel
 scopes have now merged with zero conflicts. `docs/PARALLEL_CONTRACT.md` is
 the shared contract; the scope files are one page each.
+
+**Scopes O and Q merged (2026-09-05, late).** O: `movie2.c`, `movie3.c`,
+`pathmask2.c`, 21 of 21 exact (the AVI audio stream, the DIB blit, the
+keyword/text files, the cursor path tile); its relocation gate caught two
+identity errors of its own. Q (this integrator session, on `scope/Q`):
+`gamemain.c` 10 of 10 (`RunGame`, `MapScreenFrame`, `ResetLevelObjects`, the
+sim-tuning setters, the profile defaults), `cursorseg.c` 0 of 2 and
+`mapbuild2.c` 2 of 4 attempted — four new WIPs, all with the residual and the
+measured spellings above their markers (`DrawCursorSegmentB` 94% and `A` 77%
+share ONE block-layout decision the corpus has no lever for; `TallyBuildFootprints`
+94.8% is a latch store/load permutation; `FindObjDoorTile` 93% is dead code
+at a register choice); `DrawTileDebugOverlay` (291i, dead) was decoded and
+not attempted. **One lesson for the gate: a wrong callee NAME with the
+author's own right address comment passes `relocs.py`** — `SetLevelEndSequence`
+matched byte for byte calling `memcpy` at 0x004a0110, which is `strncpy`;
+scope O's declaration of the same address disagreed, and the CRT body tests
+each byte for NUL. Cross-file name agreement at the merge (the earlier
+"~240 real-name mismatches" review) is the check that catches this class.
+Levers folded into DECOMP under `scope-q` and `scope-o`. Open: `SCOPE_CODEX_F.md`
+(still unclaimed) and scope P (a Claude session, `scope/P`, not yet on origin).
 
 **Scopes K, L and M merged (2026-09-05), and the gate grew a step.** K:
 `movie.c`, `pathmask.c`, `texture.c`, 28 of 28 exact (the AVI player, the path
@@ -516,7 +536,7 @@ Lanes that had been running, all resumable from `docs/LANE_BRIEF.md`:
 **B. The closest genuine partials — refreshed 2026-09-05 from a full sweep.**
 Each carries a note above its marker recording its measured residual, its first
 diverging instruction index, and what previous agents ruled out. *Read that note
-before touching one.* All 37 partials, by mismatch:
+before touching one.* All 41 partials, by mismatch (the four `cursorseg.c`/`mapbuild2.c` rows are scope Q, 2026-09-05):
 
 | mismatch | insns | address | function | file |
 | --- | --- | --- | --- | --- |
@@ -526,6 +546,7 @@ before touching one.* All 37 partials, by mismatch:
 | 5 | 205 | 0x0045f810 | ValidateCursor | objmap2.c — **EXHAUSTED, leave** |
 | 5 | 637 | 0x0042aa90 | Balloonz_Tick | ridecb3.c |
 | 8 | 218 | 0x0041a040 | BoatingSchool_Add | ridecb5.c — **EXHAUSTED, leave** |
+| 8 | 89 | 0x0045e960 | FindObjDoorTile | mapbuild2.c |
 | 10 | 222 | 0x0040bf70 | LFEntrance_Activate | lfentrance.c |
 | 11 | 102 | 0x0040abf0 | LFEntrance_Remove | logflume.c |
 | 12 | 31 | 0x00417e70 | WW_AnyBlokeInRect | waterworks.c — **EXHAUSTED** |
@@ -533,6 +554,7 @@ before touching one.* All 37 partials, by mismatch:
 | 13 | 962 | 0x004724a0 | DrawPopUpInfo | popup.c |
 | 15 | 141 | 0x00434f90 | JungleCruise_Add | ridecb9.c |
 | 15 | 376 | 0x00416330 | SpiderRide_Activate | mechrides.c |
+| 15 | 116 | 0x00459970 | TallyBuildFootprints | mapbuild2.c |
 | 19 | 362 | 0x0043c950 | SpinningBarrels_Activate | mechrides.c |
 | 19 | 387 | 0x0043e410 | PlaneRide_Activate | mechrides.c |
 | 20 | 191 | 0x0048a3e0 | GetObjectUID | objmap2.c |
@@ -545,6 +567,8 @@ before touching one.* All 37 partials, by mismatch:
 | 44 | 111 | 0x00410180 | LFDrop_Place | logflume2.c |
 | 47 | 358 | 0x0041a720 | BoatingSchool_Tick | ridecb5.c |
 | 82 | 184 | 0x00470620 | CheckWorkerOnMouseStatus | workers2.c |
+| 93 | 160 | 0x0045fad0 | DrawCursorSegmentB | cursorseg.c |
+| 111 | 195 | 0x0045fca0 | DrawCursorSegmentA | cursorseg.c |
 | 112 | 422 | 0x00432d00 | JungleCruise_UpdateRiverAnim | junglecruise.c |
 | 118 | 119 | 0x0048f0f0 | InitExitCheckBox | screens2.c |
 | 132 | 402 | 0x00415220 | SafariRide_Activate | mechrides.c |
