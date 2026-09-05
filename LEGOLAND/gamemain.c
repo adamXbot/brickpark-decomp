@@ -5,19 +5,19 @@
  * Verification and recovered mechanics: docs/lanes/scope-q.md.
  */
 typedef struct CurProfile { char bytes[0x110]; } CurProfile;      /* layout in bigscreens.c */
-typedef struct LevelParam { int a, b, rest[9]; } LevelParam;      /* 0x2c-byte records */
+typedef struct SimTuning { int a, b, rest[9]; } SimTuning;        /* 0x2c-byte records */
 
 extern int         g_game_mode;                    /* 0x008119b4  2 = front-end screens */
 extern CurProfile  g_cur_profile;                  /* 0x0080ffa0 */
 extern int         g_vol_speech;                   /* 0x0080ffc4  CurProfile +0x24, slider 0..100 */
 extern int         g_vol_music;                    /* 0x0080ffc8  CurProfile +0x28 */
 extern int         g_vol_sfx;                      /* 0x0080ffcc  CurProfile +0x2c */
-extern LevelParam  g_level_params[6];              /* 0x00832824  (bigsim.c sees it as g_map_ai.cat[k]+0x14) */
+extern SimTuning   g_sim_tuning[6];                /* 0x00832824  (bigsim.c sees it as g_map_ai.cat[k]+0x14; movie3.c calls the reset ResetSimTuning) */
 extern char        g_level_end_sequence1[0x100];   /* 0x00832998 */
 extern char        g_level_end_sequence2[0x100];   /* 0x00832a98 */
 
 extern void  KillCurrentScreen(void);              /* 0x004585c0 */
-extern void* memcpy(void*, const void*, unsigned int);   /* 0x004a0110  CRT */
+extern char* strncpy(char* dst, const char* src, unsigned int n);   /* 0x004a0110  CRT (it tests each byte for NUL: not memcpy) */
 extern void* memset(void*, int, unsigned int);
 
 typedef struct MapHdr { char pad00[0x14]; unsigned short w, h; } MapHdr;   /* +0x14/+0x16: map size in cells */
@@ -157,48 +157,46 @@ void ResetCurProfileDefaults(void)
 }
 
 // FUNCTION: LEGOLAND 0x00462e50
-void SetLevelParamA(int i, int v)
+void SetSimTuningA(int i, int v)
 {
-    g_level_params[i].a = v;
+    g_sim_tuning[i].a = v;
 }
 
 // FUNCTION: LEGOLAND 0x00462e70
-void SetLevelParamB(int i, int v)
+void SetSimTuningB(int i, int v)
 {
-    g_level_params[i].b = v;
+    g_sim_tuning[i].b = v;
 }
 
 // FUNCTION: LEGOLAND 0x00462e90
-void ResetLevelParams(void)
+void ResetSimTuning(void)
 {
-    g_level_params[0].a = 0x32;
-    g_level_params[0].b = 0x14;
-    g_level_params[1].a = 0x21;
-    g_level_params[1].b = 0x32;
-    g_level_params[2].a = 0;
-    g_level_params[2].b = 0;
-    g_level_params[3].a = 0;
-    g_level_params[3].b = 0;
-    g_level_params[4].a = 0x21;
-    g_level_params[4].b = 0x28;
-    g_level_params[5].a = 0x21;
-    g_level_params[5].b = 0x28;
+    g_sim_tuning[0].a = 0x32;
+    g_sim_tuning[0].b = 0x14;
+    g_sim_tuning[1].a = 0x21;
+    g_sim_tuning[1].b = 0x32;
+    g_sim_tuning[2].a = 0;
+    g_sim_tuning[2].b = 0;
+    g_sim_tuning[3].a = 0;
+    g_sim_tuning[3].b = 0;
+    g_sim_tuning[4].a = 0x21;
+    g_sim_tuning[4].b = 0x28;
+    g_sim_tuning[5].a = 0x21;
+    g_sim_tuning[5].b = 0x28;
 }
 
-#pragma function(memcpy)
 // FUNCTION: LEGOLAND 0x004597e0
 void SetLevelEndSequence(int which, const char* s)
 {
     char* buf = which ? g_level_end_sequence1 : g_level_end_sequence2;
 
     if (s) {
-        memcpy(buf, s, 0x100);
+        strncpy(buf, s, 0x100);
         buf[0xff] = 0;
     } else {
         buf[0] = 0;
     }
 }
-#pragma intrinsic(memcpy)
 
 // FUNCTION: LEGOLAND 0x0045ac20
 int UnloadSessionSprites(void)

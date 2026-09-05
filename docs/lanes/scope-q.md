@@ -13,10 +13,10 @@ MISMATCH.
 | --- | --- | ---: | ---: | --- | --- | --- |
 | 0x004594e0 | `KillFrontEndScreenIfActive` | 5 | 100 | `[OK]` | `// FUNCTION:` | — (one-case `switch`, see levers) |
 | 0x004594f0 | `ResetCurProfileDefaults` | 11 | 100 | `[OK]` | `// FUNCTION:` | first compile |
-| 0x00462e50 | `SetLevelParamA` | 6 | 100 | `[OK]` | `// FUNCTION:` | first compile |
-| 0x00462e70 | `SetLevelParamB` | 6 | 100 | `[OK]` | `// FUNCTION:` | first compile |
-| 0x00462e90 | `ResetLevelParams` | 17 | 100 | `[OK]` | `// FUNCTION:` | first compile |
-| 0x004597e0 | `SetLevelEndSequence` | 20 | 100 | `[OK]` | `// FUNCTION:` | first compile (`#pragma function(memcpy)`) |
+| 0x00462e50 | `SetSimTuningA` (brief: SetLevelParamA) | 6 | 100 | `[OK]` | `// FUNCTION:` | first compile |
+| 0x00462e70 | `SetSimTuningB` (brief: SetLevelParamB) | 6 | 100 | `[OK]` | `// FUNCTION:` | first compile |
+| 0x00462e90 | `ResetSimTuning` (brief: ResetLevelParams; scope O's movie3.c declares it under this name) | 17 | 100 | `[OK]` | `// FUNCTION:` | first compile |
+| 0x004597e0 | `SetLevelEndSequence` | 20 | 100 | `[OK]` | `// FUNCTION:` | first compile (`strncpy`, see levers) |
 | 0x0045ac20 | `UnloadSessionSprites` | 50 | 100 | `[OK]` | `// FUNCTION:` | first compile |
 | 0x00459360 | `MapScreenFrame` | 102 | 100 | `[OK]` | `// FUNCTION:` | 63/98 → 101/102 → 102 (see levers) |
 | 0x004629e0 | `ResetLevelObjects` | 113 | 100 | `[OK]` | `// FUNCTION:` | first compile |
@@ -29,7 +29,9 @@ MISMATCH.
 | 0x0045e960 | `FindObjDoorTile` (dead) | 89 | 93.3 | `[WIP]` | `// WIP-FUNCTION: … (93.3%, …)` | callee-saved choice for two Pos copies; rb 0 |
 | 0x0045ade0 | `DrawTileDebugOverlay` (dead) | 291 | — | — | none | decoded, not attempted; shape recorded at the end of mapbuild2.c |
 
-Names: every provisional name in the brief was kept; the disassembly
+Names: the brief's provisional names were kept except the 0x00832824
+family, renamed to scope O's `ResetSimTuning` (movie3.c's extern) with
+`SetSimTuningA`/`B` and `g_sim_tuning` to match; the disassembly
 contradicted none. First named here (extern-only, defined nowhere yet):
 `SuspendMusicThread` 0x00492c60 / `ResumeMusicThread` 0x00492c80
 (`SuspendThread`/`ResumeThread` on `g_music_sys`'s thread handle at
@@ -40,7 +42,7 @@ contradicted none. First named here (extern-only, defined nowhere yet):
 BUBBLE"), `UnInitialiseBlokes` 0x00482ec0, `UpdateIconPage` 0x0046ee00,
 `GetPathSquareList` 0x00481720 (returns `g_path_squares`), the globals
 `g_map_click_time/x/y` 0x00667c68/70/74, `g_tally_blocked/special/percent`
-0x00667d00/04/08, and the CRT `memcpy` at 0x004a0110 and the import slots
+0x00667d00/04/08, and the import slots
 `PeekMessageA` [0x4ab2bc], `Sleep` [0x4ab114], `LoadLibraryA` [0x4ab124],
 `FreeLibrary` [0x4ab128], `PtInRect` [0x4ab2c0] (all confirmed from the
 import table).
@@ -144,9 +146,15 @@ import table).
   `cmp`.** `KillFrontEndScreenIfActive`: `if (g_game_mode == 2)
   KillCurrentScreen();` 2/4; `switch (g_game_mode) { case 2:
   KillCurrentScreen(); break; }` 5/5 with the tail `jmp`.
-- **`#pragma function(memcpy)` around the one body that CALLS memcpy**
-  (fable-d's lever, third confirmation): `SetLevelEndSequence` 20/20 first
-  compile, `call 0x4a0110` with the three pushes and `add esp,0xc`.
+- **A called copy with `(dst, src, n)` followed by `dst[n-1] = 0` is
+  `strncpy`, and the relocation gate cannot tell you otherwise.**
+  `SetLevelEndSequence` was first written as `memcpy` under
+  `#pragma function(memcpy)`: 20/20, zero relocation mismatches — because
+  the address comment was mine. Scope O's movie3.c declares the same CRT
+  address as `strncpy`, and the CRT body at 0x004a0110 tests each byte for
+  NUL. A wrong callee NAME with the right address annotation passes
+  `relocs.py` (scope L's stated limit); cross-file name agreement at the
+  merge is the check that catches it.
 - **A `volatile` flag polled by a wait loop keeps its first load below the
   merged argument cleanup.** `RunGame` with plain `int g_music_disabled`
   hoists `mov eax,[g_music_disabled]` above `add esp,0x20` (120/121); the
