@@ -21,7 +21,10 @@ typedef struct Sprite Sprite;
 typedef struct MapHdr {
     unsigned short w;           /* +0x00 */
     unsigned short h;           /* +0x02 */
-    char           pad04[0x16]; /* +0x04 */
+    char           pad04[0x10]; /* +0x04 */
+    unsigned short cells_w;     /* +0x14  map size in cells */
+    unsigned short cells_h;     /* +0x16 */
+    unsigned short pad18;       /* +0x18 */
     unsigned short bloke_count; /* +0x1a */
     char           pad1c[0x0c]; /* +0x1c */
     int            level;       /* +0x28 */
@@ -66,7 +69,7 @@ extern int          g_game_mode;         /* 0x008119b4  0 quit, 1 map screen, 2 
 extern int          g_cur_screen;        /* 0x0080ff84 */
 extern int          g_screen_mode;       /* 0x0080ff88 */
 extern int          g_map_ready;         /* 0x00667c7c  a park is running */
-extern struct SelDef* g_sel_def;         /* 0x00667c58  class under the cursor */
+extern struct ObjDef* g_sel_def;         /* 0x00667c58  class under the cursor */
 extern int          g_castle_placed;     /* 0x0079a8d0 */
 extern void*        g_freeplay_db;       /* 0x00667c4c  the loaded level database */
 extern int          g_map_loading;       /* 0x00667cd8  suppress render-order rebuilds */
@@ -172,14 +175,32 @@ extern const char g_str_profiles[];       /* 0x004b9174 "profiles" */
 typedef struct Pos { int x, y; } Pos;
 typedef struct BlitCtx { int a, b, c; } BlitCtx;          /* PrintSprite's 5th argument, {1, 0, 0} here */
 typedef struct HelpRect { int left, top, right, bottom; } HelpRect;
-/* The class record under the cursor: its name at +0x78 and, at +0xc4, a
- * pointer whose first dword is the object ShowObjectHelp describes. */
-typedef struct SelDef {
-    char   pad00[0x78];
-    char*  name;        /* +0x78 */
-    char   pad7c[0x48];
-    void** obj;         /* +0xc4 */
-} SelDef;
+typedef struct BPos  { unsigned char x, y; } BPos;
+typedef union  BPosW { unsigned short w; BPos b; } BPosW;
+/* g_hit_cell: a dword global whose low word is the packed hit cell. */
+typedef union  HitCell { int i; BPosW sq; } HitCell;
+
+/* A placed object: its class at +0x0c. */
+typedef struct ObjDef ObjDef;
+typedef struct MapObj { void* f0; void* f4; void* f8; ObjDef* def; } MapObj;
+
+/* A class record (the object definition): flags at +0x1c, the footprint
+ * origin offsets at +0x3c/+0x40, the name at +0x78, two callback slots and
+ * the placed instance at +0xc4 (whose first dword ShowObjectHelp takes). */
+struct ObjDef {
+    char           pad00[0x1c];
+    unsigned int   flags;      /* +0x1c  0x2000000 drag-placeable, 0x200000 clears for a path */
+    char           pad20[0x1c];
+    int            ox;         /* +0x3c */
+    int            oy;         /* +0x40 */
+    char           pad44[0x34];
+    char*          name;       /* +0x78 */
+    char           pad7c[0x14];
+    void         (*place)(MapObj* inst, Pos* pt, int a);   /* +0x90 */
+    void         (*update2)(MapObj* inst, Pos* pos);       /* +0x94 */
+    char           pad98[0x2c];
+    MapObj*        inst;       /* +0xc4 */
+};
 
 extern void  HandleRideAI(void);                                       /* 0x0048a0f0 */
 extern void  DoMapAI(void);                                            /* 0x00462ef0 */
@@ -207,17 +228,17 @@ extern int   IsRShiftDown(void);                                       /* 0x0047
 extern void  sub_46f100(int group);                                    /* 0x0046f100 */
 extern void  sub_46ee00(void);                                         /* 0x0046ee00 */
 extern void  sub_46cff0(void);                                         /* 0x0046cff0 */
-extern int   sub_482cb0(int value);                                    /* 0x00482cb0 */
+extern int   sub_482cb0(void* value);                                    /* 0x00482cb0 */
 extern void  sub_455fc0(HelpRect* r, char* text, int font, int a);     /* 0x00455fc0  HTBubbleHelp with an extra arg */
-extern void  sub_450a40(int value);                                    /* 0x00450a40 */
+extern void  sub_450a40(void* value);                                    /* 0x00450a40 */
 extern void  sub_4632b0(void);                                         /* 0x004632b0 */
 extern void  sub_44db90(void);                                         /* 0x0044db90  the appraisal-due tick */
 void HandleMapClick(void);                                             /* 0x00457a70 below */
 
 extern int          g_drag_lock;          /* 0x00668954  a worker is on the mouse */
 extern int          g_hit_type;           /* 0x004bdd00 */
-extern int          g_icon_value;         /* 0x004bdd04 */
-extern int          g_hit_cell;           /* 0x004bdd08 */
+extern void*        g_icon_value;         /* 0x004bdd04 */
+extern HitCell      g_hit_cell;           /* 0x004bdd08 */
 extern void*        g_ci_interface_bg;    /* 0x00668e68  InterfaceBG.lls */
 extern int          g_edit_mode;          /* 0x008119b0 */
 extern Pos          g_gfx_point;          /* 0x00813a44 */
@@ -519,11 +540,12 @@ static __inline void InGameFrameBody(BlitCtx* ctx)
     if ((hit & 0x100) || (g_ui_flags & 0x1000))
         HandleMapClick();
     {
-        int value, cell;
+        void* value;
+        int   cell;
 
         hit = g_hit_type;
         value = g_icon_value;
-        cell = g_hit_cell;
+        cell = g_hit_cell.i;
         PrintSprite(g_ci_interface_bg, 0, 0, 0, ctx);
         sub_46f100(0x2c3);
         sub_46ee00();
@@ -535,7 +557,7 @@ static __inline void InGameFrameBody(BlitCtx* ctx)
         if (g_ui_flags & 0x1000) {
             g_hit_type = hit;
             g_icon_value = value;
-            g_hit_cell = cell;
+            g_hit_cell.i = cell;
         }
     }
     hit = g_hit_type;
@@ -552,7 +574,7 @@ static __inline void InGameFrameBody(BlitCtx* ctx)
                     SetPointer(8);
                     if (g_sel_def) {
                         HTBubbleHelp(&rect, g_sel_def->name, 2);
-                        ShowObjectHelp(*g_sel_def->obj);
+                        ShowObjectHelp(g_sel_def->inst->f0);
                     }
                     break;
                 case 0x10a:
@@ -588,7 +610,7 @@ static __inline void InGameFrameBody(BlitCtx* ctx)
                     sub_450a40(g_icon_value);
                     break;
                 case 0x306:
-                    sub_455fc0(&rect, GetVisitorName((void*)g_icon_value), 2, sub_482cb0(g_icon_value));
+                    sub_455fc0(&rect, GetVisitorName(g_icon_value), 2, sub_482cb0(g_icon_value));
                     SetPointer(8);
                     sub_450a40(g_icon_value);
                     break;
@@ -599,7 +621,7 @@ static __inline void InGameFrameBody(BlitCtx* ctx)
             } else {
                 if (g_sel_def) {
                     HTBubbleHelp(&rect, g_sel_def->name, 2);
-                    ShowObjectHelp(*g_sel_def->obj);
+                    ShowObjectHelp(g_sel_def->inst->f0);
                 }
             }
         }
@@ -649,4 +671,461 @@ void InGameFrame(void)
     }
     RenderingComplete();
     g_dbg_where = g_str_exiting;
+}
+
+/* ---- HandleMapClick's types, globals and callees ------------------------- */
+typedef struct Rect  { int left, top, right, bottom; struct Rect* next; } Rect;
+
+/* A map cell (legoland.h's Cell, 20 bytes): the placed object, the packed
+ * cell position, the displayed tile and the map flags. */
+typedef struct Cell {
+    MapObj*        obj;      /* +0x00 */
+    BPosW          sq;       /* +0x04 */
+    unsigned short pad06;    /* +0x06 */
+    unsigned short tile;     /* +0x08 */
+    unsigned short base;     /* +0x0a */
+    unsigned short flags;    /* +0x0c  0x888: has an object / a work order; 0x800 work order */
+    unsigned short uflags;   /* +0x0e */
+    char           pad10[4]; /* +0x10 */
+} Cell;
+
+/* An edit / destroy cursor block (objmap2.c's Cursor, 0x1834 bytes). */
+typedef struct Cursor {
+    unsigned short count;        /* +0x0000 */
+    short          px[0x400];    /* +0x0002 */
+    short          py[0x400];    /* +0x0802 */
+    unsigned char  kind[0x400];  /* +0x1002 */
+    unsigned char  pad1402[2];
+    Pos            origin;       /* +0x1404 map cell the footprint hangs off */
+    int            status;       /* +0x140c */
+    int            error;        /* +0x1410 */
+    Rect           rect;         /* +0x1414 footprint rect list */
+    unsigned char  style;        /* +0x1428 */
+    char           pad1429[0x1828 - 0x1429];
+    unsigned int   flags;        /* +0x1828 */
+    int            pad182c;
+    struct Cursor* next;         /* +0x1830 chained cursor */
+} Cursor;
+
+/* The game-input block at 0x00813a40 (bighelp.c's GameInput, with the drag
+ * rectangle at +0x44..+0x50 and the footprint size at +0x2c/+0x30 named). */
+typedef struct GameButton { int mask; int state; } GameButton;
+typedef struct GameInput {
+    unsigned int flags;      /* +0x00  0x400 in-game clicks enabled, 0x800 env class, 0x1000 drag */
+    Pos          point;      /* +0x04  cursor point (screen) */
+    GameButton   mouse_a;    /* +0x0c */
+    GameButton   mouse_b;    /* +0x14 */
+    GameButton   mouse_c;    /* +0x1c */
+    Pos          map;        /* +0x24  map ref under the cursor */
+    int          fp_w;       /* +0x2c  footprint step, in refs */
+    int          fp_h;       /* +0x30 */
+    int          f34;        /* +0x34 */
+    int          f38;        /* +0x38 */
+    int          click_x;    /* +0x3c */
+    int          click_y;    /* +0x40 */
+    int          drag_x0;    /* +0x44  drag rectangle, in refs */
+    int          drag_y0;    /* +0x48 */
+    int          drag_x1;    /* +0x4c */
+    int          drag_y1;    /* +0x50 */
+    int          prev_buttons; /* +0x54 */
+    GameButton   up;         /* +0x58 */
+    GameButton   right;      /* +0x60 */
+    GameButton   down;       /* +0x68 */
+    GameButton   left;       /* +0x70 */
+    GameButton   tab;        /* +0x78 */
+    GameButton   btn0;       /* +0x80  state at 0x813ac4: bit0 pressed, bit1 released, bit4 latch */
+    GameButton   btn1;       /* +0x88  state at 0x813acc */
+} GameInput;
+
+/* A work order (workorder.c): its target object and the cell it is biased by. */
+typedef struct WorkOrder {
+    struct WorkOrder* next;   /* +0x00 */
+    MapObj*           obj;    /* +0x04 */
+    Pos               pos;    /* +0x08 */
+} WorkOrder;
+
+typedef struct RoadRec { char pad00[0x14]; unsigned char flags; } RoadRec;   /* +0x14 bit 4 = crossing */
+
+/* The tile-info table at 0x00801f40 (stride 8): a range record whose flag
+ * array is indexed by tile minus its base. */
+typedef struct TileRange { int base; char pad04[8]; unsigned int* flags; } TileRange;
+typedef struct TileInfo  { TileRange* range; int pad04; } TileInfo;
+
+/* The 12-byte pop-up identity passed BY VALUE to PopUpInfoSetUp. */
+typedef struct PopUpKey { int type; void* obj; int ref; } PopUpKey;
+
+/* The edit state at 0x008119b0 as one aggregate: {EditMode, GameMode,
+ * EditObject}. HandleMapClick's leading test reads the mode through it, and
+ * that read is a different object to the compiler from g_edit_mode, so the
+ * off-map compare below stays a compare on memory as in the original. */
+typedef struct EditState { int mode; int game_mode; ObjDef* object; } EditState;
+extern EditState   g_edit;              /* 0x008119b0 */
+/* The mouse-hit record at 0x004bdd00 as ONE object -- {type, obj, cell} --
+ * which is how this function must see it: PopUpInfoSetUp takes it by value
+ * and the copy's first field comes from the cached type register. */
+typedef struct HitInfo { int type; void* obj; HitCell cell; } HitInfo;
+extern HitInfo     g_hit_info;          /* 0x004bdd00 */
+extern GameInput   g_input;             /* 0x00813a40 */
+extern MapHdr*     g_level_map;         /* 0x004bcbf4  the same object as g_map, as the loops see it */
+extern int         g_drag_step_x;       /* 0x00813a38  footprint width, in refs */
+extern int         g_drag_step_y;       /* 0x00813a3c  footprint height, in refs */
+extern Cell**      g_map_rows;          /* 0x00801400 */
+extern TileInfo    g_tile_info[];       /* 0x00801f40 */
+extern BPosW       g_sel_bpos;          /* 0x00667c54  the selected object's base cell */
+extern int         g_sel_bpos_wide;     /* 0x00667c54  the same word read as a dword */
+extern ObjDef*     g_drag_class;        /* 0x0080ff6c  class being placed by a drag */
+extern ObjDef*     g_env_class;         /* 0x007fd624  the environment class */
+extern ObjDef*     g_hedge_def;         /* 0x0081cd08 */
+extern ObjDef*     g_edit_object;       /* 0x008119b8  the class the cursor edits */
+extern Cursor      g_query_cursor;      /* 0x00810160 */
+extern Cursor      g_edit_cursor;       /* 0x007febc0 */
+extern int         g_query_extra;       /* 0x00810144 */
+extern int         g_667c5c;            /* 0x00667c5c */
+extern int         g_render_order_dirty;/* 0x00667cdc */
+extern void*       g_place_sample;      /* 0x004b9248 */
+extern unsigned int g_map_dirty;        /* 0x00668610 */
+extern int         g_path_gfx_batch;    /* 0x0066b46c */
+extern const char g_str_driving_school_roads[]; /* 0x004b89cc "DRIVING SCHOOL ROADS" */
+extern const char g_str_zebra_crossing[];       /* 0x004b89bc "ZEBRA CROSSING" */
+
+extern void*      ElemID(const char* name);                              /* 0x0047b3f0 */
+extern WorkOrder* GetGardenerWorkOrderAt(int x, int y);                  /* 0x0049b130 */
+extern WorkOrder* GetMechanicWorkOrderAt(int x, int y);                  /* 0x0049b180 */
+extern RoadRec*   GetRoadRecord(int x, int y);                           /* 0x004125f0 */
+extern void       SetCursorError(Cursor* c, int error);                  /* 0x0045f480 */
+extern void       UpdateMapDrag(void);                                   /* 0x00452030 */
+extern void       BuildCursorPtr(Cursor* c, int a, int b);               /* 0x0045f5f0 */
+extern void       RenderCursor(Cursor* c);                               /* 0x0045ff00 */
+extern int        CursorIsValid(Cursor* c);                              /* 0x0045f4b0 */
+extern void       RemObjFromMap(ObjDef* d, MapObj* o, BPosW sq, Cursor* c); /* 0x00459c90 */
+extern void       PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
+extern void       CalculateMapRenderOrder(void);                         /* 0x0045a4a0 */
+extern void       ClearObjectUserFlags(MapObj* obj, Pos* pos);           /* 0x0045e850 */
+extern void       RemoveObjectPathTiles(ObjDef* def, Pos* pos);          /* 0x0045d3d0 */
+extern void       EraseMechanicOrder(WorkOrder* o);                      /* 0x0049b1d0 */
+extern void       EraseGardenerOrder(WorkOrder* o);                      /* 0x0049b230 */
+extern int        IsBuildableClass(ObjDef* def);                         /* 0x0045ead0 */
+extern void       ClearCellForPath(Pos* pos);                            /* 0x004779d0 */
+extern int        WorkOrderBuildObject(void* inst, Pos* pos);            /* 0x0049ab30 */
+extern void       PlayAppropriateBuildEffect(ObjDef* d, Pos* pos);       /* 0x00462d10 */
+extern void       PopUpInfoSetUp(HitInfo key, int x, int y);             /* 0x00471950 */
+extern int        sub_457970(int x, int y);                              /* 0x00457970  footprint clearance test (group 15) */
+extern void       sub_475f40(void);                                      /* 0x00475f40 */
+extern void       sub_473640(int error);                                 /* 0x00473640 */
+
+/* The click-on-map action handler, called from InGameFrame on a button or a
+ * drag. First the hit under the cursor is classified (an object, a work
+ * order, a road crossing, a tile) into g_hit_type / g_icon_value /
+ * g_hit_cell / g_sel_def; then the edit mode decides what the click does:
+ * mode 0 = query (show the object's cursor), mode 1 = place the edit class
+ * (single or a drag-filled rectangle), mode 2 = the destroy/query cursor
+ * (single or a drag-filled removal). Finally a released button opens the
+ * pop-up info for the hit. */
+// FUNCTION: LEGOLAND 0x00457a70
+void HandleMapClick(void)
+{
+    Pos   pos;
+    void* roads;
+    void* crossing;
+
+    roads = ElemID(g_str_driving_school_roads);
+    crossing = ElemID(g_str_zebra_crossing);
+    if (g_edit.mode == 0 || g_edit.mode == 2) {
+        g_sel_def = 0;
+        if (g_hit_info.type == 0x100 || g_hit_info.type == 0x103) {
+            Cell* cell;
+
+            if (g_input.map.x >= 0 && g_input.map.x < g_map->cells_w
+                    && g_input.map.y >= 0 && g_input.map.y < g_map->cells_h
+                    && (cell = &g_map_rows[g_input.map.y][g_input.map.x]) != 0) {
+                if (cell->flags & 0x888) {
+                    if (cell->flags & 0x800) {
+                        WorkOrder* o = GetGardenerWorkOrderAt(g_input.map.x, g_input.map.y);
+
+                        g_hit_info.obj = o;
+                        if (o) {
+                            g_hit_info.type = 0x10b;
+                        } else {
+                            o = GetMechanicWorkOrderAt(g_input.map.x, g_input.map.y);
+                            g_hit_info.obj = o;
+                            if (o)
+                                g_hit_info.type = 0x10c;
+                        }
+                        {
+                            unsigned short sq = cell->sq.w;
+                            MapObj* obj;
+
+                            g_hit_info.cell.sq.w = sq;
+                            obj = cell->obj;
+                            if (obj) {
+                                ObjDef* d = obj->def;
+
+                                g_sel_bpos.w = sq;
+                                g_sel_def = d;
+                            }
+                        }
+                    } else {
+                        g_hit_info.obj = cell->obj;
+                        g_hit_info.cell.sq.w = cell->sq.w;
+                        if (cell->flags & 0x88) {
+                            g_hit_info.type = 0x103;
+                            if (cell->obj == roads) {
+                                RoadRec* r = GetRoadRecord(cell->sq.b.x, cell->sq.b.y);
+
+                                if (r && (r->flags & 0x10))
+                                    g_hit_info.obj = crossing;
+                            }
+                        }
+                        g_sel_def = ((MapObj*)g_hit_info.obj)->def;
+                        g_sel_bpos.w = g_hit_info.cell.sq.w;
+                    }
+                } else if (g_hit_info.type == 0x103) {
+                    g_sel_def = ((MapObj*)g_hit_info.obj)->def;
+                    g_sel_bpos.w = g_hit_info.cell.sq.w;
+                } else {
+                    int t;
+                    TileRange* tr;
+
+                    t = cell->tile;
+                    tr = g_tile_info[t].range;
+
+                    if (tr && (tr->flags[t - tr->base] & 0x10))
+                        g_hit_info.type = 0x10d;
+                    else
+                        g_hit_info.type = 0x109;
+                }
+            } else if (g_hit_info.type == 0x103 && g_edit_mode == 2) {
+                g_sel_def = ((MapObj*)g_hit_info.obj)->def;
+                g_sel_bpos.w = g_hit_info.cell.sq.w;
+            } else {
+                g_hit_info.type = 0x10a;
+            }
+        }
+    }
+
+    switch (g_edit_mode) {
+    case 0: {
+        unsigned int w = g_hit_info.cell.i & 0xffff;
+
+        pos.x = w & 0xff;
+        pos.y = w >> 8;
+        if (g_hit_info.type == 0x103) {
+            ObjDef* d = g_sel_def;
+            d->update2(d->inst, &pos);
+        } else if (g_hit_info.type == 0x10c) {
+            ObjDef* d2 = g_sel_def;
+            d2->update2(d2->inst, &pos);
+        } else if (g_hit_info.type == 0x10b) {
+            ObjDef* d3 = g_sel_def;
+            d3->update2(d3->inst, &pos);
+        } else {
+            memset(&g_query_cursor.rect, 0, sizeof(Rect));
+            g_query_cursor.flags = 8;
+            SetCursorError(&g_query_cursor, 1);
+            g_query_cursor.origin = g_input.map;    /* one Pos copy: VC6 moves y before x */
+            g_667c5c = 0;
+            g_input.flags &= ~0x400;
+            if (!(g_input.btn0.state & 2))
+                g_drag_class = 0;
+            break;
+        }
+        g_query_cursor.next = 0;
+        BuildCursorPtr(&g_query_cursor, 0, 0);
+        RenderCursor(&g_query_cursor);
+        break;
+    }
+    case 1:
+        if (CursorIsValid(&g_edit_cursor))
+            SetPointer(4);
+        else
+            SetPointer(3);
+        if (g_edit_object == g_env_class || g_edit_object == g_hedge_def)
+            g_input.flags |= 0x800;
+        else
+            g_input.flags &= ~0x800;
+        if (!(g_input.flags & 0x400) && g_edit_object != 0)
+            g_edit_object->place(g_edit_object->inst, &g_input.point, 0x8f8);
+        BuildCursorPtr(&g_edit_cursor, 0x8f8, IsBuildableClass(g_edit_object));
+        if (g_input.btn0.state & 0x11) {
+            if (CursorIsValid(&g_edit_cursor)) {
+                if (g_edit_object->flags & 0x2000000) {
+                    int x, y;
+
+                    g_map_loading = 1;
+                    g_render_order_dirty = 0;
+                    if (g_edit_object == g_env_class) {
+                        for (y = g_input.drag_y0; y <= g_input.drag_y1; y += g_input.fp_h) {
+                            for (x = g_input.drag_x0; x <= g_input.drag_x1; x += g_input.fp_w) {
+                                pos.x = x - g_edit_object->ox;
+                                pos.y = y - g_edit_object->oy;
+                                if (pos.x >= 0 && pos.x < g_level_map->cells_w && pos.y >= 0 && pos.y < g_level_map->cells_h) {
+                                    Cell* c = &g_map_rows[pos.y][pos.x];
+
+                                    if (c && (c->flags & 0x8a0) && (c->obj->def->flags & 0x200000))
+                                        ClearCellForPath(&pos);
+                                }
+                            }
+                        }
+                    }
+                    for (y = g_input.drag_y0; y <= g_input.drag_y1; y += g_input.fp_h) {
+                        for (x = g_input.drag_x0; x <= g_input.drag_x1; x += g_input.fp_w) {
+                            pos.x = x - g_edit_object->ox;
+                            pos.y = y - g_edit_object->oy;
+                            if (sub_457970(pos.x, pos.y)) {
+                                if (WorkOrderBuildObject(g_edit_object->inst, &pos))
+                                    g_map_dirty |= 0x10;
+                                g_path_gfx_batch = 1;
+                            }
+                        }
+                    }
+                    g_map_loading = 0;
+                    if (g_render_order_dirty) {
+                        PlayAppropriateBuildEffect(g_edit_object, 0);
+                        PlayInstanceOfSample(g_place_sample, 0, 1, 0);
+                        CalculateMapRenderOrder();
+                    }
+                    g_map_loading = 0;      /* the original clears it twice */
+                } else {
+                    if (WorkOrderBuildObject(g_edit_object->inst, &g_edit_cursor.origin)) {
+                        sub_475f40();
+                        g_map_dirty |= 2;
+                    }
+                }
+            } else {
+                sub_473640(g_edit_cursor.error);
+            }
+        } else {
+            RenderCursor(&g_edit_cursor);
+        }
+        if (g_input.btn1.state & 2) {
+            g_edit_mode = 0;
+            g_input.flags &= ~0x1400;
+        }
+        break;
+    case 2: {
+        unsigned int w;
+
+        g_query_extra = 0;
+        w = g_hit_info.cell.i & 0xffff;
+        pos.x = w & 0xff;
+        pos.y = w >> 8;
+        if (g_drag_class != 0 && (g_drag_class == g_env_class || g_drag_class == g_hedge_def))
+            g_input.flags |= 0x800;
+        else
+            g_input.flags &= ~0x800;
+        if (!(g_input.flags & 0x1000)) {
+        if (g_hit_info.type == 0x103) {
+                ObjDef* d = g_sel_def;
+                d->update2(d->inst, &pos);
+            } else if (g_hit_info.type == 0x10c) {
+                ObjDef* d2 = g_sel_def;
+                d2->update2(d2->inst, &pos);
+            } else if (g_hit_info.type == 0x10b) {
+                ObjDef* d3 = g_sel_def;
+                d3->update2(d3->inst, &pos);
+            } else {
+                memset(&g_query_cursor.rect, 0, sizeof(Rect));
+                g_query_cursor.flags = 8;
+                SetCursorError(&g_query_cursor, 1);
+                g_query_cursor.origin.x = g_input.map.x;
+                g_query_cursor.origin.y = g_input.map.y;
+                g_667c5c = 0;
+                g_input.flags &= ~0x400;
+                if (!(g_input.btn0.state & 2))
+                    g_drag_class = 0;
+            }
+        } else {
+            UpdateMapDrag();
+            g_query_cursor = g_edit_cursor;
+        }
+        if (g_query_extra == 0)
+            g_query_cursor.next = 0;
+        BuildCursorPtr(&g_query_cursor, 0, 0);
+        RenderCursor(&g_query_cursor);
+        if (CursorIsValid(&g_query_cursor))
+            SetPointer(2);
+        else
+            SetPointer(1);
+        if (g_input.btn0.state & 0x11) {
+            if (g_drag_class != 0 && (g_drag_class->flags & 0x2000000)) {
+                int x, y;
+
+                g_map_loading = 1;
+                g_render_order_dirty = 0;
+                for (y = g_input.drag_y0; y <= g_input.drag_y1; y += g_drag_step_y) {
+                    for (x = g_input.drag_x0; x <= g_input.drag_x1; x += g_drag_step_x) {
+                        g_query_cursor.rect.next = 0;
+                        g_query_cursor.origin.x = x;
+                        g_query_cursor.origin.y = y;
+                        if (x >= 0 && x < g_level_map->cells_w && y >= 0 && y < g_level_map->cells_h) {
+                            Cell* c = &g_map_rows[y][x];
+
+                            if (c) {
+                                int bx = c->sq.b.x;
+                                int by;
+
+                                g_query_cursor.origin.x = bx;
+                                g_sel_bpos.b.x = (unsigned char)bx;
+                                by = c->sq.b.y;
+                                g_query_cursor.origin.y = by;
+                                g_sel_bpos.b.y = (unsigned char)by;
+                                if ((c->flags & 0x88) && !(c->flags & 0x40)
+                                        && c->obj == g_drag_class->inst)
+                                    RemObjFromMap(g_drag_class, g_drag_class->inst, g_sel_bpos, &g_query_cursor);
+                            }
+                        }
+                    }
+                }
+                if (g_render_order_dirty) {
+                    PlayInstanceOfSample(g_place_sample, 0, 1, 0);
+                    CalculateMapRenderOrder();
+                }
+                g_map_loading = 0;
+            } else if (CursorIsValid(&g_query_cursor)) {
+                if (g_hit_info.type == 0x10c) {
+                    ClearObjectUserFlags(((WorkOrder*)g_hit_info.obj)->obj, &((WorkOrder*)g_hit_info.obj)->pos);
+                    RemoveObjectPathTiles(((WorkOrder*)g_hit_info.obj)->obj->def, &((WorkOrder*)g_hit_info.obj)->pos);
+                    EraseMechanicOrder(g_hit_info.obj);
+                } else if (g_hit_info.type == 0x10b) {
+                    RemoveObjectPathTiles(((WorkOrder*)g_hit_info.obj)->obj->def, &((WorkOrder*)g_hit_info.obj)->pos);
+                    EraseGardenerOrder(g_hit_info.obj);
+                } else {
+                    Cell* c;
+
+                    pos.x = g_sel_bpos_wide & 0xff;
+                    pos.y = g_sel_bpos.b.y;
+                    if (pos.x >= 0 && pos.x < g_map->cells_w && pos.y >= 0 && pos.y < g_map->cells_h)
+                        c = &g_map_rows[pos.y][pos.x];
+                    else
+                        c = 0;
+                    g_sel_def = c->obj->def;        /* ORIGINAL BUG: c is NULL when the cell is off the map */
+                    if (g_query_extra == 0)
+                        RemoveObjectPathTiles(g_sel_def, &pos);
+                    RemObjFromMap(g_sel_def, g_sel_def->inst, g_sel_bpos, &g_query_cursor);
+                }
+            }
+        }
+        if (!(g_input.flags & 0x1000) && g_hit_info.type == 0x103) {
+            if (g_sel_def->flags & 0x2000000) {
+                g_input.flags |= 0x400;
+                g_drag_class = g_sel_def;
+            } else {
+                g_input.flags &= ~0x400;
+                g_drag_class = 0;
+            }
+        }
+        if (g_input.btn1.state & 2) {
+            g_edit_mode = 0;
+            g_input.flags &= ~0x1400;
+        }
+        break;
+    }
+    }
+
+    if ((g_input.mouse_a.state & 2) && !g_icon_clicked && !g_edit_mode && !g_drag_lock) {
+        Pos pt = g_input.point;     /* the Pos copy sets the rotation for the record copy */
+
+        PopUpInfoSetUp(g_hit_info, pt.x, pt.y);
+        g_icon_clicked = 1;
+    }
 }
