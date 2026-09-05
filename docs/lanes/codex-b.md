@@ -83,3 +83,56 @@ diverging index or residual. Counts come from the complete-body extent audit.
 - **Original quirks retained**: the kind-2 source leaves its unused object
   member uninitialized; destroy refcounts are not protected against underflow.
   No speculative null guards or altered call order were added.
+
+## Native audio checkpoint
+
+`audio4.c`: 7/7 functions, 320 instructions, 100%, audit `[OK]` yes, committed
+marker `FUNCTION` for every row; no divergent index/residual. `/W3` clean.
+
+| Address | Name | Instructions |
+| --- | --- | ---: |
+| 00480170 | ReadBE16 | 15 |
+| 00480150 | ReadBE32 | 15 |
+| 004927b0 | StopPlayableSample | 32 |
+| 004801a0 | ReadMidiTrack | 34 |
+| 00498920 | PauseCurrentTrack | 35 |
+| 00492130 | InitSoundSampleSystem | 39 |
+| 00498630 | PlayNarrationFile | 150 |
+
+- **Important correction to existing caller comments**: `PauseCurrentTrack`
+  is destructive streamed-SPEECH teardown, not music ducking. It stops/rewinds,
+  unprepares and closes ACM, closes the descriptor, releases DirectSound,
+  frees all three heap blocks, and clears the state. `PlayNarrationFile`
+  prepares NEW speech; `ResumeCurrentTrack` (00498b00) primes and starts that
+  stream, not the old one. No DirectMusic calls occur here. Existing `fpui5.c`
+  and front-end aliases are read-only in this lane; integrator should correct
+  their explanatory comments separately.
+- **Speech states**: 0 no resources, 1 loaded/stopped/rewound, 2 ring primed,
+  3 playing. Verified by the adjacent 00498870/004988c0/004989b0/00498b00
+  routines. New callee names follow those bodies: `ResetNarrationStreamState`,
+  `StopNarrationPlayback`, `ReadNarrationWaveHeader`, `RewindNarrationSource`.
+- **Conversion fidelity**: local `speech\\filename` first, resource-volume
+  prefix fallback; no extension appended. Source scratch is ten source blocks.
+  ACM converts to PCM 16-bit with source channels/rate unchanged. DirectSound
+  has a 0xa000-byte refillable ring; its looping flag is not file looping.
+- **Original risks preserved**: MIDI chunk ID/read counts/allocations are not
+  validated; the rest of the track is left uninitialized until its player.
+  Speech uses unbounded path concatenation and ignores ACM/heap/buffer setup
+  failures; a null DirectSound result is dereferenced. WAV-header failure
+  closes the file but may leak its allocated format. No added guards.
+- **Inline swap evidence**: EBP frames plus `bswap edx` / `xchg dl,dh` in
+  these tiny /O2 readers support source inline assembly. VC6 MASM's spelling
+  `xchg dh,dl` reproduces the original opcode/decoded operand order; the
+  opposite spelling has identical semantics but one strict mismatch.
+- **Failure block placement**: InitSoundSampleSystem's first guards jump
+  INTO the GetCaps failure block, leaving success last. A nested success
+  return (including a trailing success label) gives 11/39 strict mismatches;
+  the shared failure-block spelling is exact 39i/134B.
+- **ACM header store order is a scheduling lever**: src, size, status,
+  srcLength, dst, dstLength closes PlayNarrationFile at 150i/566B. An initial
+  dst-first order was 150i/565B with nine strict mismatches. A bounded sweep
+  stopped at the first exact order (33 variants); no asm used in the loader.
+- **Extern type notes**: the two speech functions return int despite callers'
+  old void declarations. ACM/DirectSoundCreate imports are stdcall direct
+  thunks, not dllimport indirect calls (verified against the PE import table).
+  CRT names retain established aliases; memset/strcpy/strcat inline here.
