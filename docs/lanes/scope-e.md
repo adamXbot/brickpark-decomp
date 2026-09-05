@@ -1,14 +1,13 @@
 # Scope E — frontier micro-helpers
 
-Initial implementation pass, 2026-09-05. Branch `scope/E`; base `f22f7cc7`.
+Completed matching pass, 2026-09-05. Branch `scope/E`; base `f22f7cc7`.
 Worktree: `.claude/worktrees/scope-e` (under the main checkout).
 
-**147 functions reconstructed: 140 exact full-body matches and 7 WIPs.**
-`tinystubs.c`: 55 exact / 1 WIP; `ridetiny.c`: 38 exact / 6 WIPs;
-`coastertiny.c`: 47 exact / 0 WIPs. All three files compile without `/W3`
-warnings using VC6 SP3 `/O2 /Gy /Gd`. All exact markers passed `audit.py`.
-The seven WIPs remain below; they are not claimed as exact or exhausted.
-No existing C file, shared documentation, tool, or progress report was edited.
+**147 of 147 functions are exact full-body matches (100% of Scope E).**
+`tinystubs.c`: 56 exact; `ridetiny.c`: 44 exact; `coastertiny.c`: 47 exact.
+All three files compile without `/W3` warnings using VC6 SP3 `/O2 /Gy /Gd`.
+All 147 `FUNCTION` markers passed `audit.py`; there are no remaining WIPs.
+No pre-existing C file, shared documentation, tool, or progress report was edited.
 
 ## Verification
 
@@ -17,13 +16,13 @@ No existing C file, shared documentation, tool, or progress report was edited.
 - `LEGOLAND_CL=/Users/systemadmin/Documents/Development/Github/alphateam/tools/wibo-msvc/cl`
   with `/Users/systemadmin/.venvs/legoland/bin/python tools/audit.py
   LEGOLAND/tinystubs.c LEGOLAND/ridetiny.c LEGOLAND/coastertiny.c` is the
-  authoritative check. It prints 140 `[OK]` lines and seven `[WIP]` lines,
+  authoritative check. It prints 147 `[OK]` lines and no `[WIP]` or `[REJECT]` lines,
   and ends `PASS: 0 function(s) failed the extent gate`.
 - Each file also passed a separate `/W3 /O2 /Gy /Gd` compile, with objects
   under `/tmp/se_*`. Iteration used scratch files in `/tmp`, never `tools/`.
-- The table percentages are strict normalized instruction comparisons over
-  the audit span. For WIPs, padding or an escaped branch can make that span
-  differ from the true compiled body; the residual section records both.
+- Every row has identical instruction count and byte length, zero strict
+  normalized mismatches, and no branch escaping the original extent.
+  The 147 original extents total 1306 instructions and 3785 bytes.
 - The branch is for integration by the owning session. Global verification,
   coverage and report regeneration were intentionally left to that session,
   following `docs/PARALLEL_CONTRACT.md`.
@@ -116,7 +115,8 @@ this mapping without changing those callers' prototype types.
 - `Copters_StepRider` scans **six** words from 0x004c1124 to 0x004c113c,
   although `mechrides.c` declares five paths. Its sixth entry overlaps the
   following ride sprite pointer. The function replaces the bloke's path
-  pointer with an ordinal or -1; it does not advance the rider simulation.
+  pointer with an ordinal or -1 and returns that value; it does not advance
+  the rider simulation.
 - Keyboard teardown releases the COM device without clearing its global.
 - Map-square sound sources leave the unused bloke member unwritten.
 - Array and list accessors keep the original unchecked indices and sentinels.
@@ -150,8 +150,11 @@ this mapping without changing those callers' prototype types.
 - `Raster_RestoreFloatMode` takes the saved word by value. The existing
   `schoolcar.c` placeholder declares it as `void*`, but `fldcw [ebp+8]`
   demonstrates there is no dereference of a pointed-to word.
-- `RouteSeat_AttachCar`, `RouteSeat_DetachCar` and `RegisterDetailImage`
-  return values that some callers declare as `void`. `PhysObj_Init` hardcodes
+- `Copters_StepRider`, `RouteSeat_AttachCar`, `RouteSeat_DetachCar` and
+  `RegisterDetailImage` return values that some callers declare as `void`.
+  The copter helper returns the saved path ordinal (or -1). `DefaultIconInput`
+  uses the existing four-argument callback signature (`Icon*, int, short,
+  short`); the icon and two displacement arguments are unused. `PhysObj_Init` hardcodes
   dimension 2 and does not read the extra dimension argument in its callers.
   `GetCoasterModelSize` retrieves the auxiliary loaded-file pointer, consistent
   with `g_coaster_tab_b2`, despite its old name.
@@ -159,7 +162,7 @@ this mapping without changing those callers' prototype types.
   `GetRoadRecord` uses unsigned arguments here to preserve the logical shifts.
   These caller-side types were not propagated into other scopes.
 
-## Code-generation evidence and residuals
+## Code-generation evidence
 
 - **Null guard before a returned Win32 result.** `CoasterModel_SetDirectory`
   as `void` produced 6i/16B with a shared final return. `if (!path) return 0;
@@ -174,32 +177,33 @@ this mapping without changing those callers' prototype types.
   consumes and returns ST(0). An inline-assembly call followed by rounding
   through the argument's float home gives 8i/20B. `fldcw control` gives the
   float-mode restore's 5i/8B with its EBP frame; both are audit `[OK]`.
-- **Five searches, one residual.** All are now 16i/40B, with exact control
-  flow and four strict mismatches at indices 4,5,10,11: the compiled code loads
-  the query key into dx then compares the record; the original loads the
-  record key into dx then compares the query. Equality behavior is unchanged.
-  A free volatile query read prevents hoisting and recovers the peeled loop;
-  ordinary searches give 13i/32B. Early return/break/nested-loop forms,
-  named scalar and aggregate temporaries, intrinsic two-byte copies and inline
-  equality helpers did not remove the operand-order residual. Kept WIP at 75%.
-- **Copter save ordinal.** Original 16i/42B; current full body 19i/46B.
-  The audit sees 16i/41B, eight strict differences beginning at 0, and ESCAPES
-  into a duplicated success store. The counter and array cursor take ecx/eax
-  instead of eax/ecx. Free volatile reads, naming the path/array element,
-  integer field views, separate result, and inline index helpers did not
-  recover the shared final store. Kept WIP at 50% of the audit span, not a
-  claim that the truncated body is complete.
-- **Default icon input.** Original 10i/20B; current body 9i/18B. VC6 replaces
-  the final `mov al,2 / jne / mov al,1` with `setne al / inc eax`; the first
-  mismatch is index 6. The audit includes one padding nop and compares
-  10i/19B, with four mismatches (60%). Char locals, signed/unsigned parameters
-  and returns, ternaries and masked switches left this residual. Kept WIP.
+- **Five searches closed by the two-byte `memcmp` intrinsic.** Each is
+  16i/40B with zero mismatches. VC6 expands `memcmp(&r->tile, tile, 2)` after
+  loop-invariant hoisting, so the loop reloads the record key into dx and
+  compares the query through memory at exactly the two original sites.
+  This is the established form in `westtown.c`'s `JailCell_FindRecord` and
+  `ridecb3.c`'s `Carousel_FindRec`. Scalar equality and volatile reads were
+  the wrong abstraction; all five close with the same C shape and no volatile.
+- **Copter save ordinal: returned value and initialization order.** Returning
+  the ordinal from `Copters_StepRider` coalesces the loop counter with eax and
+  removes the duplicate success store (19i/46B -> 16i/42B, four differences).
+  `int i = 0;` BEFORE `Bloke* bloke = rider->bloke`, with no initializer in
+  the `for` clause, then produces the original scratch-register order and
+  closes all four remaining differences. The complete body is 16i/42B,
+  `[OK]`; the prototype divergence from void callers is recorded above.
+- **Default icon input: equal return cases merge late.** Keeping an explicit
+  event-bit case returning 1, followed by the default return of 1, prevents
+  VC6 from replacing the preceding conditional with `setne/inc`. The extra
+  test disappears from the generated code, leaving exactly the original
+  `test al,4 / mov al,2 / jne / mov al,1 / ret` tail: 10i/20B, `[OK]`.
+  Both bit-1 and bit-3 spellings give that machine code, so the eliminated
+  test's mask is not uniquely recoverable. This reconstruction uses bit 1,
+  introduces no observable behavior, and documents the compiler lever.
 
 ## Per-function results
 
-`FUNCTION` means audit `[OK]`; `WIP-FUNCTION` is explicitly not `[OK]`.
-Instruction and byte counts below are the original extent. See above for
-compiled sizes and first diverging indices of the seven partials.
+Every marker below is `FUNCTION` and every audit result is `[OK]`. Instruction
+and byte counts are identical in the original and compiled body.
 
 ### tinystubs.c
 
@@ -243,7 +247,7 @@ compiled sizes and first diverging indices of the seven partials.
 | 0x00496570 | `PanFromOffset` | 10 / 33 | 100.0% | yes | FUNCTION |
 | 0x0048fc00 | `ProcessScreenPopup` | 10 / 33 | 100.0% | yes | FUNCTION |
 | 0x00471470 | `DisablePopUpInputs` | 10 / 39 | 100.0% | yes | FUNCTION |
-| 0x0046f2e0 | `DefaultIconInput` | 10 / 20 | 60.0% | no | WIP-FUNCTION |
+| 0x0046f2e0 | `DefaultIconInput` | 10 / 20 | 100.0% | yes | FUNCTION |
 | 0x0045eab0 | `ClassAllowsObjects` | 10 / 23 | 100.0% | yes | FUNCTION |
 | 0x0045cb90 | `ResetPathTile` | 10 / 34 | 100.0% | yes | FUNCTION |
 | 0x00485f00 | `PrintSpriteXY` | 11 / 28 | 100.0% | yes | FUNCTION |
@@ -298,13 +302,13 @@ compiled sizes and first diverging indices of the seven partials.
 | 0x00415a60 | `SpiderRide_SetFull` | 15 / 41 | 100.0% | yes | FUNCTION |
 | 0x0043aa50 | `SpaceTower_ReleaseSquare` | 15 / 51 | 100.0% | yes | FUNCTION |
 | 0x00415a20 | `SpiderRide_ReleaseSquare` | 15 / 51 | 100.0% | yes | FUNCTION |
-| 0x004159b0 | `SpiderRide_FindRecord` | 16 / 40 | 75.0% | no | WIP-FUNCTION |
-| 0x00414a80 | `SafariRide_FindRecord` | 16 / 40 | 75.0% | no | WIP-FUNCTION |
-| 0x00403d00 | `Copters_FindRecord` | 16 / 40 | 75.0% | no | WIP-FUNCTION |
-| 0x004069e0 | `GoldRush_FindRecord` | 16 / 40 | 75.0% | no | WIP-FUNCTION |
-| 0x0042ce20 | `EarthSlide_FindRec` | 16 / 40 | 75.0% | no | WIP-FUNCTION |
+| 0x004159b0 | `SpiderRide_FindRecord` | 16 / 40 | 100.0% | yes | FUNCTION |
+| 0x00414a80 | `SafariRide_FindRecord` | 16 / 40 | 100.0% | yes | FUNCTION |
+| 0x00403d00 | `Copters_FindRecord` | 16 / 40 | 100.0% | yes | FUNCTION |
+| 0x004069e0 | `GoldRush_FindRecord` | 16 / 40 | 100.0% | yes | FUNCTION |
+| 0x0042ce20 | `EarthSlide_FindRec` | 16 / 40 | 100.0% | yes | FUNCTION |
 | 0x00406f00 | `GoldRush_ReleasePan` | 15 / 41 | 100.0% | yes | FUNCTION |
-| 0x00403d30 | `Copters_StepRider` | 16 / 42 | 50.0% | no | WIP-FUNCTION |
+| 0x00403d30 | `Copters_StepRider` | 16 / 42 | 100.0% | yes | FUNCTION |
 | 0x004192d0 | `BoatingSchool_CountWater` | 16 / 41 | 100.0% | yes | FUNCTION |
 | 0x004139e0 | `Road_TileRelease` | 16 / 41 | 100.0% | yes | FUNCTION |
 | 0x00406f30 | `GoldRush_UpdateFullFlag` | 16 / 39 | 100.0% | yes | FUNCTION |

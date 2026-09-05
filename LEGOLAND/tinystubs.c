@@ -236,20 +236,18 @@ void DisablePopUpInputs(void)
     g_info_icon_a->input = 0; g_info_icon_f->input = 0;
     g_info_icon_g->input = 0; g_info_icon_h->input = 0;
 }
-/* Semantics: bit 0 or bit 2 returns 2, otherwise 1. VC6 substitutes a
- * setne/inc for the second branch. Direct returns, a char result local,
- * signed/unsigned parameter variants, ternaries and masked switches did
- * not restore the original branch. No artificial side effect added. */
-// WIP-FUNCTION: LEGOLAND 0x0046f2e0  (60.0% audit span; 9i/18B body vs 10i/20B; first mismatch 6: setne/inc replaces the final conditional; audit includes one padding nop)
-char DefaultIconInput(Icon* icon, char flags)
+/* Bits 0 and 2 return 2; other events return 1. Keep the explicit
+ * bit-1/default cases even though both return 1: VC6 merges them late,
+ * preserving the original branch instead of replacing it with setne/inc.
+ * The eliminated test's particular mask is not recoverable from the binary. */
+// FUNCTION: LEGOLAND 0x0046f2e0
+char DefaultIconInput(Icon* icon, int flags, short dx, short dy)
 {
-    (void)icon;
+    (void)icon; (void)dx; (void)dy;
     if (flags & 1) return 2;
-    {
-        char result;
-        if (flags & 4) result = 2; else result = 1;
-        return result;
-    }
+    if (flags & 4) return 2;
+    if (flags & 2) return 1;
+    return 1;
 }
 // FUNCTION: LEGOLAND 0x0045eab0
 int ClassAllowsObjects(ObjDef* def)

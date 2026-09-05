@@ -1,6 +1,9 @@
 /* LEGOLAND -- scope E: ride record, queue, path and sound micro-helpers.
  * VC6 SP3 /O2 /Gy /Gd; see docs/lanes/scope-e.md for audit evidence.
  */
+extern int memcmp(const void*, const void*, unsigned int); /* CRT intrinsic */
+#pragma intrinsic(memcmp)
+
 typedef struct Pos { int x, y; } Pos;
 typedef union RideTile { unsigned short key; struct { unsigned char x, y; } b; } RideTile;
 typedef struct WalkPath { short count; } WalkPath;
@@ -223,66 +226,64 @@ void SpiderRide_ReleaseSquare(RideTile* tile)
     UnSourceAndFadeAllSamplesFromSource(&src, -200);
 }
 
-/* Compare the packed square and preserve the original peeled search loop.
- * The free volatile access retains the original per-iteration key read;
- * ordinary loops hoist it, giving 13i/32B. This 16i/40B form still loads the
- * query key instead of the record key before each equality comparison.
- * Early returns/breaks, named scalars/aggregates, intrinsic two-byte copies,
- * and inline equality helpers did not close those four instructions. */
-// WIP-FUNCTION: LEGOLAND 0x004159b0  (75.0%; 16i/40B; first mismatch 4; compare loads/operands reversed at 4-5 and 10-11)
+/* The two-byte memcmp intrinsic expands after loop-invariant hoisting,
+ * so each iteration loads the record key and compares the query in memory.
+ * Scalar equality hoists the query; a volatile query reverses the operands.
+ * This is the established JailCell_FindRecord / Carousel_FindRec shape. */
+// FUNCTION: LEGOLAND 0x004159b0
 SpiderRec* SpiderRide_FindRecord(RideTile* tile)
 {
     SpiderRec* r = g_spider_recs;
     if (r) {
-        while (r->tile.key != *(volatile unsigned short*)&tile->key) {
+        while (memcmp(&r->tile, tile, 2) != 0) {
             r = r->next;
             if (!r) return 0;
         }
         return r;
     } else return 0;
 }
-// WIP-FUNCTION: LEGOLAND 0x00414a80  (75.0%; 16i/40B; first mismatch 4; compare loads/operands reversed at 4-5 and 10-11)
+// FUNCTION: LEGOLAND 0x00414a80
 SafariRec* SafariRide_FindRecord(RideTile* tile)
 {
     SafariRec* r = g_safari_recs;
     if (r) {
-        while (r->tile.key != *(volatile unsigned short*)&tile->key) {
+        while (memcmp(&r->tile, tile, 2) != 0) {
             r = r->next;
             if (!r) return 0;
         }
         return r;
     } else return 0;
 }
-// WIP-FUNCTION: LEGOLAND 0x00403d00  (75.0%; 16i/40B; first mismatch 4; compare loads/operands reversed at 4-5 and 10-11)
+// FUNCTION: LEGOLAND 0x00403d00
 CoptersRec* Copters_FindRecord(RideTile* tile)
 {
     CoptersRec* r = g_copter_recs;
     if (r) {
-        while (r->tile.key != *(volatile unsigned short*)&tile->key) {
+        while (memcmp(&r->tile, tile, 2) != 0) {
             r = r->next;
             if (!r) return 0;
         }
         return r;
     } else return 0;
 }
-// WIP-FUNCTION: LEGOLAND 0x004069e0  (75.0%; 16i/40B; first mismatch 4; compare loads/operands reversed at 4-5 and 10-11)
+// FUNCTION: LEGOLAND 0x004069e0
 GoldRec* GoldRush_FindRecord(RideTile* tile)
 {
     GoldRec* r = g_gold_recs;
     if (r) {
-        while (r->tile.key != *(volatile unsigned short*)&tile->key) {
+        while (memcmp(&r->tile, tile, 2) != 0) {
             r = r->next;
             if (!r) return 0;
         }
         return r;
     } else return 0;
 }
-// WIP-FUNCTION: LEGOLAND 0x0042ce20  (75.0%; 16i/40B; first mismatch 4; compare loads/operands reversed at 4-5 and 10-11)
+// FUNCTION: LEGOLAND 0x0042ce20
 SlideRec* EarthSlide_FindRec(RideTile* tile)
 {
     SlideRec* r = g_slide_head;
     if (r) {
-        while (r->tile.key != *(volatile unsigned short*)&tile->key) {
+        while (memcmp(&r->tile, tile, 2) != 0) {
             r = r->next;
             if (!r) return 0;
         }
@@ -296,20 +297,19 @@ void GoldRush_ReleasePan(RiderNode* rider)
     GoldRec* rec = GoldRush_FindRecord(&rider->tile);
     if (rec) rec->pans[seat] = 0;
 }
-/* Replaces the path pointer with its save-table ordinal, or -1 if absent.
- * The original shares one final store. This reconstruction duplicates the
- * success store and keeps the loop counter in ecx instead of eax. Free
- * volatile reads, named path/array values, integer field views, a separate
- * result and an inline index helper did not recover the original join. */
-// WIP-FUNCTION: LEGOLAND 0x00403d30  (50.0% audit span; full body 19i/46B vs 16i/42B; first mismatch 0; eax/ecx allocation and duplicated success store; ESCAPES)
-void Copters_StepRider(RiderNode* rider)
+/* Replace the path pointer with its save-table ordinal, or -1 if absent,
+ * and return that ordinal. The returned index occupies eax; initialize it
+ * before reading the bloke to preserve the original scratch-register order. */
+// FUNCTION: LEGOLAND 0x00403d30
+int Copters_StepRider(RiderNode* rider)
 {
-    int i;
+    int i = 0;
     Bloke* bloke = rider->bloke;
-    for (i = 0; i < 6; ++i) if (bloke->path == g_copters_paths[i]) goto found;
+    for (; i < 6; ++i) if (bloke->path == g_copters_paths[i]) goto found;
     i = -1;
 found:
     bloke->path = (void*)i;
+    return i;
 }
 /* Original quirk: ASSIGN the supplied square to every boat, then count
  * nonzero assignments. The square is re-read each time (it may alias a boat). */
