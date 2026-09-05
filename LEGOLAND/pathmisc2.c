@@ -295,19 +295,19 @@ int GrowPathRectSide(Rect4* rect, int side)
 {
     Rect4 edge;
     switch (side) {
-    case 0:
+    case 2:
         edge.top = edge.bottom = rect->top - 1;
         edge.left = rect->left;
         edge.right = rect->right;
         if (IsPathRectClear(&edge)) { rect->top--; return 1; }
         break;
-    case 1:
+    case 0:
         edge.top = edge.bottom = rect->bottom + 1;
         edge.left = rect->left;
         edge.right = rect->right;
         if (IsPathRectClear(&edge)) { rect->bottom++; return 1; }
         break;
-    case 2:
+    case 1:
         edge.top = rect->top;
         edge.bottom = rect->bottom;
         edge.left = edge.right = rect->right + 1;

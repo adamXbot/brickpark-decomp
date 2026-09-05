@@ -83,8 +83,9 @@ Counts are full original instructions/bytes, not matchfull's truncated window.
   zero-extended tile WORD to the full DWORD at *g_path_tile_base.
 - ScanPathArea5x5 copies 20-byte cells and emits bit24 top-left to bit0
   bottom-right. Off-map substitutes initialize only flags0x40/rf0.
-  GrowPathRectSide probes one external row/column; directions are top, bottom,
-  right, left. Invalid direction returns0. New unique callee name:
+  GrowPathRectSide probes one external row/column; directions0..3 are bottom,
+  right, top, left (distinct from emitted block order). Invalid direction
+  returns0. New unique callee name:
   **IsPathRectClear,0045c900**, all tiles flags0x10 and !rf2 (empty rect true).
 
 ### Measured codegen levers
@@ -107,6 +108,10 @@ Counts are full original instructions/bytes, not matchfull's truncated window.
 - Grow's source assignment order matters: horizontal cases chain top/bottom
   first then left,right; vertical cases store top,bottom then chain left/right.
   The initial equally meaningful order had12 mismatches at98i/290B; final0.
+- Independent switch-table review caught a second normalized-audit blind spot:
+  emitted block order is top,bottom,right,left, but the original table indexes
+  bottom,right,top,left. Corrected labels while preserving emitted block order;
+  the four relocated targets must be checked separately from normalized text.
 - Existing siblings were reused without speculative abstractions: route free,
   closed unlink, route finds and bounds helpers matched directly.
 
