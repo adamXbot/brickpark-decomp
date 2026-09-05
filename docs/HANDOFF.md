@@ -91,11 +91,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **58.1% exact, 69.0% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2310 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **58.8% exact, 69.7% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2355 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 108, ~5,000 instructions (every merge exposes another tier) |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 74 |
+| unmatched callees | `python3 tools/callees.py` | 88, ~4,800 instructions (every merge exposes another tier) |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 73 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
@@ -191,8 +191,12 @@ to the names their bodies now carry (names are not codegen levers; every
 touched file re-audits unchanged), which exposed and fixed a pre-existing
 duplicate definition (`RestoreCoasterCar` at two addresses); `coaster.c`'s
 malformed nine-digit extern comment was corrected; and the extent-walker
-defect now blocks TWO complete bodies (`MatMul`, `Coaster3D_BuildPieceGeometry`)
-— fixing it is the next tooling task, on a quiet tree with a full `verify.py`.
+defect that blocked two complete bodies (`MatMul`, `Coaster3D_BuildPieceGeometry`)
+**is fixed** (`_loop_entry` in `tools/match.py`, 2026-09-05): a forward `jmp`
+whose skipped region is branched back into from beyond its target is a rotated
+loop's entry, not the function's end. `MatMul` promoted to exact at its true
+40 instructions; `Coaster3D_BuildPieceGeometry` correctly bounded at 143.
+Verified against the whole tree — no other function's extent changed.
 
 **Codex scope C merged (2026-09-05): 88 of 88 exact** — the frontier's
 1-28-instruction tail across `simcore2.c`, `pathmisc.c`, `lfmisc.c`,

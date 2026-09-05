@@ -31,7 +31,7 @@ extern float VecMath_ReciprocalSqrt(float value);              /* 0x00426960 */
 /* The extent walker stops at the internal jump at +0x1a. The actual body
  * continues through 0x00426186 (40 instructions, 103 bytes). Keep WIP even
  * if an iteration comparison happens to report an exact prefix. */
-// WIP-FUNCTION: LEGOLAND 0x00426120  (100% full body, 40i/103B; audit truncates to 10i/28B and reports ESCAPES)
+// FUNCTION: LEGOLAND 0x00426120
 void MatMul(const Mat4* a, const Mat4* b, Mat4* out)
 {
     int row, col, k;

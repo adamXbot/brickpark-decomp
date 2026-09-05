@@ -48,12 +48,11 @@ try to build a toolchain or a venv.
 - **Do NOT run `tools/verify.py`, `tools/progress.py` or `tools/coverage.py`**,
   and do not edit anything under `tools/`. `audit.py` and `matchfull.py` use
   per-process object paths and are safe alongside other sessions' compiles.
-- Known tooling defect: the extent walker stops at an unconditional `jmp` that
-  no EARLIER branch crosses, so a function whose middle holds a rotated loop's
-  entry `jmp` is under-bounded and reports ESCAPES against a truncated extent
-  (`MatMul`, `Coaster3D_BuildPieceGeometry`). If yours matches the truncated
-  extent exactly, say so in the WIP note and move on; do not try to fix the
-  walker.
+- Tooling note: the extent walker's rotated-loop defect (a forward `jmp`
+  over a loop body was taken as the function's end) was FIXED on 2026-09-05;
+  `audit.py` now bounds such functions correctly. If a body still reports
+  ESCAPES, the branch really does leave the original's extent — a duplicated
+  tail or a different block layout — and the note should say which.
 
 ## Files you must not touch
 
