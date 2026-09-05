@@ -330,7 +330,15 @@ Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
 coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
-Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed).
+Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed) and
+the seven briefs cut on 2026-09-06 from the inventory's script tier —
+`SCOPE_R_level_keywords_1.md`, `SCOPE_S_level_keywords_2.md`,
+`SCOPE_T_level_keywords_3_startup.md` (the 93 level-database keyword handlers,
+their parse primitives and the process start-up), `SCOPE_W_event_constructors.md`
+(the `AddEvent_*` bodies), `SCOPE_V_event_ticks_1.md` and
+`SCOPE_X_event_ticks_2.md` (the `g_event_tick[]` handlers and goal checks) and
+`SCOPE_U_exception_report_objdesc.md` — 311 functions, ≈8,000 instructions,
+named by keyword from the table at 0x004bb6f8 and the constructors' kinds.
 Running: F (this machine), G, H. Merged
 since: N (`tools/inventory.py` and `docs/lanes/scope-n.md`, 2026-09-05; no C,
 no existing tool touched), O (21 of 21 exact — the 19 K exposed plus two
@@ -693,10 +701,10 @@ turned one fix into four repeatedly.
 linker kept — with how each is reached, its nearest matched neighbour and 31
 address-ordered candidate groups of ~1,200 instructions. `callees.py --by-file`
 sees only the 47 that matched code declares. Cut new scopes from the groups:
-P and Q took 16 and 17 (the startup spine); 24–27 are one neighbourhood
-reached through the level-database keyword table at `0x004bb6f8`; cut 22
-before 21 (61 calls); groups 3–7 hold most of the dead code, so cut only
-their live members. `docs/RIDE_CALLBACKS.md` still names the ride slots, and
+P and Q took 16 and 17 (the startup spine); R–X took the script tier
+(groups 17–24 of the 2026-09-06 run: the keyword table at `0x004bb6f8`, its
+constructors and `g_event_tick[]`); groups 3–7 hold most of the dead code,
+so cut only their live members. `docs/RIDE_CALLBACKS.md` still names the ride slots, and
 the inventory's pointer-table section names the other nine `.data` tables
 (AI plan and state dispatch, script-event ticks, report setters, track
 descriptors). One body, `0x004453a0` (8,085 instructions, the park-appraisal
