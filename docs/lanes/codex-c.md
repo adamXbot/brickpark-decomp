@@ -40,4 +40,53 @@ first divergence or residual in any row.
   recover the actual forwarded arguments, preserving the cdecl ABI;
   caller declarations were not changed.
 
+
+## lfmisc.c — complete
+
+All 16 bodies pass the authoritative audit, 100% matchfull, warning-free
+compile and relocated-byte verification (17 address relocations). All have
+FUNCTION markers, with no first divergence or residual.
+
+| Address | Name | Instructions | Match | Audit [OK] | Marker |
+| --- | --- | ---: | ---: | --- | --- |
+| 0x00412290 | `FreeWalkPath` | 7 | 100% | Yes | FUNCTION |
+| 0x004122d0 | `WalkPath_Board` | 9 | 100% | Yes | FUNCTION |
+| 0x00412470 | `LFAnim_FromId` | 11 | 100% | Yes | FUNCTION |
+| 0x0042d540 | `NthRiderNode` | 11 | 100% | Yes | FUNCTION |
+| 0x004123a0 | `LFAnim_SaveId` | 12 | 100% | Yes | FUNCTION |
+| 0x00411bd0 | `Pump_FreeAll` | 13 | 100% | Yes | FUNCTION |
+| 0x0043f870 | `Free3DPerson` | 13 | 100% | Yes | FUNCTION |
+| 0x004333b0 | `JcBoat_Depart` | 14 | 100% | Yes | FUNCTION |
+| 0x00411290 | `LFQuadTopLeft` | 15 | 100% | Yes | FUNCTION |
+| 0x004117e0 | `LFBoat_DropStep` | 15 | 100% | Yes | FUNCTION |
+| 0x00411650 | `LFBoat_IsOnDrop` | 15 | 100% | Yes | FUNCTION |
+| 0x00411e30 | `LFQueue_Append` | 16 | 100% | Yes | FUNCTION |
+| 0x00411220 | `LFQuadTopRight` | 17 | 100% | Yes | FUNCTION |
+| 0x0040ca30 | `LFDrawBoatList` | 21 | 100% | Yes | FUNCTION |
+| 0x00482c60 | `InitBlokeName` | 22 | 100% | Yes | FUNCTION |
+| 0x00418f90 | `BsBoat_Destroy` | 27 | 100% | Yes | FUNCTION |
+
+- Existing descriptive scope names are retained except `sub_411650`, now
+  `LFBoat_IsOnDrop`: its comparison is with the LOG FLUME DROP class at
+  0x004c8d6c. `BsBoat_Destroy` also appears as `BsBoat_Unlink` in existing
+  caller declarations; only this single implementation is added.
+- Ordinal lookups deliberately have no chain-end check. Saving an absent
+  animation returns the chain length. `LFBoat_DropStep` requires a valid
+  parent but returns -1 when its piece is absent from the sub-route.
+- `LFQueue_Append` treats a queue as empty only when both head and tail are
+  null, and does not clear the inserted next link. `BsBoat_Destroy` retains
+  the empty-list null dereference; a missing node in a nonempty list returns.
+- Walk-path boarding sets the pointer, resets the index, starts walking and
+  increments the action byte. Name indices use unsigned remainder with the
+  original 90/83 first-name groups and 107 surnames. Boat departure requests
+  state 4 and targets current y + 5; quad corners preserve signed shifts.
+- Measured levers: a separate `cursor` local closes both ordinal lookups
+  from 13i/29B (9 mismatches) to 11i/22B exact; signed versus unsigned index
+  was inert. A free volatile read of `boat->piece` closes the drop test's
+  four register mismatches without changing its 15i/40B body; merely splitting
+  the two pointer reads into statements was inert.
+- Local layouts recover real parameter offsets. `Pos` quad results use the
+  original eax:edx aggregate return; heap destruction and caller prototypes
+  retain cdecl. Existing callers and headers are unchanged.
+
 Remaining files are in progress.
