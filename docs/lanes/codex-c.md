@@ -131,4 +131,52 @@ mood and route-search callers establish their roles.
   The retired `RequestRoute` notes were read, including alias-kill and
   live-range findings; its body is outside this lane and unchanged.
 
+
+## pathmisc.c — complete
+
+All thirteen pass audit, matchfull 100%, a clean warning compile and actual
+relocated-byte comparison (28 address relocations). All markers are FUNCTION;
+no first divergence or residual remains. Descriptive names from the scope
+and existing path/road/work-order callers are retained.
+
+| Address | Name | Instructions | Match | Audit [OK] | Marker |
+| --- | --- | ---: | ---: | --- | --- |
+| 0x004821c0 | `ClearPTPVisited` | 7 | 100% | Yes | FUNCTION |
+| 0x0045e690 | `ObjHasExit` | 11 | 100% | Yes | FUNCTION |
+| 0x0045ce10 | `IsPathCell` | 12 | 100% | Yes | FUNCTION |
+| 0x004139c0 | `Road_TileClaim` | 12 | 100% | Yes | FUNCTION |
+| 0x00482300 | `AddPTPRouteNode` | 13 | 100% | Yes | FUNCTION |
+| 0x00450c00 | `FreeBuildSlotAt` | 16 | 100% | Yes | FUNCTION |
+| 0x004821e0 | `FreePTPOpenList` | 16 | 100% | Yes | FUNCTION |
+| 0x00413990 | `Road_TileCost` | 18 | 100% | Yes | FUNCTION |
+| 0x00489f00 | `MarkObjectTiles` | 18 | 100% | Yes | FUNCTION |
+| 0x0045d730 | `AddObjRectSpan` | 21 | 100% | Yes | FUNCTION |
+| 0x0045cd00 | `GrowPathRect` | 23 | 100% | Yes | FUNCTION |
+| 0x0045eaf0 | `ClassNeedsPath` | 25 | 100% | Yes | FUNCTION |
+| 0x00499720 | `SettleOrderSpan` | 28 | 100% | Yes | FUNCTION |
+
+- Visited clearing writes exactly 0x1200 bytes; route nodes allocate 16 bytes
+  and leave their parent field uninitialized. Open-list teardown caches next
+  before freeing and clears the head. `ObjHasExit` compares signed-byte exit
+  coordinates to full-width entrance coordinates. `IsPathCell` follows the
+  RF bits 1/2 and map flag 0x10 combination exactly.
+- Road helpers use logical shifts of fixed-point coordinates. Claim counters
+  are wrapping bytes. Cost returns only AL (2 absent, 3 for nonzero kind,
+  otherwise 1). A named byte local closes three operand-width mismatches in
+  the final selection; casts on ternary arms were inert.
+- Build-slot removal scans 256 keys, including inactive slots, clears only
+  the first matching object's pointer and decrements the live count without
+  an active check. This preserves the original possibility of underflow.
+  Tile marking picks the first 0xffff key among 128 four-byte entries, packs
+  x/y into a word and clears its count; there is no duplicate check.
+- Rectangle append first subtracts existing overlap, then copies the input
+  and increments the count without a capacity guard. Growth cycles sides
+  until four consecutive failures. `SettleOrderSpan` checks a candidate and
+  advances once more before stopping for success or a completed cycle.
+- Twelve bodies match first compile. Besides the byte-local lever above,
+  conventional field copies, counted loops and sequential guard returns
+  produce the exact original code. Existing prototypes remain unchanged;
+  some callers call `SettleOrderSpan` by the alias `WalkOrderSpan` and some
+  discard the route-node return. No duplicate implementation is added.
+
 Remaining files are in progress.
