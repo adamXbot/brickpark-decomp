@@ -49,7 +49,7 @@ void AddPathTileGFX(Pos* pos, unsigned short tile)
 /* Build a perimeter cliff/bridge render object from one 20-byte .MAP record
  * and append it to the terrain-object list (head @ 0x00667ca8). Called once
  * per `n_extra` record by LoadBaseMap; RenderInit (0x462c60) later binds each
- * object's sprite. Original name unknown — was sub_462c00. */
+ * object's sprite. Original name unknown — was BuildPerimeterObject. */
 // FUNCTION: LEGOLAND 0x00462c00
 void BuildPerimeterObject(PerimRec* rec)
 {

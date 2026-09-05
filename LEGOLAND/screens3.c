@@ -401,7 +401,7 @@ extern void  ClearOverlays(void);                             /* 0x00462ce0 */
 extern void  sub_482a80(void);
 /* 0x004913f0 (not exported): the new-profile popup's per-frame hook. Its
  * ADDRESS is what NewProfileCloseInput tests (always true). */
-extern void  sub_4913f0(void);
+extern void  ScanForProfiles(void);
 
 /* 0x0048d8f0 (not exported): reads one save slot's header into the temp
  * profile; non-zero when the slot really holds a game. */
@@ -446,8 +446,8 @@ extern void  InitGameInterface(int a);                        /* 0x004749d0 */
 extern int   RenderFlashingSpriteIcon(Icon*);                 /* 0x0046e8a0 */
 /* 0x00466360 / 0x004663c0 (not exported): the render-view entry the park is
  * brought up with (profiles.c declares the same two). */
-extern void  sub_466360(int a, int b);
-extern void  sub_4663c0(void);
+extern void  SetWaitSpriteRect(int a, int b);
+extern void  ClearWaitSprite(void);
 /* 0x00458a50 (not exported): park start-up. */
 extern void  sub_458a50(void);
 /* Progress-screen icon handlers that forward to each other. */
@@ -1320,13 +1320,13 @@ char ProgressAcceptInput(Icon* p, int buttons, int a3, int a4)
         PlayInstanceOfSample(g_snd_click, 0, 1, 0);
         KillLevelMarkerSprites();
         if (g_level_map->level <= 15) {
-            sub_466360(0xfa, 0x181);
+            SetWaitSpriteRect(0xfa, 0x181);
             g_icons2_mode = 0;
             InitGameInterface(1);
             g_game_mode = 3;
             SetInGameIconHandlers();
             sub_458a50();
-            sub_4663c0();
+            ClearWaitSprite();
             g_progress_resume = 0;
             g_progress_798668 = 0;
         } else {
@@ -1358,13 +1358,13 @@ char LowProgressAcceptInput(Icon* p, int buttons, int a3, int a4)
         g_6687b0 = 4;
         PlayInstanceOfSample(g_snd_click, 0, 1, 0);
         KillLowMarkerSprites();
-        sub_466360(0x186, 0x18b);
+        SetWaitSpriteRect(0x186, 0x18b);
         g_icons2_mode = 0;
         InitGameInterface(1);
         g_game_mode = 3;
         SetInGameIconHandlers();
         sub_458a50();
-        sub_4663c0();
+        ClearWaitSprite();
         g_progress_resume = 0;
         g_progress_798668 = 0;
         rc = 1;
@@ -1752,13 +1752,13 @@ char SaveEmptySlotInput(Icon* p, int buttons, int a3, int a4)
     return 1;
 }
 
-/* The new-profile popup's close button. The `if (sub_4913f0)` is the
+/* The new-profile popup's close button. The `if (ScanForProfiles)` is the
  * original's own dead test -- it loads a FUNCTION ADDRESS into eax and tests
  * it against zero, which can never be false; reproduced as written. */
 // FUNCTION: LEGOLAND 0x004920a0
 char NewProfileCloseInput(Icon* p, int buttons, int a3, int a4)
 {
-    if ((buttons & 2) && sub_4913f0) {
+    if ((buttons & 2) && ScanForProfiles) {
         RemoveIconGroup(0x15);
         CloseFontEndCheckBox();
         g_cur_screen = -1;

@@ -424,6 +424,272 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **A memory-operand FOLD inside a loop is a register-PRESSURE symptom — look
+  at what is held across the loop, not at the expression.** `Anim3D_OffsetAt`:
+  accumulating straight into the 8-byte struct return (`r.x += ...`) keeps the
+  part cursor in EBX across the inner loop, leaves it one scratch register and
+  folds both fractional loads into `add reg,[mem]` — 45 for the original's 51.
+  Accumulating in plain `int` locals and assigning into the returned `Pos` at
+  the END spills the cursor to the dead argument slot, gives the inner loop
+  EBX+EBP and materialises all four loads — exact first try. **This is the
+  REVERSE of "an 8-byte struct RETURN must be the ACCUMULATOR"**: that rule
+  holds for a straight-line sum, not for a loop accumulation (~50 spellings).
+- **A whole-struct copy from a const table, then `-=` on one field, folds the
+  subtraction into a memory operand and pins the pair's store order**
+  (`o = tbl[car]; o.oy -= rec->car[car].height;` -> `mov/mov/store ox/
+  sub eax,[mem]/store oy`); field-by-field loads the subtrahend into a register
+  and sinks the store past the argument push (45 -> 0, 39 -> 0 on the two tower
+  draw passes).
+- **Two sums used as call arguments become `lea`s only through an aggregate
+  local.** Inline in the argument list VC6 emits `add` into one operand's
+  register; `p.ox = a.ox + b.ox; p.oy = a.oy + b.oy; f(s, p.ox, p.oy, ...)`
+  gives two `lea`s into fresh registers (11 -> 0), and the `lea` operand order
+  then follows source order per component.
+- **Wrapping two shifted coordinates in ONE aggregate blocks VC6's
+  shift-distribution algebra.** `(x<<8) + (y<<8)` as two `int` locals is
+  rewritten to `(x+y)<<8` and the two `shl`s sink below the `imul`; as one
+  struct the distribution does not run and both `shl`s stay ahead of the call.
+  Confirmed from the other side: keeping the (dead) x chain alive preserves
+  the shifts with plain ints too — the transform is the algebra pass running
+  AFTER dead-code elimination has left each shift a single use. Whole residual
+  of `SpaceTower_PlaceCar` (41 -> 0, the pair assigned y first).
+- **A free volatile read on a loop invariant the original reloads kills a
+  DERIVED induction variable** (`px + *(volatile int*)&halfw` stops VC6
+  manufacturing a second column IV with its own frame slot; frame 0x38 -> the
+  original's 0x34). Its price: the volatile object's home moves up the frame,
+  sliding two neighbours — recorded at `PaintTileLayer`'s marker.
+- **For two derived values from one field, define the DOUBLED one first to get
+  the `lea`.** `tw = (short)(h*2); th = h;` gives `lea ecx,[eax+eax]`; th-then-tw
+  gives an in-place `add eax,eax` and the whole head comes out one form off.
+  Isolated kernels emit `lea` for every spelling — a pressure/order effect in
+  situ, not a spelling one.
+- **Confirmed: `BsBoat_Animate` reproduces `JcBoat_Animate`'s three-instruction
+  `imul`-operand-rank residual at the same indices** — the retired analysis in
+  roads.c predicted from the disassembly alone that the unported twin had the
+  identical form. Do not re-open either; a fix on one closes both. And
+  `mechrides.c`'s `g_spacetower_state`/`g_spacetower_phase` are elements 0 and
+  3 of a four-pointer seat-matte table indexed by car (names left, noted).
+
+- **FROM THE PARALLEL SESSIONS `fable-c` (26 of 26 exact) and `codex-b` (60 of
+  60 exact); full evidence in `docs/lanes/fable-c.md`, `codex-b.md`.** The
+  strongest, folded here:
+  - **Do NOT write the second `return`: let VC6 duplicate the epilogue.**
+    `LoadTextFile`'s failure epilogue reads the never-written home of the
+    result pointer (`mov eax,[esp+0xc]`). One `return text;` after the `if`
+    keeps all three pushes in the prologue and makes VC6 tail-duplicate the
+    epilogue itself, reading the uninitialised home — 47/47. A `return` in the
+    failure arm sinks two pushes and reads `[esp+4]` (31/45). **Two
+    uninitialised locals, one per guard, are how a function gets two different
+    frame homes** — VC6 homes one in the dead `list` slot and the other in the
+    still-live `index` slot, which is why the shipped `LookupTextureName`
+    calls `SkipStrings((char*)index, index)` on a null list. Reachable, not
+    an accident.
+  - **A lone `dec` before a `je` on a parameter is a one-case `switch`, not an
+    `if`.** `switch (kind) { case 1: ... }` emits `mov eax,<arg> / dec eax /
+    je`; `if (x == 1)` emits `cmp dword ptr [mem],1 / je`; `kind--; if (kind)`
+    gives `mov/dec/test/je`, one too many. Extends the two-case `dec/je/dec/jne`
+    entry.
+  - **The for-increment order of two lockstep cursors decides the latch's
+    emission order; the declaration order is inert.** `for (...; p++, i++)`
+    exact, `..., i++, p++)` wrong (`RecolourModelParts`). And **a three-term
+    `for` increment (`i++, line++, y += 0x18`) puts the TRIP COUNTER first in
+    the latch and fixes the whole callee-saved ranking with it** — data steps
+    as body statements instead: 50 of 59; in the increment clause after `i++`:
+    59/59 (`PrintScreenMode7`). **`bit <<= 1` belongs in the increment clause
+    AFTER `i++`** (`RES_FindVolumeOnAnyDrive`): the counter's update must be
+    generated BEFORE the other induction variable's, whichever clause holds
+    them. Three reachable cases of the latch-order question, all by source
+    order of the updates.
+  - **A counted `for` with a literal bound keeps its test in the LATCH and
+    gives the SECOND condition the loop head, with no peel** — VC6 proves the
+    first `i < 14` and deletes it, so there is no peeled copy to double as an
+    `if`. When the latch is a literal-bounded counter and there is no peel,
+    the loop was a counted `for` and the other test was a `break`.
+  - **A coordinate pair feeding a SUM OF SQUARES must be ONE `Pos` aggregate
+    LOCAL** — the member becomes the destination symbol of its own product
+    (`y*y` in edx, `x*x` in eax); two `int` locals emit the mirror and it is
+    unreachable by every spelling (80 of 84, six volatile reads included);
+    `Pos p` throughout is 84/84 and both sum orders then work. The by-value
+    `Pos` mechanism, now on a local at an arithmetic site.
+  - **A call result handed straight to a COM method must be a named local**
+    (`SetVolume(obj, VolumeFromDistSq(d2))` evaluates the object and vtable
+    BEFORE the inner call, spills the vtable pointer and takes a fourth push —
+    90 for an 84-instruction function). The callee-object side of "two
+    struct-return handles must be separate statements".
+  - **Three `return 0`s do NOT produce the zero-register join; a FLAG set in
+    the innermost block does.** `mov eax,edi` with `xor edi,edi` eleven
+    instructions earlier: `int found = 0;` with the tests as NESTED ifs whose
+    innermost body is `found = 1;` and `return found;` at the end — 92/92.
+    Three textual `return 0;` tail-duplicate the epilogue three times (115);
+    `goto fail; fail: return 0;` merges them but emits `xor eax,eax` in the
+    merged block (88). Sharpens the `xor <callee-saved>,<same>` join rule: the
+    zero must be a VARIABLE live from before the first call.
+  - **`found = 1;` BEFORE the `strcpy`, not after — 18 of 138.** Written after
+    (the natural order), VC6 exiles the flag to a stack home and the parameter
+    takes ebp instead. The statement order decides WHICH of two webs is
+    enregistered, invisible except as the frame size. **And the mask guard
+    must be `if (mask) { loop }`, not `if (!mask) return found;`** — the early
+    return coalesces `found = 0` with `i = 0` into one hoisted zero and the
+    flag never gets a register; the three levers reach 138/138 only TOGETHER
+    (117, 120, 135 for the partial combinations). A `strict 39 /
+    register-blind 24` residual that read as "structural" was two statement
+    positions.
+  - **`x &= ~1` on an `int` already in a register narrows to `and al,0xfe`**
+    — the recorded "`&= ~` does NOT narrow" was measured on a read-modify-write
+    straight to memory; once loaded, both `|= 0x1000` (`or ch,0x10`) and
+    `&= ~1` use the byte form. **`-(unsigned short field) * 2` is
+    `xor/mov16/neg/shl`** — on a freshly zero-extended value being pushed VC6
+    shifts in place; the `*2 -> lea/add` rule is for a value already in a
+    register needing a fresh destination. **`field >> 1` on a u16 is `shr`;
+    `-field >> 1` is `neg` + `sar`** — the read-side tell for a u16 used in
+    signed arithmetic.
+  - **A 16-byte rect copied out of a class record is FOUR field assignments,
+    read off the non-sequential load order** (`+0x3c, +0x44, +0x40, +0x48` =
+    each following subtraction's operands adjacent). **A 12-byte struct
+    assignment is `mov ecx,<src>` plus three register-move pairs** — the
+    source-address copy is part of the lowering, not a second pointer.
+    **`char root[4] = "c:\\";` is a `.rdata` dword copy** (`memcpy`, a 4-byte
+    struct assign and a `long*` copy are all byte-identical; intrinsic `strcpy`
+    is sixteen instructions dearer).
+  - **A subscript walk over a GLOBAL array gives a SIGNED `cmp cursor,end /
+    jl` against a link-time constant** — reads like a pointer walk but is not
+    (a pointer walk compares `jb`). **An address-taken counter is incremented
+    THROUGH MEMORY** (`mov edx,[esp] / inc edx / mov [esp],edx`) when the loop
+    body holds its only other use; address-taken forces the home store,
+    whether the loop also reloads depends on what else is live. **Repeated
+    `if (!Write(...)) return 0;` guards cross-jump BACKWARDS into the first
+    inline `return 0`** — no construct needed.
+  - **A byte-typed constant hoisted into a callee-saved register (`mov bl,4`)
+    needs no construct** — four `& 4` tests on different words, ebx pushed
+    anyway; the zero-web rule with a non-zero constant. **`do { } while
+    (strlen(s) == 0)` is the intrinsic `repne scasb` with the back-edge INTO
+    the counter update** (`not ecx / dec ecx / je top`, no separate compare).
+  - **Naming `next = prev->next` inside a delete loop changes the allocation
+    web** where a free volatile head read was inert (`DeleteIcon`, 23i/57B
+    exact). **Evaluate the current key state before the previous-state bit**
+    even though VC6 schedules the previous byte first — the order adds the
+    original's EBX web (`GetTypedChar`). **A named `which = rand() % 5` before
+    the call** moves argument setup before `rand` (28i/87B exact) — and a
+    caller-local `unsigned rand` reproduces the original's unsigned `div`
+    where some units declare `rand` signed.
+
+- **Two block-scoped out-param locals, one per arm, stop VC6 head-merging the
+  arms' identical argument setup.** As one function-level local the two
+  `lea reg,[esp+4] / push / push` blocks are identical IR and VC6 hoists them
+  above the branch (33 against 36). Two block-scoped locals are distinct
+  symbols at merge time; the allocator still colours both into the ONE dead
+  argument slot, so the function keeps no frame. The original's `lea ecx` in
+  one arm and `lea edx` in the other IS the proof they were never merged
+  (`TrackFitEndGeom`).
+- **`e = g;` immediately after the call that filled `&g` puts an out-value in
+  one register for both a compare and the return** — the load schedules into
+  the call's return slot, before the pending `add esp,8`. Read only at its
+  uses, VC6 emits a separate `[esp+4]` load per block: an address-taken local
+  is not CSE'd across a branch.
+- **VC6's fold of `base + i*STRIDE` into a two-register `movsx` addressing
+  mode is NOT reachable from C** — ~30 spellings inert (named `&list[i]`,
+  `list+i`, pointer locals at either level, `const short*` to the field,
+  `char*` byte arithmetic, integer-typed addresses, casts at the use,
+  array-of-array rows, 2-byte elements indexed `[i*8]`, a whole-record copy,
+  an inline helper, a `short` index, five declaration orders). Only a
+  volatile access blocks it, and the volatile is a scheduling barrier, so the
+  AGI-filling instructions land after it. The 12-mismatch residual of
+  `CoasterCar_BuildRider` (byte-exact, `strict == rb == ob`).
+- **A preheader `xor <iv>,<iv>` proves the byte offset is VC6's own strength
+  reduction, not a source variable** — an explicit `off` local moves that
+  `xor` ABOVE the zero-trip guard (measured both ways). A cheap reading rule
+  for any counted array walk.
+- **"Size is not evidence of twinning" applies WITHIN one body too:**
+  `CoasterCar_BuildRider`'s three substitution loops are 0x42/0x40/0x42
+  bytes — loops 1 and 3 materialise the record address, loop 2 folds one add
+  away. VC6 is deterministic, so the middle loop was WRITTEN differently.
+
+- **Test the GLOBAL, not the local copy, to stop VC6 propagating a list
+  head's null-ness onto the cursor** — two sites, opposite symptoms, one rule.
+  `run = g_head; if (g_head == 0) return 0; while (run)` splits the web so the
+  load lands in eax BEFORE `push esi/edi` and VC6 emits the original's
+  `mov esi,eax`; `if (run == 0)` propagates and is one instruction short
+  (`LFTrack_FindPiece`). Reading `g_open_head` directly at all three uses keeps
+  the CSE in one register but leaves the `while (p)` peel standing as the
+  original's redundant `mov eax,edi / test eax,eax`; a `head` local drops both
+  (`AddOpenNode`, eleven shapes). Negative: a free volatile read of a global
+  list head pins the load BELOW both callee-saved pushes, not above.
+- **A strength-reduced cursor over an inline struct array is anchored on the
+  SECOND store statement's offset** — `pos` written second gives
+  `lea esi,[run+0x4c]`, the original; written first the anchor slides to the
+  third statement's field (twelve orders, `LFRun_Start`). **Walk that array by
+  SUBSCRIPT, not through a named pointer** — it fixes the anchor AND lets the
+  `piece` store schedule ahead of the call-result store; through the pointer
+  all 48 statement orders floored at 3.
+- **A coordinate pair copied from a struct to an out-`Pos` must be ONE `Pos`
+  field assigned whole.** `*out = d->entrance;` breaks the CSE with the bounds
+  test, which is what lets `push esi` sink out of the prologue into the other
+  arm; two `int` fields cost 23 at the identical instruction count, ~20
+  spellings floored there (`GetObjectDoorOffset`). Corollary: **reversing the
+  store order in the COLD arm also sinks the push** — the cold arm's store
+  order decides the hot arm's allocation.
+- **The alias-kill rule extends to GLOBALS: a store to one global kills the
+  CSE of an unrelated global load.** `g_elem->data->rect...` spelled twice
+  around a `g_tile.x = ...` store reloads the element AND re-derives the class
+  (15); naming `ObjDef* d` closes it (`UpdateEntranceTile`).
+- **`if (s == 0) A(); if (s != 0) B();` as two separate `if`s gives ONE call
+  site for B** with the first test's non-zero edge threaded into it — the
+  shape of both `Control*` worker ticks. An `if/else` emits two.
+- **TOOLING DEFECT, second instance:** `MatMul` (0x00426120) is 40
+  instructions / 103 bytes, but instruction 9 jumps forward over the loop
+  reload and the extent walker stops there, reporting `orig=10i/28B` and
+  ESCAPES against a complete, zero-mismatch body. Same class as
+  `Coaster3D_BuildPieceGeometry`. Both sit as WIPs at 100% until the walker
+  treats a forward `jmp`'s own target as crossing it. Also a data-quality
+  catch from the same session: `coaster.c`'s extern comment
+  `/* 0x004299a30 -> ... */` carries a malformed nine-digit address, which is
+  why `callees.py` listed 0x004299a3 (instruction 8 of 0x00429990) as a
+  function; the real entry is 0x00429a30.
+
+- **VC6 SP3's tail-duplication THRESHOLD, measured both ways on one source.**
+  A shared tail of ONE call + `add esp,4` is COPIED into the early-return arm
+  (the eight record unlinks); a tail of TWO calls + a 0x10-byte argument block
+  is JUMPED to (`PlaneRide_RemoveRecord`). When a twin's early arm ends in a
+  `jmp` where its sibling has a copy, look at the tail's SIZE, not the source.
+- **Two zero registers in one small function is a sub-object `memset`.**
+  `memset(&rec->cars, 0, 6)` -> `lea eax,[rec+0xd] / xor ecx,ecx /
+  mov [eax],ecx / mov [eax+4],cx` — a base register for the member AND a
+  second zero register beside the web's `xor ebx,ebx`. Six byte stores give +2
+  instructions; a struct assign from a `static const` zero loads from `.rdata`
+  (+1); from a zeroed local it spills. (`Balloonz_NewRecord`.)
+- **`x += -t * 8`, `x -= t * 8` and `x += (-t) << 3` are byte-identical** —
+  VC6 canonicalises all three to `neg/shl/add`; do not sweep them. What
+  matters at that site is the CSE: a store through `r->bloke` kills it, so two
+  separate `r->bloke->world.` expressions reproduce the original's second
+  load where a named `Bloke*` local keeps one.
+- **`StandardRemoveObject` needs a FIFTH prototype** (`Pump_Remove`): the
+  `BPosW`-by-value spelling pushes the packed square's whole home dword
+  unmasked; `unsigned int` inserts `and edx,0xffff`. Five caller-side
+  spellings of one callee in the tree now; each is a lever. **Six calls, one
+  `add esp,0x30`** (`Entrance1_Create`) — when nothing consumes a result as an
+  argument, every cleanup defers.
+- **The dword-plus-mask idiom at a by-value parameter whose address is ALSO
+  taken:** `FindRec((MapSquare*)&sq)` keeps `sq` in its argument slot, giving
+  both the aligned `mov edx,[esp+0x30] / and edx,0xff` and the misaligned
+  `mov eax,[esp+0x31] / and eax,0xff`. Neither a pointer parameter nor an
+  `unsigned int` produces both halves.
+- Negative, 46 spellings (`Pump_SnapToRoad`): **VC6 always jump-threads a
+  provably-NULL pointer into a following `if (p)`.** The original's
+  un-threaded form (`xor eax,eax`, fall into a join starting `xor ecx,ecx`,
+  re-test a known zero, return via `mov eax,ecx`) is reachable only through a
+  `volatile` local at the cost of a stack home the original does not have.
+  Twin of the "global constant propagation deletes a straight-line
+  `v = 0; return v;`" entry — the same pass, seen from a pointer.
+- **The record-unlink family is one source compiled EIGHT times**, not six:
+  GOLD RUSH and EARTH SLIDE share it with the six mechanical rides. Identical
+  index for index after substituting the head global and link offset
+  (+0x04/+0x10/+0x2c/+0x0c), joust.c's volatile link-walk and the null-head
+  bug included. And **a `+0xbc` save callback is one source across four
+  classes** (only the head global and record size differ) — it is
+  `EarthSlide_Save` with the queue pass deleted. The save format: a chain of
+  `int 1` + one RAW record image, closed by `int 0`; the record's own `next`
+  goes into the file and the loader overwrites it.
+
 - **`ZBuffer_FillPoly` (0x00423350) is partly hand-written assembly — a third
   asm site after the four `tri3d.c` rasterisers.** Three independent proofs:
   an EBP frame in an `/O2` file; `xchg ebx,eax` (0x93) and `add ebx,1` where

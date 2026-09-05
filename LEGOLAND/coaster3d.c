@@ -271,7 +271,7 @@ extern void  DrawSupportModel(const Vec3f* p, const Mat3* r);   /* 0x00429490 */
 extern void  DrawSupportShadow(const Vec3f* p, const Mat3* r);  /* 0x004292f0 */
 
 /* =========================================================================
- * 0x00429150 -- Coaster3D_DrawPieceSupport (coaster.c's `Sub_429150`).
+ * 0x00429150 -- Coaster3D_DrawPieceSupport (coaster.c's `Coaster3D_DrawPieceSupport`).
  *
  * THE NAME.  DrawTrackPiece3D (0x004294f0) runs three passes over a track
  * piece: the tube from one end (0x00428e70), THIS, then the tube from the
@@ -363,7 +363,7 @@ extern void GetTileBounds(Pos* tile, TileBounds* out);          /* 0x0045acc0 */
 extern void SetSpanClip(int l, int t, int r, int b);            /* 0x0041ef20 */
 
 /* =========================================================================
- * 0x00425e20 -- Coaster3D_SetupView (coaster.c's `Sub_425e20`, called from
+ * 0x00425e20 -- Coaster3D_SetupView (coaster.c's `Coaster3D_SetupView`, called from
  * Castle_Reset).
  *
  * Rebuilds every piece of camera state the rest of this file reads, from the
@@ -518,7 +518,7 @@ extern void Piece_InitStraight(int dir, int side, int off,
     PieceDesc* out, int slot);                                  /* 0x00428350 */
 
 /* =========================================================================
- * 0x004284d0 -- Coaster3D_BuildPieceGeometry (coaster.c's `Sub_4284d0`, run
+ * 0x004284d0 -- Coaster3D_BuildPieceGeometry (coaster.c's `Coaster3D_BuildPieceGeometry`, run
  * from Track_Create when the SQUARE_TRACK class is created).
  *
  * Builds the 28 prototype track pieces at 0x00828fe0 that the editor picks

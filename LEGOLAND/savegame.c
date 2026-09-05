@@ -432,7 +432,7 @@ extern void  LoadBlock7(void);                   /* 0x0049cc10 */
 extern void  LoadBlock8(void);                   /* 0x0049ce00 */
 extern int   LoadPathRects(void);                /* 0x00482920 */
 extern void  LoadBlock11(void);                  /* 0x00450b10 */
-extern void  sub_463680(void);                   /* 0x00463680 */
+extern void  ClearMapCells(void);                   /* 0x00463680 */
 extern void  sub_4741c0(void);                   /* 0x004741c0 */
 extern void  sub_474880(void);                   /* 0x00474880 */
 extern int   LoadScripts(void);                  /* 0x0046cb60 */
@@ -440,7 +440,7 @@ extern int   LoadReport(void);                   /* 0x00444260 */
 extern int   LoadCurrency(void);                 /* 0x00457940 */
 extern void  Add3DPersonToList(Person3D* p);     /* 0x0043f810 */
 extern void* GetBlokeAnim3DFromPerson(Person3D* p); /* 0x00440800 */
-extern int   sub_442580(Person3D* p, void* ctx, void* a, void* b, int v); /* 0x00442580 */
+extern int   MakeAnimInstance(Person3D* p, void* ctx, void* a, void* b, int v); /* 0x00442580 */
 extern void  AddOvSav(void* rec);                /* 0x00462b30 */
 extern void  SetBridgeDrawOffsets(const char* name); /* 0x004618d0 */
 extern void  CalculateMapRenderOrder(void);      /* 0x0045a4a0 */
@@ -1108,7 +1108,7 @@ int LoadGame(const char* path)
         goto fail;
     if (!SaveGameRead(g_map, 0x44))
         goto fail;
-    sub_463680();
+    ClearMapCells();
     for (y = 0; y < (int)g_map->height; y++) {
         progress_tick();
         for (x = 0; x < (int)g_map->width; x++) {
@@ -1259,7 +1259,7 @@ int LoadGame(const char* path)
         b->person->f30 = g_bs.p30;
         {
             BlokeAnim3D* an = (BlokeAnim3D*)GetBlokeAnim3DFromPerson(b->person);
-            b->person->f50 = sub_442580(b->person, g_anim_ctx, an->f08,
+            b->person->f50 = MakeAnimInstance(b->person, g_anim_ctx, an->f08,
                                         an->f04->f20[0], b->person->f84);
         }
     }

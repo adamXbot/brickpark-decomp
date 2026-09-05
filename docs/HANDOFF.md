@@ -91,11 +91,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **52.2% exact, 60.9% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1724 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **55.0% exact, 64.2% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1932 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 517, ~11,900 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 69 |
+| unmatched callees | `python3 tools/callees.py` | 390, ~7,500 instructions |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 74 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
@@ -175,6 +175,24 @@ proofs (`ZBuffer_FillPoly`, 0x00423350, after the four `tri3d.c` rasterisers).
 Two callee externs were found to be misnamed by their callers (an ICM error
 reporter declared as a loader; a .TSF unloader declared as ODF) and are kept as
 named for resolution, flagged in `sysmisc3.c`'s header.
+
+**Wave seventeen plus three parallel scopes (2026-09-05): +208 exact in one
+round, coverage 52.2% -> 55.0%.** Four lanes here closed 59 (`screencb5.c`+
+`ridemisc3.c` 21 of 22, `workers3.c`+`objdoor.c`+`posstep.c` 18 of 18,
+`coaster6.c`+`schoolcar7.c` 11 of 12, `render4.c`+`bswater3.c` 9 of 11);
+two Codex agents on `docs/SCOPE_CODEX_A.md`/`_B.md` closed 63 and 60 (the
+coaster micro-subs, all named; the tiny screen callbacks, audio and UI); the
+Fable session's scope C closed 26 of 26. **Five parallel sessions, five clean
+merges.** The scope files are the template. The frontier is 390 functions /
+~7,500 instructions, down from 588 / ~25,500 six rounds ago.
+
+Also this round: a rename pass resolved 452 `Sub_<addr>` placeholder externs
+to the names their bodies now carry (names are not codegen levers; every
+touched file re-audits unchanged), which exposed and fixed a pre-existing
+duplicate definition (`RestoreCoasterCar` at two addresses); `coaster.c`'s
+malformed nine-digit extern comment was corrected; and the extent-walker
+defect now blocks TWO complete bodies (`MatMul`, `Coaster3D_BuildPieceGeometry`)
+— fixing it is the next tooling task, on a quiet tree with a full `verify.py`.
 
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier

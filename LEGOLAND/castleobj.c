@@ -299,8 +299,8 @@ typedef struct QueryBlock {
  *      two rows up), state 7, direction from CalcMoveLine, then a random
  *      1..8 tick wait
  *   1  wait out that counter; when it expires, check the school still has
- *      room (5 * Sub_401c40(square) < Sub_413970(square)) and ask
- *      Sub_401ae0 for a car:  0 -> got one (two samples, the second picked
+ *      room (5 * CountSchoolCars(square) < CountSchoolRoadTiles(square)) and ask
+ *      NewSchoolCar for a car:  0 -> got one (two samples, the second picked
  *      as g_ds_samples[(rand()%4 + 1)*3] and pitched by +10, sit animation,
  *      flags |= 0x80 "sitting", action++);  -1 -> jump straight to action 3
  *      (get off);  -2 -> retry in 2..33 ticks
@@ -531,11 +531,11 @@ extern int   PlayInstanceOfSample(void* sample, int a, int b,
                                   BlokeSoundSource* src);       /* 0x00496d20 */
 extern void  AdjustPSampleFreq(int handle, int delta);          /* 0x00492aa0 */
 extern int   rand(void);                                        /* 0x0049e4b2 (CRT) */
-extern void  Sub_402c10(void);                                  /* 0x00402c10 */
-extern void  Sub_414440(void);                                  /* 0x00414440 */
-extern int   Sub_401c40(RideId id);                             /* 0x00401c40 */
-extern int   Sub_413970(RideId id);                             /* 0x00413970 */
-extern int   Sub_401ae0(RideId id, Bloke* b);                   /* 0x00401ae0 */
+extern void  TickSchoolCars(void);                                  /* 0x00402c10 */
+extern void  DrawTrafficLights(void);                                  /* 0x00414440 */
+extern int   CountSchoolCars(RideId id);                             /* 0x00401c40 */
+extern int   CountSchoolRoadTiles(RideId id);                             /* 0x00413970 */
+extern int   NewSchoolCar(RideId id, Bloke* b);                   /* 0x00401ae0 */
 extern void* g_ds_samples[];                                    /* 0x004b4400 */
 extern void   RenderItems_New(void);                            /* 0x00442e90 */
 extern void   AddBlokeToRenderList(void* list, RiderNode* r, int key); /* 0x00442f20 */
@@ -545,33 +545,33 @@ extern Offset GetRenderOffsetForLayer(void* obj, int layer);    /* 0x00441ee0 */
 extern void   AdjustOffsetForViewMode(Offset* o);               /* 0x00442d30 */
 extern int    PrintSprite(void* s, int x, int y, int mode, void* ctx); /* 0x004853a0 */
 extern int    g_610a18;                                         /* 0x00610a18  the castle's render list head */
-extern int    Sub_421930(Bloke* b, CastleRec* rec);             /* 0x00421930 */
-extern void   Sub_425170(RideElem* elem);                       /* 0x00425170 */
+extern int    Coaster_AddCar(Bloke* b, CastleRec* rec);             /* 0x00421930 */
+extern void   Castle_Reset(RideElem* elem);                       /* 0x00425170 */
 
 /* ---- neighbouring-module helpers (other lanes) --------------------------- */
-extern void  Sub_41ce10(void* p);                               /* 0x0041ce10 */
-extern void  Sub_41d1b0(void* p);                               /* 0x0041d1b0 */
-extern void  Sub_41d7f0(void* p);                               /* 0x0041d7f0 */
-extern void* Sub_41d060(void* rec, MapPos16* p);                /* 0x0041d060 */
-extern int*  Sub_41d700(void* a, void* desc, MapPos16* p);      /* 0x0041d700 */
-extern void  Sub_428700(void* p);                               /* 0x00428700 */
-extern void  Sub_424a20(void* p);                               /* 0x00424a20 */
+extern void  InitTrackJoint(void* p);                               /* 0x0041ce10 */
+extern void  ClearJointHeight(void* p);                               /* 0x0041d1b0 */
+extern void  RemoveTrackNode(void* p);                               /* 0x0041d7f0 */
+extern void* FindTrackNodeAt(void* rec, MapPos16* p);                /* 0x0041d060 */
+extern int*  TrackPlaceIfFits(void* a, void* desc, MapPos16* p);      /* 0x0041d700 */
+extern void  DrawTrackNode(void* p);                               /* 0x00428700 */
+extern void  Coaster_AddNodeToRoute(void* p);                               /* 0x00424a20 */
 extern void  RefreshCastleFootprint(void);                      /* 0x00423de0 */
 extern void  RefreshCastleQuery(void);                          /* 0x00423e20 */
-extern void* Sub_41d100(void* rec, RideDef* def, MapPos16* p);  /* 0x0041d100 */
-extern int   Sub_41d7c0(void* piece);                           /* 0x0041d7c0 */
-extern void  Sub_41d6c0(int a);                                 /* 0x0041d6c0 */
-extern int   Sub_41d6f0(void);                                  /* 0x0041d6f0 */
-extern void  Sub_41ed90(RideElem* elem, MapRef* p);             /* 0x0041ed90 */
-extern void  Sub_4245b0(MapPos16* sq);                          /* 0x004245b0 */
-extern void  Sub_41ce30(void* node);                            /* 0x0041ce30 */
-extern void  Sub_41d170(void* node, void* slot);                /* 0x0041d170 */
-extern void  Sub_41d190(void* node, void* slot);                /* 0x0041d190 */
-extern void  Sub_41d1c0(void* slot);                            /* 0x0041d1c0 */
-extern void  Sub_41cfc0(void* node);                            /* 0x0041cfc0 */
-extern void  Sub_41cfd0(void* node, int a);                     /* 0x0041cfd0 */
-extern void  Sub_4249e0(void* rec);                             /* 0x004249e0 */
-extern void  Sub_424b10(void* rec);                             /* 0x00424b10 */
+extern void* FindTrackNodeOfClass(void* rec, RideDef* def, MapPos16* p);  /* 0x0041d100 */
+extern int   Track_CanRemoveNode(void* piece);                           /* 0x0041d7c0 */
+extern void  SetTrackSquareCount(int a);                                 /* 0x0041d6c0 */
+extern int   GetTrackSquareCount(void);                                  /* 0x0041d6f0 */
+extern void  TrackAddBasicObject(RideElem* elem, MapRef* p);             /* 0x0041ed90 */
+extern void  PlaceCastleDummies(MapPos16* sq);                          /* 0x004245b0 */
+extern void  InitTrackNode(void* node);                            /* 0x0041ce30 */
+extern void  ConnectJointHead(void* node, void* slot);                /* 0x0041d170 */
+extern void  ConnectJointTail(void* node, void* slot);                /* 0x0041d190 */
+extern void  ReleaseJointSlot(void* slot);                            /* 0x0041d1c0 */
+extern void  TrackNode_Draw(void* node);                            /* 0x0041cfc0 */
+extern void  TrackNode_Build(void* node, int a);                     /* 0x0041cfd0 */
+extern void  Coaster_CreateRoute(void* rec);                             /* 0x004249e0 */
+extern void  Coaster_InitCarList(void* rec);                             /* 0x00424b10 */
 
 /* ---- the roller-coaster (de)serialiser's helpers ------------------------ */
 /* 0x004775b0 is a one-argument wrapper (it forwards {1, size} to the CRT
@@ -587,22 +587,22 @@ extern void  PackCoasterList(void* slot, CoasterBlob* blob);    /* 0x00426bc0 */
 extern void  EmitCoasterBlob(CoasterBlob* blob);                /* 0x00427220 */
 extern CoasterBlob* ReadCoasterBlob(void);                      /* 0x00427240 */
 extern void  RelocCoasterPtr(void* slot, CoasterBlob* blob);    /* 0x00426ba0 */
-extern void  Sub_41ed80(int a);                                 /* 0x0041ed80 */
-extern void  Sub_41eca0(void* a, void** b);                     /* 0x0041eca0 */
-extern void  Sub_426f90(void* p, void* rec);                    /* 0x00426f90 */
-extern void  Sub_427100(void* p, int a, void* rec);             /* 0x00427100 */
-extern void  Sub_424ab0(void* rec);                             /* 0x00424ab0 */
-extern void  Sub_423ec0(void* rec);                             /* 0x00423ec0 */
-extern void  Sub_424a00(void* rec);                             /* 0x00424a00 */
-extern void  Sub_424df0(void* rec);                             /* 0x00424df0 */
-extern void  Sub_424e20(void);                                  /* 0x00424e20 */
-extern void  Sub_41edb0(RideElem* elem, MapPos sq, EditCursorRec* cur); /* 0x0041edb0 */
-extern void  Sub_424620(short* pos);                        /* 0x00424620 */
-extern void  Sub_4775f0(void);                                  /* 0x004775f0 */
-extern void  Sub_477410(void);                                  /* 0x00477410 */
-extern void  Sub_425cb0(short* pos, float f, Vec3* out);        /* 0x00425cb0 */
-extern void  Sub_4294f0(CastleRecord* rec, Vec3* v, int a, int b); /* 0x004294f0 */
-extern int*  Sub_41d3b0(void* desc, MapPos16* p);               /* 0x0041d3b0 */
+extern void  SetTrackPlaceEnabled(int a);                                 /* 0x0041ed80 */
+extern void  CallTrackClassAdd(void* a, void** b);                     /* 0x0041eca0 */
+extern void  RestoreCoasterCar(void* p, void* rec);                    /* 0x00426f90 */
+extern void  WalkCoasterNodeRefs(void* p, int a, void* rec);             /* 0x00427100 */
+extern void  Coaster_StartIfComplete(void* rec);                             /* 0x00424ab0 */
+extern void  RemoveAllTrackNodes(void* rec);                             /* 0x00423ec0 */
+extern void  Coaster_DestroyRoute(void* rec);                             /* 0x00424a00 */
+extern void  Coaster_KillAllCars(void* rec);                             /* 0x00424df0 */
+extern void  Coaster_EjectAllRiders(void);                                  /* 0x00424e20 */
+extern void  TrackRemoveObject(RideElem* elem, MapPos sq, EditCursorRec* cur); /* 0x0041edb0 */
+extern void  RemoveCastleDummies(short* pos);                        /* 0x00424620 */
+extern void  MemScratch_Noop(void);                                  /* 0x004775f0 */
+extern void  FreeMemScratch(void);                                  /* 0x00477410 */
+extern void  MapSquareToWorld(short* pos, float f, Vec3* out);        /* 0x00425cb0 */
+extern void  DrawTrackPiece3D(CastleRecord* rec, Vec3* v, int a, int b); /* 0x004294f0 */
+extern int*  TrackFitCheck(void* desc, MapPos16* p);               /* 0x0041d3b0 */
 
 /* The by-name element caches that sit immediately after the table. */
 extern RideElem* g_elem_square_track;                /* 0x0082adb0 */
@@ -867,7 +867,7 @@ void CastleClassRemoveByIndex(int index, int a)
 // FUNCTION: LEGOLAND 0x004279f0
 void Track_Remove(RideElem* elem, int a, int b)
 {
-    Sub_41d7f0(g_81cdec);
+    RemoveTrackNode(g_81cdec);
 }
 
 // FUNCTION: LEGOLAND 0x00424820
@@ -967,9 +967,9 @@ void Track_Interact(int a, int b, int c, MapPos* p)
 
     sq.x = p->x;
     sq.y = p->y;
-    piece = Sub_41d060(&g_castle_rec, &sq);
-    Sub_428700(piece);
-    Sub_424a20(piece);
+    piece = FindTrackNodeAt(&g_castle_rec, &sq);
+    DrawTrackNode(piece);
+    Coaster_AddNodeToRoute(piece);
 }
 
 // FUNCTION: LEGOLAND 0x00427bc0
@@ -980,7 +980,7 @@ void Track_Add(RideElem* elem, MapRef* node)
 
     sq.x = node->x;
     sq.y = node->y;
-    cell = Sub_41d700(g_829c08, &g_track_desc_flat, &sq);
+    cell = TrackPlaceIfFits(g_829c08, &g_track_desc_flat, &sq);
     if (cell)
         *cell |= 6;
 }
@@ -1004,12 +1004,12 @@ void Castle_Destroy(void)
     KillSprite(g_castle_sprite);
     g_829b8c = 0;
     g_829ba4 = 0;
-    Sub_41d1b0(&g_829b8c);
-    Sub_41d1b0(&g_829ba4);
+    ClearJointHeight(&g_829b8c);
+    ClearJointHeight(&g_829ba4);
     g_829b88 = 0;
     g_829ba0 = 0;
-    Sub_41ce10(&g_829af8);
-    Sub_41ce10(&g_829b04);
+    InitTrackJoint(&g_829af8);
+    InitTrackJoint(&g_829b04);
     g_castle_rec = 0;
 }
 
@@ -1041,7 +1041,7 @@ void TrackH_Add(RideElem* elem, MapRef* node)
     sq.y = node->y;
     desc = FindTrackDesc(elem);
     if (desc) {
-        cell = Sub_41d700(def, desc, &sq);
+        cell = TrackPlaceIfFits(def, desc, &sq);
         *cell |= 6;
     }
 }
@@ -1060,7 +1060,7 @@ void TrackHP_Add(RideElem* elem, MapRef* node)
     sq.y = node->y;
     desc = FindTrackDesc(elem);
     if (desc) {
-        cell = Sub_41d700(def, desc, &sq);
+        cell = TrackPlaceIfFits(def, desc, &sq);
         *cell &= ~6;
     }
 }
@@ -1077,8 +1077,8 @@ void Track_Update2(RideElem* elem, MapRef* p)
     BasicObjectDCalcCursor(elem, p);
     sq.x = p->x;
     sq.y = p->y;
-    piece = Sub_41d100(&g_castle_rec, def, &sq);
-    if (!Sub_41d7c0(piece)) {
+    piece = FindTrackNodeOfClass(&g_castle_rec, def, &sq);
+    if (!Track_CanRemoveNode(piece)) {
         SetCursorError(&QueryCursor, 1);
         g_81cdec = 0;
     } else {
@@ -1102,7 +1102,7 @@ void Track_Update(RideElem* elem, int a, int b)
     g_8003e8 |= 8;
     sq.x = g_mapref.x;
     sq.y = g_mapref.y;
-    ok = Sub_41d3b0(&g_track_desc_flat, &sq);
+    ok = TrackFitCheck(&g_track_desc_flat, &sq);
     if (*ok)
         ResetCursorFootprint(&EditCursor);
     else
@@ -1167,12 +1167,12 @@ void Castle_Add(RideElem* elem, MapRef* p)
 {
     MapPos16 sq;
 
-    Sub_41d6c0(0);
-    Sub_41ed90(elem, p);
+    SetTrackSquareCount(0);
+    TrackAddBasicObject(elem, p);
     sq.x = p->x;
     sq.y = p->y;
-    Sub_4245b0(&sq);
-    Sub_41ce30(&g_829ae4);
+    PlaceCastleDummies(&sq);
+    InitTrackNode(&g_829ae4);
     g_castle_rec = 1;
     g_castle_x = p->x;
     g_castle_y = p->y;
@@ -1183,14 +1183,14 @@ void Castle_Add(RideElem* elem, MapRef* p)
     g_829ba0 = (int)&g_829ae4;
     g_829b8c = 0;
     g_829ba4 = 0;
-    Sub_41d170(&g_829ae4, &g_829b8c);
-    Sub_41d190(&g_829ae4, &g_829ba4);
-    Sub_41d1c0(&g_829b8c);
-    Sub_41d1c0(&g_829ba4);
-    Sub_41cfc0(&g_829ae4);
-    Sub_41cfd0(&g_829ae4, 0);
-    Sub_4249e0(&g_castle_rec);
-    Sub_424b10(&g_castle_rec);
+    ConnectJointHead(&g_829ae4, &g_829b8c);
+    ConnectJointTail(&g_829ae4, &g_829ba4);
+    ReleaseJointSlot(&g_829b8c);
+    ReleaseJointSlot(&g_829ba4);
+    TrackNode_Draw(&g_829ae4);
+    TrackNode_Build(&g_829ae4, 0);
+    Coaster_CreateRoute(&g_castle_rec);
+    Coaster_InitCarList(&g_castle_rec);
     g_610a04 = 1;
     g_829ae4 |= 6;
 }
@@ -1201,7 +1201,7 @@ int Castle_Extra(int a, int b)
 {
     if (b != 0 && g_castle_rec != 2)
         return 0;
-    return Sub_41d6f0();
+    return GetTrackSquareCount();
 }
 
 /* The DRIVING SCHOOL rider tick -- see the block comment near the top.
@@ -1214,7 +1214,7 @@ int Castle_Extra(int a, int b)
  * base coordinate in eax and the zero-extended map byte in ecx, where VC6
  * gives us the reverse, so `add eax,edx` comes out as `add edx,ecx` and every
  * later temp in the block is renamed with it. The same root cause makes case
- * 1 push the literal 0 as `push eax` (VC6 still knows the Sub_401ae0 result
+ * 1 push the literal 0 as `push eax` (VC6 still knows the NewSchoolCar result
  * in eax is zero, because it used edx and not eax for the `lea &src`) --
  * one byte, twice.
  * Tried without effect: both operand orders on every `base + square` sum, an
@@ -1238,8 +1238,8 @@ void DrivingSchool_TickRiders(RideElem* elem)
     Bloke* b;
     MapPos* key;
 
-    Sub_402c10();
-    Sub_414440();
+    TickSchoolCars();
+    DrawTrafficLights();
     while (rider) {
         b = rider->bloke;
         next = rider->next;
@@ -1265,9 +1265,9 @@ void DrivingSchool_TickRiders(RideElem* elem)
                 int k;
                 int h;
                 if (b->wait == 0) {
-                    if (Sub_401c40(*(RideId*)&rider->key) * 5 <
-                        Sub_413970(*(RideId*)&rider->key)) {
-                        car = Sub_401ae0(*(RideId*)&rider->key, b);
+                    if (CountSchoolCars(*(RideId*)&rider->key) * 5 <
+                        CountSchoolRoadTiles(*(RideId*)&rider->key)) {
+                        car = NewSchoolCar(*(RideId*)&rider->key, b);
                         if (car == 0) {
                             src.kind = 1;
                             src.bloke = b;
@@ -1366,16 +1366,16 @@ int LoadRollerCoaster(void)
     RelocCoasterPtr(&blob->nodes, blob);
     RelocCoasterPtr(&blob->f14, blob);
     RelocCoasterPtr(&blob->f1c, blob);
-    Sub_41ed80(0);
+    SetTrackPlaceEnabled(0);
     for (i = 0; i < blob->count; i++)
-        Sub_41eca0(blob->nodes[i].node, &blob->nodes[i].link);
+        CallTrackClassAdd(blob->nodes[i].node, &blob->nodes[i].link);
     rec = GetCastleRec();
     if (blob->f14)
-        Sub_426f90(blob->f14, rec);
+        RestoreCoasterCar(blob->f14, rec);
     if (blob->f1c)
-        Sub_427100(blob->f1c, blob->f18, rec);
+        WalkCoasterNodeRefs(blob->f1c, blob->f18, rec);
     Free_w(blob);
-    Sub_41ed80(1);
+    SetTrackPlaceEnabled(1);
     return 1;
 }
 
@@ -1398,22 +1398,22 @@ void Castle_Remove(RideElem* elem, MapPos p, int c)
         cur.y = sq.y;
         cur.footprint = g_castle_def->footprint;
         cur.footprint.v[4] = 0;
-        Sub_424ab0(&g_castle_rec);
-        Sub_423ec0(&g_castle_rec);
-        Sub_41d1b0(&g_829b8c);
-        Sub_41d1b0(&g_829ba4);
+        Coaster_StartIfComplete(&g_castle_rec);
+        RemoveAllTrackNodes(&g_castle_rec);
+        ClearJointHeight(&g_829b8c);
+        ClearJointHeight(&g_829ba4);
         g_829b88 = 0;
         g_829ba0 = 0;
-        Sub_424a00(&g_castle_rec);
-        Sub_424df0(&g_castle_rec);
-        Sub_424e20();
+        Coaster_DestroyRoute(&g_castle_rec);
+        Coaster_KillAllCars(&g_castle_rec);
+        Coaster_EjectAllRiders();
         e0 = CastleClassElem(0);
-        Sub_41edb0(e0, sq, &cur);
-        Sub_424620(&g_castle_x);
+        TrackRemoveObject(e0, sq, &cur);
+        RemoveCastleDummies(&g_castle_x);
         g_610a04 = 0;
-        Sub_4775f0();
-        Sub_477410();
-        Sub_41d6c0(0);
+        MemScratch_Noop();
+        FreeMemScratch();
+        SetTrackSquareCount(0);
     }
 }
 
@@ -1455,7 +1455,7 @@ void CastleDummy_Interact(int a, int b, int c, MapPos* p)
     union { MapPos16 p; unsigned int id; } t;
     int i;
 
-    Sub_425cb0(&g_castle.x, (float)g_castle_desc.h1, &out);
+    MapSquareToWorld(&g_castle.x, (float)g_castle_desc.h1, &out);
     sq.p.x = p->x;
     sq.p.y = p->y;
     for (i = 0; i < g_castle_part_count; i++) {
@@ -1465,11 +1465,11 @@ void CastleDummy_Interact(int a, int b, int c, MapPos* p)
             rec = g_castle_records[g_castle_parts[i].index];
             rec.f44 = g_castle_parts[i].f0c;
             rec.f48 = g_castle_parts[i].f10;
-            Sub_4294f0(&rec, &out, 1, 0);
+            DrawTrackPiece3D(&rec, &out, 1, 0);
             break;
         }
     }
-    Sub_424a20(&g_829ae4);
+    Coaster_AddNodeToRoute(&g_829ae4);
 }
 
 /* CASTLE OBJ's ObjDef +0xb0. Despite the slot's usual "interact" meaning this
@@ -1580,9 +1580,9 @@ void Castle_Activate(RideElem* elem)
     r = ridedef->riders;
     castle = &g_castle;
     if (castle->sound_a != 0)
-        Sub_41d170(castle->sound_a, &castle->slot_a);
+        ConnectJointHead(castle->sound_a, &castle->slot_a);
     if (castle->sound_b != 0)
-        Sub_41d190(castle->sound_b, &castle->slot_b);
+        ConnectJointTail(castle->sound_b, &castle->slot_b);
     while (r != 0) {
         nextrider = r->next;
         sp = &r->key.sq;
@@ -1606,7 +1606,7 @@ void Castle_Activate(RideElem* elem)
                 bloke->action = 0x10;
             break;
         case 0x10:
-            ok = Sub_421930(bloke, &g_castle);
+            ok = Coaster_AddCar(bloke, &g_castle);
             bloke->action = 0x20;
             break;
         case 0x21:
@@ -1630,6 +1630,6 @@ void Castle_Activate(RideElem* elem)
         }
         r = nextrider;
     }
-    Sub_425170(elem);
+    Castle_Reset(elem);
 }
 #pragma optimize("", on)

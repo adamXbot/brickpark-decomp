@@ -179,7 +179,7 @@ extern char (*g_active_input_cb)(Icon*, int);   /* 0x006687c0 */
 /* ---- map teardown --------------------------------------------------------- */
 extern void  LLIDB_UnLoadData(void* elem);      /* 0x0047d450 */
 extern void  ClearOverlays(void);               /* 0x00462ce0 */
-extern void  sub_463680(void);                  /* 0x00463680 */
+extern void  ClearMapCells(void);                  /* 0x00463680 */
 extern void  sub_4828f0(void);                  /* 0x004828f0 */
 extern void* g_extra_elems[];                   /* 0x007fd660 */
 extern int   g_extra_elem_count;                /* 0x007fdb84 */
@@ -189,8 +189,8 @@ extern int   g_map_loaded;                      /* 0x00667d50 */
 
 /* ---- save path helpers ---------------------------------------------------- */
 extern int  SaveGame(const char* path);         /* 0x0047d8e0 */
-extern void sub_466360(int a, int b);           /* 0x00466360 */
-extern void sub_4663c0(void);                   /* 0x004663c0 */
+extern void SetWaitSpriteRect(int a, int b);           /* 0x00466360 */
+extern void ClearWaitSprite(void);                   /* 0x004663c0 */
 extern void ResetSaveTimer(void);               /* 0x0047f810: g_669204 = GetGameTimer() */
 extern int  ReturnFrom_ProfileDir(void);        /* 0x004913e0: `return 1` */
 
@@ -478,7 +478,7 @@ void UnloadSaveGameMap(void)
     }
     for (i = 0; i < g_extra_elem_count; i++)
         LLIDB_UnLoadData(g_extra_elems[i]);
-    sub_463680();
+    ClearMapCells();
     LLIDB_UnLoadData(g_terrain_elem);
     if (g_terrain_elem_2)
         LLIDB_UnLoadData(g_terrain_elem_2);
@@ -652,16 +652,16 @@ char StoreNewSaveGameToDisk(void)
 
     sprintf(savpath, g_fmt_sav_dir, g_str_profiles, g_cur_profile.profile_slot,
             g_cur_profile.save_slot);
-    sub_466360(0, 0);
+    SetWaitSpriteRect(0, 0);
     ResetSaveTimer();
     if (!SaveGame(savpath)) {
         DBError(g_msg_save_failed, savpath);
         g_cur_profile.save_slot = 0;
         remove(savpath);
-        sub_4663c0();
+        ClearWaitSprite();
         return -1;
     }
-    sub_4663c0();
+    ClearWaitSprite();
     g_temp_profile.f24 = g_cur_profile.f45;
     g_temp_profile.f28 = g_cur_profile.f24;
     g_temp_profile.f2c = g_cur_profile.f28;

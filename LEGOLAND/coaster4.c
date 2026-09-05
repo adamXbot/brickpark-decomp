@@ -131,7 +131,7 @@ TrackPiece* TrackCreateChainPiece(void* cls, TrackDesc* d, const int* sq,
  *     +0x20  face texture name, 20 bytes
  *     +0x34  the bloke itself -- written FIRST, before any getter runs
  *
- * coaster.c declares this `void* Sub_421890(Bloke*)` and the body agrees: the
+ * coaster.c declares this `void* BuildBlokeAppearance(Bloke*)` and the body agrees: the
  * `mov eax,OFFSET g_bloke_app` that VC6 schedules into the middle of the
  * second `strcpy` expansion is the RETURN VALUE, not a dead load.
  *
@@ -221,8 +221,8 @@ extern Vec3f g_light_dir;                                       /* 0x00829990 */
 extern Vec3f g_dir_4b5cb0;                                      /* 0x004b5cb0 */
 extern Vec3f g_dir_4b5cc0;                                      /* 0x004b5cc0 */
 
-extern void Sub_426b10(void);                                   /* 0x00426b10 */
-extern void Sub_4269e0(void);                                   /* 0x004269e0 */
+extern void FastSqrt_InitTables(void);                                   /* 0x00426b10 */
+extern void FastRSqrt_InitTables(void);                                   /* 0x004269e0 */
 extern void Vec3Normalise(Vec3f* v);                            /* 0x00425d50 */
 extern void SetupTrackDrawView(void);                           /* 0x00425bd0 */
 extern void Sub_426740(void);                                   /* 0x00426740 */
@@ -259,8 +259,8 @@ void Coaster3D_ResetScene(void)
     g_view_base.m[4] *= 0.5f;
     g_view_base.m[5] *= 0.5f;
     g_view_base.m[6] *= 0.5f;
-    Sub_426b10();
-    Sub_4269e0();
+    FastSqrt_InitTables();
+    FastRSqrt_InitTables();
     g_light_dir.x = 1.0f;
     g_light_dir.y = 1.0f;
     g_light_dir.z = g_view_tmpl.m[4] * -2.0f / g_view_tmpl.m[6];
@@ -371,7 +371,7 @@ void WriteCoasterNodes(CoasterRec* rec, CoasterNodeRef* out)
  *
  * Track_Create (coaster.c, 0x00427aa0) runs this straight after
  * Coaster3D_BuildPieceGeometry. coaster.c's DrawTrackNode reads the result:
- * `Sub_41ce60(n)` turns a piece into a small KIND code and `g_611710[kind]`
+ * `TrackNodeSlopeCode(n)` turns a piece into a small KIND code and `g_611710[kind]`
  * is the mode DrawTrackPiece3D uses to decide which end of the piece is
  * drawn first. This is where that table is filled in.
  *
@@ -389,7 +389,7 @@ void WriteCoasterNodes(CoasterRec* rec, CoasterNodeRef* out)
  *
  * The scratch piece is a full 0xa4-byte record on the stack, and only the two
  * joint HEIGHTS (+0x14 and +0x20, the first word of each TrackJoint) are ever
- * written -- everything Sub_41ce60 reads it through is those two fields. The
+ * written -- everything TrackNodeSlopeCode reads it through is those two fields. The
  * frame is exactly [counter 4][table 0x48][piece 0xa4] = 0xf0, with the trip
  * counter spilled because all four callee-saved registers hold the cursor and
  * the triple.

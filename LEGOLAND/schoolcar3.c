@@ -20,7 +20,7 @@
  * =========================================================================
  * PART 2 -- THE COASTER TRACK MESH  (0x004234e0, 0x00428cb0, 0x00428f00)
  * =========================================================================
- * schoolcar.c calls these three `Sub_4234e0`, `Sub_428cb0` and `Sub_428f00`.
+ * schoolcar.c calls these three `Coaster3D_DrawMesh`, `Coaster3D_BuildTrackMesh` and `Coaster3D_InitTrackTopology`.
  * They are one pipeline, and naming them is part of this file's job:
  *
  *   Coaster3D_InitTrackTopology  0x00428f00  once, from CoasterSceneInit
@@ -195,7 +195,7 @@ void SchoolCarManoeuvreD(SchoolCar* c)
  * THE COASTER'S 3D TRACK MESH  (0x00423480 .. 0x00429150)
  * =========================================================================
  * schoolcar.c reaches three routines in this region through externs and
- * calls them Sub_428cb0, Sub_4234e0 and Sub_428f00.  They are one pipeline.
+ * calls them Coaster3D_BuildTrackMesh, Coaster3D_DrawMesh and Coaster3D_InitTrackTopology.  They are one pipeline.
  * ========================================================================= */
 
 typedef struct Vec3f { float x; float y; float z; } Vec3f;
@@ -260,7 +260,7 @@ extern void MatMul(const Mat4* a, const Mat4* b, Mat4* out);    /* 0x00426120 */
 extern void TransformVerts(const Vec3f* s, TrackVtx* d, const Mat4* m, int st, int n); /* 0x00426250 */
 
 /* =========================================================================
- * 0x00428cb0 -- Coaster3D_BuildTrackMesh (schoolcar.c's `Sub_428cb0`).
+ * 0x00428cb0 -- Coaster3D_BuildTrackMesh (schoolcar.c's `Coaster3D_BuildTrackMesh`).
  *
  * THE NAME.  schoolcar.c's two callers (DrawTrackEnd_Fetch / _Cached) call it
  * with the value the object's own +0x4c hook slot 3 returned and cache that
@@ -426,7 +426,7 @@ extern void* g_span_fillers[2];                                 /* 0x004b5658 */
 extern int   g_stat_c_60f8fc;                                   /* 0x0060f8fc */
 
 /* =========================================================================
- * 0x004234e0 -- Coaster3D_DrawMesh (schoolcar.c's `Sub_4234e0`).
+ * 0x004234e0 -- Coaster3D_DrawMesh (schoolcar.c's `Coaster3D_DrawMesh`).
  *
  * The other half of the pipeline: it takes the descriptor
  * Coaster3D_BuildTrackMesh just filled and hands every FRONT-FACING, not
@@ -588,7 +588,7 @@ extern int   g_mesh_tris[][3];                                  /* 0x00612708 */
 #define SEAM ((int)0x80000000)
 
 /* =========================================================================
- * 0x00428f00 -- Coaster3D_InitTrackTopology (schoolcar.c's `Sub_428f00`).
+ * 0x00428f00 -- Coaster3D_InitTrackTopology (schoolcar.c's `Coaster3D_InitTrackTopology`).
  *
  * Run ONCE, from schoolcar.c's CoasterSceneInit (0x00428b70), and it builds
  * every static table the two routines above read.  Nothing here depends on

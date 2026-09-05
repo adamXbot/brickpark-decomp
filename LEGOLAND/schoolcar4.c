@@ -243,7 +243,7 @@ SchoolCar* SchoolCarBlockedAhead(SchoolCar* c)
  * called twice VC6 hoists the import thunk into esi rather than emitting two
  * `call dword ptr [__imp__wsprintfA]`.
  *
- * schoolcar.c declares this `void Sub_4226c0(const char*)` -- the caller
+ * schoolcar.c declares this `void LoadCoasterModelSet(const char*)` -- the caller
  * discards the result. The body returns int; the divergence is deliberate.
  * ======================================================================== */
 extern int __declspec(dllimport) __cdecl wsprintfA(char* buf, const char* fmt, ...);
@@ -361,10 +361,10 @@ struct CoasterRoute {
 };                              /* 0x15c */
 
 extern int   GetGameTimer(void);                                /* 0x00499430 */
-extern float Sub_41e0e0(CoasterRoute* rt, float d);             /* 0x0041e0e0 */
-extern float Sub_41e100(CoasterRoute* rt, float d);             /* 0x0041e100 */
-extern float Sub_41e000(CoasterRoute* rt, float d);             /* 0x0041e000 */
-extern void  Sub_41f850(RoutePos* p);                           /* 0x0041f850 */
+extern float Route_StepPrimary(CoasterRoute* rt, float d);             /* 0x0041e0e0 */
+extern float Route_StepSecondary(CoasterRoute* rt, float d);             /* 0x0041e100 */
+extern float Route_StepFree(CoasterRoute* rt, float d);             /* 0x0041e000 */
+extern void  TrackCursor_AdvanceGeometry(RoutePos* p);                           /* 0x0041f850 */
 extern int   g_stat_c_4d83bc;                                   /* 0x004d83bc */
 
 // FUNCTION: LEGOLAND 0x0041e130
@@ -396,14 +396,14 @@ void Route_AdvanceTrain(CoasterRoute* rt)
         st = rt->state;
         node = rt->pos.node;
         if (st & 8)
-            acc += Sub_41e0e0(rt, dt - acc);
+            acc += Route_StepPrimary(rt, dt - acc);
         else if (st & 0x10)
-            acc += Sub_41e100(rt, dt - acc);
+            acc += Route_StepSecondary(rt, dt - acc);
         else
-            acc += Sub_41e000(rt, dt - acc);
+            acc += Route_StepFree(rt, dt - acc);
         if (!(acc < limit))
             break;
-        Sub_41f850(&rt->pos);
+        TrackCursor_AdvanceGeometry(&rt->pos);
         rt->f24 = rt->pos.obj->f44;
         if (node != rt->pos.node) {
             st = rt->state;
@@ -538,8 +538,8 @@ extern TrackGeom* g_tc_curve_b;         /* 0x004dd648 */
 extern float*     g_tc_wp;              /* 0x004dd64c */
 extern int        g_tc_n;               /* 0x004dd650 */
 
-extern void Sub_421e90(float a, float pa, float b, float pb);   /* 0x00421e90 */
-extern void Sub_425d50(Vec3f* v);                               /* 0x00425d50 */
+extern void TrackCurve_Refine(float a, float pa, float b, float pb);   /* 0x00421e90 */
+extern void Vec3_Normalize(Vec3f* v);                               /* 0x00425d50 */
 
 /* ==========================================================================
  * 0x00422000 -- gather and SORT the curve's interesting parameter values.
@@ -586,7 +586,7 @@ void TrackCurve_GatherParams(TrackGeom* g, float* out)
     g_tc_wp++;
     *g_tc_wp = g->t1;
     g_tc_wp++;
-    Sub_421e90(g->t0, ((g->t0 * g->c3 + g->c2) * g->t0 + g->c1) * g->t0 + g->c0,
+    TrackCurve_Refine(g->t0, ((g->t0 * g->c3 + g->c2) * g->t0 + g->c1) * g->t0 + g->c0,
                g->t1, ((g->t1 * g->c3 + g->c2) * g->t1 + g->c1) * g->t1 + g->c0);
     for (i = g_tc_n - 1; i >= 0; i--) {
         for (k = 0; k < i; k++) {
@@ -634,7 +634,7 @@ void TrackCurve_NormalAt(TrackGeom* g, float t, Vec3f* out)
 
     *out = g->dir;
     out->z = (t * g->c3 * 3.0f + (g->c2 + g->c2)) * t + g->c1;
-    Sub_425d50(out);
+    Vec3_Normalize(out);
     if (fabs(out->y) < 0.001) {
         s = out->z;
         if (*(unsigned*)&out->x & 0x80000000) {

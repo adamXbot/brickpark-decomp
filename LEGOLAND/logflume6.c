@@ -11,7 +11,7 @@
  * logflume2.c, logflume4.c and logflume5.c.
  *
  * NAMES: logflume5.c declares three of these by address only, as
- * `Sub_40bab0`, `Sub_411680` and `Sub_411810`.  They are named here
+ * `LFRun_BoatHasRoom`, `LFBoat_Advance` and `LFBoat_Fall`.  They are named here
  * `LFRun_BoatHasRoom`, `LFBoat_Advance` and `LFBoat_Fall` respectively; the
  * parameter lists are unchanged, so only the three extern NAMES in
  * logflume5.c need updating when that file is next touched.
@@ -315,7 +315,7 @@ void LFAnim_SaveRef(void* set, LFQueue* q)
 }
 
 /* =========================================================================
- * 0x0040bab0 -- MAY BOAT `idx` ADVANCE?  (was `Sub_40bab0`)
+ * 0x0040bab0 -- MAY BOAT `idx` ADVANCE?  (was `LFRun_BoatHasRoom`)
  *
  * LFBoat_Step (0x0040bbb0, logflume5.c) asks this before every step, both
  * when the boat is already moving and when it is about to start; a 0 answer
@@ -432,7 +432,7 @@ extern LFPath g_lf_path_tl_tr;          /* 0x004c2c08  quarter turn, 4 */
 extern Pos LFPath_Point(LFPath* path, float t, int reverse);     /* 0x004112f0 */
 
 /* =========================================================================
- * 0x00411680 -- MOVE THE BOAT ALONG ITS PIECE  (was `Sub_411680`)
+ * 0x00411680 -- MOVE THE BOAT ALONG ITS PIECE  (was `LFBoat_Advance`)
  *
  * Named `LFBoat_Advance`.  Every caller -- LFBoat_Step (logflume5.c) and
  * LFBoat_Fall below -- treats a non-zero result as "the boat left this piece"
@@ -569,7 +569,7 @@ extern int   LFBoat_DropStep(LFBoat* b);                         /* 0x004117e0 *
 
 /* =========================================================================
  * 0x00411810 -- RUN ONE FRAME OF A BOAT FALLING DOWN A DROP
- *               (was `Sub_411810`; named `LFBoat_Fall`)
+ *               (was `LFBoat_Fall`; named `LFBoat_Fall`)
  *
  * NOT a twin of 0x00411680.  The two are the same SIZE (121 instructions
  * each) and this lane's brief expected one source compiled twice; diffing the
