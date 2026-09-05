@@ -91,11 +91,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **45.7% exact, 53.0% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1554 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **47.9% exact, 55.8% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1592 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 579, ~22,000 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 42 |
+| unmatched callees | `python3 tools/callees.py` | 568, ~17,600 instructions |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 50 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
@@ -127,6 +127,18 @@ lanes, four new files: `logflume3.c` (the LF set-piece placement family),
 `schoolcar2.c` (the manoeuvre choosers), `joust2.c` and `mappath.c` (the
 map/walk-path cluster). The frontier fell from 588 functions / ~25,500
 instructions to 579 / ~22,000.
+
+**Wave thirteen (2026-09-05) confirmed it at scale: 38 new exact functions in
+one round** — 26 from four lanes here (`schoolcar3.c`+`roads2.c`,
+`screencb.c`, `logflume4.c`+`popup2.c`, `mapscreen2.c`+`render3.c`) and 12 from
+a parallel session working the scope in `docs/SCOPE_FABLE_A.md` on its own
+branch (`goldrush2.c`, `jcroute.c`, `bswater.c`, `objrect.c`; levers in
+`docs/lanes/fable-a*.md`, folded into DECOMP). Coverage 45.7% -> 47.9% exact.
+The screen-callback lane alone closed 13, because the ~23 `CB_*` callbacks
+`screen.c` declares are one shape with per-class data, and one carefully built
+first body transferred to the rest. **The parallel-session pattern works:**
+disjoint new files, a branch, no shared-doc edits, no `verify.py`; integration
+was one merge with zero conflicts. Reuse the scope file as the template.
 
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier
@@ -397,7 +409,7 @@ has silently misread whole regions before):
 
 | signature | kind | outlook |
 | --- | --- | --- |
-| `strict >> rb` | allocation | source is nearly powerless; ask which register the original frees, and when |
+| `strict >> rb` | allocation | source ORDER is nearly powerless; ask which register the original frees, and when — but **try one free `volatile` read before calling it a floor**: `SubtractObjRect` was strict 14 / rb 0 and one such read closed all 14 |
 | `strict >> ob` | frame layout | usually unreachable — weights count surviving IR, declaration order is inert |
 | `strict == rb == ob` | pure scheduling permutation | same instructions, registers and homes, different order |
 | rb still HIGH | **structural** | the only reliably reachable kind — **spend waves here** |

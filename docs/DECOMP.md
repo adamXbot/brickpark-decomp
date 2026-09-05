@@ -424,6 +424,304 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **Struct-copy forward-propagation picks the FIRST field read.** After
+  `dst = kConst;`, VC6 reads the first field back from the copy's `.rdata`
+  source and the rest from the destination, so the order of the following
+  field updates is load-bearing: the four `+=` on each jetty rect must be
+  written top, left, right, bottom; any other order costs 16-35. Closed both
+  `*_Create` tails in `screencb.c`.
+- **A callee may need a SECOND (and third) extern prototype inside one
+  function.** `StandardRemoveObject` needs `unsigned int tile` at one call site
+  and `unsigned short tile` at another in `DrivingSchool_Remove` — the u16
+  spelling emits `mov ax,[mem] / push eax` with no zero-extension, and that one
+  instruction was the whole residual; `BsMermaid_Remove` needs a third, `BPosW`
+  by value. `screencb.c` declares 0x0045f220 three times
+  (`StandardRemoveObject`, `_W`, `_B`), following `ridecb6.c`'s precedent for
+  0x0041b0d0. **Do not "align" them** — each is a caller-side lever.
+- **A union's ARRAY view breaks a store-to-load unification the struct view
+  does not — but only at NON-ZERO offsets.** `sq.c[1] = ...` stops VC6
+  unifying the later `sq.b.y` read with the cell load (75 of 107 on the
+  water-selection twins); `sq.c[0]` cannot, because element 0 is at `&sq`, the
+  address `.b.x` already resolves to. So the trick rematerialises the y half
+  and can never rematerialise the x half.
+- **Two struct-return handles must be separate statements.**
+  `f(g(a), h(b)->field)` reads the field before the other call and emits the
+  cleanups separately; splitting them keeps the pointer in ebx across the
+  second call and lets VC6 defer every cleanup into one `add esp,44h`.
+- **Emitted store order is NOT evidence of source order.** In `CastleBbq_Tick`
+  the y store is emitted first, yet the source is x-first: VC6 reorders the
+  adjacent pair, and the later re-read follows the EMITTED order. Measure both
+  orders rather than reading one off the listing (same family as "adjacent
+  address stores come out reversed").
+- **Twins written from one source are identical index for index in their
+  residual too.** `BsWater_DrawSelection` and `JcWater_DrawSelection` share a
+  32-mismatch residual that matches position for position — which is itself
+  the proof that they are one piece of source compiled twice, and means a fix
+  on either closes both. Same for `FOODCART FOOD` and `SHARK CAFE` (one
+  statement apart). When two functions have the same size, diff their
+  disassemblies before writing the second.
+
+- **FROM THE PARALLEL SESSION `fable-a` (12 of 14 exact; full evidence in
+  `docs/lanes/fable-a*.md`). The strongest, folded here:**
+  - **VC6's callee-saved ranking INVERTS when a loop exists at IR time.** A
+    four-line probe: with no loop, four `int` parameters take the callee-saved
+    registers and three dereferenced POINTERS are homed in memory and reloaded
+    at every use, even with more references. Add a self-tail-call — VC6 turns it
+    into a loop at IR level — and the ranking flips: the pointers take the
+    registers, the ints spill, and a secondary induction variable appears. The
+    original `JungleCruise_TraceRoute` has the loop-free allocation WITH the
+    loop, so its tail-call conversion ran AFTER allocation and ours runs before
+    — a phase-ordering difference, not a source shape, and the whole residual.
+    **Run the probe before spending a wave on an allocation residual in a
+    self-recursive function.** Corollary: ANY dead trailing statement (`w = w;`,
+    `if (route) ;`) blocks tail-call detection — folded for layout, but it
+    survives long enough to flip the regime. A free way to switch a function
+    between the two allocations.
+  - **Tie-break among equally-referenced parameters: the LATER parameter
+    wins** (two probes, both directions). No statement order changes it; only a
+    strictly higher count or a regime change does. And **splitting a
+    parameter's references across a local copy does NOT split its web** — VC6
+    coalesces the copy and the combined count ranks. Retires "demote a
+    parameter by renaming half its uses".
+  - **A free volatile read CLOSED a strict 14 / register-blind 0 residual**
+    (`SubtractObjRect`: same instructions, same order, two registers swapped;
+    nine spellings byte-identical). So rb = 0 is NOT automatically a floor —
+    the triage row for `strict >> rb` is corrected below to "try the free
+    volatile first". Placement is the whole lever there too: on the other of
+    two candidate loads it closes 11 of 14 and moves a spill store two early.
+  - **Free volatile reads can buy the exact BYTE LENGTH without the match** —
+    on `TraceRoute` the byte-exact row (105 mismatches, 339/339 B) was chosen
+    over the lowest-mismatch row (101, 340 B), because byte-exact says every
+    encoding is right and the residual is purely allocation.
+  - **An append into a global array has THREE spellings that differ in two
+    independent ways.** Through a `Rect4* q = &arr[n]` pointer: the address is
+    materialised in a register (the original's form) but the stores KILL the
+    CSEs of an address-taken local, reloading it in every block (57/119).
+    Direct `arr[n].f = v` subscripts: the CSEs survive but the base folds into
+    each store's disp32, one instruction short per block. **Fill a scalarised
+    local and assign `arr[n] = t;`**: both right — the struct-assignment
+    lowering materialises the address AND reads every value before the first
+    store (117/118 first try). An inline `SetRect4(q, ...)` helper is NOT a
+    substitute: `q` is still an opaque pointer and the kill only moves one
+    block later.
+  - **A loop-condition read of a global the body also writes: mirror it in a
+    local and put the re-read in the MISS arm as an `else`.** `i < g_count`
+    puts the load in the shared latch; `i < n` with `else { n = g_count; }`
+    makes the arm exactly one load ending in a jump, which the exile rule parks
+    past the epilogue — the original. `if (!hit) { n = g_count; continue; }`
+    does NOT exile it (VC6 inverts and inlines). **The arm has to be an
+    `else`, not a guard with a `continue`.**
+  - **Run a rect walk on plain ints and write the `Pos` only at the call
+    sites.** `for (p.y = ...)` on an address-taken pair pins it in memory and
+    loses the `x * 20` strength reduction (136 vs 122 instructions); `int x, y`
+    with `p.x = x; p.y = y;` immediately before the calls is 122/122 first try
+    — even though the sibling `RemObjFromMap` matches with the OTHER shape.
+    The sibling is not evidence either way.
+  - **Two identical arms merge at the FIRST site, so the later one must be the
+    arm that JUMPS.** Three `axis = 5; cost = -1;` blocks: writing the second
+    as the fall-through (`if (!cond) { ... } else`) makes VC6 emit a second
+    copy; writing it as the jump arm (`if (cond) { ... } else { 5; -1; }`)
+    merges. The `return K` rule applied to a statement pair.
+  - **Inline-argument arithmetic is evaluated RIGHT to LEFT, and that decides
+    whether an inlined guard re-tests.** `CellAt(dx + x, dy + y)` computes the
+    Y sum last, its flags carry the `x >= 0` guard, and VC6 emits a bare `js`.
+    The original re-tests with `test/jl` — which a Y sum scheduled BETWEEN the
+    X sum and the guard forces — so the sums were STATEMENTS (`t.x = ...;
+    t.y = ...; CellAt(t.x, t.y)`), not argument expressions (52/76 -> 78/78).
+    Narrows "arithmetic in a call argument runs before the guard": it does,
+    in argument order; when the original re-tests, it was not in the argument.
+  - **Constant stores written AFTER the statement whose call they interleave
+    with.** Stores cannot migrate across a call, so two constant stores written
+    BEFORE a `rand()`-bearing statement land adjacent before it (6); written
+    after, VC6's adjacent-store reordering hoists them into the arithmetic's
+    gaps and the interleave is exact. The store/call barrier used as a
+    PLACEMENT instrument.
+  - **VC6 propagates a compared constant into the arm and stores the
+    REGISTER.** `mov word [esi+40h], di` in the `r == 2` arm comes from a plain
+    `b->f40 = 2;` — VC6 knows `edi == 2` on that edge. Do not reconstruct it as
+    `= (short)r`.
+  - **A `unsigned short` parameter kept in `cx` can be the whole function.**
+    `JungleCruise_StepRoute` loads its station id once as `mov cx,[esp+0x34]`
+    and compares it four times; as `int` compared through a cast it is 107/108
+    with that as the only mismatch. And an extern's `unsigned short` parameter
+    is what leaves a CALLER's upper half dirty (`mov cx,[esi+4]` into a
+    register still holding a counter, whole `ecx` pushed) — an `int` parameter
+    zero-extends and costs the match.
+  - **Four `__cdecl` calls whose results land in locals share ONE
+    `add esp,0x20`** — the converse of "a result passed straight into another
+    call splits the add esp" — and the merge shifts every `[esp+N]` argument
+    read in between. **Four identical neighbour blocks are written out in
+    full**, each with its own callee-saved register; a loop or pointer array
+    reproduces neither. **Two argument slots reused as locals keep an 8-byte
+    frame** with nothing in the source asking for it — a reason NOT to copy
+    arguments into named locals.
+  - **`memset(p, 0xf1, n)` is `mov eax,0F1F1F1F1h / rep stosd`** under the
+    intrinsic — a non-zero byte constant broadcasts to a dword. First non-zero
+    memset constant in the tree.
+  - **A step assigned through a temporary is not a basic induction
+    variable.** `x - 5` spelled twice makes `x` an IV and VC6 keeps `x + 5` in
+    a stack slot with a second latch `sub`; `int nx = x - 5;` used for both the
+    probe and the recursive call removes the IV — 9 instructions of noise. The
+    opposite direction of "let VC6 do the strength reduction": here the
+    original does none, and the temporary is how you stop it.
+  - **The order of `p->next = head;` against a neighbouring field store decides
+    where the head LOAD lands, not the store** — the stores stay in the
+    compiler's order either way. Measured on two allocation sites.
+  - Negative, recorded so it is not re-derived: **induction-variable emission
+    order in a loop latch is not reachable by source ordering** (`inc ebp`
+    second vs fourth; twenty variants, the first-use hypothesis disproved;
+    `strict == rb == ob`).
+
+- **A pending cdecl `add esp` cannot cross a branch join — so a shared tail
+  containing a CALL proves the tail was written TWICE in the source.**
+  `SchoolCarManoeuvreD`'s single `add esp,0x24` cleans three calls' arguments
+  after a call that sits in the shared tail. Written as an if/else with a
+  shared tail, each arm flushes its own `add esp,0x18` mid-store (88 of 116).
+  Duplicating the whole tail into both arms and letting VC6 cross-jump the
+  copies: **113/113, first try.** Read the argument clean-up: if one `add esp`
+  covers calls on both sides of a join, the source had the calls in both arms.
+- **A `volatile` STORE through a cast — `*(void* volatile*)&x = e;` — forces
+  the home store without making the reads volatile.** The free-volatile lever
+  extended to writes: `void* volatile x` costs a reload at every use, whereas
+  the cast form stores once and keeps the register. Worth 124 -> 14 on
+  `Coaster3D_BuildTrackMesh`.
+- **SCOPE, not declaration order, decides frame position for address-taken
+  aggregates.** Declaration order is inert (5 permutations byte-identical);
+  moving a local into the loop's INNER scope moves it DOWN the frame. Three
+  separate "which of this pair is higher" questions on one function were each
+  answered by scoping alone.
+- **Walk an array by SUBSCRIPT to get VC6's own strength-reduced temporary
+  into a dead argument slot.** A `void** p = list;` local coalesces with the
+  `list` PARAMETER and keeps that parameter's slot; VC6's own temporary cannot
+  coalesce with a parameter and lands in the dead argument slot instead — the
+  original's choice, which is what frees the `list` slot for the trip counter.
+  Related, and cheap to read: a counted `for (j = 0; j < N; j++)` gives the
+  strength-reduced bound a SIGNED `cmp/jl`; a pointer walk gives `jb`.
+- **Adjacent address stores come out REVERSED.** `job.v[0..2] = &v[0..2]`
+  written 0,1,2 emits 1,0,2 (the original); written 1,0,2 emits 0,1,2 and costs
+  4. Read the source order off the inverted output. Same family: two
+  independent constant stores set the scratch rotation by their statement
+  order — writing `nverts` before `ntris`, the opposite of their emission
+  order, was 32 -> 8.
+- **Subscripted access versus a named pointer decides whether a subtraction
+  folds into a memory operand.** `m->verts[tri[1]].x - m->verts[tri[0]].x` with
+  the pointer locals declared AFTER makes VC6 load the first vertex's x and y
+  into registers first (the original); with the pointers declared first every
+  subtraction folds and the body comes out two instructions short. Worth
+  141 -> 23.
+- **`x + 0x80000000` and `x | 0x80000000` are different objects.** VC6 folds
+  the ADDITION of the sign bit into a single `lea` displacement; the OR does
+  not fold. A `lea` carrying a near-2^31 constant says the source added, not
+  or'd.
+- **`sub esi,ecx` + `[esi+ecx]` is VC6 eliminating one of two induction
+  variables, and it is NOT reachable by loop spelling** — hoisted source
+  pointer, joined store, inlined helper, both `if` polarities, down-counting,
+  `while`, unsigned index and flat `int*` typing are all byte-identical (8
+  ways, `Coaster3D_DrawMesh`). When the original keeps `dst - src` in a
+  register and addresses `[src + diff]`, that is the allocator's choice, not a
+  source shape.
+
+- **A PARTIAL aggregate initialiser is a placement lever.** `BlitCtx ctx = { 1 };`
+  puts the implicit zero-fill of the remaining fields at the top of the IR
+  (where an initialiser must go) while the explicit `1` schedules with the
+  call's argument block. Three assignment statements sink all three stores
+  below the argument pushes: 11 of 137 on `DrawPopUpFrame`, **0** with the
+  initialiser. All 720 orders of the six leading statements, a pointer local, an
+  inline filler, an `int[3]`, a flattened struct, `(void*)0`, `p = n = 0`, a
+  volatile store, and the FULL `{1,{0,0}}` initialiser (12) are all inert.
+  Transferred straight to `DrawPopUpExtra`.
+- **A `Pos` by-value parameter is NOT byte-identical to `(int, int)` when the
+  argument is a pair of plain sums — the recorded "byte-identical at a call site
+  whose argument is an address-taken struct" rule is narrower than it reads.**
+  `Step(q, t)` with `t.x`/`t.y` assigned in field order evaluates the sums
+  LEFT-to-right, the original's schedule; `(int, int)` evaluates right-to-left
+  and costs 13 of 123 on `LFRun_Tick`. It only works with the class global read
+  directly at both uses — the same by-value `Pos` through a `RideDef* def`
+  local costs 76.
+- **`tw <<= 1` and `tw = tw * 2` are different objects.** The in-place shift is
+  `shl edi,1`; the multiply lowers to a two-operand `lea esi,[edx+edx]` into a
+  FRESH register, which also swaps the pair the derived values land in — 6 of
+  161 directly and 26 more from the wrong pairing. `+=`, `= tw + tw` and `*=`
+  all behave like the multiply. Only the shift-assign is in place.
+- **Two derived quarter-steps are emitted in REVERSE source order.** Writing
+  `dy = th >> 2;` BEFORE `dx = tw >> 2;` is worth 26 of 161 on
+  `LFTrack_BuildGeometry`; the natural x-then-y order gives the registers to the
+  wrong operands through all six geometry blocks. Same family as the
+  "emission order" tie-break: for a pair of independent derived values, try the
+  reversed order first.
+- **Naming ONE operand of a duplicated compare forces the hoist; naming BOTH
+  forces frame homes; and WHICH one you name matters.** Where
+  `fwd->sq.b.x != p->sq.b.x` appears in both arms of an `if`: both as fields
+  duplicates the whole three-load block into each arm and drops the second
+  `test` (71 of 144, two instructions long); one `unsigned char px = p->sq.b.x;`
+  makes VC6 hoist the loads and re-emit the test (**2**); two byte locals grow
+  the frame from `push ecx` to `sub esp,8` and cost 94 — and naming the OTHER
+  operand alone is also the 94 case.
+- **A `||` hit-test whose second operand must be hoisted needs the AGGREGATE
+  member, not a plain int.** `box.left = icon->x;` before the test keeps the
+  value out of the short-circuit arm, where a plain `int left` sinks into it
+  (9 of 120 -> 0 on `DrawPopUpExtra`). This is popup.c's recorded `box.right`
+  lever from the other side; it transferred within the family, as did the
+  four-corner `struct { int left, top, right, bottom; } box;` idiom with
+  `box.right - box.left` as the call argument — four separate ints let VC6 fold
+  both differences to constants where the original subtracts live values.
+- **Two identical `if/else` arms of a 2x2 nest cross-jump-merge; a third that
+  differs in ONE argument does not.** Confirmed on `LFTrack_DrawAlt`: cases B
+  and C merge, A and D stay separate solely because A passes `mode` and D
+  passes 0. So an original that passes a parameter in only one of four
+  otherwise-identical arms (a real quirk, reproduced there) is visible in the
+  layout, not just the arguments.
+
+- **A by-value struct's field ASSIGNMENT order is its register rotation.** For
+  a `WinRect` passed by value, VC6 always emits the stores in field-offset
+  order through `mov edi,esp`, but the four constants take the
+  eax->ecx->edx->esi ring in the order the SOURCE assigns them. Writing the
+  natural left/top/right/bottom put every constant one ring position off at all
+  four call sites of `PrintScreenMode8`; top/bottom/left/right took it
+  118/149 -> 149/149 with no other change. When a by-value aggregate's
+  constants are in the wrong registers, permute the field assignments, not the
+  expressions.
+- **Zero a struct payload with `memset`, not field-by-field `= 0`, or a
+  function-wide zero web steals a callee-saved register.** `ctx.sub.p = 0;
+  ctx.sub.n = 0;` merged with every other literal zero in the function (three
+  `push 0`s, two zero arguments, a rect field) into one hoisted edi, which
+  forced an extra `push ebx` and turned `test eax,eax` into `cmp eax,edi`.
+  `memset(&ctx.sub, 0, sizeof ctx.sub)` makes the zero its own
+  intrinsic-expansion node: 64% -> 79% and the prologue exact. Sharpens the
+  recorded "VC6 hoists a constant zero into a callee-saved register only when
+  that register is pushed anyway".
+- **The exile rule in the KEEP-OUT direction.** The recorded prescription
+  (split a short-circuit `if (a || b) return X;` to bring X back inline) has a
+  useful inverse: three separate `if (!x) goto fail;` guards let VC6 pull the
+  shared `fail` block INLINE behind the third, whereas the single
+  `if (!a || !b || !c) goto fail;` exiles it past the whole function. On
+  `LoadCSPSprite` the separate guards cost 13 at the right instruction count;
+  the merged guard is exact. When a shared error block is inline and should
+  not be, MERGE the guards.
+- **A named-local lever transfers to a family, but to a DIFFERENT SITE per
+  function — test per site.** bigrender.c's "`f->n16` into a local" lever
+  applies in `RenderSpriteX` at the third site (the else arm) and in
+  `SoftBlitRLE` at the SECOND (the post-walk call in the base-image arm): the
+  site whose block begins after a call, where reloading the scratch globals is
+  what the hoisted CSE temporary jumps over. Worth 14. Second-order effect worth
+  knowing: with the CSE alive the block's pointer chain landed in the same
+  registers as the else arm's, so VC6 cross-jumped FOUR more instructions into
+  the shared tail and the body came out 137 against 141. **A short instruction
+  count on a two-armed tail is a register-identity symptom, not a missing
+  statement.**
+- **A call inserted into a setup region is a scheduling barrier that
+  invalidates a twin's recorded statement order.** `CalculateMapRenderOrder`
+  records its setup as p.x / p.y / node_next / memset / link LAST. Its full-map
+  twin wants link FIRST, because an `ElemID` call sits between the setup and
+  the loop guard; written last, `mov esi,K / mov [esp+0x10],esi` sinks past the
+  guard. That pair was the whole residual (160 -> 162 of 162). A setup order
+  inherited from a sibling is a hypothesis whenever a call has been added to
+  the region.
+- **A duplicated-exit epilogue needs no source construct.** `mov word [esi],0`
+  on one path and `mov word [esi],bp` on another, for the SAME `*link = 0;`
+  statement, arises automatically from a loop guard that must reload its
+  induction variable from memory. Do not build a construct to reproduce it.
+
 - **A switch label sharing a jump-table entry may still be a SEPARATE case body
   in the source.** VC6 merges two identical whole case blocks and points both
   table entries at the survivor — which is indistinguishable in the disassembly
@@ -624,7 +922,10 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   (rb) and offset-blind (ob) with frame homes resolved by esp depth (never by
   raw `[esp+N]`, which drifts across branch joins):
   - `strict >> rb` — an ALLOCATION residual. Ask which register the original
-    frees and when; source order is nearly powerless here.
+    frees and when; source ORDER is nearly powerless here — but **run the free
+    volatile experiment before calling it a floor**: `SubtractObjRect` was
+    strict 14 / rb 0 and one free volatile read closed all 14 (see the
+    `fable-a` entry above).
   - `strict >> ob` — a FRAME residual. Usually unreachable: weights are counted
     on surviving IR, so alias-routing and dead reads change nothing, and
     declaration order is inert.
