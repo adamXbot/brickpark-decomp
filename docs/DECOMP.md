@@ -424,6 +424,203 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **Two lockstep cursors: spell them the SAME way to let VC6 eliminate one
+  induction variable; spell one as a subscript and the other as a walk to keep
+  both.** This is the REACHABLE half of the recorded "`sub esi,ecx` +
+  `[esi+ecx]` is not reachable by loop spelling" entry — that entry swept loop
+  forms, not the cursor spellings. Found forward on `TransformVerts` (8 -> 0,
+  and it also un-commutes the multiply) and applied backwards on
+  `Coaster3D_DrawMesh` (17 -> 8).
+- **`while (n-- > 0)` is a counted loop with its own trip-count
+  materialisation.** VC6 evaluates the guard on the pre-decrement value and
+  rebuilds the trip with `inc`: `mov ecx,eax / dec eax / test ecx,ecx / jle /
+  inc eax`. `for (i = 0; i < n; i++)` loses the dec/inc; `i <= n-1` gets them
+  but tests `n-1` with `jl`. Nine spellings measured. Sibling of the unsigned
+  `while (n-- != 0)` idiom already recorded.
+- **A degenerate `cmp/jne +0` comes ONLY from a self-assignment arm.**
+  `if (n == 5) n = 5;` survives as the test with an empty jump; `n = n;`,
+  `{}`, `;` and a dead local store are all deleted whole, and an if/else with
+  two identical calls merges with NO branch. (An original bug in
+  `Coaster3D_BuildPieceGeometry`, reproduced.)
+- **Three distinct in-place x87 idioms, one per site, none of them a C cast:**
+  `fild x / fstp x` (int -> float in place), `fild x / fmul k / fistp x`
+  (scale-and-round in place), `fld f / fistp i` (float local -> separate int).
+  Worth 24 bytes on `Raster_SubmitPoly`; a float temporary at the wrong site
+  costs two instructions each time.
+- **A `volatile float` LOCAL is how a loop-invariant FP constant gets a stack
+  home.** Plain `float k = 65536.0f;` is constant-propagated into the `.rdata`
+  pool and loses the original's `mov [ebp-0x40],0x47800000`; the volatile is
+  free because the original reloads it every iteration. That one store made the
+  body byte-exact.
+- **Two float locals force `fild/fild/fsubp` where `(float)a - (float)b` folds
+  into `fisub`** — the whole instruction count on `Coaster3D_SetupView`.
+- **ONE free volatile read on the FIRST field read back after a struct copy
+  pins the whole group after the `rep movsd`.** Without it VC6
+  forward-propagates and hoists all four loads above the copy (30 -> 10);
+  making all four volatile is WORSE (21) because each load then stays glued to
+  its own store instead of being batched. The barrier's value is in batching,
+  so use exactly one.
+- **`&arr[n++]` in a call argument advances the cursor BEFORE the call**,
+  forcing the `mov reg,cursor / push reg` copy the original has — but it is
+  per call site (right in one loop, worse by 4 in the next).
+- **Compute both components of a coordinate pair before storing either** (x,
+  y, store, store — not x, store, y, store): that is what lets VC6 fill the
+  first conversion's x87 latency gap (16 -> 10).
+- **Hoist a shared multiple into ONE local and derive the other from it**
+  (`six = 6*s; ... 3*six`): 75 -> 53 on `InitTrackTopology`, where hoisting
+  both into their own locals is worse (80).
+- **TOOLING DEFECT, open: `audit.py`/`match.py`'s extent walker stops at an
+  unconditional `jmp` that no EARLIER branch crosses — but a rotated loop's
+  entry `jmp` in the middle of a function is exactly that.** The walker ignores
+  the jmp's OWN forward target, under-bounds the function, and then reports
+  ESCAPES against the truncated extent. `Coaster3D_BuildPieceGeometry`
+  (0x004284d0) can never print `[OK]` until this is fixed, although ours
+  matches the truncated extent exactly. Fix sketch: when a forward
+  unconditional jmp is the candidate end, peek past its target for a backward
+  branch into `(jmp_end, target]` — a loop body — and extend if found; a
+  tail-jump wrapper has no such back-edge.
+
+- **An ADDRESS-TAKEN counter turns VC6's strength reduction OFF.** Reusing one
+  `int n` (whose `&n` is passed to a reader) for both the counts and the loop
+  counter forces it into memory: the counter is reloaded each iteration and
+  `i*3 / lea [base + i*4]` recomputed, instead of VC6 giving it EDI and
+  manufacturing an EBX induction variable for `i*12` — and EDI's push splits
+  into a guarded path. Worth **90 of 93** on `LFAnim_LoadRefs`. If a loop's
+  counter is reloaded from the frame every iteration, look for `&counter`
+  somewhere else in the function.
+- **A 16-element shift of 8-byte structs is sixteen SEPARATE assignments.** A
+  `for` loop compiles to 19 instructions (VC6 SP3 does not unroll), an
+  intrinsic `memcpy` of the same 128 bytes to `rep movsd`; only the written-out
+  statements give the original's 71, each `mov edx,[base+src] /
+  mov [base+dst],edx`. (`SchoolCarIdleStep` — and the sixteenth copy reads one
+  past the array, an original bug reproduced.)
+- **Whether a zero float is an INITIALISER or a STATEMENT decides which of two
+  floats takes the dead argument slot.** `float acc = 0.0f;` stores at the top
+  of the IR and gives `acc` a real frame slot; the same as a statement AFTER
+  the owner load lands at the original's index and moves `acc` into the dead
+  parameter slot, freeing `[ebp-4]` for the other float. One statement earlier
+  does neither (16 vs 0, `Route_AdvanceTrain`).
+- **Float source order is the REVERSE of `fld` order.** VC6 `fld`s the operand
+  written SECOND in a two-term float sum: `(rear + front) * 0.5f` loads
+  `front` first. All six mismatches on `RouteCar_SetPosition`. Same family as
+  "adjacent address stores come out reversed".
+- **`((float)now - rt->started) * K` emits `fild/fisub`** — the subtraction is
+  done in float with an integer memory operand; `(float)(now - started)` emits
+  an integer `sub` plus one `fild`. Read which from the presence of `fisub`.
+- **A value used in both arms of an `if` must be READ IN BOTH ARMS to get one
+  head-merged load in the right place.** `s = out->z;` before the `if`
+  schedules its `fld` four instructions early (32); as the first statement of
+  each arm, VC6 head-merges the two loads into one `fld` scheduled into the
+  `fcomp/fnstsw` gap — the original.
+- **A two-value float swap must be written with NO temporary.** `out->z =
+  out->x; out->x = -s;` is exact; a `float` temp gets a stack home (spill plus
+  copy), and an `int`-bits temp CSEs with an integer sign test on the same
+  address and degrades `test dword ptr [mem],K` into `mov` + `test reg`.
+- **A switch-produced index masked at the USE (`and eax,0xff`) is an `int`
+  subscripted through an `(unsigned char)` cast**, not an `unsigned char`
+  local — the byte local makes the switch arms byte moves (45 of 65).
+- **A bubble sort's inner guard reads its form off the condition kind:** `jle`
+  (signed) pins `for (k = 0; k < i; k++)`; `je` says `for (k = i; k != 0;
+  k--)`. The swap's store order (`out[k] = out[k+1]` before `out[k+1] = t`)
+  only comes out right in SUBSCRIPT form — through a walking pointer VC6
+  reverses the pair.
+- **Initialiser order, extended to four locals**: all 24 orders of
+  `LFRun_LoadPieces`'s initialisers measured; exactly one is exact (`tag, p,
+  head, prev`), the natural order costs 3. Sweep it — it is 24 compiles.
+- Negatives recorded so they are not re-derived: **a mixed two-axis schedule**
+  (`SchoolCarBlockedAhead`: ux chain first, y difference first) has exactly two
+  regimes decided by which axis the source writes first, all 40 legal
+  interleavings hit one of them, and the barrier that would mix them re-ranks
+  the register it sits on; **a DEAD reload of a global at a loop exit** (VC6
+  restoring a hoisted global with no consumer) is not reachable from twelve
+  sort spellings, an inline helper with or without the count, or a free
+  volatile read.
+
+- **THE MECHANISM behind the free-volatile lever: a volatile access cannot
+  cross the callee-saved pushes (or any store).** That makes a loop-guard
+  global load a placement lever: `for (i = 0; i < *(volatile int*)&g_count;
+  i++)` — without it VC6 hoists the guard load to index 0, ABOVE
+  `push ebx/ebp/esi/edi`; the volatile pins it to index 5, where the original
+  has it. 9 of 67 at identical byte length on `FindCachedText`, eight loop
+  spellings all floored at 9; free because the original reloads the count in
+  the latch anyway.
+- **VC6 biases a strength-reduced array induction variable to the MIDDLE of
+  the accessed offsets, not to the first access.** A walk over fields at
+  +8/+0xc/+0x10 runs its IV at +0xc; one over +8..+0x18 runs at +0x10. Read
+  the record framing off the midpoint — an IV that looks like "the record
+  starts 0xc bytes in" is just the bias.
+- **A push sinks past a leading guard only when the guarded block ends in its
+  OWN `return K`.** `if (ev & 2) { ...; return 1; } return 1;` gives the
+  original's `test byte ptr [esp+8],2 / je end / push edi` plus a bare
+  `mov al,1 / ret` at the end; `if (ev & 2) { ... } return 1;` pushes at entry,
+  merges the early exit into an existing epilogue, and comes out ONE
+  instruction short — and it also turns `test byte ptr [esp+8],2` into the
+  two-instruction `mov al,[esp+8] / test al,2`, because with the push at entry
+  the argument must be read before esp moves. `if (!(ev & 2)) return 1;` and a
+  `goto` are both wrong (94/100). Sharpens the recorded split-prologue rule.
+- **A state-copy local with a guard: copy from the global, then test the
+  GLOBAL again.** `state = g->f00; if (state == 2 || state == 3)` makes VC6 emit
+  `mov al,cl` and split the web; `state = g->f00; if (g->f00 == 2 ||
+  g->f00 == 3)` keeps ONE register for both compares, the local store and the
+  loop's peeled first read. And assign the loop head (`p = g_list;`) BEFORE
+  the guard or its load will not sit in the push block. Together the whole
+  head of `UpdateSidePanelScroll` (51 -> 14).
+- **`p->x += step;` on a short field is not the same object as naming the
+  sum.** A `short sx` for `p->x + step` swaps which of {the widened field, the
+  sum} gets EAX, the field then dies early and four more instructions move —
+  14 of 121 at IDENTICAL byte length, with every sum spelling, width, sharing
+  and narrowing variant inert. Only deleting the named temp (`p->x += step;`
+  with the following test re-reading `p->x`) reaches 0. Same family as "a
+  duplicated expression is not a named local": the temporary is the object.
+- **A three-way colour choice around a by-value rect is THREE textual calls,
+  not one call with a colour variable.** The original emits TWO copies of the
+  rect argument block (one built through edx, one through ecx) with only
+  `push font / push text / call` merged; a jump-threaded constant into one call
+  would give ONE shared block. Two argument blocks in different scratch
+  registers = two source calls whose registers diverged before the merge.
+- **A parameter's TYPE can be the whole function: `char` where the caller
+  declares `int`.** `UpdateSidePanelScroll(char step)` — every use is `movsx`
+  from `bl`; an `int` parameter costs 105 of 121 and five instructions.
+  ABI-identical under `__cdecl`; the caller's `int` extern is left alone and
+  the divergence noted at the marker.
+
+- **"A free volatile read moves nothing => global web rank => floor" is a
+  STRONG signal, NOT a proof — corrected 2026-09-05.** In
+  `BoatingSchool_Destroy` and `JungleCruise_Destroy` free volatile reads on the
+  list head, count and sprite globals were all inert, and twelve loop
+  respellings too — yet naming the array element in a local
+  (`spr = ilf->sprites[(unsigned char)i]; LLSStop(GetLLSForSprite(spr));`
+  instead of the nested form) added one IR temporary that advanced the
+  eax->ecx->edx rotation and fixed EVERY register in the rest of both
+  functions (12 and 6, plus a byte each). So a rotation can be advanced by an
+  extra IR TEMPORARY where a volatile barrier does nothing. Before retiring a
+  function on the volatile test, try the one-temporary spellings: name an array
+  element, name a call result, split a nested call. The triage tables carry
+  this caveat now.
+- **Halve-toward-zero must be a POINTER helper.** `neg/sar/neg` on the negative
+  arm is hand-written (a plain `/2` lowers to `cdq/sub/sar`), and it is
+  `static __inline void Half(int* v)` — NOT the by-value form — that gives the
+  pair a memory home so the two sums accumulate into the freshly loaded
+  tile-bounds register. By-value spellings, both operand orders, four
+  sum-into-a-local shapes and four free-volatile placements all floored at 3-5;
+  the pointer form is 0 (`DrivingSchool_Draw`, 26 -> 0).
+- **The draw offset must be ONE `Pos` aggregate.** Two plain `int` locals
+  interleave each load with its own halving AND swap the ebx/edi ranking of two
+  other locals back in the prologue — 16 mismatches from one declaration. The
+  aggregate placement/allocation rule at a fourth site.
+- **Two struct-return handles must be separate statements — confirmed in the
+  argument-evaluation direction.** `LLSSetFrame(GetLLSForSprite(g), lls->frame)`
+  evaluates the field first and splits `add esp,4` / `add esp,8`; a temporary
+  for the call result puts the call first and merges them into `add esp,0xc`.
+  Worth 25 on `JcMonkeyFish_GetDrawDesc`.
+- **Same-slot callbacks across classes are one shape; two of the same size are
+  usually one source compiled twice.** `screencb2.c` closed 17 of 17 by
+  grouping the seventeen by ObjDef slot (+0xb8 load, +0xac destroy, +0xa4
+  create, +0x90 update), building ONE body per group carefully, then diffing
+  each sibling's disassembly against it — nine matched first try, and
+  `Carousel_Load`/`Balloonz_Load` differ only in a record size and two globals.
+  Disassemble the whole family before writing any of it.
+
 - **Struct-copy forward-propagation picks the FIRST field read.** After
   `dst = kConst;`, VC6 reads the first field back from the copy's `.rdata`
   source and the rest from the destination, so the order of the following
@@ -517,11 +714,23 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
     with `p.x = x; p.y = y;` immediately before the calls is 122/122 first try
     — even though the sibling `RemObjFromMap` matches with the OTHER shape.
     The sibling is not evidence either way.
-  - **Two identical arms merge at the FIRST site, so the later one must be the
-    arm that JUMPS.** Three `axis = 5; cost = -1;` blocks: writing the second
-    as the fall-through (`if (!cond) { ... } else`) makes VC6 emit a second
-    copy; writing it as the jump arm (`if (cond) { ... } else { 5; -1; }`)
-    merges. The `return K` rule applied to a statement pair.
+  - **Two identical arms merge INTO the copy on the fall-through path; the
+    copy in a JUMP arm is the one merged away — regardless of textual
+    position.** (Reconciled 2026-09-05: this entry first said "merge at the
+    FIRST site, the later arm jumps", and `UpdateHelpTick` measured the exact
+    opposite — its survivor is the LATER site and the EARLIER arm jumps. Both
+    are the same rule: whichever copy is laid out inline survives.) Evidence
+    here: three `axis = 5; cost = -1;` blocks — writing the second as the
+    fall-through (`if (!cond) { ... } else`) makes VC6 emit a second copy;
+    writing it as the jump arm (`if (cond) { ... } else { 5; -1; }`) merges it
+    into the earlier inline copy. In `UpdateHelpTick`, `flags |= 0x80` in two
+    branches: `if (flags & 7) { |= } else { unlink }` puts the OR inline and
+    exiles the unlink; `if ((flags & 7) == 0) { unlink } else { |= }` makes the
+    OR the jump arm and it merges into the later shared block — that one
+    inversion took the function from a 126-instruction misalignment to exact.
+    **Ask which copy the original reaches by fall-through, and write the OTHER
+    one as the jump arm.** The `return K` first-site rule is the special case
+    where the earlier return is the inline one.
   - **Inline-argument arithmetic is evaluated RIGHT to LEFT, and that decides
     whether an inlined guard re-tests.** `CellAt(dx + x, dy + y)` computes the
     Y sum last, its flags carry the `x >= 0` guard, and VC6 emits a bare `js`.
@@ -937,6 +1146,9 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   Then apply the free-volatile test above to separate a local rotation from a
   global web rank. Measured across seven partials in wave eleven; three that
   looked closest by strict mismatch turned out to be floors under this test.
+  **Caveat (wave fourteen): the volatile test can be inert where ONE extra IR
+  temporary still advances the rotation** — name an array element or a call
+  result, or split a nested call, before concluding "floor".
 - **Offset-blind bucketing did NOT mask anything in seven partials checked.**
   The trap is real (it hid an operand order in `Draw3DPersonModel`) but it is
   not common: in `Balloonz_Tick`, `DrawPopUpInfo`, `GetObjectUID` and

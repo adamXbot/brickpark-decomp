@@ -483,8 +483,17 @@ extern int   g_stat_c_60f8fc;                                   /* 0x0060f8fc */
  *    original's apparent 1,0,2 order gives 0,1,2 and costs 4.  Adjacent
  *    stores are reordered, so read the source order off the OUTPUT order
  *    inverted, not off the disassembly.
+ *  * NEW (wave fourteen): the index-resolution loop reads the triangle
+ *    through a WALKED pointer (`int e = *s++;`) while the destination stays a
+ *    SUBSCRIPT (`tri[k] = ...`).  That mixed spelling is worth 17 -> 8.  The
+ *    same rule was found from the other side in coaster3d.c's TransformVerts:
+ *    two lockstep cursors spelled the SAME way (both walks, or both
+ *    subscripts) let VC6 eliminate one induction variable, and spelling one
+ *    of them differently keeps both.  Here the original keeps the source and
+ *    eliminates the destination, so the mixed form is only half the answer --
+ *    but it removes nine of the seventeen.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x004234e0  (90.2%: 173/173 insns, 17 mismatches at indices 31-47 -- the index-resolution loop's induction variables: the original eliminates the destination IV by keeping `tri - src` in a register and addressing `[esi+ecx]`, where this build keeps both pointers and steps each. Same instruction total: one more in the loop body, one fewer in the preheader. Eliminated, all byte-identical at 17: a hoisted source pointer (175 insns), a joined store through a temp, an inlined resolver helper, both `if` polarities, down-counting and `while` forms, `unsigned k`, flat `int*` typings of both tables, and moving tri/k/v between scopes)
+// WIP-FUNCTION: LEGOLAND 0x004234e0  (95.4%: 173/173 insns, 514/514 BYTES, 8 mismatches, all at indices 31-47 in the index-resolution loop's preheader: the original eliminates the DESTINATION induction variable, keeping `tri - src` in a register (`lea esi,[ebp-0x5c] / sub esi,ecx`) and addressing the store as `[esi+ecx]` with only the source stepping, where this build keeps both cursors and steps each. Same instruction and byte total either way: one more step in the body, one fewer `sub` in the preheader. Eliminated, all identical at 8: both cursors as walks, both as subscripts (517 B, 142), source subscripted with the destination walked (18), a down-counting `k`, and the declaration order of the two cursors -- plus the earlier wave's hoisted source pointer, joined store, inlined resolver, both `if` polarities, `while` form, `unsigned k`, flat `int*` typings and scope moves)
 int Coaster3D_DrawMesh(const MeshDesc* m)
 {
     unsigned int t;
@@ -514,13 +523,17 @@ int Coaster3D_DrawMesh(const MeshDesc* m)
         TrackVtx* vb;
         TrackVtx* vc;
 
-        for (k = 0; k < 3; k++) {
-            int e = m->tris[i][k];
+        {
+            const int* s = &m->tris[i][0];
 
-            if (e & 0x80000000)
-                tri[k] = m->pairs[e & 0x7fffffff][1];
-            else
-                tri[k] = m->pairs[e & 0x7fffffff][0];
+            for (k = 0; k < 3; k++) {
+                int e = *s++;
+
+                if (e & 0x80000000)
+                    tri[k] = m->pairs[e & 0x7fffffff][1];
+                else
+                    tri[k] = m->pairs[e & 0x7fffffff][0];
+            }
         }
         tri[3] = tri[0];
         job.dx1 = (float)(m->verts[tri[1]].x - m->verts[tri[0]].x);
@@ -618,8 +631,16 @@ extern int   g_mesh_tris[][3];                                  /* 0x00612708 */
  * NOTE FOR THE CALLERS' TYPES: the ring SOURCE vertex is 12 bytes (three
  * floats), not the 0x14-byte screen vertex; 0x14 is the DESTINATION stride
  * passed to 0x00426250.
+ *
+ * NEW (wave fourteen): `6 * s` is hoisted into a local used by both pair
+ *    stores and `18 * s` is spelled `3 * six` off that local.  Worth 75 -> 53
+ *    and two bytes.  Hoisting `18 * s` into its own local instead (86), both
+ *    into their own locals (80, the earlier wave's 84 measured again), and
+ *    `six * 3` / `six + six + six` (identical to `3 * six`) are all worse or
+ *    inert; declaring `eig = 3 * six` as a local rather than spelling it at
+ *    the use costs 21.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00428f00  (audit.py: 174i/594B against 174i/582B, 75 mismatches; the first 96 instructions -- both seam-pair loops and the whole twelve-triangle template loop -- are EXACT. Everything after index 96 is ONE allocation decision: the original spills the instance counter `s` to the frame and keeps the pair-table cursor `base` in ebx; this build does the reverse, which costs the `xor eax,eax` for `s = 0`, turns `base += cnt` from one `add ebx,esi` into a load/add/store, and shifts every later index. Root cause measured: the original computes BOTH 6*s and 18*s in the loop HEADER, which kills `s` across the body, where this build computes 18*s just before the triangle copy and so keeps `s` live across the pair loop. Hoisting both into named locals does produce the header form but costs 3 more instructions and is worse (84). Also eliminated: `t` and `base` sharing one variable; `base += cnt` before the loop (89); an `mp` pointer for the pair cursor (86); `g_mesh_tris[12*s+j]` subscripting instead of an `out` cursor (100); `out += 12` at the loop head (85); `s != 29` inverted (76); and `g_seam_pairs[5][0] = 5` or `= a` for the post-loop store (81). The ring loop at the end and the whole template loop are instruction-for-instruction exact)
+// WIP-FUNCTION: LEGOLAND 0x00428f00  (69.5%: 174/174 insns, 592B against 582B, 53 mismatches. The first 96 instructions -- both seam-pair loops and the whole twelve-triangle template loop -- are still EXACT, and the pair-copy inner loop is now structurally exact too. What is left is ONE allocation decision: the original homes the instance counter `s` at [esp+0x14] and keeps the pair-table cursor `base` in ebx; this build does the reverse, which shifts every index from 97 on. The original computes 6*s AND 18*s from `s` in the loop HEADER (`lea/lea/shl/shl` off one register) where this build derives 18*s from 6*s after the pair loop. Measured this wave and inert or worse: incrementing `base` inside the inner loop (85), walking the seam table with a pointer (71), storing the pair's two fields in the other order (53, byte-identical), and every combination of hoisting the two multipliers. Earlier waves also eliminated: `t` and `base` sharing one variable; `base += cnt` before the loop (89); an `mp` pointer for the pair cursor (86); `g_mesh_tris[12*s+j]` subscripting instead of an `out` cursor (100); `out += 12` at the loop head (85); `s != 29` inverted (76); and `g_seam_pairs[5][0] = 5` or `= a` for the post-loop store (81). The ring loop at the end is instruction-for-instruction exact)
 void Coaster3D_InitTrackTopology(void)
 {
     int    a;
@@ -690,13 +711,14 @@ void Coaster3D_InitTrackTopology(void)
     out = g_mesh_tris;
     for (s = 0; s < 30; s++) {
         int cnt;
+        int six = 6 * s;
 
         cnt = 18;
         if (s == 29)
             cnt = 24;
         for (j = 0; j < cnt; j++) {
-            g_mesh_pairs[base + j][0] = g_seam_pairs[j][0] + 6 * s;
-            g_mesh_pairs[base + j][1] = g_seam_pairs[j][1] + 6 * s;
+            g_mesh_pairs[base + j][0] = g_seam_pairs[j][0] + six;
+            g_mesh_pairs[base + j][1] = g_seam_pairs[j][1] + six;
         }
         base += cnt;
         {
@@ -704,7 +726,7 @@ void Coaster3D_InitTrackTopology(void)
 
             for (j = 0; j < 12; j++)
                 for (k = 0; k < 3; k++)
-                    *dst++ = ((g_tri_template[j][k] & 0x7fffffff) + 18 * s) |
+                    *dst++ = ((g_tri_template[j][k] & 0x7fffffff) + 3 * six) |
                              (g_tri_template[j][k] & SEAM);
         }
         out += 12;

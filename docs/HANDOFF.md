@@ -91,11 +91,11 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **47.9% exact, 55.8% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1592 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **49.5% exact, 57.7% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1631 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 568, ~17,600 instructions |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 50 |
+| unmatched callees | `python3 tools/callees.py` | 568, ~15,500 instructions |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 55 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
@@ -139,6 +139,18 @@ The screen-callback lane alone closed 13, because the ~23 `CB_*` callbacks
 first body transferred to the rest. **The parallel-session pattern works:**
 disjoint new files, a branch, no shared-doc edits, no `verify.py`; integration
 was one merge with zero conflicts. Reuse the scope file as the template.
+
+**Wave fourteen (2026-09-05): 39 more exact in four lanes** — `screencb2.c`
+17 of 17 (the remaining screen callbacks, grouped by ObjDef slot, one body per
+group then sibling diffs; nine first try), `fpui3.c`+`mapscreen3.c` 9 of 9,
+`schoolcar4.c`+`logflume5.c` 11 of 13, `coaster3d.c` 2 of 5 with two of
+`schoolcar3.c`'s coaster WIPs improved. Coverage 47.9% -> 49.5% exact. Two
+corrections to this document's own triage came out of it (the free-volatile
+test is a signal, not a proof; the merge-site rule is "the fall-through copy
+survives", not "first site"), and one open tooling defect: the extent walker
+under-bounds a function whose middle contains a rotated loop's entry `jmp`
+(`Coaster3D_BuildPieceGeometry` can never print `[OK]` until it is fixed; see
+the DECOMP entry).
 
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier
@@ -417,9 +429,12 @@ has silently misread whole regions before):
 Then apply the free-`volatile` test: insert `*(volatile T*)&x` at a site where
 the original loads anyway, so it costs no instruction. It advances VC6's
 eax->ecx->edx scratch rotation, and is worth 219 and 115 at two sites in
-`BoatingSchool_Tick`. **If it moves nothing, the residual is a global web rank
-and no barrier or ordering construct will reach it** — that is a one-experiment
-floor test.
+`BoatingSchool_Tick`. **If it moves nothing, the residual is very likely a global
+web rank** — but not certainly: in two `*_Destroy` callbacks (wave fourteen)
+every free volatile read was inert and naming an array element in a local
+still advanced the rotation and fixed every later register. So after the
+volatile test, try the one-temporary spellings (name an array element, name a
+call result, split a nested call) before calling it a floor.
 
 Wave eleven ran seven partials chosen purely by lowest strict mismatch and
 closed none of them, because none had the structural signature; five are now
