@@ -96,6 +96,7 @@ and commit messages are that runtime's spec.
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 91, ~4,700 instructions — 46 of them game code (2,564 insns: Codex-F's 27 and scope O's 19), the rest CRT/import thunks |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 73 |
+| **unmatched functions, whole binary** | `python3 tools/inventory.py` (scope N) | **867: 703 live (41,523 insns, 70% of the unmatched bytes), 164 dead, one 8,085-instruction body** — `docs/lanes/scope-n.md` |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
@@ -271,10 +272,13 @@ coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
 Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed),
-`SCOPE_N_function_inventory.md` (a tool, any agent, collision-free) and
-`SCOPE_O_movie_tier.md` (19 new functions K exposed). Running: F (this
-machine), G, H. Tree-wide `relocs.py --all` after this checkpoint: 2,383
-checked, 17 mismatched positions, all in the four deferred functions.
+`SCOPE_P_game_frame.md` and `SCOPE_Q_game_main.md` (the startup spine — the
+frame dispatcher, the in-game frame, the map click handler, the main loop —
+cut from the inventory's groups 16 and 17 on 2026-09-05). Running: F (this
+machine), G, H, O (19 new functions K exposed). Merged since: N
+(`tools/inventory.py` and `docs/lanes/scope-n.md`, 2026-09-05; no C, no
+existing tool touched). Tree-wide `relocs.py --all` after this checkpoint:
+2,383 checked, 17 mismatched positions, all in the four deferred functions.
 
 **The runtime spec exists (scope J, merged 2026-09-05).** `docs/RUNTIME_SPEC.md`
 indexes eleven pages under `docs/runtime/` — world, persistence, assets,
@@ -618,11 +622,22 @@ Look for **twins**: the game is full of near-identical rides, and a fix on one
 slot usually transfers straight to the same slot on another ride. That has
 turned one fix into four repeatedly.
 
-**C. The remaining frontier**, `python3 tools/callees.py --by-file` — 589
-functions, ~25,500 instructions, now a long tail of 140–250 instruction
-callbacks rather than a few giants. `docs/RIDE_CALLBACKS.md` names most of them
-and says which object-definition slot each fills, so disassemble the relevant
-`*_GetInterfaces` provider first and the cluster arrives pre-named.
+**C. The remaining frontier is now enumerated.** `python3 tools/inventory.py`
+(scope N, 2026-09-05; method, limits and the full list in
+`docs/lanes/scope-n.md`) finds every unmatched function in the game-code range
+— 867, of which 703 are live (41,523 instructions) and 164 are dead code the
+linker kept — with how each is reached, its nearest matched neighbour and 31
+address-ordered candidate groups of ~1,200 instructions. `callees.py --by-file`
+sees only the 46 that matched code declares. Cut new scopes from the groups:
+P and Q took 16 and 17 (the startup spine); 24–27 are one neighbourhood
+reached through the level-database keyword table at `0x004bb6f8`; cut 22
+before 21 (61 calls); groups 3–7 hold most of the dead code, so cut only
+their live members. `docs/RIDE_CALLBACKS.md` still names the ride slots, and
+the inventory's pointer-table section names the other nine `.data` tables
+(AI plan and state dispatch, script-event ticks, report setters, track
+descriptors). One body, `0x004453a0` (8,085 instructions, the park-appraisal
+report screen), cannot be bounded by `true_extent`'s 16 KB window; give the
+walker a window parameter before assigning it.
 
 **D. One deliberately abandoned function.** `UpdateControllerFromMouseData`
 (0x00473b00, `input.c`) is 102/109. Two agents exhausted it, including checking

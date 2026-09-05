@@ -1,6 +1,9 @@
 # Scope N — the whole-binary function inventory (2026-09-05)
 
-> **Status: CLAIMED 2026-09-05 (Claude session, this machine).** Branch `scope/N`. Notes: `docs/lanes/scope-n.md`.
+> **Status: DONE — merged into `main` 2026-09-05. `tools/inventory.py` and
+> `docs/lanes/scope-n.md`: 867 unmatched functions enumerated from eight sources,
+> the coverage gap reconciled to the byte, 31 candidate groups; scopes P and Q
+> cut from groups 16 and 17.** Branch `scope/N`. Notes: `docs/lanes/scope-n.md`.
 > Any agent. **This scope creates one new tool and a report; it edits no
 > `LEGOLAND/*.c` file and no existing tool**, so it cannot collide with
 > anything. Same shape as scope L, which delivered `tools/relocs.py`.

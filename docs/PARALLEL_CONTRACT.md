@@ -66,6 +66,12 @@ try to build a toolchain or a venv.
   `audit.py` now bounds such functions correctly. If a body still reports
   ESCAPES, the branch really does leave the original's extent — a duplicated
   tail or a different block layout — and the note should say which.
+- Roadmap: `$PY tools/inventory.py` (scope N; read-only, ~30 s, safe
+  alongside compiles) enumerates every unmatched function with its reach,
+  nearest matched neighbour and candidate group; scopes are cut from its
+  groups (`docs/lanes/scope-n.md`). Its `long_extent` is the only walker
+  that bounds `0x004453a0` (8,085 instructions); the gate's `true_extent`
+  cannot, so that function is not assignable yet.
 
 ## Files you must not touch
 
