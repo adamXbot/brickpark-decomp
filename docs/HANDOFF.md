@@ -231,6 +231,16 @@ partials: one close, two improvements, twelve measured floors). Ten parallel
 scopes have now merged with zero conflicts. `docs/PARALLEL_CONTRACT.md` is
 the shared contract; the scope files are one page each.
 
+**The runtime spec exists (scope J, merged 2026-09-05).** `docs/RUNTIME_SPEC.md`
+indexes eleven pages under `docs/runtime/` — world, persistence, assets,
+transport, attractions, presentation, a callback-registration index for all
+83 named classes — consolidated from every file header and lane note, with
+each fact cited to its source file and a "reconciled disagreements" section.
+Read its coverage table (199 files "documented") as a claim to sample, not a
+verification: the per-file boundary column is boilerplate, and the spec says
+itself that it is documentation coverage, not runtime equivalence. Original
+bugs are listed as behaviour a runtime must know about.
+
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier
 holds ~22,000 instructions of unwritten behaviour. Grinding a residual competes
