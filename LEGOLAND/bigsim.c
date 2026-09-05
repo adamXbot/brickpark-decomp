@@ -523,19 +523,19 @@ void DoMapAI(void)
                     g_map_ai.total += g_map_ai.cat[i].f0c;
                 }
                 g_map_ai.cat[0].f08 = g_map_ai.cat[0].f08 / 100;
-                v = g_map_ai.cat[0].f14 * g_map_ai.cat[0].f0c / 100;
+                v = g_map_ai.cat[0].f0c * g_map_ai.cat[0].f14 / 100;
                 sum = g_map_ai.cat[0].f18 * 100;
                 if (v < sum)
                     sum = v;
-                v = g_map_ai.cat[1].f14 * g_map_ai.cat[1].f08;
+                v = g_map_ai.cat[1].f08 * g_map_ai.cat[1].f14;
                 if (v >= g_map_ai.cat[1].f18 * 100)
                     v = g_map_ai.cat[1].f18 * 100;
                 sum += v;
-                v = g_map_ai.cat[4].f14 * g_map_ai.cat[4].f08;
+                v = g_map_ai.cat[4].f08 * g_map_ai.cat[4].f14;
                 if (v >= g_map_ai.cat[4].f18 * 100)
                     v = g_map_ai.cat[4].f18 * 100;
                 sum += v;
-                v = g_map_ai.cat[5].f14 * g_map_ai.cat[5].f08;
+                v = g_map_ai.cat[5].f08 * g_map_ai.cat[5].f14;
                 if (v >= g_map_ai.cat[5].f18 * 100)
                     v = g_map_ai.cat[5].f18 * 100;
                 sum += v;

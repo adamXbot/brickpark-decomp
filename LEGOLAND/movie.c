@@ -755,7 +755,7 @@ int RunMovie(Movie* mv, WinRect* dst, int flags)
                 break;
         } else {
             ProcessSystemEvents();
-            if ((g_key_state[0x9d] | g_key_state[0x1d]) & 0x80) {   /* either Ctrl */
+            if ((g_key_state[0x1d] | g_key_state[0x9d]) & 0x80) {   /* either Ctrl: the original loads 0x9d first (right operand) */
                 if (g_key_state[0x10] & 0x80)                       /* DIK_Q */
                     break;
             }

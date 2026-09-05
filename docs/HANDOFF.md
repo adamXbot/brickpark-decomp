@@ -91,10 +91,10 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **58.8% exact, 69.7% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2355 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **59.5% exact, 70.5% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2383 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 88, ~4,800 instructions (every merge exposes another tier) |
+| unmatched callees | `python3 tools/callees.py` | 91, ~4,700 instructions — 46 of them game code (2,564 insns: Codex-F's 27 and scope O's 19), the rest CRT/import thunks |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 73 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
@@ -230,6 +230,51 @@ frontier's 1-17-instruction tail)** and scope I (the UI/system/render
 partials: one close, two improvements, twelve measured floors). Ten parallel
 scopes have now merged with zero conflicts. `docs/PARALLEL_CONTRACT.md` is
 the shared contract; the scope files are one page each.
+
+**Scopes K, L and M merged (2026-09-05), and the gate grew a step.** K:
+`movie.c`, `pathmask.c`, `texture.c`, 28 of 28 exact (the AVI player, the path
+masks, the texture records; levers folded into DECOMP under `scope-k`). M:
+`docs/LEVERS.md` — the ~750-entry lever corpus consolidated to 194 rules with a
+symptom index; the contract now sends new sessions there first and to DECOMP's
+top entries for anything newer than commit 36018920. L: `tools/relocs.py` and
+the first relocation sweep. **The normalised gate cannot see which same-sized
+global an operand names; relocs.py can.** Its sweep of 2,355 exact bodies found
+77 strict differences in 20 functions (seven real errors, thirteen
+operand/statement order), and the per-file gate found one more in K's
+`RunMovie`. Seventeen were fixed in this checkpoint (files no running scope
+owns; each re-audited, /W3 clean, zero MISMATCH; the levers are at the top of
+DECOMP). `integrate.sh` and §4 now run `relocs.py` per file. **Four fixes are
+DEFERRED to the owning scopes' merges — apply them at the quiet-tree gate the
+moment F and H land, then `relocs.py --all` must report zero MISMATCH lines:**
+
+- `mechrides.c` (scope F) `PlaneRide_Create` 0x0043dda0 i34-36: the three
+  stores go to distinct destination globals 0x0062fe84/88/8c, not back into
+  the source pointers `g_plane_bnv0/1/2` (0x0062fe90/94/78). Declare three
+  externs at 0x0062fe84/88/8c and store to them; `PlaneRide_Destroy` (reads
+  0x62fe90/94/78) and ridemachine.c's use are right as they are.
+- `mechrides.c` (scope F) `Copters_Activate` 0x00404be0: both switches
+  (boarding i73-84, alighting i145-156) map cases 0..4 to the paths at
+  0x004c112c, 0x004c1124, 0x004c1128, 0x004c1130, 0x004c1134 = `g_copters_path4,
+  path0, path1, path2, path3`; the source has case 0 -> path2, case 3 -> path3,
+  case 4 -> path4 (cases 1 and 2 are right). Change cases 0, 3 and 4 in BOTH
+  switches and confirm against the jump tables at 0x00404ef8 / 0x00404f0c.
+- `logflume.c` (scope H) `LFTrack_Update` 0x0040c4a0 i79/81: the byte sum
+  loads `g_lf_footprint+4` into BL and `g_mapref+4` into AL; ours is the other
+  way — swap the two addends (the "right operand is loaded" rule).
+- `logflume2.c` (scope H) `LFPiece_TickCommon` 0x0040d3b0 i17-20: the chained
+  assignment stores 0x2034 to `g_lf_tool_a, _b, _c, _d` (0x4cbdd8, 0x4c2a88,
+  0x4c5c90, 0x4c74c8) in that order; ours stores d,c,b,a. Reverse the chain
+  (a chain stores right-to-left) and measure.
+
+Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
+coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
+object, two struct views) — rename at a quiet tree.
+
+Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed),
+`SCOPE_N_function_inventory.md` (a tool, any agent, collision-free) and
+`SCOPE_O_movie_tier.md` (19 new functions K exposed). Running: F (this
+machine), G, H. Tree-wide `relocs.py --all` after this checkpoint: 2,383
+checked, 17 mismatched positions, all in the four deferred functions.
 
 **The runtime spec exists (scope J, merged 2026-09-05).** `docs/RUNTIME_SPEC.md`
 indexes eleven pages under `docs/runtime/` — world, persistence, assets,
@@ -429,6 +474,8 @@ python3 tools/audit.py LEGOLAND/*.c | grep -E 'REJECT|FAIL|COMPILE FAILED'
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" \
   "${LEGOLAND_CL:-../alphateam/tools/wibo-msvc/cl}" \
   /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/x.obj LEGOLAND/<file>.c
+# relocation identity: zero MISMATCH lines (UNRESOLVED is fine)
+python3 tools/relocs.py LEGOLAND/<file>.c
 python3 tools/verify.py     # ALONE. nothing else compiling.
 ```
 

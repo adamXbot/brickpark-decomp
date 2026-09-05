@@ -2,26 +2,30 @@
 
 Every `docs/SCOPE_*.md` brief points here. This is the part that is the same
 for every session; a scope file adds only its files, its function table and
-what is specific to it. Nine scopes have been run under these rules by Claude
-and Codex agents (`SCOPE_FABLE_A`..`D`, `SCOPE_CODEX_A`..`D`) and every one
-merged with zero conflicts.
+what is specific to it. Fifteen scopes have been run under these rules by Claude
+and Codex agents (`SCOPE_FABLE_A`..`D`, `SCOPE_CODEX_A`..`E`, E, I, J, K, L,
+M) and every one merged with zero conflicts.
 
 ## What this project is
 
 A matching decompilation of LEGOLAND (Windows, 2000, VC6 SP3, `/O2 /Gy /Gd`).
 Human-written C in `LEGOLAND/*.c` must compile to reproduce
 `original/legoland.exe` function-by-function. Status at the time of writing
-(2026-09-05): **2020 exact functions, 74 partials, 55.5% of game code matched
-exactly.** No game binary or asset is ever committed (`original/` and
+(2026-09-05, evening): **2383 exact functions, 73 partials, 59.5% of game code
+matched exactly (70.5% with partials).** No game binary or asset is ever committed (`original/` and
 `gamedata/` are gitignored).
 
 ## Read these first (in this order)
 
 1. `docs/LANE_BRIEF.md` — the method per function and **the verification gate**
    (its PROJECT/STATUS lines are stale; use ENVIRONMENT below).
-2. `docs/DECOMP.md`, section "VC6 SP3 codegen levers" — ~700 entries; the
-   ~330 at the TOP are the newest and several correct older ones. Read the top
-   fifty, then search the rest by keyword when stuck.
+2. `docs/LEVERS.md` — the lever corpus consolidated (scope M): 194 rules
+   from ~750 DECOMP entries, grouped by the question a matcher asks, with a
+   **symptom index** at the top. Start there. Then `docs/DECOMP.md`, section
+   "VC6 SP3 codegen levers", for anything newer than the consolidation
+   snapshot (commit 36018920, 2026-09-05): entries are newest at the top, so
+   read down until you reach the `scope-k` fold. DECOMP stays the
+   historical record and the place new levers are appended.
 3. `docs/HANDOFF.md` §3 (rules not in the code) and §6B (residual triage).
 4. `docs/RIDE_CALLBACKS.md` if your scope touches ride callbacks.
 
@@ -48,6 +52,15 @@ try to build a toolchain or a venv.
 - **Do NOT run `tools/verify.py`, `tools/progress.py` or `tools/coverage.py`**,
   and do not edit anything under `tools/`. `audit.py` and `matchfull.py` use
   per-process object paths and are safe alongside other sessions' compiles.
+- **Relocation identity (new gate step, scope L):**
+  `$PY tools/relocs.py LEGOLAND/<file>.c` — zero `MISMATCH` lines before you
+  commit a `// FUNCTION:` body (`UNRESOLVED` lines are literals and
+  unannotated symbols; fine). The normalised gate cannot see a wrong
+  same-sized global, a swapped callback or a wrong address comment; this
+  can, and 21 of 2,383 exact bodies had one on 2026-09-05. Read-only,
+  per-process temp objects, safe alongside other sessions. A hit means
+  either the C names the wrong object or the extern's `/* 0x... */`
+  comment is wrong — fix whichever the disassembly says.
 - Tooling note: the extent walker's rotated-loop defect (a forward `jmp`
   over a loop body was taken as the function's end) was FIXED on 2026-09-05;
   `audit.py` now bounds such functions correctly. If a body still reports

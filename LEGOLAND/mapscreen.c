@@ -236,7 +236,7 @@ void RenderMouseBounds(void)
     int x, y, w, h;
 
     pt.x = (g_gfx_point.x - g_ms_view.x) * g_ms_scale_x / g_ms_view.w + g_ms_x0;
-    pt.y = (g_gfx_point.y - g_ms_y_off - g_ms_view.y + 1) * g_ms_scale_y * 2 / g_ms_view.w + g_ms_y0;
+    pt.y = (g_gfx_point.y - g_ms_view.y - g_ms_y_off + 1) * g_ms_scale_y * 2 / g_ms_view.w + g_ms_y0;
     PointToIsoPlane(&pt, &iso);
     if (iso.x >= 0 && iso.y >= 0 && iso.x < g_ms_view.w && iso.y < g_ms_view.h) {
         x = g_gfx_point.x - (g_ms_view.w / 2) * g_ms_view.w / g_ms_scale_x - g_ms_view.x;
@@ -260,12 +260,12 @@ void MapScreenSetScrollPos(Pos* p)
     Pos iso;
 
     pt.x = (g_gfx_point.x - g_ms_view.x) * g_ms_scale_x / g_ms_view.w + g_ms_x0;
-    pt.y = (g_gfx_point.y - g_ms_y_off - g_ms_view.y + 1) * g_ms_scale_y * 2 / g_ms_view.w + g_ms_y0;
+    pt.y = (g_gfx_point.y - g_ms_view.y - g_ms_y_off + 1) * g_ms_scale_y * 2 / g_ms_view.w + g_ms_y0;
     PointToIsoPlane(&pt, &iso);
     if (iso.x >= 0 && iso.y >= 0 && iso.x < g_ms_view.w && iso.y < g_ms_view.h) {
         g_scroll_x = ((p->x - g_ms_view.x + 1) * g_ms_scale_x / g_ms_view.w
                       - g_ms_view.w / 2 + g_ms_x0) << 8;
-        g_scroll_y = ((p->y - g_ms_y_off - g_ms_view.y + 1) * g_ms_scale_y * 2 / g_ms_view.w
+        g_scroll_y = ((p->y - g_ms_view.y - g_ms_y_off + 1) * g_ms_scale_y * 2 / g_ms_view.w
                       - g_ms_view.h / 2 + g_ms_y0) << 8;
         ClampScrollToMap(g_scroll_map->view_w << 8, g_scroll_map->view_h << 8, 0, 0);
     }

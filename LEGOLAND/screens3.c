@@ -614,11 +614,11 @@ char MapIconInput(Icon* p, int buttons, int a3, int a4)
         if (g_game_mode != 1) {
             ResetFrontEnd();
             g_ui_flags &= ~0x1400;
-            g_8119bc = 1;
             g_6687b0 = 4;
             g_edit_changed = 0;
             g_game_mode_saved = g_game_mode;
             g_game_mode = 1;
+            g_8119bc = 1;
         } else {
             g_80ff70 = 1;
             g_game_mode = g_game_mode_saved;

@@ -79,10 +79,9 @@ typedef struct CurProfile {
     int            tail;            /* +0x30 */
     unsigned char  level_done[15];  /* +0x34  0x0080ffd4  one byte per level 1..15 */
     unsigned char  profile_slot;    /* +0x43  0x0080ffe3 */
-    union {
-        unsigned char b;            /* +0x44  0x0080ffe4  current save slot */
-        unsigned int  dw;           /*        PrintSavedGameDetails reads it wide */
-    } save_slot;
+    unsigned char  save_slot;       /* +0x44  0x0080ffe4  current save slot (PrintSavedGameDetails
+                                     *        reads it as a dword through a cast: a union here
+                                     *        would be 4 bytes wide and push f45 to +0x48) */
     unsigned char  f45;             /* +0x45  0x0080ffe5  save type (1 normal, 2 free) */
     char           block[200];      /* +0x46 */
 } CurProfile;
@@ -492,7 +491,7 @@ void InitSavedGameScreen(void)
     ProfileNode* node;
 
     g_backdrop = LoadSprite(g_lls_saved_game_screen, 0);
-    g_cur_profile.save_slot.b = 0;
+    g_cur_profile.save_slot = 0;
     g_save_slot_on = LoadSprite(g_lls_save_slot_on, 4);
     g_savebk[0] = LoadSprite(g_lls_save_off1, 4);
     g_savebk[1] = LoadSprite(g_lls_save_off2, 4);
@@ -690,7 +689,7 @@ void PrintSavedGameDetails(void)
     while (p) {
         int lit = 1;
         if (!(p->flags & 0x1400) && (p->u20.flags20 & 1)) {
-            if (g_cur_profile.save_slot.b == p->u1c.slot) {
+            if (g_cur_profile.save_slot == p->u1c.slot) {
                 cur = p;
                 if (g_delete_popup_up) {
                     SetIconSprite(p, g_lp_delete_popup);
@@ -734,7 +733,7 @@ name:
             owner = p->u18.owner;
             rc.right = rc.left + 0xd7;
             if (owner && lit) {
-                if (!((g_cur_profile.save_slot.dw & 0xff) - 1 == p->u1c.slot &&
+                if (!((*(unsigned int*)&g_cur_profile.save_slot & 0xff) - 1 == p->u1c.slot &&
                       (g_delete_popup_up || g_newsave_popup_up)))
                     NewPrintCent(owner, 2, rc, 1);
             }
@@ -762,7 +761,7 @@ name:
         UpdateProfileCheckBoxIcons();
     }
     if (g_accept_icon) {
-        if (g_cur_profile.save_slot.b)
+        if (g_cur_profile.save_slot)
             g_accept_icon->flags &= ~0x400;
         else
             g_accept_icon->flags |= 0x400;

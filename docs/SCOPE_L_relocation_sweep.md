@@ -1,6 +1,7 @@
 # Scope L — the relocation sweep (2026-09-05)
 
-> **Status: OPEN, unclaimed.** Branch `scope/L`. Notes: `docs/lanes/scope-l.md`.
+> **Status: DONE — merged into `main` 2026-09-05. Tool + sweep delivered; 17 of the
+> 21 hits fixed at integration, 4 deferred to scopes F and H (HANDOFF §1).** Branch `scope/L`. Notes: `docs/lanes/scope-l.md`.
 > Any agent. **This scope creates one new tool and a report; it edits no
 > `LEGOLAND/*.c` file and no existing tool**, so it cannot collide with
 > anything.

@@ -386,7 +386,7 @@ void UpdateControllerFromKeyboardData(Controller* c)
             } else if (strnicmp(":WELOVELEGOLAND", &g_type_buf[5], 15) == 0) {
                 DBPrintf("CHEAT:Win Level\n", g_level_rec->level);
                 EndLevel(1);
-            } else if (memcmp(&g_type_buf[10], ":IMPROVISE", 10) == 0) {
+            } else if (memcmp(":IMPROVISE", &g_type_buf[10], 10) == 0) {
                 DBPrintf("CHEAT:Stop Script\n", g_level_rec->level);
                 StopScript(1);
             } else if (strnicmp(":DIGGER", &g_type_buf[13], 7) == 0) {
@@ -395,7 +395,7 @@ void UpdateControllerFromKeyboardData(Controller* c)
                 TriggerSwitch(1);
                 TriggerSwitch(2);
                 TriggerSwitch(3);
-            } else if (memcmp(&g_type_buf[7], ":SHOWCAPACITY", 13) == 0) {
+            } else if (memcmp(":SHOWCAPACITY", &g_type_buf[7], 13) == 0) {
                 g_show_capacity = 1;
                 DBPrintf("CHEAT: Capacity Calcs visible\n");
             }

@@ -621,9 +621,9 @@ char* GetGFXFName(const char* name, unsigned char type, char* buf)
     case 1: sprintf(buf, "%s%s", g_gfx_dirs[2], name); break;
     case 2: sprintf(buf, "%s%s", g_gfx_dirs[1], name); break;
     case 3: sprintf(buf, "%s%s", g_gfx_dirs[2], name); break;
-    case 4: sprintf(buf, "%s%s", g_gfx_dirs[5], name); break;
     case 5: sprintf(buf, "%s%s", g_gfx_dirs[3], name); break;
     case 6: sprintf(buf, "%s%s", g_gfx_dirs[4], name); break;
+    case 4: sprintf(buf, "%s%s", g_gfx_dirs[5], name); break;
     case 7: sprintf(buf, ".\\graphics\\duke\\%s", name); break;
     case 8: sprintf(buf, "%s%s.MDL", g_gfx_dirs[6], name); break;
     case 9: sprintf(buf, "%s%s", g_gfx_dirs[6], name); break;

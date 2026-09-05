@@ -663,9 +663,9 @@ char StoreNewSaveGameToDisk(void)
     }
     ClearWaitSprite();
     g_temp_profile.f24 = g_cur_profile.f45;
+    g_temp_profile.f20 = g_cur_profile.f20;
     g_temp_profile.f28 = g_cur_profile.f24;
     g_temp_profile.f2c = g_cur_profile.f28;
-    g_temp_profile.f20 = g_cur_profile.f20;
     g_temp_profile.f30 = g_cur_profile.f2c;
     sprintf(shpath, g_fmt_sh, g_cur_profile.profile_slot, g_cur_profile.save_slot);
     if (!Goto_ProfileDir()) {

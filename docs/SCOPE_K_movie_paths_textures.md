@@ -1,5 +1,7 @@
 # Scope K — movie player, path masks, textures (2026-09-05)
 
+> **Status: DONE — 28 of 28 exact, merged into `main` 2026-09-05 (branch `scope/K`).**
+
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
 here.** Branch: `scope/K`. Notes: `docs/lanes/scope-k.md`. Object prefix:
 `/tmp/sk_`. Any agent may take this scope.

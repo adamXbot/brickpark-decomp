@@ -2,6 +2,7 @@
 """Check COFF relocation identities that normalized instruction matching hides.
 
     python3 tools/relocs.py LEGOLAND/pathmisc2.c NewMechanicOrder 0x004995d0
+    python3 tools/relocs.py LEGOLAND/pathmisc2.c          # every exact body in one file
     python3 tools/relocs.py --all --json /tmp/sl_results.json
     python3 tools/relocs.py --self-test
 
@@ -572,19 +573,26 @@ def main():
         return 0
     if args.all and any((args.src, args.func, args.addr)):
         ap.error('--all cannot be combined with a single function')
-    if not args.all and not all((args.src, args.func, args.addr)):
-        ap.error('supply SRC FUNC VA, or --all')
+    if not args.all and not args.src:
+        ap.error('supply SRC [FUNC VA], or --all')
+    if bool(args.func) != bool(args.addr):
+        ap.error('FUNC and VA go together')
     data, sections = load_exe()
     root = Path(ROOT)
     reference = reference_addresses(root)
     if args.all:
         sources = {p: [(name, int(va, 16)) for name, va, wip in annotated(p) if not wip]
                    for p in sorted((root / 'LEGOLAND').glob('*.c'))}
-    else:
+    elif args.func:
         address = int(args.addr, 16)
         if address < IMAGE_BASE:
             address += IMAGE_BASE
         sources = {Path(args.src).resolve(): [(args.func, address)]}
+    else:
+        # One source file: every exact marker in it (the integration gate's
+        # per-file form; compiles the file once).
+        src = Path(args.src).resolve()
+        sources = {src: [(name, int(va, 16)) for name, va, wip in annotated(src) if not wip]}
     env = dict(os.environ, ALPHATEAM_VC6_ROOT=str(root / 'toolchain'))
     results, totals = [], Counter()
     # Unique per process AND per invocation, safe alongside audit/matching jobs.

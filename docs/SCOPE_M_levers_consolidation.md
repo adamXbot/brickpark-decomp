@@ -1,6 +1,7 @@
 # Scope M — consolidate the codegen levers (2026-09-05)
 
-> **Status: OPEN, unclaimed.** Branch `scope/M`. Any agent. **Documentation
+> **Status: DONE — `docs/LEVERS.md` merged into `main` 2026-09-05 (194 rules from 493
+> DECOMP entries, symptom index, correction register).** Branch `scope/M`. Any agent. **Documentation
 > only: this scope creates `docs/LEVERS.md` and edits nothing else**, so it
 > cannot collide with anything.
 

@@ -465,7 +465,7 @@ void Castle_StartCoasterIfComplete(void)
     Coaster_StartIfComplete(&g_castle);
 }
 
-/* ---- the coaster's rect list (0x008299a0 sentinel, 0x008299b8 head) -----
+/* ---- the coaster's rect list (0x00829a3c sentinel, next at 0x00829a54) -----
  * Each node carries a rectangle at +0x00..+0x0f, the clip code the rect
  * helper at 0x004265d0 produced for it at +0x10, and its links at +0x14 /
  * +0x18; the walk steps through +0x18. A code of 15 means all four edges of
@@ -479,8 +479,9 @@ typedef struct CoasterRegion {
     struct CoasterRegion* next;     /* +0x18 */
 } CoasterRegion;
 
-extern CoasterRegion  g_coaster_regions;        /* 0x008299a0 sentinel (0x829a3c is
-                                                 * its own base, next @0x829a54) */
+extern CoasterRegion  g_coaster_regions;        /* 0x00829a3c  the clip-rect ring's sentinel
+                                                 * (coaster3d.c's g_clip_ring); next @0x829a54.
+                                                 * Was mis-annotated 0x008299a0, which is g_eye. */
 
 // FUNCTION: LEGOLAND 0x00426650
 int AnyCoasterRegionFullyInside(void)
@@ -1082,9 +1083,12 @@ extern float   g_view_half_lo;                  /* 0x0082999c */
 // FUNCTION: LEGOLAND 0x00425bd0
 void SetupTrackDrawView(void)
 {
-    g_view_half_hi = (g_view_wide.a + g_view_angle) * 0.5f;
-    g_view_cur = g_view_wide;
+    g_view_half_hi = (g_view_angle + g_view_wide.a) * 0.5f;
+    g_view_cur.b = g_view_wide.b;
+    g_view_cur.c = g_view_wide.c;
+    g_view_cur.d = g_view_wide.d;
     g_view_angle_cur = g_view_angle;
+    g_view_cur.a = g_view_wide.a;
     g_view_half_lo = (g_view_wide.a - g_view_angle) * 0.5f;
 }
 

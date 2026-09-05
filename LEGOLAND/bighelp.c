@@ -182,8 +182,8 @@ void ReadGameButtons(void)
             g_input.btn0.state |= 0x10;
         if ((g_input.flags & 0x400) && (g_hit_type & 0x100)) {
             if (g_input.flags & 0x1000) {
-                g_input.click_y = g_input.map_y;
                 g_input.click_x = g_input.map_x;
+                g_input.click_y = g_input.map_y;
                 if (g_input.btn0.state & 2) {
                     g_icon_clicked = 1;
                     g_input.btn0.state |= 0x11;
@@ -617,5 +617,6 @@ void InitPopUpInfo(void)
     g_popup.icon_delete2->flags |= 0x4002;
     g_popup.icon_delete2->flags |= 0x400;
     g_popup.icon_delete2->input = PU_Delete2Input;
-    InitPopUpTools(PU_ToolA, PU_ToolB);
+    InitPopUpTools(PU_ToolB, PU_ToolA);   /* ok_fn = PU_ToolB (0x4731e0), close_fn = PU_ToolA
+                                           * (0x473310): the original pushes 0x473310 first */
 }

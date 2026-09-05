@@ -189,8 +189,8 @@ void SoftPrint_Clear(void)
 {
     int colour = GetTransparentColour();
 
-    g_sp_height = g_ddsd_height;
     g_sp_width  = g_ddsd_width;
+    g_sp_height = g_ddsd_height;
     __asm {
         pushad
         mov  edi, g_ddsd_bits

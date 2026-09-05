@@ -424,6 +424,233 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **RELOCATION IDENTITY IS NOT CHECKED BY THE GATE; `tools/relocs.py` checks
+  it (scope L, merged 2026-09-05).** `verify.py`/`audit.py` normalise every
+  absolute operand, so a body that names the wrong same-sized global, the
+  wrong callback, or a mis-annotated address passes at ZERO mismatches. Scope
+  L's tool reads our object's COFF relocations, resolves each to the address
+  its `/* 0x... */` annotation claims, and compares with the original's operand
+  at the same instruction index. First sweep of 2,355 exact bodies: 21,097
+  relocation positions, 77 strict differences in 20 functions (0.85% of
+  bodies), 1,255 unresolved (string/float literals, jump tables, unannotated
+  symbols — not mismatches; the full ledger is `docs/lanes/scope-l.md`). Seven
+  were real errors and thirteen were operand/statement order; K's `RunMovie`
+  (merged after the sweep) added one more. Seventeen were fixed at integration
+  in one pass, four wait on files owned by running scopes (HANDOFF §1).
+  **Run `$PY tools/relocs.py LEGOLAND/<file>.c` before committing an exact
+  body: zero `MISMATCH` lines is the bar (UNRESOLVED is fine).** The gate
+  script runs it per file now. What the seventeen fixes measured:
+  - **`L op R` with two plain memory operands loads the RIGHT operand and
+    folds the LEFT**: `mov reg,[R] / imul reg,[L]`, and `fld [R] / fadd [L]`
+    on x87. `DoMapAI`'s four products, `SoftBlitSprite`'s pitch×y and
+    `SetupTrackDrawView`'s `fld/fadd` were each one operand swap from the
+    original's addresses. Subtraction is not commutable, so `fld [L] / fsub [R]`
+    stays in source order. A body that passes the gate with its multiplicands
+    the wrong way round is what this looks like.
+  - **Two independent global-to-global copies are emitted in REVERSE source
+    order.** `click_x = map_x; click_y = map_y;` gives the original's y-first
+    loads (`ReadGameButtons`); `g_sp_width = ddsd_width; g_sp_height =
+    ddsd_height;` gives height-first (`SoftPrint_Clear`). Three copies
+    (`StoreNewSaveGameToDisk`) came out as loads 1,3,2 / stores 1,2,3 from
+    source order 3,1,2. The scheduler's permutation is fixed for a given DAG,
+    so MEASURE with relocs.py rather than reason: `MapIconInput`'s six stores
+    took four orders (winner `ui_flags &=; g_6687b0 = 4; g_edit_changed = 0;
+    saved = mode; mode = 1; g_8119bc = 1;`), and three of the losing orders
+    changed the normalised SHAPE (3 mismatches), not just the addresses.
+  - **A jump-table switch lays its case bodies out in SOURCE order, and the
+    addresses prove it.** `GetGFXFName`'s cases 4/5/6 select
+    `g_gfx_dirs[5]/[3]/[4]`; the original's blocks are physically 5,6,4,
+    which only `case 5: … case 6: … case 4:` produces. The normalised gate
+    could not see it because the three blocks have the same shape.
+  - **A 16-byte struct assignment expands to four dword moves in field order
+    a,b,c,d.** `SetupTrackDrawView`'s original copies b,c,d, then the scalar
+    angle, then a — reachable only as five field-wise statements in that
+    order; `g_view_cur = g_view_wide;` is the same instruction shape with the
+    wrong addresses at nine positions.
+  - **The inline `memcmp` puts its FIRST argument in `esi`.**
+    `memcmp(":IMPROVISE", &g_type_buf[10], 10)` is the original
+    (`UpdateControllerFromKeyboardData`, two sites); buffer-first passes the
+    gate with literal and buffer exchanged.
+  - **Which subtrahend of `y - a - b + 1` lands in which register follows the
+    source order, but the direction depends on the body.** `RenderMouseBounds`
+    needed `y - view.y - y_off + 1`; `MapScreenSetScrollPos` needed the same
+    swap at both of its sites — same expression text, and the pre-fix bodies
+    had emitted OPPOSITE orders. Measure, don't transfer.
+  - **A `union { unsigned char b; unsigned int dw; }` inside a
+    `#pragma pack(1)` record is still four bytes wide.** bigscreens.c's
+    `CurProfile` had its save-type byte at +0x48 instead of +0x45 and two
+    exact bodies read the wrong byte (`PrintSavedGameDetails`,
+    `InitGameInterface`). A byte field plus
+    `*(unsigned int*)&g_cur_profile.save_slot` at the one wide read gives
+    identical code with the right addresses.
+  - **cdecl pushes right-to-left, so the first `push` is the LAST argument.**
+    `InitPopUpInfo` called `InitPopUpTools(PU_ToolA, PU_ToolB)` where the
+    original pushes `PU_ToolA` (0x473310) first — the ok and close callbacks
+    were swapped inside a 374-instruction body that passed at zero.
+  - **An extern's address comment is the tool's only evidence of identity.**
+    schoolcar.c's `g_coaster_regions` was annotated `0x008299a0` (that is
+    `g_eye`); the object is the clip-rect ring sentinel at `0x00829a3c` that
+    coaster3d.c, coastertiny.c and coaster9.c call `g_clip_ring`. The C was
+    right, the annotation was wrong, two bodies reported hits until the
+    comment was fixed. A hit can be a stale comment; the same address under
+    two names is a hygiene item, not a bug.
+  - **The same right-operand rule holds for `|` of two byte loads**: `RunMovie`
+    had `(g_key_state[0x9d] | g_key_state[0x1d]) & 0x80` and emitted the 0x1d
+    load first; the original loads 0x9d first, so the source is
+    `[0x1d] | [0x9d]` (K's file, caught by the per-file gate at the merge).
+- **FROM THE PARALLEL SESSION `scope-k` (28 of 28 exact — the AVI movie
+  player, the path masks, the texture records; evidence in
+  `docs/lanes/scope-k-movie.md`, `scope-k-pathmask.md`,
+  `scope-k-texture.md`).** Folded:
+  - **Two globals copied as a unit must be ONE struct, and a 12-byte struct
+    assignment is what STOPS dead-store elimination.** `RestoreFrontEndState`
+    writes `g_cur_screen` twice; as six scalar assignments VC6 deletes the
+    first store (17 for the original's 20; nine other orders floored at 20).
+    As `g_edit = *game; g_front = *screen; g_front.screen = mode;` the copy
+    is lowered too late for DSE, all three stores survive, the bug store
+    schedules into the middle of the copy — 20/20 first try.
+  - **`cond ? 0 : K` is `setcc / dec / and K`; the polarity is the whole
+    residual.** `LoadLevelDatabase`: `(rc >= 0) ? 0 : 2` gives
+    `setl / and al,0xfe / add eax,2` (3 wrong, 59B for 58B); `(rc < 0) ? 2 : 0`,
+    `((rc >= 0) - 1) & 2` and the `if/return` form are all byte-identical to
+    the original `setge / dec / and eax,2`; `(rc >> 31) & 2` is `sar/and`.
+  - **Two leading guards that return the same constant merge into ONE
+    trailing block only when they are ONE `if`.** `RewindNarrationBuffer`:
+    two separate `if (...) return 0;` give two inline epilogues (8 wrong);
+    `goto` on both merges only one; `if (a == 2 || a == 0) return 0;` gives
+    the single trailing `xor eax,eax / add esp,0x1008 / ret`.
+  - **A shared failure tail is cross-jumped only when there are THREE textual
+    copies.** `OpenMovie`: one copy plus two `goto`s exiles the early arm with
+    no compare of its own (125); two copies keep a 10-instruction inline
+    epilogue (115); three copies merge the suffixes as the original does —
+    the early arm keeps only its own `cmp [g_avi_open_count],ebx` and jumps
+    INTO the later copy's `jne` (74).
+  - **A store to a global kills the CSE of a load through a pointer**
+    (`OpenMovie`, `RunMovie`: read `mv->width/height` once into locals, or
+    the stores to `g_movie_bmi` force two extra loads).
+  - **The assignment ORDER inside a chained assignment decides everything.**
+    `frame = (int)(next = AVIStreamGetFrame(...))` matches; the other nesting
+    rotates the loop, reloads `frame` in a new preheader and spills it — 123
+    against 6 (`RunMovie`).
+  - **An overloaded sentinel variable is what wins the fourth callee-saved
+    register.** `RunMovie`: one `void* frame` puts `shown` in ebx and `frame`
+    in the frame (123, all allocation); `int frame` (a -1 sentinel that also
+    carries the prefetched index) plus `void* next` (homed in the dead `mv`
+    slot) is the original's allocation. `volatile shown` also moves `frame`
+    into ebx (108) but costs a load per read; the split is free.
+  - **DECLARATION ORDER decides the callee-saved RANKING when several locals
+    are initialised at entry** — an exception to "declaration order is
+    irrelevant", which was measured on spill SLOTS. All 24 orders of
+    `{frame, cur, start, shown}` in `RunMovie`: six exact (every order with
+    `frame` first and `start` not second, plus `shown, frame, cur, start`),
+    six cost 2, five cost 5, seven cost 6 — always which zero initialiser
+    becomes the shared zero register the two entry guards compare against.
+  - **The statement order of four independent assignments decides which one
+    is spilled.** `OpenMovie`'s `vids` arm: `frames` first gives 2, `fps` first
+    74; all four uninitialised locals share ONE frame home.
+  - **`mv->file = pfile;` BEFORE `mv->getframe = 0;`** — store order is the
+    same either way (VC6 reorders adjacent stores) but the LOAD of `pfile`
+    moves between them when written after (2; eight fill orders measured).
+  - **A `for` over a GLOBAL counter keeps its zero-trip guard when a COM call
+    may write the global** (`RewindNarrationBuffer`: `cmp [mem],0xa / jge`
+    before the loop, three reloads per pass; the two callee-saved pushes for
+    the inlined memcpy/memset sink past that guard on their own).
+  - **`PrintCursor` is `NewPrintCent` (text.c) with DrawText flags 0x25 -> 0x24**,
+    84/84 first compile. AVIFile/ACM entry points are declared WITHOUT
+    `__declspec(dllimport)` (`call <thunk>`) while the GDI calls in the same
+    file need it (`call [__imp__]`).
+  - **A `volatile` DECLARATION on a counter global shared by two TUs is worth
+    5 instructions and two defects.** `FreeCachedTextEntry`: plain
+    `extern int g_text_cache_count` let VC6 schedule the `.text` reload above
+    the count's RMW and hoist the compaction loop's bound into a `count - i`
+    down-count; `volatile int` costs nothing (the original emits exactly
+    load/dec/store and the two reloads): 31/45 -> 41/41. render5.c's
+    `ExpireCachedText` needed the same barrier at its one read (a cast).
+    **When two functions in different TUs share a counter and both need its
+    reloads, suspect the original's header declared it volatile.**
+  - **A `rep movsd` struct copy out of an ARRAY is not the copy out of a
+    POINTER.** `g_text_cache[j] = g_text_cache[j+1]` gives the original's
+    single cursor; `p = &g_text_cache[i]; … *p = p[1]` with `p++` manufactures
+    a second IV, a fourth push, 45 for 41.
+  - **Whether the off-map stand-in cell's DEAD store survives tells you
+    whether the copy's address is taken.** Same probe macro: `PathEdgeMask`/
+    `PathCornerMask` pass `&cell` to `IsPathCell` and keep all three stores;
+    `IsPathRectClear` reads two flag bytes from the local and VC6 drops the
+    unread `tile`. (simcore.c records the same macro dropping only its LAST
+    probe's store.) A probe that keeps every store is one whose copy escapes.
+  - **A probe macro's coordinate arguments must be pre-computed LOCALS**, or
+    VC6 folds the ±1 into the addressing mode (`lea esi,[eax+ecx*4-0x14]`,
+    87 of 99 for `PathCornerMask`); `px = at->x - 1; py = at->y + 1;` first
+    gives `mov/mov/dec/inc` and closes it. **But VC6 schedules the MODIFIED
+    coordinate's load first whatever the source order** (`PathEdgeMask`, all
+    four probes) — the load order there is not a lever; don't chase it.
+  - **Four repeats of one probe with a byte accumulator give three bit-set
+    forms automatically**: `mov byte ptr [esp+0x13],1` (mask known zero),
+    `or byte ptr [esp+0x13],2/4` in memory, and the last folded into the
+    epilogue as `mov al,[..] / pops / je / or al,8`. One `char mask` and
+    four `mask |= bit;`.
+  - **A zero register appears in a probe chain when a callee-saved register
+    is pushed anyway and has no other use** (`PathEdgeMask` `xor ebx,ebx`,
+    every `>= 0` test `cmp reg,ebx`; `PathCornerMask`, whose EBX holds
+    `edges`, emits the identical probe with immediates).
+  - **The lazy bounds-check inline (`CellForPos`) reads `at->y` only AFTER
+    `at->x` passes its width test; the eager one (`MapCellAt`) reads both up
+    front** — distinguishable in the listing (`DrawCursorTileAt`). And
+    `cell != 0` after that inline is a real third `&&` term: three tests,
+    three terms, dropping it loses an instruction.
+  - **The two loop counters of a nested scan are ONE `Pos` aggregate, not two
+    `int`s.** VC6 SP3 does not strength-reduce an array index that is an
+    aggregate member, so `g_map_rows[p.y][p.x]` stays base+index, the
+    row-table load hoists to the OUTER preheader (`mov ebx,[g_map_rows]`
+    once) and x lands in ebp — `IsPathRectClear` 70/70 after twenty
+    spellings at 72/73. Isolation: `Pos` for the inner (row) counter alone
+    suffices; an anonymous struct works; the lever is aggregate membership of
+    the ROW index. Templates: `ScanPathArea5x5`, fpui2.c's `BuildObjInfoList`.
+  - **`if (p == 0) return 0;` on a just-loaded pointer emits the bare inline
+    `ret`; `if (p) { ... } return 0;` EXILES the failure arm past it**
+    (`ObjNextRider` 13 vs 14/14).
+  - **`for (i = 0; i < cap; i++, p++)` generates the counter's update BEFORE
+    the pointer's** (`inc ecx / add eax,4`); `p++` as the last body statement
+    gives the reverse (`FindDetailImageSlot`, third confirmation of the
+    `RecolourModelParts` entry).
+  - **A global read by BOTH arms of an if/else must be spelled directly in
+    the first arm and as a STATEMENT `list = g_detail_images;` right before
+    the second arm's loop** — not a named local at the top (the load hoists
+    above the compare, 3) and not twice with a subscript search (39, ESCAPES).
+    `DetailImage_AllocSlot` 50/50. **A pointer-walk search and a subscript
+    search are different functions**: the subscript form keeps the base in
+    esi, pays a `lea` at the return and pushes edi in the prologue, breaking
+    the `rep stosd`'s local push/pop bracket — a stray callee-saved push
+    around an intrinsic is a register-pressure symptom from the OTHER end.
+    And `cap += 0x80; return &list[cap - 0x80];` — the original's
+    `lea eax,[edx+eax*4-0x200]` uses the already-incremented register.
+  - **A nine-case power-of-two switch (1..256) lowers to a three-way split
+    and ascending case order is the block order**: `cmp 0x10 / jg / je /
+    dec / cmp 7 / ja / jmp [8-entry table]` low, `add eax,-0x20 / cmp 0xe0 /
+    ja / movzx from a 0xe1-byte index table / jmp [5-entry]` high.
+    `BuildTextureRecord` 136 exact first compile; the byte index table is
+    VC6's choice, not evidence of a source table.
+  - **A byte local homed in a dead argument slot is read back as a DWORD plus
+    `and 0xff`, not `movsx/movzx`** — plain `unsigned char c;`, no cast
+    (`BuildTextureRecord`, both loop variables in the two dead arg slots).
+    `img->w * y + x` spelled at BOTH uses recomputes the row base per pixel
+    (`imul` inside the inner loop) — the naive spelling matches.
+  - **`p = row;` as its own cursor, or VC6 addresses the source as
+    `[row+x]`** (`mov dl,[eax+ebp]`, the reverse allocation); with `p` the
+    row home is written once per ROW. And `*dst++ = *p++` differs from
+    `*dst = *p++; dst++;` (load / inc p / store / inc dst; nine instructions
+    from one split) — `ConvertSourceImage`.
+  - **Write a two-call tail TWICE when both edges of an `if` need it**:
+    written once after the `if` the two `push raw` sites merge into one
+    reload (190 for 192); duplicated, VC6 keeps one copy of the calls and one
+    push per predecessor. The duplicated SOURCE is what produces the
+    per-predecessor argument push.
+  - `BITMAPFILEHEADER` needs `#pragma pack(2)` (`bfOffBits` at +0x0a);
+    a nested `RES_OpenFile(GetGFXFName(...))` MERGES the cdecl cleanup when
+    the result is the only argument (the other way round from the recorded
+    split rule); an address-taken struct defeats constant folding of a
+    repeated test (`bmi.biBitCount == 8` twice with calls between).
+
 - **FROM THE PARALLEL SESSION `codex-e` (44 of 44 exact — the seven ride
   state machines and the coaster's last callees; evidence in
   `docs/lanes/codex-e.md`).** Folded:

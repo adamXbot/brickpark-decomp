@@ -260,7 +260,7 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
     src->top += s->src_y;
     src->right += s->src_x;
     src->bottom += s->src_y;
-    g_sp_mouse_pixel = (char*)g_ddsd.lpSurface + g_ddsd.lPitch * g_mouse_point.y
+    g_sp_mouse_pixel = (char*)g_ddsd.lpSurface + g_mouse_point.y * g_ddsd.lPitch
                      + g_mouse_point.x * 2;
     if (image->type == 2) {
         SoftBlitAnimPlain(image->lls, src, dst);

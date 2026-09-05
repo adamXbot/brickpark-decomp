@@ -1,6 +1,6 @@
 # Scope Codex-E — ride machines and the coaster's last callees (2026-09-05)
 
-> **Status: OPEN, unclaimed.** Branch `codex/scope-e`. This is the Codex
+> **Status: DONE — 44 of 44 exact, merged into `main` 2026-09-05.** Branch `codex/scope-e`. This is the Codex
 > series' fifth scope (after CODEX_A–D) and is unrelated to
 > `SCOPE_E_frontier_tail.md`, the generic-series scope E, which is already
 > merged. Say "Codex-E" when referring to this one.
