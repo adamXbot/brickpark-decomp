@@ -29,3 +29,16 @@ The scope-specific documentation-only brief takes precedence over the shared com
 4. Commit and push the completed documentation, then create or update a pull request targeting main. Pass when the remote PR points to the final branch commit and reports no merge conflict.
 
 Scope J completion means consolidation of recoverable source evidence with explicit unknowns, as required by the brief; it does not mean inventing missing game behavior or declaring the original decompilation complete.
+
+## Current-main integration
+
+The final pre-PR fetch found main had advanced from `f22f7cc7` to `f8f5854481b2a87fb456a37b02ce581e9206b400`. Both Scope J documentation commits were preserved and rebased onto that commit. A second parallel delta review covers all9 newly added C files,12 modified C files and8 new lane notes. No source changes originate from Scope J; the PR diff remains documentation only. Final inventories and checks target the192-source baseline.
+
+The allowed-path gate compares the branch working tree with the PR merge base, so concurrent changes on main are not incorrectly reported as Scope J deletions. Source fingerprints and primary inventory checks still compare the checked-out source snapshot directly.
+
+## Completion gates
+
+- Requirements and evidence: passed for all192 current-baseline sources and26 lane notes, including the current-main delta.
+- Independent review: core plus transport/attraction/presentation audits complete; recoverable omissions and discovered source/header disagreements resolved, with actual source boundaries retained.
+- Reproducible gate: passed for192 primary rows,628 linked callback names/addresses,618 direct assignments,57 source fingerprints, local links/anchors, table structure, required topics and allowed paths.
+- Delivery: commit/push and a pull request targeting main follow these checks. The PR's final head and mergeability are verified through GitHub and reported with the delivered PR link.

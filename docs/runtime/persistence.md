@@ -64,6 +64,8 @@ LoadGame checks only the numeric version prefix (`atoi` after placing NUL at byt
 
 Before worker serialization, workers inside huts (plan5) are unseated; their `0x08|0x20` flags clear. For those hut occupants, action byte`+60 >= 0x64` causes removal; otherwise world position`+68/+6c` is copied from target`+24/+28` and an idle plan is applied. Count is taken after this mutation. WorkerSave contains a selected Bloke/Person subset, with WorkOrder pointer zeroed at saved `+44`. Order chunks encode the assigned worker as its trade-list index; loading those chunks rebuilds both sides of the link and resolves the target class by name. [savechunks.c](../../LEGOLAND/savechunks.c)
 
+`SkipMeasuredBlock` consumes a single four-byte framing value and does not seek past a payload. `LoadIconStateChunk` reads exactly16 bytes into the theme-enabled array and returns whether the read succeeded. [tinystubs.c](../../LEGOLAND/tinystubs.c)
+
 ### Constants and original bugs
 
 WorkerSave +08/+0c are eight uninitialized stack bytes. Evicted SeatSlots leak. Short reads can leave half-linked worker chains with garbage next pointers; order tails depend on the saved next pointer being0. Allocation failures are unchecked in multiple readers. Version rejection leaks the save descriptor; class tags, terrain writes and construction writes can ignore failure. An eight-byte class tag is not guaranteed NUL-terminated. These are original compatibility hazards; no deterministic value is specified for stack garbage. [savechunks.c](../../LEGOLAND/savechunks.c), [savegame.c](../../LEGOLAND/savegame.c), [savegame2.c](../../LEGOLAND/savegame2.c)
@@ -83,6 +85,8 @@ Script strings are signed length (-1 means null) followed by exactly length byte
 ### Rules and stream order
 
 Script state inside block3 saves: 16 icon-enabled bytes; two128-byte texts; string count/list; elapsed time; byte-count and10 bytes; pending event list; repeated `{step id,event list,event list,string}`; id=-1; one-based current-step index (0 absent). Both save/load refresh `g_script_now=GetGameTimer()` and reset error count; failed serializers increment `0x006687a0`, which LoadScripts polls. Event time saves as time-now and restores by addition; script start reload unusually uses **now+elapsed**, as written. Stored control bytes beyond10 are discarded one byte at a time; <=10 invokes reset hooks first. [savechunks.c](../../LEGOLAND/savechunks.c), [savechunks2.c](../../LEGOLAND/savechunks2.c)
+
+Resetting the script timer assigns current game time. Script-step and event list destruction recurses through next links, freeing the suffix before the current node; it does not iterate, bound depth or detect cycles. [tinystubs.c](../../LEGOLAND/tinystubs.c)
 
 ### Constants, bugs and callbacks
 

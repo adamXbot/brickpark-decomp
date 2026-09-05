@@ -1,17 +1,17 @@
 # LEGOLAND runtime specification
 
-This is the consolidated recovered contract at `origin/main` commit `f22f7cc7fa95f2d5740f89f4b53ae2624cc9e474` (2026-09-05). The source inventory contains **183 C files**; the scope brief's approximate 240 is not the count at this baseline. This document and its linked pages implement the documentation-only [Scope J brief](SCOPE_J_runtime_spec.md).
+This is the consolidated recovered contract at `origin/main` commit `f8f5854481b2a87fb456a37b02ce581e9206b400` (2026-09-05). The source inventory contains **192 C files**; the scope brief's approximate 240 is not the count at this baseline. This document and its linked pages implement the documentation-only [Scope J brief](SCOPE_J_runtime_spec.md).
 
 | Subsystem / specification | Source files | Coverage |
 | --- | --- | --- |
-| [World, visitors, construction and staff](runtime/world.md) | [35 files](runtime/coverage.md#world): map/object/path, Bloke AI, construction, work orders, currency/power | 28 documented; 7 partial |
+| [World, visitors, construction and staff](runtime/world.md) | [36 files](runtime/coverage.md#world): map/object/path, Bloke AI, construction, work orders, currency/power | 28 documented; 8 partial |
 | [Saves, profiles and scripts](runtime/persistence.md) | [6 files](runtime/coverage.md#persistence): savegame, savechunks and profile families | 0 documented; 6 partial |
-| [Assets, animation, audio and host services](runtime/assets.md) | [30 files](runtime/coverage.md#assets): LLIDB, resource/model loaders, audio and platform helpers | 23 documented; 7 partial |
-| [Transport](runtime/transport.md) | [30 files](runtime/coverage.md#transport): boating, jungle cruise, flume, roads, school cars and coaster | 17 documented; 13 partial |
-| [Attractions and customer scripts](runtime/attractions.md) | [27 files](runtime/coverage.md#attractions): ride helpers, mechanical rides, themed rides, providers and ride saves | 16 documented; 11 partial |
-| [Presentation](runtime/presentation.md) | [55 files](runtime/coverage.md#presentation): input, menus, screens, sprites, terrain and software rendering | 38 documented; 17 partial |
+| [Assets, animation, audio and host services](runtime/assets.md) | [32 files](runtime/coverage.md#assets): LLIDB, resource/model loaders, audio and platform helpers | 25 documented; 7 partial |
+| [Transport](runtime/transport.md) | [32 files](runtime/coverage.md#transport): boating, jungle cruise, flume, roads, school cars and coaster | 18 documented; 14 partial |
+| [Attractions and customer scripts](runtime/attractions.md) | [29 files](runtime/coverage.md#attractions): ride helpers, mechanical rides, themed rides, providers and ride saves | 18 documented; 11 partial |
+| [Presentation](runtime/presentation.md) | [57 files](runtime/coverage.md#presentation): input, menus, screens, sprites, terrain and software rendering | 40 documented; 17 partial |
 | [Callback registration index](runtime/callbacks.md) | Cross-reference of screen, interfaces, ridesave, castleobj and loaders | All 83 named classes indexed; three alternate library registrations; two declared handlers lack recovered bodies |
-| **Total C-file coverage** | [183 individual source rows](runtime/coverage.md) | **122 documented; 61 partial; 0 not yet** |
+| **Total C-file coverage** | [192 individual source rows](runtime/coverage.md) | **129 documented; 63 partial; 0 not yet** |
 
 “Documented” means the recovered contract is consolidated. “Partial” identifies unknown fields, external tables, conflicting interpretations or incomplete behavior; it does not classify binary matching. All source files are accounted for, but this is not a claim that a complete replacement runtime can yet be implemented without further recovery. Each page cites its evidence and names its limits. [Coverage and definitions](runtime/coverage.md)
 
@@ -44,8 +44,9 @@ This register highlights consequential disagreements; detailed source citations 
 | Conflicting evidence | Adopted interpretation / remaining uncertainty |
 | --- | --- |
 | `logflume.c` LFAnimRefs versus `logflume4.c` LFQueue | Shared record is `{path, head, tail}`. Boat mask1 means moving; run mask2 means splash-active. Cursor and length are separate, and interpolation is piecewise linear. Exact `t == 1` reachability remains unresolved. [Transport](runtime/transport.md) |
+| Coaster energy and model-loader aliases | New derivative consumers establish route`+28` as total energy and return parameter-speed/motor-power derivatives; old speed/acceleration names must not replace that physics. Model-loader argument2 returns byte length, correcting older pointer/mode guesses. [Transport](runtime/transport.md) |
 | Coaster TrackJoint and TrackNode declarations | TrackJoint is `{direction, float height, node}`. The `0x50` node is a prefix of an allocated `0xa4` piece; overlapping variant tails must not be treated as one full footprint type. [Transport](runtime/transport.md) |
-| Space-tower, carousel and plane slot descriptions | Tower car base is `+14`, stride36; old save views use biased bases. Some seat arrays are one-based, explaining biased pointer displacements. Tower dwell body uses200 rather than header180. [Attractions](runtime/attractions.md), [transport](runtime/transport.md) |
+| Space-tower, carousel and plane slot descriptions | Tower car base is `+14`, stride36; old save views use biased bases. Some seat arrays are one-based, explaining biased pointer displacements. New carousel allocation is`0x2c`; older`0x24` declarations are only a prefix. Tower dwell body uses200 rather than header180. [Attractions](runtime/attractions.md), [transport](runtime/transport.md) |
 | Gold Rush “pan drift” prose versus placement code | Kneeling changes the target from panY+128 to panY−80 (−208); standing adds128 to current worldY and reissues the saved target. The abbreviated `-0x50/+0x80` description does not prove cumulative `+0x30` drift; exact snapping requires the absent movement-completion body. [Attractions](runtime/attractions.md) |
 | Category statistics header versus field consumers | Category definition count is`+04`, working count`+00`, occupied cells`+0c`; publication and income use these body-derived meanings. [World](runtime/world.md) |
 | Carousel discharge header versus shared helper | GetAllBlokesOffRide always returns1 after changing rider actions/flags, so the zero-revolution tick stops and returns before positioning; it does not wait for physical discharge. [Attractions](runtime/attractions.md), [transport](runtime/transport.md) |
@@ -56,6 +57,7 @@ This register highlights consequential disagreements; detailed source citations 
 | Work-order owner field, worker allocation | Park-funded repair `+24` is a float top-up, not an owner pointer; hired workers use heap allocation despite the broad pooled-Bloke header claim. [World](runtime/world.md) |
 | Pending script event and string terminator | Pending state is a list. The reader consumes exactly length bytes and adds NUL; the old length+1 framing claim conflicts, and the writer remains external. [Persistence](runtime/persistence.md), [event lane](lanes/fable-b-savechunks2.md) |
 | Profile block and name region | The200-byte block starts at`+43`, not`+a3`. Thirty-name-bytes-plus-flags versus32-name-bytes remains unresolved. [Persistence](runtime/persistence.md) |
+| Narration/header and FX layout shorthand | WAV parsing assumes the first post-WAVE chunk is format, ignores its ID and RIFF size, and does not pad odd chunks. Restaurant FX sample pointers are at`+8`, not the older screen declaration's`+4`. [Assets](runtime/assets.md) |
 | Early asset descriptions versus loader sequence | TSM includes a self-name before tile-set names; both ILF and CSP loaders read offsets. LoadAnim3D and LoadPos describe different animation records; abbreviated `.3d` statements must not merge them. [Assets](runtime/assets.md), [FORMATS.md](FORMATS.md), [RE_CONTEXT.md](RE_CONTEXT.md) |
 | LLIDB function names versus bodies | `LLIDB_UnLoadLLSData` tears down object classes; `LLIDB_UnLoadODFData` tears down TSF data; `LLIDB_LoadDataByIndex` reports index errors. Names alone are insufficient to dispatch resource types. [Assets](runtime/assets.md) |
 | Rendering/UI headers versus consumers | Scroll units are fixed-point pixels; shade data is separately allocated; overview “busy” is a cache-ready latch. The plain RLE path shares an override bug. ZBufferHelper uses two-bit commands (16/dword), RenderTiledSprite exits, and blink mask0x100 produces256ms phases. Horizontal panel scrolling still applies snapped vertical displacement. [Presentation](runtime/presentation.md) |
@@ -71,4 +73,4 @@ The main behavioral gaps are absent specialized type-3 painter/cursor-segment bo
 
 The completed requirement audits cover [core](runtime/core-audit.md), [transport](runtime/transport-audit.md), [attractions](runtime/attractions-audit.md) and [presentation](runtime/presentation-audit.md). Their recoverable omissions are closed; source unknowns remain visible. The [reproducible checks](runtime/checks.md) and [verification record](runtime/verification.md) distinguish documentation completion from execution compatibility.
 
-The source set is intentionally fixed for this document. Subsequent scope branches can change names or conclusions; update the affected page, callback row and coverage boundary together when integrating new evidence. [Scope J work log](runtime/WORKLOG.md)
+The final source set includes the9 new files and12 source updates merged while this document was reviewed; the [integration audit](runtime/core-audit.md#integration-delta-from-current-main) records that delta. The source set is intentionally fixed at the stated final baseline. Subsequent scope branches can change names or conclusions; update the affected page, callback row and coverage boundary together when integrating new evidence. [Scope J work log](runtime/WORKLOG.md)

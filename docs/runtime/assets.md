@@ -100,6 +100,8 @@ Light is`{-0x1800,-0x5000,0x3000}`, window centring anchors80/90, depth scale`0x
 
 Original render defects: bounding corners duplicate(minX,maxY,maxZ) and omit(maxX,maxY,minZ); parity-swapped screen vertices keep depth/UV/shade in original triangle index order; flat pass rechecks parity per face and only overwrites shade0. Unknown character kinds leave table/colour selectors uninitialized. `RecolourModelParts` never reads key2: it matches key1 only and chooses replacement by triangle-half position; its four-byte read of a three-byte RGB key includes an ignored extra byte. [person3d.c](../../LEGOLAND/person3d.c), [blokeanim.c](../../LEGOLAND/blokeanim.c), [savechunks.c](../../LEGOLAND/savechunks.c), [savegame2.c](../../LEGOLAND/savegame2.c)
 
+`FixUpLocSetPointers` adds the LOC allocation base to both fields`+2c/+30` unconditionally. A zero stored offset therefore becomes the base pointer; this helper does not preserve a null sentinel. [tinystubs.c](../../LEGOLAND/tinystubs.c)
+
 ### Callbacks
 
 Animation instances and BNV paths are consumed by ride activation/render callbacks; transport-specific behaviour in `anim2.c` and `posstep.c` is integrated in [transport](transport.md). RIN rider insertion uses the same seat list described in [world](world.md). [anim2.c](../../LEGOLAND/anim2.c), [posstep.c](../../LEGOLAND/posstep.c), [rin.c](../../LEGOLAND/rin.c)
@@ -114,6 +116,8 @@ IMT uses state`0x004bf778`, event`0x0079a6a0`, command`a6a4`, argument`a6a8`, cu
 
 MidiFile is24 bytes: tick scale`+00`, tempo`+04`, clock`+08`, track count short`+0c`, track-pointer array`+10`, playing short`+14`. Loading consumes the big-endian MThd fields, computes `division × 20000`, loads each MTrk buffer, links each track to its owner and initializes tempo to`0x100`. The track reader leaves fields other than its length/data/active and later owner unspecified until playback. `PlayMIDI` publishes the file as current, clears its clock, sets playing, and resets every track's clock/position with active/pending set1. Header tags, read results and allocations are not validated here. [music.c](../../LEGOLAND/music.c), [audio4.c](../../LEGOLAND/audio4.c)
 
+
+Narration's WAVEFORMATEX view is18 bytes: tag/channels shorts`+0/+2`, sample rate/bytes-per-second dwords`+4/+8`, block alignment/bits/extension-size shorts`+c/+e/+10`. Source-format pointer is`0x007cacb0`, data offset`0x007cacb4`, full data length`0x0079ac04`, remaining bytes`0x007cacac`. The restaurant FX table has three12-byte rows at`0x004b6968`, with the loaded sample at`+8`, correcting an older screen declaration that put it at`+4`. [audio5.c](../../LEGOLAND/audio5.c)
 
 ### Rules
 
@@ -130,6 +134,12 @@ Music mailbox opcodes1 stop,3 transition theme,4 theme; states1/2 setup,5/6 queu
 
 MIDI initialization requests a20ms periodic timer at10ms resolution and opens the MIDI mapper with no callback, then reports success regardless of those API results. Game-map teardown releases its23-entry FX table while leaving the cached `CASTLE OBJ` element owned by LLIDB. Sample-system teardown returns0 when already down; on the active path it releases and clears the interface before clearing the ready flag, so a reentrant release can still observe the system as ready. [lifecycle.c](../../LEGOLAND/lifecycle.c), [util.c](../../LEGOLAND/util.c)
 
+
+`ReadNarrationWaveHeader` seeks to0 and requires RIFF/WAVE signatures, discards the RIFF size and treats the next chunk as the format without checking its ID. It allocates at least18 bytes, reads exactly the declared format size and forces extension size0 when that size is at most18. It then reads chunk IDs/sizes until data: every unwanted payload is allocated/read/freed in full, with no odd-byte padding adjustment. Data records its length and current file offset, leaving the descriptor at its first payload byte. Short reads fail; allocations are unchecked, and a short format read retains the allocated global block. Rewind seeks back to the recorded data offset and resets remaining bytes to the full length. [audio5.c](../../LEGOLAND/audio5.c), [tinystubs.c](../../LEGOLAND/tinystubs.c), [narration lane](../lanes/fable-d-audio5.md)
+
+`ClearSampleSource` requires the ready system, sample and definition, then restores only master volume; previous pan is retained. `RefreshSampleVolumes` walks defined live samples and refreshes each source only when GetStatus returns exactly0; the returned status bits are ignored. Restaurant2 starts FX rows0/1 with argument pairs(0,1)/(1,1) at source kind2 and the placement's byte x/y, leaving the unused source-object field uninitialized. [audio5.c](../../LEGOLAND/audio5.c)
+
+Narration is considered playing only at state3. Option audio pause/resume walks all live instances, applying individual sample pause/resume. Theme transition accepts only IMT states1/2, queues command3 with signed theme%5 and signals the event. Keyboard teardown releases a nonnull device but leaves its pointer unchanged. The empty FreePlayInit, RenderIconsHook, DrawPopUpEnd, RenderViewCellProbe and DebugErrorSink bodies have no additional behavior. Other UI/render microhelpers from this mixed file are consolidated in [presentation](presentation.md), with world/script operations in [world](world.md) and [persistence](persistence.md). [tinystubs.c](../../LEGOLAND/tinystubs.c)
 
 ### Tables, constants, bugs and callbacks
 

@@ -1,6 +1,6 @@
 # Core documentation completion audit
 
-Scope: the71 core sources assigned to [world](world.md), [persistence](persistence.md) and [assets](assets.md), including transport/UI material in mixed files. Baseline remains `f22f7cc7fa95f2d5740f89f4b53ae2624cc9e474`. Primary source membership is enumerated in [coverage](coverage.md).
+Scope: the74 core sources assigned to [world](world.md), [persistence](persistence.md) and [assets](assets.md), including transport/UI material in mixed files. Final baseline is `f8f5854481b2a87fb456a37b02ce581e9206b400`; the first71 sources were reviewed at the preceding Scope J baseline and the integration delta is recorded below. Primary source membership is enumerated in [coverage](coverage.md).
 
 ## Evidence pass
 
@@ -25,3 +25,16 @@ The audit inventoried the top block comments of every assigned file, then search
 The remaining boundaries are absent external table contents and function bodies, ambiguous field meanings or file variants, and historical binary-provenance limits. They are listed where a runtime implementer encounters them. This audit found and closed documentation omissions; it does not convert those missing inputs into known behavior. The original brief explicitly requires unknowns to be identified rather than invented. [Scope J](../SCOPE_J_runtime_spec.md), [coverage](coverage.md)
 
 The automated gate is published as [reproducible checks](checks.md). Its result, the independent subsystem reviews and final scope-isolation checks are recorded in [verification](verification.md).
+
+## Integration delta from current main
+
+Main advanced while Scope J was being reviewed. The branch was rebased onto `f8f5854481b2a87fb456a37b02ce581e9206b400`, then the nine new sources and twelve changed sources were assigned to their existing audit owners. Core added three files (925 lines,76 function bodies): audio5, pathmisc2 and tinystubs. All three were read in full, including declarations and behavior/bug notes. [audio5.c](../../LEGOLAND/audio5.c), [pathmisc2.c](../../LEGOLAND/pathmisc2.c), [tinystubs.c](../../LEGOLAND/tinystubs.c)
+
+| New evidence | Integration result |
+| --- | --- |
+| Narration and sample sources | Full WAV header layout/parser, unvalidated format ID, no odd-byte padding, stale pan, status-result gating, restaurant two-effect source and FX+8 correction added to assets. [audio5.c](../../LEGOLAND/audio5.c), [audio lane](../lanes/fable-d-audio5.md) |
+| Path/order helpers | All16 bodies covered: coordinate searches, list unlinks, allocation/count failures, connected-square refresh, span transitions,25-bit scan and corrected numeric side map. [pathmisc2.c](../../LEGOLAND/pathmisc2.c), [Codex D lane](../lanes/codex-d.md) |
+| Microhelpers | All56 bodies accounted for across assets, world, persistence and presentation. New details include null-offset LOC fixups, suffix-first script deletion, four-byte-only block consumption, released keyboard pointer retention and exact timer/predicate arithmetic. [tinystubs.c](../../LEGOLAND/tinystubs.c), [Scope E lane](../lanes/scope-e.md) |
+| Existing core changes | objmap2, savechunks2, workers2 and workorder3 add WIP/triage notes without new runtime operations. sysmisc's person projection changes local storage/read form while retaining its numeric transform; the sample-source delta is a scheduling note. Existing contracts remain valid. [Scope I lane](../lanes/scope-i.md), [sysmisc.c](../../LEGOLAND/sysmisc.c) |
+
+The current primary inventories total192 sources: world36, persistence6, assets32, transport32, attractions29 and presentation57. Coverage reasons and new-source citations are checked by the same reproducible gate. This review includes the newly merged behavior rather than simply relabeling the old183-source document. [coverage](coverage.md), [checks](checks.md)

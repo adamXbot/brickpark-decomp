@@ -27,6 +27,8 @@ The render-order scan runs by column, top to bottom, using 4,096 eight-byte pend
 
 `RefreshObjectAtPos` saves/restores the global cursor, requests the class's placement effect `0x8f8`, and re-stamps eligible cells without preserving prior flags, changing life, or setting footprint/tall bits. Rect subtraction swap-erases overlaps and appends up to four disjoint remnants. Path removal from an object sweeps a one-cell-expanded footprint and then its interior again, because border updates can re-tile interior cells. [objrect.c](../../LEGOLAND/objrect.c), [mappath.c](../../LEGOLAND/mappath.c)
 
+The leaf cursor contract resets validity/error to1/0; validity is signed and must be positive. Setting an error replaces the pair when current validity is at least the error's negative value, preserving the worst result. `ClassAllowsObjects` requires a class and clear flag`0x200000`; `IsBuildableClass` requires a nonnull class with kind neither0 nor2. These predicates have their own meanings despite broader maintenance/placement interpretations of the same flags. [tinystubs.c](../../LEGOLAND/tinystubs.c)
+
 ### Flags and constants
 
 | Cell flag | Meaning | Cell flag | Meaning |
@@ -74,6 +76,12 @@ PTP walk-back retains the start and next three nodes; shortcut results 0/1/2 sel
 
 Auto-path routing is best-first over f. New nodes initialize g to `INT_MAX`, h to Manhattan distance, f to entry cost+h. Equal-f new nodes precede existing nodes. Turning costs 4 unless direction masks intersect. Successful routes lay `PATH CONTROL` after clearing cells that are not already paths. [objrect.c](../../LEGOLAND/objrect.c), [workers3.c](../../LEGOLAND/workers3.c), [simcore.c](../../LEGOLAND/simcore.c), [simcore2.c](../../LEGOLAND/simcore2.c)
 
+`FindPathSquareAt` shifts signed world coordinates right8 and returns the first inclusive rectangle containing them. Open/closed route searches compare exact tile x/y. `FreePTPRouteList` frees each node then clears its head; removing a closed node only unlinks it and requires the target to exist in a nonempty list. `RndWalk_LeftTile` clears walker flag4 only after crossing a tile boundary. [pathmisc2.c](../../LEGOLAND/pathmisc2.c)
+
+`TileJoinsPathNetwork` first finds a path square, refreshes entrance connectivity with the integer force flag at`0x0066b46c`, clears that flag, then tests square flag2. The old graphics-batch name does not make that global a pointer. Entrance refresh runs when forced or signed elapsed time is strictly greater than4000, saves the current timer, updates the entrance and resolves its connected square. Clearing visited state removes only PathSquare flag1. [pathmisc2.c](../../LEGOLAND/pathmisc2.c), [tinystubs.c](../../LEGOLAND/tinystubs.c)
+
+`ScanPathArea5x5` emits bits24→0 in row-major order for cells with flag`0x10` and clear render flag2; off-map substitutes initialize only flags`0x40`/render flags0 and cannot qualify. `GrowPathRectSide` tests one outside row or column, expanding only when clear; numeric directions0/1/2/3 mean **bottom/right/top/left**, independent of emitted switch-block order. Invalid direction returns0. Pattern testing first validates a path cell, then compares its zero-extended tile word with a full dword at the path-base pointer; `ResetPathTile` writes the base's low word with no bounds check. [pathmisc2.c](../../LEGOLAND/pathmisc2.c), [tinystubs.c](../../LEGOLAND/tinystubs.c), [corrected switch-table lane](../lanes/codex-d.md)
+
 ### Tables and constants
 
 | Terrain | Class | Entry cost |
@@ -111,13 +119,15 @@ Visitors occupy a fixed pool of `0xac`-byte Blokes at `0x0066b57c`, linked from 
 | `+00/+04` | next / Person3D | [blokeai.c](../../LEGOLAND/blokeai.c) |
 | `+0c/+0e/+10/+1c` | plan u16 / low-level state u16 / saved step / scratch timer | [blokelist.c](../../LEGOLAND/blokelist.c) |
 | `+14`, `+24/+28`, `+2c/+30` | focused class element, move target, saved target | [simcore.c](../../LEGOLAND/simcore.c), [workers2.c](../../LEGOLAND/workers2.c) |
-| `+36`, `+50/+54`, `+5c` | seat/job byte (100 discard), work order / BNV path, tick count | [workers3.c](../../LEGOLAND/workers3.c), [savegame.c](../../LEGOLAND/savegame.c) |
+| `+36`, `+50/+54`, `+5c` | seat/job byte (100 discard), per-plan state / BNV path, tick count | [workers3.c](../../LEGOLAND/workers3.c), [savegame.c](../../LEGOLAND/savegame.c) |
 | `+60/+62/+64` | action byte / flags word / route scratch | [bigsim.c](../../LEGOLAND/bigsim.c) |
 | `+68/+6c` | world x/y, 24.8 | [workers3.c](../../LEGOLAND/workers3.c) |
 | `+72/+73/+74/+75` | heading / requested heading / AI phase / walk delay | [workers.c](../../LEGOLAND/workers.c), [simcore2.c](../../LEGOLAND/simcore2.c) |
 | `+78/+7a/+7c/+80` | signed stay timer / signed mood / u16 tiredness / tiredness increment byte | [simcore2.c](../../LEGOLAND/simcore2.c), [workers3.c](../../LEGOLAND/workers3.c) |
 
 Ride SeatSlots are 20 bytes in the class `+cc` doubly linked chain, binding a Bloke at `+08`, seat at `+0c`, and Person3D at `+10`. The `+10` Person3D interpretation follows the explicit `Bloke->person` assignment in `savegame.c`; `blokelist.c` calls it a ride owner, so that header label is retained as a disagreement. Render-list insertion takes the slot, not the Bloke. MoveLine is 12 bytes `{int x,y; short dx,dy}` with position and velocity in 1/256 tile units. [blokelist.c](../../LEGOLAND/blokelist.c), [savegame.c](../../LEGOLAND/savegame.c), [bnvmove.c](../../LEGOLAND/bnvmove.c)
+
+Bloke`+50` is overloaded by the current plan: a worker order, a WalkPath pointer or a ride-specific ordinal/animation identifier. The recovered Copters helper replaces its live path pointer with a table ordinal during boarding/alighting; the historical `WalkPath_IndexOf` name actually returns this raw field. BNVPath remains separately at`+54`. Callers must interpret the state before treating`+50` as a pointer. [ridetiny.c](../../LEGOLAND/ridetiny.c), [mechrides.c](../../LEGOLAND/mechrides.c), [attraction contracts](attractions.md)
 
 ### Rules
 
@@ -130,6 +140,8 @@ The 9×9 scan contributes mood channels: 2 off-map count; 3 scenery value and `-
 Movement starts at tile centres `(tile<<8)+0x80`; unit velocity is atan2-derived, scaled by 256 and rounded using floor(v*256+0.5). `CalcMoveLine` returns a signed integer angle measured in256 units per turn (callers commonly narrow it to a byte); Bloke heading bytes`+72/+73` instead use octants0…7, with8 meaning no heading. Random walking follows an available nonreverse exit at corners, excludes reverse and its neighbours at junctions, and wanders at dead ends. Turns save prior low-level state at `+10`, enter state5 and reset delay. Off-map is an obstacle/path edge; a person currently on RF-blocked terrain may leave it. [bnvmove.c](../../LEGOLAND/bnvmove.c), [workers.c](../../LEGOLAND/workers.c), [pathbuild.c](../../LEGOLAND/pathbuild.c)
 
 Worker ticks run mechanics then gardeners: tick++, high AI if idle, low AI if now active, update person, remove if slot100; capture next before processing. Hire cap is 15 per trade; kind2 gardener, kind3 mechanic. Inside-hut hires use plan5; outside hires use idle `0x10/0x11`. Gardener hut placement mutates the caller's position by (-2,+1). Carried workers enter state13 with cursor screen position adjusted (-75,-77); cancel restores saved world coordinates and idle plan. `UpdatePerson` suppresses position refresh when flag `0x80` is set despite some other uses calling that bit “in 3D”. [workers.c](../../LEGOLAND/workers.c), [workers2.c](../../LEGOLAND/workers2.c), [workers3.c](../../LEGOLAND/workers3.c), [blokemisc.c](../../LEGOLAND/blokemisc.c)
+
+`HasBlokeStayedTooLong` compares signed word`+78` minus signed word`+7a / 2` with twice park metric`0x00832918`, using strict greater-than. Its local name “allowance” for`+7a` differs from the visitor code's mood name; the numeric operation is the established contract. Visitor limit and selected-worker getters return the corresponding globals directly. [tinystubs.c](../../LEGOLAND/tinystubs.c)
 
 ### Tables and constants
 
@@ -190,6 +202,10 @@ Bricks are a signed int at `0x004b90f8` (initial10000), lock at `0x004b90fc` (in
 “Running” rejects switched-off `0x200` always, rejects blackout `0x100` only when the global power-available switch is set. During a total blackout the AI can therefore consider objects running. [sysmisc3.c](../../LEGOLAND/sysmisc3.c)
 
 `BuyItem` reads a separate signed class value at `+28`, adds it directly to bricks, and plays the requested money effect only for a nonzero value and nonnegative effect index. Its name does not imply a positive debit: negative data produces a charge. This field must not be merged with the `+26` build/salvage cost. [loaders.c](../../LEGOLAND/loaders.c), [power.c](../../LEGOLAND/power.c)
+
+The order constructors allocate a zeroed`0x3c` record, append it and increment the trade count even when allocation fails. `EraseWorkOrdersAt` ignores its object argument and removes a mechanic match before a gardener match. `UnmarkObjectTiles` scans128 slots for the first packed key`(x<<8)+y`, changes that key to`0xffff` and leaves the slot count untouched. `SetOrderRepairAmount` stores the argument at`+38` and1.5 times it at`+34`; these are WorkOrder fields, distinct from the smaller automatic-repair record. [pathmisc2.c](../../LEGOLAND/pathmisc2.c), [tinystubs.c](../../LEGOLAND/tinystubs.c)
+
+Span checks use x=`tileX+rect.left+spanX`, y=`tileY+rect.bottom−spanY`. Off-map fails; under cell flags`0x88`, only the environment class is accepted, with no object-null guard. Heading1 increments spanX through `rect.right−rect.left+1` then becomes7; heading7 increments spanY through `rect.bottom−rect.top+1` then becomes5; heading5 decrements spanX through−1 then becomes3; heading3 decrements spanY through−1 then becomes1. The first two checks are independent, followed by a5/3 if/else pair: a corner can advance the following side in the same call. [pathmisc2.c](../../LEGOLAND/pathmisc2.c)
 
 ### Tables and constants
 
