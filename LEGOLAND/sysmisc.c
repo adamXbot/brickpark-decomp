@@ -77,7 +77,16 @@ extern int  SetSampleScreenPos(Sample* s, int x, int y);   /* 0x004965a0 (intern
  * (without it the load sinks below it, 12 mismatches), but it also pins that
  * load FIRST in the block. The following sar/sub/store differ only in register
  * naming, which follows. Scheduling residual; the tail and cases 0-2 are exact. */
-// WIP-FUNCTION: LEGOLAND 0x004966a0  (91%, 6 of 66, case-3 load scheduling)
+/* Scope I (2026-09-05): at its measured scheduling/tail-merge floor,
+ * 6/66 strict (rb 3, ob 6), first 46, 175/175 bytes. Ten additional ordered
+ * input/snapshot/aggregate spellings were measured. Three ordered volatile
+ * reads get the desired input order but rotate the final y out of eax and
+ * lose the case-1 tail merge (28 strict). Ordinary pair accumulation/copy,
+ * input and scroll pairs, and named accumulators give 27-32. Keep this form;
+ * changing the shared tail to improve one arm regresses the other.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x004966a0  (90.9%, 6/66 strict; scheduling/tail-merge floor; first 46)
 int UpdateSampleSource(Sample* s)
 {
     Pos p;

@@ -1160,7 +1160,15 @@ void Mechanic_Build(Bloke* b)
  *    184/184 instructions, 672/672 bytes, one wrong instruction at index 102
  *    plus the known `cmp eax,edi`/`test eax,eax` at 166.
  */
-// WIP-FUNCTION: LEGOLAND 0x00470620  (184/184 insns, 672/672 bytes, 82 by audit but only 3 difflib-aligned, first diff at index 102; TWO defects only -- the dead `mov ebp,1` rematerialisation at 0x4707a3, whose absence shifts every later index and is the whole of the 82, and `cmp eax,edi` for `test eax,eax` at 0x470891; every other instruction is byte-identical)
+/* Scope I (2026-09-05): at the recorded dead-rematerialization floor.
+ * Baseline audit confirms 184i/672B and 82 strict mismatches, first 102;
+ * this is the missing mov ebp,1 plus the cmp/test choice described in N+6,
+ * not 82 independent errors. The out-of-range height already clobbers ebp
+ * before the join, so a new live consumer would change the original work.
+ * The six recorded passes were reviewed, not repeated.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x00470620  (55.4%, 82/184 strict; dead rematerialization and cmp/test floor; first 102)
 void CheckWorkerOnMouseStatus(WorkOrder* o)
 {
     Pos  cell;

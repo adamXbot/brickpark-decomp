@@ -58,7 +58,15 @@ extern void DBPrintf(const char* fmt, ...);   /* 0x00453a20 */
  * `je` and diverges at index 23 instead.  Fifteen spellings measured; see
  * docs/lanes/fable-b-workorder3.md.
  * -------------------------------------------------------------------------- */
-// WIP-FUNCTION: LEGOLAND 0x00499d60  (68/68 instructions, 34 mismatches: shared-tail block placement, structural)
+/* Scope I (2026-09-05): at its measured shared-tail placement floor,
+ * 34/68 strict (rb 34, ob 34), first 34, 198/193 bytes. An additional
+ * zero-trip do/while exit around the head/search join costs 45 and flips the
+ * head guard (first 23); it cannot make the early head tail survive. Existing
+ * identical-tail and source-order evidence still applies. The diagnostic's
+ * missing vararg is preserved.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x00499d60  (50.0%, 34/68 strict; shared-tail ordering floor; first 34)
 void UnlinkGardenerOrder(WorkOrder* o)
 {
     WorkOrder* p = g_gardener_orders;
@@ -152,7 +160,15 @@ extern int  PTPShortcutSteps(PTPNode* a, PTPNode* b, PTPNode* c, PTPNode* d); /*
  * (and costs two instructions), which says the original's `c` outranks its
  * `b` by one weighted reference we have not found a free way to spend.
  */
-// WIP-FUNCTION: LEGOLAND 0x00482430  (76/76 instructions, 10 mismatches: b and c swap callee-saved registers, allocation)
+/* Scope I (2026-09-05): at its measured allocation floor, 10/76
+ * strict, rb 0, ob 10, first 16, 152/152 bytes. Naming c's two field values
+ * in either order stays at 10; grouping them in Pos costs 13; a free
+ * volatile read of c->x costs 11, c->y stays at 10, and the parent read
+ * costs 11 plus one byte. These extend the recorded declaration/loop/store
+ * order negatives without adding a guard or a non-original reference.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x00482430  (86.8%, 10/76 strict; allocation floor; first 16)
 int BuildPTPRoute(void)
 {
     PTPNode* a = g_ptp_found;

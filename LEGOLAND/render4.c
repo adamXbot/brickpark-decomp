@@ -301,17 +301,28 @@ static __inline Cell* MapCellAt(int x, int y)
  * The `lea ecx,[eax+eax]` for tw needs `tw` DEFINED BEFORE `th` in the
  * source (the reversed-derived-pair rule); with th first VC6 doubles in
  * place and the whole head is one form off. */
-// WIP-FUNCTION: LEGOLAND 0x004608c0  (431/431 insns, 1301/1315 bytes, 389 mismatches from index 27; block layout exact, residual is the callee-saved permutation described above)
+/* Scope I (2026-09-05): improved, then stopped at the remaining
+ * allocation/frame floor: 378/431 strict, first 14, 1322/1315 bytes, no
+ * ESCAPES. The old volatile halfw shim is REMOVED. Grouping halfw with the
+ * existing escaped tile Pos keeps an ordinary memory home and refuses the
+ * unwanted second-cell induction variable with the original 0x34 frame.
+ * Keeping dx/dy between halfw and tile gives the best measured form below.
+ * The tile loop now uses the original ecx/ebx/edi roles. With CFG-resolved
+ * stack homes, edit distances (strict/rb/ob/both) improve from
+ * 187/59/179/46 to 90/45/77/32; raw strict improves 389 -> 378. Grouping all
+ * seven intervening homes regresses to 395 with ESCAPES and was rejected.
+ * The remaining head allocation and frame homes do not close. The second
+ * cell's unshifted object-without-callback bug remains unchanged.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x004608c0  (12.3%, 378/431 strict, 1322/1315 bytes; nonvolatile halfw home; first 14)
 void PaintTileLayer(Pos* scroll, WinRect* view)
 {
+    struct { int halfw; int dy; int dx; Pos tile; } state;
     TerrainObj* e = g_terrain_objects;
-    Pos    tile;
     Cell*  cell;
-    int    dx;
-    int    dy;
     int    tw;
     int    th;
-    int    halfw;
     int    halfh;
     int    q;
     int    r;
@@ -325,48 +336,48 @@ void PaintTileLayer(Pos* scroll, WinRect* view)
     int    rowy;
     int    sel;
 
-    dx = scroll->x - view->left;
-    dy = scroll->y - view->top;
+    state.dx = scroll->x - view->left;
+    state.dy = scroll->y - view->top;
     SetClipping(view);
     tw = (short)(g_tile_sprites[g_default_tile]->h * 2);
     th = g_tile_sprites[g_default_tile]->h;
     q = scroll->x / tw;
-    halfw = (tw + 1) >> 1;
+    state.halfw = (tw + 1) >> 1;
     halfh = (th + 1) >> 1;
     xrem = scroll->x % tw;
     r = (scroll->y - halfh) / th;
     yrem = (scroll->y - halfh) % th;
-    tile.x = r + q - 3;
-    tile.y = r - q;
-    sel = (xrem >= halfw) + 1;
+    state.tile.x = r + q - 3;
+    state.tile.y = r - q;
+    sel = (xrem >= state.halfw) + 1;
     if (yrem > halfh)
         sel += 2;
     switch (sel) {
     case 1:
-        if (xrem < halfw - 2 * yrem) {
-            tile.x--;
-            xrem += halfw;
+        if (xrem < state.halfw - 2 * yrem) {
+            state.tile.x--;
+            xrem += state.halfw;
             yrem += halfh;
         }
         break;
     case 2:
-        if (xrem >= halfw + 2 * yrem) {
-            tile.y--;
-            xrem -= halfw;
+        if (xrem >= state.halfw + 2 * yrem) {
+            state.tile.y--;
+            xrem -= state.halfw;
             yrem += halfh;
         }
         break;
     case 3:
-        if (xrem < halfw + 2 * (yrem - th)) {
-            tile.y++;
-            xrem += halfw;
+        if (xrem < state.halfw + 2 * (yrem - th)) {
+            state.tile.y++;
+            xrem += state.halfw;
             yrem -= halfh;
         }
         break;
     case 4:
-        if (xrem >= halfw + 2 * (th - yrem)) {
-            tile.x++;
-            xrem -= halfw;
+        if (xrem >= state.halfw + 2 * (th - yrem)) {
+            state.tile.x++;
+            xrem -= state.halfw;
             yrem -= halfh;
         }
         break;
@@ -375,10 +386,10 @@ void PaintTileLayer(Pos* scroll, WinRect* view)
     xlimit = view->right + 2 * tw;
     PushRenderingStatusAndLockVideoSurface();
     for (py = view->top - 2 * th - yrem; py < ylimit; py += th) {
-        rowx = tile.x;
-        rowy = tile.y;
+        rowx = state.tile.x;
+        rowy = state.tile.y;
         for (px = view->left - 2 * tw - xrem; px < xlimit; px += tw) {
-            cell = MapCellAt(tile.x, tile.y);
+            cell = MapCellAt(state.tile.x, state.tile.y);
             if (cell != 0) {
                 unsigned short t = cell->tile;
 
@@ -389,18 +400,18 @@ void PaintTileLayer(Pos* scroll, WinRect* view)
                     } else {
                         PrintSpriteXY(g_tile_sprites[t], px, py);
                         if (IsPathCell(cell))
-                            DrawPathTileOverlay(&tile, px, py, 0);
+                            DrawPathTileOverlay(&state.tile, px, py, 0);
                     }
                 }
             }
-            tile.x++;
+            state.tile.x++;
             if (cell != 0) {
-                if (tile.x == g_map->width)
+                if (state.tile.x == g_map->width)
                     break;
                 cell++;
             }
             if (cell == 0)
-                cell = MapCellAt(tile.x, tile.y);
+                cell = MapCellAt(state.tile.x, state.tile.y);
             if (cell != 0) {
                 unsigned short t = cell->tile;
 
@@ -409,18 +420,18 @@ void PaintTileLayer(Pos* scroll, WinRect* view)
                         if (cell->obj->def->draw == 0)
                             PrintSpriteXY(g_tile_sprites[t], px, py);
                     } else {
-                        int x2 = px + *(volatile int*)&halfw;
+                        int x2 = px + state.halfw;
 
                         PrintSpriteXY(g_tile_sprites[t], x2, py + halfh);
                         if (IsPathCell(cell))
-                            DrawPathTileOverlay(&tile, x2, py + halfh, 0);
+                            DrawPathTileOverlay(&state.tile, x2, py + halfh, 0);
                     }
                 }
             }
-            tile.y--;
+            state.tile.y--;
         }
-        tile.x = rowx + 1;
-        tile.y = rowy + 1;
+        state.tile.x = rowx + 1;
+        state.tile.y = rowy + 1;
     }
     while (e != 0) {
         if (e->sprite != 0) {
@@ -428,11 +439,11 @@ void PaintTileLayer(Pos* scroll, WinRect* view)
             int y;
             int k;
 
-            PrintSpriteXY(e->sprite, e->sx - dx, e->sy - dy);
+            PrintSpriteXY(e->sprite, e->sx - state.dx, e->sy - state.dy);
             if ((e->frame & 0xff00) && g_bridge_sets[e->frame >> 8] != 0) {
                 if ((e->frame & 0xff) == 0) {
-                    x = e->sx - dx;
-                    y = e->sy - dy;
+                    x = e->sx - state.dx;
+                    y = e->sy - state.dy;
                     PrintSpriteXY(g_bridge_bank->entries[(e->frame + 2) & 0xff],
                                   x + g_bridge_half0_ox, y + g_bridge_half0_oy);
                     k = (e->frame + 4) & 0xff;
@@ -445,8 +456,8 @@ void PaintTileLayer(Pos* scroll, WinRect* view)
                                    0, 0);
                     }
                 } else if ((e->frame & 0xff) == 1) {
-                    x = e->sx - dx;
-                    y = e->sy - dy;
+                    x = e->sx - state.dx;
+                    y = e->sy - state.dy;
                     PrintSpriteXY(g_bridge_bank->entries[(e->frame + 2) & 0xff],
                                   x + g_bridge_half1_ox, y + g_bridge_half1_oy);
                     k = (e->frame + 4) & 0xff;

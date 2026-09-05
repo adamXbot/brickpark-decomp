@@ -1650,7 +1650,15 @@ static __inline SpriteRec* TileSprite(int id)
  * through every later index.  Cost any future work on this function against
  * 23, not against 273.
  */
-// WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%: 181/454 insns, 1438 vs 1429 bytes, audit.py mismatch=273; first diverging index 48, a 3-cycle rename of the tile loop's four scratch temps (23 mismatches, residual (a)); the other 250 all come from residual (b), the un-cross-jumped DrawCursorSegmentA switch tail at index 204 -- 4 instructions and 9 bytes -- which shifts every later index.  2026-09-04: (b) is now REPRODUCIBLE ON DEMAND -- one extra shared trailing instruction in cases 1 and 2 of the first arm makes VC6 emit the original's exact shape, so the blocker is a length threshold on the shared suffix (ours 5 instructions, this VC6 wants 6, the original merged at 5) and the merge provably runs before the scheduler.  Repro: scratchpad/bigrender/run2/repro_nomerge.c driven by scratchpad/bigrender/s0904/rp.py.  See the note above)
+/* Scope I (2026-09-05): at its measured scratch-rotation floor plus
+ * the already-retired depth-5 merge limit: 273/454 strict, first 48,
+ * 1438/1429 bytes. A named x accumulator, named y accumulator, and separate
+ * origin Pos copy are each byte-identical. They do not change the first
+ * scratch temporary. No sixth tail instruction or extra callback was added;
+ * the documented corpus proof for the five-instruction merge still stands.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%, 273/454 strict; scratch rotation plus retired merge limit; first 48)
 void RenderCursor(Cursor* c)
 {
     WinRect          view;

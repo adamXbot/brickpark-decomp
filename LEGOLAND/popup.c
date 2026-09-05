@@ -1006,7 +1006,16 @@ extern char* strcat(char*, const char*);
  *   Tooling: scratchpad/w11d/{sweep,perm,v1,v2,v3}.py, sbs.py, esp.py, m.py.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004724a0  (962/962 instructions, 3141/3141 bytes, mismatch=886->705->398->60->53->13 by audit.py; exact except indices 590..603, the first kind-0x306 PrintCachedText argument block -- halfw must be memory-resident with ORDINARY accesses, and in VC6 memory residency and a scheduling barrier are the same switch: a volatile READ pins the reload at the push (13), a volatile STORE pins the two constant pushes below the spill (16); first diff at index 590)
+/* Scope I (2026-09-05): at its measured 13/962 scheduling floor,
+ * first 590, 3141/3141 bytes. A new non-volatile escape was tested by making
+ * halfw a sibling of an EXISTING escaped name/info/line buffer, rather than
+ * dead padding. It forces a real ordinary memory home, but the aggregate
+ * repositions the frame: name/info score 904 and both line member orders
+ * score 421 (3155 bytes). It cannot retain the original halfw slot. No
+ * additional call or global store was introduced; the best form stays here.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x004724a0  (98.6%, 13/962 strict; memory-home/scheduling floor; first 590)
 void DrawPopUpInfo(void)
 {
     char    name[256] = {0};

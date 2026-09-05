@@ -913,7 +913,18 @@ static __inline void EmitObjectSprite(SpriteDesc* desc, Pos at, int key,
  * geo.py (topological search over the geometry block), try_.py (textual
  * variant runner).
  * ------------------------------------------------------------------------- */
-// WIP-FUNCTION: LEGOLAND 0x0045b180  (903/903 insns, mismatch=381; propped up by TWO known errors -- xlimit/ylimit belong after the quadrant switch, and `g_sort_count = 0` belongs inside `if (cell->obj != 0)`; both are uncommitted because each costs strict on its own, see the note)
+/* Scope I (2026-09-05): at the measured geometry/prologue and
+ * frame-reference floor, 381/903 strict, first 67, 2893/2880 bytes. BOTH
+ * documented statement-placement corrections were tested together: limits
+ * after the quadrant switch (y first), and sort-count reset after base in
+ * the non-null object arm. Result: strict 549, first 5, 2887 bytes. Proper
+ * CFG/stack/import-aware edit distances all regress: strict/rb/ob/both
+ * 321/189/249/90 -> 353/220/287/118. The paired experiment does not solve
+ * the split prologue. Retain this baseline with the two known, behaviorally
+ * unobservable placement discrepancies explicitly documented above.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x0045b180  (57.8%, 381/903 strict; paired placement corrections tested and rejected; first 67)
 void RenderView(void)
 {
     Cell*       visible[3000];
@@ -2533,7 +2544,26 @@ static __inline int FullMapY(TileBounds* t, int scale_y)
  *              graph -- this is what found RenderView's ordering.
  * ------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004567a0  (1161/1161 insns, mismatch=844; 303 of 465 structural slots are still the ONE layout bit -- the 0x400 else arm has to END IN A JMP to be exiled, and no source spelling produces that with a shared tail; registers are ruled out, see the note)
+/* Scope I (2026-09-05): improved, then stopped at the documented
+ * shared-tail layout and register/frame floors: 827/1161 strict,
+ * first 0, 4216/4225 bytes, no ESCAPES. An explicit ILFTable** carries the
+ * sprite+8 address to the loop condition, re-derived at each latch. VC6 now
+ * emits add eax,8 / mov eax,[eax] there; the head still CSEs the initial
+ * count load, so this is a partial reconstruction of the address carrier.
+ * Raw strict improves 844 -> 827, both-blind region cost 465 -> 455, and
+ * CFG/stack/import-aware edit distances improve 666/568/536/406 ->
+ * 664/562/526/401 (strict/rb/ob/both). No volatile access was added.
+ * All six register facts were addressed: ordinary escaped scale homes
+ * restore uncached LineTo calls but cost 873-880; escaping def or chain
+ * costs 897/1066; a shared BPos copy is inert at 844; a free def reload
+ * costs 845; forcing the ILF head load volatile costs 846. Combining the
+ * scale/def home forms with the address loop costs 876-884. These changes
+ * do not solve the independently-retired cold-arm layout bit; those regressions are rejected.
+ * The stack frame remains 0xf4 against the original 0xf8, and the current
+ * address spelling is the best measured reachable improvement.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x004567a0  (28.8%, 827/1161 strict, 4216/4225 bytes; ILF address carrier improved; first 0)
 void RenderFullMap(void)
 {
     Elem*       e_track;
@@ -2559,6 +2589,7 @@ void RenderFullMap(void)
     TileSet*    set;
     Sprite*     spr;
     ILFTable*   ilf;
+    ILFTable**  slot;
     ObjDef*     def;
     RoadRec*    road;
     int         saved_ox;
@@ -2870,14 +2901,15 @@ void RenderFullMap(void)
                               g_fm_ch * scale_y >> 16);
             continue;
         }
-        ilf = *(ILFTable**)((char*)desc->sprite + 0x08);
+        slot = (ILFTable**)((char*)desc->sprite + 0x08);
+        ilf = *slot;
         if (ilf->count <= 0)
             continue;
         i = 0;
         do {
             Sprite* layer;
 
-            ilf = *(ILFTable**)((char*)desc->sprite + 0x08);
+            ilf = *slot;
             layer = ilf->sprites[i];
             lox = ilf->dx[i];
             loy = ilf->dy[i];
@@ -2893,7 +2925,8 @@ void RenderFullMap(void)
                               g_fm_cw * scale_x >> 16,
                               g_fm_ch * scale_y >> 16);
             i++;
-        } while (i < (*(ILFTable**)((char*)desc->sprite + 0x08))->count);
+            slot = (ILFTable**)((char*)desc->sprite + 0x08);
+        } while (i < (*slot)->count);
     }
 
     PopRenderingStatus();
