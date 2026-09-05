@@ -91,10 +91,10 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **55.0% exact, 64.2% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 1932 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **55.5% exact, 64.7% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2020 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 390, ~7,500 instructions |
+| unmatched callees | `python3 tools/callees.py` | 316, ~10,200 instructions (the merges exposed new callees) |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 74 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
@@ -193,6 +193,26 @@ duplicate definition (`RestoreCoasterCar` at two addresses); `coaster.c`'s
 malformed nine-digit extern comment was corrected; and the extent-walker
 defect now blocks TWO complete bodies (`MatMul`, `Coaster3D_BuildPieceGeometry`)
 — fixing it is the next tooling task, on a quiet tree with a full `verify.py`.
+
+**Codex scope C merged (2026-09-05): 88 of 88 exact** — the frontier's
+1-28-instruction tail across `simcore2.c`, `pathmisc.c`, `lfmisc.c`,
+`sysstubs.c`, `screencb7.c`; eighty-plus first compile. 2020/2020 verified.
+
+**`origin/codex/audio-extraction` is deliberately NOT merged (user decision,
+2026-09-05).** It forked on 1 Sept (`73059e05`) before all of this session's
+work: 80 files / ~20,600 lines, mostly the browser runtime (`web/`, `runtime/`,
+`tools/test_*.js`, `docs/BROWSER_PORT.md`, `docs/PLAYABLE_WORKLOG.md`). It
+conflicts on `README.md`, `docs/DECOMP.md`, the progress report,
+`tools/match.py` (+585/-44, a relocation-aware rewrite) and
+`tools/matchfull.py` (gutted to a wrapper) — i.e. with the extent port the
+whole verify gate rests on. Of its 120 marked functions, 115 are already on
+`main` and **20 are duplicate definitions in different files** (all exact on
+both sides — e.g. `FindPathRect` in its `pathoverlay.c` vs `workorder4.c`
+here, `ControlGardeners`/`ControlMechanics` in its `blokemisc.c` vs
+`workers3.c`); only 5 are net-new. Integration plan when wanted: keep `main`'s
+tools, take `web/`/`runtime/`/tests/docs, take the 5 net-new functions, drop
+its 20 duplicate bodies, gate every touched LEGOLAND file, `verify.py` alone —
+or have the branch owner rebase with those rules.
 
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier

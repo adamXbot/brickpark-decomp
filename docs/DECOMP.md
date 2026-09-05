@@ -424,6 +424,21 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **FROM THE PARALLEL SESSION `codex-c` (88 of 88 exact — the frontier's
+  1-28-instruction tail; evidence in `docs/lanes/codex-c.md`).** Small bodies
+  close almost entirely on the recorded rules; the few new measurements: **a
+  separate `cursor` local closes an ordinal list lookup** (13i/29B with 9
+  mismatches -> 11i/22B exact, signed vs unsigned index inert); **a free
+  volatile read of `boat->piece` closes a four-register residual without
+  changing the body** where merely splitting the two pointer reads into
+  statements was inert; `RouteStepAxis` needed a free volatile read of `x1`
+  to keep an independent subtraction/test (17i -> the original 18i); and
+  `screen.c` declares its callbacks with EMPTY parameter lists while the
+  bodies forward real arguments — the cdecl ABI hides it, and the caller
+  declarations were correctly left alone. `sub_411650` is `LFBoat_IsOnDrop`
+  (it compares against the LOG FLUME DROP class). Eighty-plus of the
+  eighty-eight closed on the first compile.
+
 - **A memory-operand FOLD inside a loop is a register-PRESSURE symptom — look
   at what is held across the loop, not at the expression.** `Anim3D_OffsetAt`:
   accumulating straight into the 8-byte struct return (`r.x += ...`) keeps the
