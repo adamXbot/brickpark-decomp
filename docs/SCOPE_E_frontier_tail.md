@@ -1,5 +1,9 @@
 # Scope E — the last of the frontier (2026-09-05)
 
+> **Status: DONE — 147 of 147 exact, merged into `main` (branch `scope/E`).**
+> Kept for the record. Not to be confused with `SCOPE_CODEX_E.md`
+> ("Codex-E"), the open Codex-series scope.
+
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
 here.** Branch: `scope/E`. Notes: `docs/lanes/scope-e.md`. Object prefix:
 `/tmp/se_`.

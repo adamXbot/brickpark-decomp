@@ -1,5 +1,10 @@
 # Scope Codex-E — ride machines and the coaster's last callees (2026-09-05)
 
+> **Status: OPEN, unclaimed.** Branch `codex/scope-e`. This is the Codex
+> series' fifth scope (after CODEX_A–D) and is unrelated to
+> `SCOPE_E_frontier_tail.md`, the generic-series scope E, which is already
+> merged. Say "Codex-E" when referring to this one.
+
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
 here.** Branch: `codex/scope-e`. Notes: `docs/lanes/codex-e.md`. Object
 prefix: `/tmp/ce_`. The follow-on to Codex scope D (49 of 49 exact, merged).
