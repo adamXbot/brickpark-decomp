@@ -233,55 +233,44 @@ void DrawCursorTileAt(Pos* at, int x, int y, int mode)
  * x * 0x14 and does the `x >= 0` test on the offset (`test edx,edx / jl`),
  * exactly as fpui4.c records.
  *
- * RESIDUAL (68 of 70; ours 72 instructions, first diverging index 5, class
- * STRUCTURAL — one derived induction variable).  Everything is the original's
- * except the ROW TABLE's base: the original hoists `g_map_rows` into EBX in
- * the OUTER preheader and re-indexes it every inner iteration
- * (`mov esi,[ebx+eax*4]`), while VC6 gives us the load in the INNER preheader
- * plus a derived IV over the row pointers (`mov edx,[g_map_rows] /
- * lea edx,[edx+eax*4]` … `mov esi,[edx]` … `add edx,4`) — two instructions
- * more, and it takes the register the original spends on the base, which is
- * why x lands in EBX here and in EBP there.  RULED OUT, every one of them
- * still exactly 72 instructions with the same first divergence: a `Cell** rows
- * = g_map_rows;` local (copy-propagated straight back to the global, 73),
- * `*(rows[y] + x)`, `(char*)rows[y] + x*20`, `(char*)g_map_rows[y] +
- * x*sizeof(Cell)`, a named `Cell* row` / `Cell* c` (73), a manually spelled
- * `xoff` outer IV with the `x >= 0` test written on it, while-loops, a
- * do/while outer with the guard split out (74), `cell` declared in the inner
- * scope, dropping the dead `tile = 0` store, both orders of the two failure
- * tests, both orders of the else stores, and the bounds test with y first.
- * A `*(Cell** volatile*)&g_map_rows` read is NOT free here: it anchors above
- * the guard and takes a frame slot (75-76).  A volatile read of `g_map`
- * inside the probe — free, the original reloads it every iteration — does not
- * act as a barrier on the g_map_rows load either; VC6 schedules the
- * g_map_rows load ABOVE it.  Also ruled out: a `Cell** rows` scoped inside
- * the outer loop body and inside the inner loop body (both 73), and the whole
- * probe as a `static __inline` helper taking a `Cell*` out-parameter (72, and
- * making `cell` address-taken does not stop the hoist).  Twenty spellings, all
- * 72 or 73, all diverging at index 5.
+ * THE TWO LOOP COUNTERS ARE ONE `Pos`, not two ints.  With plain `int x, y`
+ * VC6 strength-reduces the ROW TABLE too: it forms a derived induction
+ * variable over the row pointers in the INNER preheader (`mov edx,[g_map_rows]
+ * / lea edx,[edx+eax*4]` … `mov esi,[edx]` … `add edx,4`), which costs two
+ * instructions and, because the IV's initialiser needs the inner counter's
+ * start value, anchors the global's load inside the outer loop.  VC6 does not
+ * strength-reduce an index that is an AGGREGATE MEMBER, so `g_map_rows[p.y]`
+ * stays a base+index access; the load is then invariant in BOTH loops and
+ * hoists to the outer preheader into EBX (`mov ebx,[g_map_rows]` once,
+ * `mov esi,[ebx+eax*4]` every inner iteration) — the original's shape, and
+ * the register web that puts x in EBP.  Measured: `int x, y` 72 instructions
+ * (first divergence index 5); `Pos p` for both counters 70/70; a `Pos` for
+ * only the INNER counter (the row index) 70/70; a `Pos` for only the OUTER
+ * counter still 72 — it is the row index that must be the member; a plain
+ * anonymous `struct { int x, y; }` also 70/70, so the lever is aggregate
+ * membership, not the `Pos` type.  pathmisc2.c's ScanPathArea5x5
+ * (0x0045c9c0), the function immediately after this one in the binary and
+ * this file's own caller's neighbour, spells the identical probe over the
+ * identical `Pos p` and keeps the same base+index form.
  *
- * §6B triage, diff-aligned (not index-aligned, since our two extra
- * instructions shift everything): strict 28, register-blind 17,
- * register+immediate-blind 5 — i.e. the SHAPE is the original's to within the
- * two IV instructions, and the residual is one code-motion decision, not a
- * spelling.  The decision looks like IV-formation profitability: with the row
- * table's base already in a register the IV saves nothing, and nothing
- * reachable from C puts it there.  AT ITS FLOOR unless someone finds a
- * construct that hoists a global load to the OUTER preheader while leaving the
- * inner loop's index unreduced. */
-// WIP-FUNCTION: LEGOLAND 0x0045c900  (70i extent, 189B; ours 72i, first
-// diverging index 5; STRUCTURAL — one derived induction variable over the row
-// table; at its floor, see the note above)
+ * The twenty spellings that do NOT close it, all 72-76 instructions and all
+ * diverging at index 5, are on record in docs/lanes/scope-k-pathmask.md: a
+ * `Cell** rows` local at any scope (copy-propagated back to the global),
+ * `(char*)rows[y] + x*20` and the other pointer arithmetics, a manual `xoff`
+ * IV, `px`/`py` scalar copies, while- and do/while-loops, dropping the dead
+ * `tile = 0` store, either order of the two failure tests, and the volatile
+ * reads of `g_map_rows` (which anchor above the guard and take a frame slot)
+ * and of `g_map` (free, but no barrier to the row load). */
+// FUNCTION: LEGOLAND 0x0045c900
 int IsPathRectClear(Rect4* rect)
 {
+    Pos  p;
     Cell cell;
-    int  x;
-    int  y;
 
-    for (x = rect->left; x <= rect->right; x++) {
-        for (y = rect->top; y <= rect->bottom; y++) {
-            if (x >= 0 && x < g_map->width && y >= 0 && y < g_map->height) {
-                cell = g_map_rows[y][x];
+    for (p.x = rect->left; p.x <= rect->right; p.x++) {
+        for (p.y = rect->top; p.y <= rect->bottom; p.y++) {
+            if (p.x >= 0 && p.x < g_map->width && p.y >= 0 && p.y < g_map->height) {
+                cell = g_map_rows[p.y][p.x];
             } else {
                 cell.tile = 0;
                 cell.flags = 0x40;

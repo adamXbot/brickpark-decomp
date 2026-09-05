@@ -221,3 +221,36 @@ entry beyond the count is never read.
   `test esi,esi / je` looks redundant — but VC6 emits it, and dropping the term
   from the source loses an instruction. Three tests in the listing, three `&&`
   terms in the source.
+
+## Follow-up: IsPathRectClear closed (70/70, mismatch 0)
+
+A second pass of five lensed attempts (template transfer, induction-variable
+constructs, loop form, types, fresh reconstruction) on private copies, with
+independent verification, closed the residual on the first round; three of the
+five converged on the same spelling.
+
+- **The two loop counters are ONE `Pos` aggregate, not two `int`s.** VC6 SP3
+  does not strength-reduce an array index that is an aggregate member, so
+  `g_map_rows[p.y][p.x]` stays a base+index access; the row-table load is then
+  invariant in both loops and hoists to the OUTER preheader into `ebx`
+  (`mov ebx,[g_map_rows]` once, `mov esi,[ebx+eax*4]` per inner iteration),
+  which is the original, and the register web then puts x in `ebp` as the
+  original does. With `int x, y` VC6 forms a derived IV over the row pointers
+  in the inner preheader (`lea edx,[edx+eax*4]` … `add edx,4`), two
+  instructions more, and the IV's initialiser anchors the global's load
+  inside the outer loop.
+- Isolation: `Pos` for both counters 70/70; `Pos` for the inner (row) counter
+  only 70/70; `Pos` for the outer counter only 72i unchanged; an anonymous
+  `struct { int x; int y; } p` 70/70. The lever is aggregate membership of the
+  ROW index, not the `Pos` type.
+- Template: `ScanPathArea5x5` 0x0045c9c0 in pathmisc2.c (lines ~269-291), the
+  function immediately after this one in the binary, spells the identical
+  off-map probe over an identical `Pos p` nested loop and already records the
+  rule; fpui2.c's `BuildObjInfoList` 0x00481200 records the same lever from
+  the frame-layout side. A scripted scan of all exact functions found only the
+  LLIDB pair (`g_llidb_pages[i>>8][i&0xff]`, non-affine index) keeping the
+  base+index form otherwise, which pointed at "an index the IV pass cannot
+  recognise" as the class of fix.
+- The twenty ruled-out spellings from the first pass are listed above; none
+  of them changes the index's aggregate membership, which is why all of them
+  measured 72 or 73 with the same first divergence.
