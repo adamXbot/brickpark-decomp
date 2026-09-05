@@ -254,7 +254,7 @@ extern void UpdateMenu(void);                                  /* 0x004758c0 */
 extern void ClearWaitSprite(void);                             /* 0x004663c0 */
 extern void ShowInfoPanel(int kind);                           /* 0x00490600 */
 extern void SetInfoPanelText(const char* a, const char* b);    /* 0x004911c0 */
-extern void sub_458bb0(int);                                   /* 0x00458bb0 */
+extern void SetMapReady(int);                                   /* 0x00458bb0 */
 extern void ThawGameClock(void);                               /* 0x004993c0 */
 extern void UpdateSoundVols(void);                             /* 0x00495a90 */
 extern void NewPrintCent(const char* text, int font, WinRect rc, char white); /* 0x00491d60 */
@@ -377,7 +377,7 @@ void StartFreePlayPark(void)
     ClearWaitSprite();
     ShowInfoPanel(1);
     SetInfoPanelText(g_script_text1, 0);
-    sub_458bb0(1);
+    SetMapReady(1);
     ThawGameClock();
     UpdateSoundVols();
 }

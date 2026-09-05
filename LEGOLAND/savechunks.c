@@ -904,8 +904,8 @@ extern int   SaveScriptEvent(void* ev);           /* 0x0046c700 */
 extern void* LoadScriptEvent(void);               /* 0x0046c7e0 */
 extern ScriptStep* NewScriptStep(int id);         /* 0x0046b4f0 */
 extern void  ScriptSetRunning(int on);            /* 0x004748a0 */
-extern void  sub_468840(void);                    /* 0x00468840 */
-extern void  sub_4688e0(void);                    /* 0x004688e0 */
+extern void  ClearScriptStateBytes(void);                    /* 0x00468840 */
+extern void  ScriptState_NoOp(void);                    /* 0x004688e0 */
 
 /* 0x0046c920 -- SaveScripts.
  *
@@ -1030,8 +1030,8 @@ int LoadScripts(void)
             i--;
         }
     } else {
-        sub_468840();
-        sub_4688e0();
+        ClearScriptStateBytes();
+        ScriptState_NoOp();
         if (!SaveGameRead(g_script_bytes, i))
             return 0;
     }

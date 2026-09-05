@@ -55,7 +55,7 @@ extern void ClosePopUpIcons(void); /* 0x00471610 */
 extern void ClearNewObjectMarkers(void); /* 0x004714e0 */
 extern void ResetInfoStruct(void); /* 0x00471510 */
 extern void DisablePopUpInputs(void); /* 0x00471470 */
-extern int sub_498cf0(void); /* 0x00498cf0; speech state == playing */
+extern int IsNarrationPlaying(void); /* 0x00498cf0; speech state == playing */
 extern void ResetHelpKeyCursor(void); /* 0x004735b0 */
 extern __declspec(dllimport) unsigned long __stdcall GetTickCount(void); /* IAT 0x004ab1f8 */
 extern char PU_CloseInput(Icon*, int, short, short); /* 0x004730f0 */
@@ -165,7 +165,7 @@ extern void PlayMovie(const char*, int, int); /* 0x004771f0 */
 extern void SetReportMovie(const char*); /* 0x00490610 */
 extern void ResumePausedSamples(void); /* 0x00492850 */
 extern void KillAdvisorHelp(void); /* 0x0046ce20 */
-extern void sub_46b760(void); /* 0x0046b760 */
+extern void RestoreScriptStepHelp(void); /* 0x0046b760 */
 
 // FUNCTION: LEGOLAND 0x004714a0
 void ResetInfoPopUp(void)
@@ -249,7 +249,7 @@ char PU_CloseInput(Icon* p, int ev, short dx, short dy)
 // FUNCTION: LEGOLAND 0x0046d340
 void ShowObjectHelp(void* obj)
 {
-    if (sub_498cf0()) goto requested;
+    if (IsNarrationPlaying()) goto requested;
     if (!obj) return;
     if ((int)obj != g_help_target) {
         g_help_target = (int)obj;
@@ -264,7 +264,7 @@ requested:
 // FUNCTION: LEGOLAND 0x0046d230
 void ShowIdHelp(int id)
 {
-    if (sub_498cf0()) goto requested;
+    if (IsNarrationPlaying()) goto requested;
     if (id == -1) return;
     if (id != g_help_target) {
         g_help_target = id;
@@ -342,7 +342,7 @@ char PU_ToolA(Icon* p, int ev)
 // FUNCTION: LEGOLAND 0x0046d280
 int ShowHelpPopup(int id)
 {
-    if (sub_498cf0() || id == -1 || id == g_help_target) return 0;
+    if (IsNarrationPlaying() || id == -1 || id == g_help_target) return 0;
     g_help_target = id;
     g_help_hover_start = GetTickCount();
     g_help_face_state = 0;
@@ -633,7 +633,7 @@ char ReportAcceptInput(Icon* p, int ev, short dx, short dy)
         ThawGameClock();
         ResumePausedSamples();
         KillAdvisorHelp();
-        sub_46b760();
+        RestoreScriptStepHelp();
     }
     return 1;
 }

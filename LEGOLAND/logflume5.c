@@ -490,7 +490,7 @@ void LFAnim_LoadRefs(void* set, LFQueue* q)
 extern void LFBoat_Fall(LFBoat* b);                              /* 0x00411810 */
 extern int  LFRun_BoatHasRoom(LFRun* run, int idx);                    /* 0x0040bab0 */
 extern int  LFBoat_Advance(LFBoat* b);                              /* 0x00411680 */
-extern int  Sub_411650(LFBoat* b);                              /* 0x00411650 */
+extern int  LFBoat_IsOnDrop(LFBoat* b);                              /* 0x00411650 */
 
 /* The driver record; only the release byte this function bumps is named. */
 typedef struct Bloke { unsigned char pad00[0x60]; unsigned char free_flag; } Bloke;
@@ -522,7 +522,7 @@ void LFBoat_Step(LFRun* run, int idx)
             if (!LFBoat_Advance(b))
                 return;
             b->piece = b->piece->fwd;
-            if (Sub_411650(b)) {
+            if (LFBoat_IsOnDrop(b)) {
                 b->flags |= 2;
                 return;
             }

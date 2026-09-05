@@ -134,9 +134,9 @@ extern int     RenderFlashingSpriteIcon(Icon*);                         /* 0x004
 extern void    UpDateCurrentProfile(void);                              /* 0x00491680 */
 
 /* Progress-screen helpers (not exported). */
-extern void    ProgressInit_48b6d0(void);        /* 0x0048b6d0 */
+extern void    NormaliseLevelsDone(void);        /* 0x0048b6d0 */
 extern void    LoadLevelMarkerSprites(void);     /* 0x0048b700 loads the table's sprites */
-extern void    Progress_48b740(void);            /* 0x0048b740 */
+extern void    ReferenceLevelMarkerSprites(void);            /* 0x0048b740 */
 extern void    SkipProgressScreen(void);         /* 0x0048bde0 level <= 5 */
 extern char    ProgressLevelInput(Icon*, int);   /* 0x0048bb60 */
 extern char    ProgressAcceptInput(Icon*, int);  /* 0x0048bc20 */
@@ -230,11 +230,11 @@ extern int     TempProfileHasName(void);
 /* 0x0048d470 (not exported). */
 extern void    SavedGame_48d470(void);
 /* Saved-game screen icon input handlers (other lanes). */
-extern char    SaveGoBackInput_48fb80(Icon*, int);     /* 0x0048fb80 */
-extern char    SaveGoBackInput_48db10(Icon*, int);     /* 0x0048db10 */
-extern char    SaveAcceptInput_48f5a0(Icon*, int);     /* 0x0048f5a0 */
-extern char    SaveAcceptInput_48da50(Icon*, int);     /* 0x0048da50 */
-extern char    LoadAcceptInput_48d970(Icon*, int);     /* 0x0048d970 */
+extern char    FreePlayGoBackInput(Icon*, int);     /* 0x0048fb80 */
+extern char    SaveGoBackInput(Icon*, int);     /* 0x0048db10 */
+extern char    SaveAcceptInput(Icon*, int);     /* 0x0048f5a0 */
+extern char    SaveScreenAcceptInput(Icon*, int);     /* 0x0048da50 */
+extern char    LoadAcceptInput(Icon*, int);     /* 0x0048d970 */
 extern char    SaveSlotInput(Icon*, int);              /* 0x0048e4a0 */
 extern char    SaveEmptySlotInput(Icon*, int);         /* 0x0048e4f0 */
 
@@ -248,7 +248,7 @@ void InitProgressScreen(void)
     if (g_level_map->level < 1)
         g_level_map->level = 1;
     if (g_progress_resume == 0) {
-        ProgressInit_48b6d0();
+        NormaliseLevelsDone();
         if (g_pending_state == 0) {
             if (g_progress_798668 == 0)
                 g_level_map->level = g_last_level + 1;
@@ -302,7 +302,7 @@ void InitProgressScreen(void)
             p->input = ProgressTutorialInput;
         }
     }
-    Progress_48b740();
+    ReferenceLevelMarkerSprites();
     RemoveIconGroup(0x1c);
     if (g_pending_state == 1) {
         for (i = 0; i < 10; i++) {
@@ -511,11 +511,11 @@ void InitSavedGameScreen(void)
     p = LoadSpriteIcon(g_lls_goback_on_savedgame, 4, 0x1c2, 0x13, 7);
     p->flags |= 0x6002;
     if (g_save_7cb324) {
-        p->input = SaveGoBackInput_48fb80;
+        p->input = FreePlayGoBackInput;
         p->help_id = 0x26;
         p->help = GetString(0x26);
     } else {
-        p->input = SaveGoBackInput_48db10;
+        p->input = SaveGoBackInput;
         p->help_id = 0x28;
         p->help = GetString(0x28);
     }
@@ -526,11 +526,11 @@ void InitSavedGameScreen(void)
         g_accept_icon->flags |= 0x4002;
         g_accept_icon->flags |= 0x400;
         if (g_exit_7cb310) {
-            g_accept_icon->input = SaveAcceptInput_48f5a0;
+            g_accept_icon->input = SaveAcceptInput;
             g_accept_icon->help_id = 0x29;
             g_accept_icon->help = GetString(0x29);
         } else {
-            g_accept_icon->input = SaveAcceptInput_48da50;
+            g_accept_icon->input = SaveScreenAcceptInput;
             g_accept_icon->help_id = 0x2a;
             g_accept_icon->help = GetString(0x2a);
         }
@@ -541,7 +541,7 @@ void InitSavedGameScreen(void)
         g_accept_icon->flags |= 0x2000;
         g_accept_icon->flags |= 0x4002;
         g_accept_icon->flags |= 0x400;
-        g_accept_icon->input = LoadAcceptInput_48d970;
+        g_accept_icon->input = LoadAcceptInput;
     }
     g_icon_handler1 = g_accept_icon->input;
     SavedGame_48d470();
@@ -863,16 +863,16 @@ extern char CastleThemeInput(Icon*, int);           /* 0x004753a0 */
 extern char AdventureThemeInput(Icon*, int);        /* 0x004752a0 */
 extern char BriefIconInput(Icon*, int);             /* 0x00474f40 */
 extern char ScriptEndIconInput(Icon*, int);         /* 0x00474fa0 */
-extern void InitSidePanel_491240(void* block);      /* 0x00491240 */
+extern void UpdateHelpIconForText(void* block);      /* 0x00491240 */
 extern void StopScript(int stop);                   /* 0x0046b240 */
-extern int  ScriptRunning_46b280(void);             /* 0x0046b280 */
+extern int  ScriptRunning(void);             /* 0x0046b280 */
 extern void ToggleHelpIcon(int on);                 /* 0x004748a0 */
 extern void InitPopUpInfo(void);                    /* 0x00470bb0 */
-extern void Interface_474590(void);                 /* 0x00474590 */
+extern void ResetThemeMenuFlags(void);                 /* 0x00474590 */
 extern void ResetMoveAWorkerStruct(void);           /* 0x00470930 */
 extern void RemoveObjectListIcons(int group);       /* 0x0046fb40 */
-extern void Interface_476180(void);                 /* 0x00476180 */
-extern void Interface_474990(void);                 /* 0x00474990 */
+extern void UpdateThemeIconsFromProfile(void);                 /* 0x00476180 */
+extern void UpdateThemeIconsFromFlags(void);                 /* 0x00474990 */
 
 /* Builds the in-game interface once: the PATH CONTROL environment class is
  * bound to the path icon, the five control icons (group 0x93) and the four
@@ -972,7 +972,7 @@ void InitGameInterface(int resume)
         p->render = RenderBriefIcon;
         g_brief_icon = p;
         p->flags |= 0x400;
-        InitSidePanel_491240(g_66861c);
+        UpdateHelpIconForText(g_66861c);
         p = InsertIcon(0x20a, 0x17a, 0x93, g_ci_script_end);
         p->u20.normal = 0;
         p->u1c.pressed = 0;
@@ -988,7 +988,7 @@ void InitGameInterface(int resume)
                 ToggleHelpIcon(0);
             else
                 ToggleHelpIcon(1);
-        } else if (ScriptRunning_46b280()) {
+        } else if (ScriptRunning()) {
             StopScript(1);
         } else {
             StopScript(0);
@@ -999,7 +999,7 @@ void InitGameInterface(int resume)
         }
         InitPopUpInfo();
     }
-    Interface_474590();
+    ResetThemeMenuFlags();
     g_drag_state.f0 = 0;
     g_drag_state.f3 = 0;
     g_drag_state.f2 = 0;
@@ -1013,7 +1013,7 @@ void InitGameInterface(int resume)
     g_panel_state.f08 = 0;
     g_menu_index = 5;
     RemoveObjectListIcons(0xd2);
-    Interface_476180();
+    UpdateThemeIconsFromProfile();
     if (g_state_810140 != 0)
-        Interface_474990();
+        UpdateThemeIconsFromFlags();
 }

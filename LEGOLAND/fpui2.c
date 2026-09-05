@@ -865,7 +865,7 @@ extern int     LLIDB_UnLoadLLSData(LLElem* e);   /* 0x0047c6a0 */
 extern void    LLIDB_ClearOnLevel(void);         /* 0x0047b4c0 */
 extern int     RenderFreePlayBar(Icon* p);       /* 0x0046e7b0 (fpui.c) */
 extern void    FreePlayInit_48b6c0(void);        /* 0x0048b6c0 (not exported) */
-extern void    FreePlayInit_48a790(void);        /* 0x0048a790 (not exported) */
+extern void    RestoreFreePlaySelections(void);        /* 0x0048a790 (not exported) */
 extern char    FreePlayGoBackInput(Icon* p, int ev);   /* 0x0048fb80 */
 extern char    FreePlayAcceptInput(Icon* p, int ev);   /* 0x0048ac60 */
 void InitFreePlayLists(void);
@@ -931,7 +931,7 @@ void InitFreePlayScreen(void)
     FreePlayObjectList(500, 0xbb, 0x41, 0xec, 500);
     FreePlayObjectList(400, 0x14c, 0x41, 0xec, 400);
     FreePlayObjectList(300, 0x1dd, 0x41, 0xec, 300);
-    FreePlayInit_48a790();
+    RestoreFreePlaySelections();
 }
 
 /* ---- bubble help ------------------------------------------------------- */

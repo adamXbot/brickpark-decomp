@@ -309,10 +309,10 @@ extern void  RouteNode_InitSeats(RouteNode* head, int mode);     /* 0x0041e6a0 *
 extern void  Route_PrependNode(CoasterRoute* rt, int which);   /* 0x0041e420 */
 extern void  Route_InitPhysics(CoasterRoute* rt);              /* 0x0041dec0 */
 extern void  Route_Reset(CoasterRoute* rt);             /* 0x0041e500 */
-extern void  Sub_41e360(CoasterRoute* rt);              /* 0x0041e360 */
-extern void  Sub_41e380(CoasterRoute* rt);              /* 0x0041e380 */
+extern void  Route_LinkClipRects(CoasterRoute* rt);              /* 0x0041e360 */
+extern void  Route_UnlinkClipRects(CoasterRoute* rt);              /* 0x0041e380 */
 extern void  Route_RemoveNode(RouteNode* n, CoasterRoute* rt);/* 0x0041e460 */
-extern void  Sub_41e330(CoasterRoute* rt, void (*fn)(RouteNode*)); /* 0x0041e330 */
+extern void  Route_ForEachNode(CoasterRoute* rt, void (*fn)(RouteNode*)); /* 0x0041e330 */
 extern void  RouteAddNode_Cb(RouteNode* n);             /* 0x0041e3c0 */
 extern void* g_route_pending;                           /* 0x0082adec */
 
@@ -332,7 +332,7 @@ CoasterRoute* CreateCoasterRoute(CoasterRec* r)
     rt->state = 0;
     Route_InitPhysics(rt);
     Route_Reset(rt);
-    Sub_41e360(rt);
+    Route_LinkClipRects(rt);
     return rt;
 }
 
@@ -347,7 +347,7 @@ void DestroyCoasterRoute(CoasterRoute** slot)
     RouteNode*    n = head;
     RouteNode*    next;
 
-    Sub_41e380(rt);
+    Route_UnlinkClipRects(rt);
     do {
         next = n->next;
         Route_RemoveNode(n, rt);
@@ -363,7 +363,7 @@ void DestroyCoasterRoute(CoasterRoute** slot)
 void Route_AddNode(CoasterRoute* rt, void* piece)
 {
     g_route_pending = piece;
-    Sub_41e330(rt, RouteAddNode_Cb);
+    Route_ForEachNode(rt, RouteAddNode_Cb);
 }
 
 /* Route state bit 1: the circuit is closed. The writers (0x0041e4c0,
@@ -523,8 +523,8 @@ int RouteSystemInit(void)
 /* The three coaster train models, each fetched twice -- once through
  * 0x004206b0 and once through 0x00420710 -- into two parallel triples of
  * module globals. */
-extern void* Sub_4206b0(const char* name);              /* 0x004206b0 */
-extern void* Sub_420710(const char* name);              /* 0x00420710 */
+extern void* LoadCoasterMesh(const char* name);              /* 0x004206b0 */
+extern void* LoadCoasterMeshTex(const char* name);              /* 0x00420710 */
 extern void* g_train_head_a;                            /* 0x0082add0 */
 extern void* g_train_mid_a;                             /* 0x0082add4 */
 extern void* g_train_tail_a;                            /* 0x0082add8 */
@@ -535,12 +535,12 @@ extern void* g_train_tail_b;                            /* 0x0082ade8 */
 // FUNCTION: LEGOLAND 0x0041eb70
 void LoadCoasterTrainModels(void)
 {
-    g_train_head_a = Sub_4206b0("coastertrain.headcar");
-    g_train_mid_a  = Sub_4206b0("coastertrain.midcar");
-    g_train_tail_a = Sub_4206b0("coastertrain.tailcar");
-    g_train_head_b = Sub_420710("coastertrain.headcar");
-    g_train_mid_b  = Sub_420710("coastertrain.midcar");
-    g_train_tail_b = Sub_420710("coastertrain.tailcar");
+    g_train_head_a = LoadCoasterMesh("coastertrain.headcar");
+    g_train_mid_a  = LoadCoasterMesh("coastertrain.midcar");
+    g_train_tail_a = LoadCoasterMesh("coastertrain.tailcar");
+    g_train_head_b = LoadCoasterMeshTex("coastertrain.headcar");
+    g_train_mid_b  = LoadCoasterMeshTex("coastertrain.midcar");
+    g_train_tail_b = LoadCoasterMeshTex("coastertrain.tailcar");
 }
 
 /* ---- the track node and the castle record, as this file reaches them ----
@@ -649,7 +649,7 @@ int CountCoasterNodes(CoasterRec* r)
 }
 
 /* ---- track node geometry ---------------------------------------------- */
-extern int   Sub_41cc50(int h);                         /* 0x0041cc50 */
+extern int   JointOppositeDir(int h);                         /* 0x0041cc50 */
 extern int   JointDir_ToIndex(int h);                         /* 0x0041cca0 */
 extern int   Track_CountTailPieces(TrackNode* n);                  /* 0x0041cf00 */
 extern int   Track_CountHeadPieces(TrackNode* n);                  /* 0x0041cee0 */
@@ -664,11 +664,11 @@ int TrackNodeSlopeCode(TrackNode* n)
     int b;
 
     if (a == -1)
-        a = Sub_41cc50(n->jout.height);
+        a = JointOppositeDir(n->jout.height);
     b = JointDir_ToIndex(a);
     a = n->jout.height;
     if (a == -1)
-        a = Sub_41cc50(n->jin.height);
+        a = JointOppositeDir(n->jin.height);
     return (JointDir_ToIndex(a) << 2) | b;
 }
 
@@ -729,15 +729,15 @@ extern void* g_wheel_b;                                 /* 0x00616004 */
 // FUNCTION: LEGOLAND 0x0042a780
 void LoadCoasterWheelModel(void)
 {
-    g_wheel_a = Sub_4206b0("coastertrain.wheel01");
-    g_wheel_b = Sub_420710("coastertrain.wheel01");
+    g_wheel_a = LoadCoasterMesh("coastertrain.wheel01");
+    g_wheel_b = LoadCoasterMeshTex("coastertrain.wheel01");
 }
 
 /* ---- route ticking ----------------------------------------------------- */
-extern void Sub_41e400(CoasterRoute* rt);               /* 0x0041e400 */
-extern void Sub_41e240(CoasterRoute* rt);               /* 0x0041e240 */
+extern void Route_ClearNodeActiveFlags(CoasterRoute* rt);               /* 0x0041e400 */
+extern void Route_UpdateTimer(CoasterRoute* rt);               /* 0x0041e240 */
 extern void Route_AdvanceTrain(CoasterRoute* rt);               /* 0x0041e130 */
-extern void Sub_41e3a0(CoasterRoute* rt);               /* 0x0041e3a0 */
+extern void Route_UpdateClipRects(CoasterRoute* rt);               /* 0x0041e3a0 */
 
 /* One frame of the coaster's route. Every test re-reads rec->route because
  * the calls in between may replace it. */
@@ -746,13 +746,13 @@ void Coaster_TickRoute(CoasterRec* r)
 {
     CoasterRoute* rt = r->route;
 
-    Sub_41e400(rt);
+    Route_ClearNodeActiveFlags(rt);
     if (Route_IsClosed(r->route)) {
         if (Route_HasDeadline(r->route))
-            Sub_41e240(rt);
+            Route_UpdateTimer(rt);
         Route_AdvanceTrain(rt);
     }
-    Sub_41e3a0(rt);
+    Route_UpdateClipRects(rt);
 }
 
 /* ---- riders ------------------------------------------------------------ */
@@ -937,7 +937,7 @@ struct DrawObj {
 };
 
 extern void* Raster_SetFloatMode(void);                                  /* 0x004236f0 */
-extern void  Sub_423730(void* saved);                           /* 0x00423730 */
+extern void  Raster_RestoreFloatMode(void* saved);                           /* 0x00423730 */
 extern void  Coaster3D_BuildTrackMesh(DrawObj* o, void* b, int c, void* model, void* ctx); /* 0x00428cb0 */
 extern void  Coaster3D_DrawMesh(void* pal);                             /* 0x004234e0 */
 extern void* g_615f6c;                                          /* 0x00615f6c */
@@ -953,7 +953,7 @@ void DrawTrackEnd_Fetch(DrawObj* o, void* b, int c)
     g_615f6c = model;
     Coaster3D_BuildTrackMesh(o, b, c, model, &g_612178);
     Coaster3D_DrawMesh(&g_4b5f60);
-    Sub_423730(saved);
+    Raster_RestoreFloatMode(saved);
 }
 
 // FUNCTION: LEGOLAND 0x00428ec0
@@ -963,7 +963,7 @@ void DrawTrackEnd_Cached(DrawObj* o, void* b, int c)
 
     Coaster3D_BuildTrackMesh(o, b, c, g_615f6c, &g_612178);
     Coaster3D_DrawMesh(&g_4b5f60);
-    Sub_423730(saved);
+    Raster_RestoreFloatMode(saved);
 }
 
 /* ---- the coaster CAR pool and its dispatch tables -----------------------
@@ -1026,13 +1026,13 @@ extern void TrackCurve_LineTangent(void); /* 0x004219f0 */
 extern void TrackCurve_LinePosition(void); /* 0x004219c0 */
 extern void TrackCurve_LineOffsetMinus(void); /* 0x00421a40 */
 extern void TrackCurve_GetLimits(void); /* 0x00421a70 */
-extern void Sub_421a90(void); /* 0x00421a90 */
+extern void TrackCurve_LineUpVector(void); /* 0x00421a90 */
 extern void CoasterArc_GetPosRail0(void); /* 0x00421be0 */
 extern void TrackCurve_ArcTangent(void); /* 0x00421b90 */
 extern void TrackCurve_ArcPosition(void); /* 0x00421b40 */
 extern void CoasterArc_GetPosRail2(void); /* 0x00421c30 */
 extern void TrackCurve_GetQuarterTurnSamples(void); /* 0x00421c80 */
-extern void Sub_421cc0(void); /* 0x00421cc0 */
+extern void TrackCurve_CubicUpVector(void); /* 0x00421cc0 */
 
 // FUNCTION: LEGOLAND 0x00422210
 void CarClassTablesInit(void)
@@ -1052,7 +1052,7 @@ void CarClassTablesInit(void)
     g_car_class_vt[12] = (void*)TrackCurve_LineOffsetMinus;
     g_car_class_vt[13] = (void*)TrackCurve_LineTangent;
     g_car_class_vt[14] = (void*)TrackCurve_GetLimits;
-    g_car_class_vt[15] = (void*)Sub_421a90;
+    g_car_class_vt[15] = (void*)TrackCurve_LineUpVector;
     g_car_class_vt[16] = (void*)CoasterArc_GetPosRail0;
     g_car_class_vt[17] = (void*)TrackCurve_ArcTangent;
     g_car_class_vt[18] = (void*)TrackCurve_ArcPosition;
@@ -1060,7 +1060,7 @@ void CarClassTablesInit(void)
     g_car_class_vt[20] = (void*)CoasterArc_GetPosRail2;
     g_car_class_vt[21] = (void*)TrackCurve_ArcTangent;
     g_car_class_vt[22] = (void*)TrackCurve_GetQuarterTurnSamples;
-    g_car_class_vt[23] = (void*)Sub_421cc0;
+    g_car_class_vt[23] = (void*)TrackCurve_CubicUpVector;
 }
 
 /* ---- the 3D view state DrawTrackPiece3D arms every piece ----------------
@@ -1096,9 +1096,9 @@ extern void CoasterShades_InitClamp(void);                   /* 0x0041fd30 */
 extern void Castle_InitStationCorners(void);                   /* 0x00423d40 */
 extern void Coaster3D_InitTrackTopology(void);                   /* 0x00428f00 */
 extern void CoasterShadows_InitTemplates(void);                   /* 0x00429270 */
-extern void Sub_4294b0(void);                   /* 0x004294b0 */
+extern void Coaster_BuildSupportVertices(void);                   /* 0x004294b0 */
 extern void Coaster_GetStationStart(void);                   /* 0x00424850 */
-extern void Sub_424890(void);                   /* 0x00424890 */
+extern void Coaster_StepFreeRoute(void);                   /* 0x00424890 */
 extern void Coaster_StepStationDeparture(void);                   /* 0x00424990 */
 extern void* g_castle_hooks[3];                 /* 0x00829bec */
 
@@ -1115,7 +1115,7 @@ void CoasterGeomInit(void)
 void InstallCastleHooks(void)
 {
     g_castle_hooks[0] = (void*)Coaster_GetStationStart;
-    g_castle_hooks[1] = (void*)Sub_424890;
+    g_castle_hooks[1] = (void*)Coaster_StepFreeRoute;
     g_castle_hooks[2] = (void*)Coaster_StepStationDeparture;
     Castle_InitStationCorners();
 }
@@ -1125,7 +1125,7 @@ void CoasterSceneInit(void)
 {
     Coaster3D_InitTrackTopology();
     CoasterShadows_InitTemplates();
-    Sub_4294b0();
+    Coaster_BuildSupportVertices();
 }
 
 /* This one carries the memory module's UNOPTIMISED codegen (an ebp frame for
@@ -1287,14 +1287,14 @@ void PositionRouteCars(CoasterRoute* rt, float a, const RoutePos* at)
  *   * 0x00422640 / 0x00422620 -> 0x004d89c8, through 0x00420750
  * The 0x100-byte name buffer is the function's only local.
  * ======================================================================== */
-extern void* Sub_4207a0(void);                          /* 0x004207a0 */
-extern void  Sub_420530(const char* s);                 /* 0x00420530 */
+extern void* CoasterModel_LoadPalette(void);                          /* 0x004207a0 */
+extern void  CoasterModel_SetDirectory(const char* s);                 /* 0x00420530 */
 extern void  LoadCoasterModelSet(const char* s);                 /* 0x004226c0 */
-extern int   Sub_4225d0(void);                          /* 0x004225d0 */
+extern int   CoasterModel_GetMeshCount(void);                          /* 0x004225d0 */
 extern void  CoasterModel_GetRecordName(int i, char* name);             /* 0x004225b0 */
 extern void* LoadLmsModel(const char* name);              /* 0x00420640 */
 extern void* CoasterModel_LoadLFM(const char* name, void** out);  /* 0x004206d0 */
-extern int   Sub_422640(void);                          /* 0x00422640 */
+extern int   CoasterModel_GetPartCount(void);                          /* 0x00422640 */
 extern void  CoasterModel_FormatIndexedName(int i, char* name);             /* 0x00422620 */
 extern void* CoasterModel_LoadLTX(const char* name);              /* 0x00420750 */
 extern void* g_4d8bac;                                  /* 0x004d8bac */
@@ -1310,21 +1310,21 @@ void LoadCoasterData(void)
     int  count;
     int  i;
 
-    g_4d8bac = Sub_4207a0();
-    Sub_420530("RollerCoaster\\RollerCoaster\\CreatedData");
+    g_4d8bac = CoasterModel_LoadPalette();
+    CoasterModel_SetDirectory("RollerCoaster\\RollerCoaster\\CreatedData");
     LoadCoasterModelSet("ROLLERCOASTER");
-    Sub_420530("..\\..\\..");
-    count = Sub_4225d0();
+    CoasterModel_SetDirectory("..\\..\\..");
+    count = CoasterModel_GetMeshCount();
     for (i = 0; i < count; i++) {
         CoasterModel_GetRecordName(i, name);
         g_coaster_tab_a[i] = LoadLmsModel(name);
     }
-    count = Sub_4225d0();
+    count = CoasterModel_GetMeshCount();
     for (i = 0; i < count; i++) {
         CoasterModel_GetRecordName(i, name);
         g_coaster_tab_b[i] = CoasterModel_LoadLFM(name, &g_coaster_tab_b2[i]);
     }
-    count = Sub_422640();
+    count = CoasterModel_GetPartCount();
     for (i = 0; i < count; i++) {
         CoasterModel_FormatIndexedName(i, name);
         g_coaster_tab_c[i] = CoasterModel_LoadLTX(name);

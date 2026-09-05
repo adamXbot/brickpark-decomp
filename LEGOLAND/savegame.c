@@ -142,7 +142,7 @@
  * clears the "loading" flag @0x667ca0, sets 0x813a40 |= 0x20,
  * CalculateMapRenderOrder(), recomputes the ENTRANCE 1 render origin
  * (g_entrance_x/y @0x4b8320/24) exactly as PutObjOnMap does, then
- * sub_475f10 / sub_458bb0(1) / sub_46b760 and returns 1.
+ * RestoreCurrentMenu / SetMapReady(1) / RestoreScriptStepHelp and returns 1.
  *
  * KNOWN ORIGINAL DEFECTS, reproduced faithfully:
  *  - LoadGame leaks the descriptor when the version check fails: it returns 0
@@ -413,7 +413,7 @@ extern const char kFmtLine[];       /* 0x004bcb90 "%s\n" */
 
 /* ---- other callees ------------------------------------------------------- */
 extern int   CollectUsedTSFTables(void** out);   /* 0x0045aa50 */
-extern void  sub_474190(void);                   /* 0x00474190 */
+extern void  SaveSidePanelState(void);                   /* 0x00474190 */
 extern int   SaveScripts(void);                  /* 0x0046c920 */
 extern int   SaveReport(void);                   /* 0x00444200 */
 extern int   SaveCurrency(void);                 /* 0x00457910 */
@@ -433,8 +433,8 @@ extern void  LoadBlock8(void);                   /* 0x0049ce00 */
 extern int   LoadPathRects(void);                /* 0x00482920 */
 extern void  LoadBlock11(void);                  /* 0x00450b10 */
 extern void  ClearMapCells(void);                   /* 0x00463680 */
-extern void  sub_4741c0(void);                   /* 0x004741c0 */
-extern void  sub_474880(void);                   /* 0x00474880 */
+extern void  LoadSidePanelState(void);                   /* 0x004741c0 */
+extern void  SetInGameIconHandlers(void);                   /* 0x00474880 */
 extern int   LoadScripts(void);                  /* 0x0046cb60 */
 extern int   LoadReport(void);                   /* 0x00444260 */
 extern int   LoadCurrency(void);                 /* 0x00457940 */
@@ -445,9 +445,9 @@ extern void  AddOvSav(void* rec);                /* 0x00462b30 */
 extern void  SetBridgeDrawOffsets(const char* name); /* 0x004618d0 */
 extern void  CalculateMapRenderOrder(void);      /* 0x0045a4a0 */
 extern Cell* GetFirstObjectMatching(void* obj);  /* 0x0045a910 */
-extern void  sub_475f10(void);                   /* 0x00475f10 */
-extern void  sub_458bb0(int v);                  /* 0x00458bb0 */
-extern void  sub_46b760(void);                   /* 0x0046b760 */
+extern void  RestoreCurrentMenu(void);                   /* 0x00475f10 */
+extern void  SetMapReady(int v);                  /* 0x00458bb0 */
+extern void  RestoreScriptStepHelp(void);                   /* 0x0046b760 */
 
 /* The animation record GetBlokeAnim3DFromPerson returns. */
 typedef struct BlokeAnim3D {
@@ -694,7 +694,7 @@ int SaveGame(const char* path)
         DBError("EditMode Failed");
         goto fail;
     }
-    sub_474190();
+    SaveSidePanelState();
     if (!SaveScripts()) {
         DBError("Scripts Save Failed");
         goto fail;
@@ -1137,8 +1137,8 @@ int LoadGame(const char* path)
         goto fail;
     g_editmode[1] = 3;
     g_editmode[2] = 0;
-    sub_4741c0();
-    sub_474880();
+    LoadSidePanelState();
+    SetInGameIconHandlers();
     progress_tick();
     if (!LoadScripts())
         goto fail;
@@ -1425,13 +1425,13 @@ int LoadGame(const char* path)
             }
         }
     }
-    sub_475f10();
-    sub_458bb0(1);
+    RestoreCurrentMenu();
+    SetMapReady(1);
     g_state_810140 = 1;
     g_state_667c48 = 1;
     g_editmode[0] = 0;
     g_state_813a40 &= ~0x1000;
-    sub_46b760();
+    RestoreScriptStepHelp();
     return 1;
 
 fail:

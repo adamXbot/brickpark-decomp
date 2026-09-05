@@ -241,6 +241,24 @@ verification: the per-file boundary column is boilerplate, and the spec says
 itself that it is documentation coverage, not runtime equivalence. Original
 bugs are listed as behaviour a runtime must know about.
 
+**Extern-name hygiene (2026-09-05).** Two rename passes have resolved
+placeholder extern names (`Sub_<addr>`, `sub_<addr>`, `CB_<addr>`,
+`<Name>_<addr>`) to the names their bodies now carry — 452 earlier, 234 more
+today — each gated file re-auditing unchanged, because symbol NAMES are not
+codegen levers. **What remains is ~240 extern declarations whose name is a
+REAL name that differs from the defined name at the same address** (e.g.
+`Road_ProbeOrtho` vs `Road_CardinalGroup`, `SoundTimeMS` vs `GetTicks`,
+`SkipProgressScreen` vs `InitTutorialScreen`), spread over ~50 files, plus 29
+placeholders in files owned by running partial scopes. A wholesale rename of
+those was tried and REVERTED: it exposed same-name declarations with different
+types (`C4028`), one redefinition, and a tell-tale off-by-one chain in
+`screens3.c` where each extern's comment address appears to belong to the
+NEXT function — i.e. some of these are wrong ADDRESSES, not wrong names, and
+renaming would hide that. They need a per-file review that checks which of
+the name and the address is wrong; `docs/SCOPE_L_relocation_sweep.md`'s tool
+is the right instrument, and the list can be regenerated with the scan in the
+commit that recorded this.
+
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier
 holds ~22,000 instructions of unwritten behaviour. Grinding a residual competes

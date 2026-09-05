@@ -75,7 +75,7 @@ extern char g_cc_name[0x100];                                   /* 0x004dd760 */
 extern int __declspec(dllimport) __cdecl wsprintfA(char* out, const char* fmt, ...); /* 0x004ab298 */
 extern void ModelRecord_GetName(ModelImage* image, char* out, int index); /* 0x00422390 */
 extern TrackNode* FindTrackNodeAt(CoasterRec* rec, const unsigned int* square); /* 0x0041d060 */
-extern void Sub_42a640(NodeCursor* cursor, int mode, Vec3f* out); /* 0x0042a640 */
+extern void TrackCursor_Evaluate(NodeCursor* cursor, int mode, Vec3f* out); /* 0x0042a640 */
 extern void RouteSeat_DetachCar(RouteSeat* seat);               /* 0x004273e0 */
 extern void RouteSeat_AttachCar(RouteSeat* seat, CoasterCar* car); /* 0x004273d0 */
 extern int CoasterRider_GetSaveIndex(void* bloke);              /* 0x00426ff0 */
@@ -119,7 +119,7 @@ TrackNode* TrackRef_FindPiece(const unsigned int* ref, CoasterRec* rec)
 // FUNCTION: LEGOLAND 0x0041e930
 void RouteNode_GetTailTangent(RouteNode* node, Vec3f* out)
 {
-    Sub_42a640((NodeCursor*)((char*)node + 0x40), 2, out);
+    TrackCursor_Evaluate((NodeCursor*)((char*)node + 0x40), 2, out);
 }
 
 /* Vector-op slot 2 copies the entire 0x54-byte pool slot, not only n floats. */

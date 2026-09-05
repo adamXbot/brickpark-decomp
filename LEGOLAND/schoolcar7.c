@@ -402,7 +402,7 @@ typedef struct LmsModel {
     char*         p28;          /* +0x28 */
 } LmsModel;
 
-extern void* Sub_420550(const char* path, void** out2);         /* 0x00420550 */
+extern void* CoasterModel_LoadFile(const char* path, void** out2);         /* 0x00420550 */
 
 // FUNCTION: LEGOLAND 0x00420640
 LmsModel* LoadLmsModel(const char* name)
@@ -411,7 +411,7 @@ LmsModel* LoadLmsModel(const char* name)
     LmsModel* m;
 
     wsprintfA(buf, "%s.lms", name);
-    m = (LmsModel*)Sub_420550(buf, 0);
+    m = (LmsModel*)CoasterModel_LoadFile(buf, 0);
     if (m) {
         m->p0c = (char*)m + (int)m->p0c;
         m->p14 = (char*)m + (int)m->p14;

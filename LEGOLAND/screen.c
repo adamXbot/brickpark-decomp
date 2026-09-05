@@ -597,195 +597,195 @@ extern void Dino_AC                  ();  /* 0x00452ba0 */
 extern void Dino_InitSound           ();  /* 0x00452b70 */
 
 /* ---- per-class handlers that live in the ride translation units ------- */
-extern void CB_405370();                              /* 0x00405370 */
-extern void CB_405460();                              /* 0x00405460 */
-extern void CB_405570();                              /* 0x00405570 */
-extern void CB_405630();                              /* 0x00405630 */
-extern void CB_405740();                              /* 0x00405740 */
-extern void CB_4058a0();                              /* 0x004058a0 */
-extern void CB_405940();                              /* 0x00405940 */
-extern void CB_405ad0();                              /* 0x00405ad0 */
-extern void CB_405b10();                              /* 0x00405b10 */
-extern void CB_405bd0();                              /* 0x00405bd0 */
-extern void CB_405e70();                              /* 0x00405e70 */
-extern void CB_406050();                              /* 0x00406050 */
-extern void CB_406070();                              /* 0x00406070 */
-extern void CB_411a10();                              /* 0x00411a10 */
-extern void CB_411a20();                              /* 0x00411a20 */
-extern void CB_411bf0();                              /* 0x00411bf0 */
-extern void CB_411c70();                              /* 0x00411c70 */
-extern void CB_411cd0();                              /* 0x00411cd0 */
-extern void CB_413a10();                              /* 0x00413a10 */
-extern void CB_413a80();                              /* 0x00413a80 */
-extern void CB_413ad0();                              /* 0x00413ad0 */
-extern void CB_413b50();                              /* 0x00413b50 */
-extern void CB_413fa0();                              /* 0x00413fa0 */
-extern void CB_414020();                              /* 0x00414020 */
-extern void CB_414220();                              /* 0x00414220 */
-extern void CB_414830();                              /* 0x00414830 */
-extern void CB_414880();                              /* 0x00414880 */
-extern void CB_414940();                              /* 0x00414940 */
-extern void CB_414950();                              /* 0x00414950 */
-extern void CB_419d10();                              /* 0x00419d10 */
-extern void CB_419ef0();                              /* 0x00419ef0 */
-extern void CB_41a000();                              /* 0x0041a000 */
-extern void CB_41a040();                              /* 0x0041a040 */
-extern void CB_41a2f0();                              /* 0x0041a2f0 */
-extern void CB_41a3d0();                              /* 0x0041a3d0 */
-extern void CB_41a530();                              /* 0x0041a530 */
-extern void CB_41a720();                              /* 0x0041a720 */
-extern void CB_41abd0();                              /* 0x0041abd0 */
-extern void CB_41acf0();                              /* 0x0041acf0 */
-extern void CB_41aee0();                              /* 0x0041aee0 */
-extern void CB_41b100();                              /* 0x0041b100 */
-extern void CB_41b250();                              /* 0x0041b250 */
-extern void CB_41b260();                              /* 0x0041b260 */
-extern void CB_41b2a0();                              /* 0x0041b2a0 */
-extern void CB_41b4c0();                              /* 0x0041b4c0 */
-extern void CB_41b6d0();                              /* 0x0041b6d0 */
-extern void CB_41b6f0();                              /* 0x0041b6f0 */
-extern void CB_41b830();                              /* 0x0041b830 */
-extern void CB_41b880();                              /* 0x0041b880 */
-extern void CB_41b8e0();                              /* 0x0041b8e0 */
-extern void CB_41bd40();                              /* 0x0041bd40 */
-extern void CB_41bfb0();                              /* 0x0041bfb0 */
-extern void CB_41c130();                              /* 0x0041c130 */
-extern void CB_42a7b0();                              /* 0x0042a7b0 */
-extern void CB_42a950();                              /* 0x0042a950 */
-extern void CB_42aa10();                              /* 0x0042aa10 */
-extern void CB_42aa90();                              /* 0x0042aa90 */
-extern void CB_42b2a0();                              /* 0x0042b2a0 */
-extern void CB_42b2e0();                              /* 0x0042b2e0 */
-extern void CB_42b9d0();                              /* 0x0042b9d0 */
-extern void CB_42ba40();                              /* 0x0042ba40 */
-extern void CB_42ba80();                              /* 0x0042ba80 */
-extern void CB_42baf0();                              /* 0x0042baf0 */
-extern void CB_42bcf0();                              /* 0x0042bcf0 */
-extern void CB_42c280();                              /* 0x0042c280 */
-extern void CB_42c3f0();                              /* 0x0042c3f0 */
-extern void CB_42c460();                              /* 0x0042c460 */
-extern void CB_42c4a0();                              /* 0x0042c4a0 */
-extern void CB_42c520();                              /* 0x0042c520 */
-extern void CB_42c550();                              /* 0x0042c550 */
-extern void CB_42c590();                              /* 0x0042c590 */
-extern void CB_42c600();                              /* 0x0042c600 */
-extern void CB_42c820();                              /* 0x0042c820 */
-extern void CB_42d070();                              /* 0x0042d070 */
-extern void CB_42d100();                              /* 0x0042d100 */
-extern void CB_42d1f0();                              /* 0x0042d1f0 */
-extern void CB_42d230();                              /* 0x0042d230 */
-extern void CB_42d270();                              /* 0x0042d270 */
-extern void CB_42d2c0();                              /* 0x0042d2c0 */
-extern void CB_42d2f0();                              /* 0x0042d2f0 */
-extern void CB_42d400();                              /* 0x0042d400 */
-extern void CB_42d610();                              /* 0x0042d610 */
-extern void CB_42d9c0();                              /* 0x0042d9c0 */
-extern void CB_42de50();                              /* 0x0042de50 */
-extern void CB_42def0();                              /* 0x0042def0 */
-extern void CB_42df70();                              /* 0x0042df70 */
-extern void CB_42dfa0();                              /* 0x0042dfa0 */
-extern void CB_42e220();                              /* 0x0042e220 */
-extern void CB_42e250();                              /* 0x0042e250 */
-extern void CB_42e260();                              /* 0x0042e260 */
-extern void CB_42e2a0();                              /* 0x0042e2a0 */
-extern void CB_42e460();                              /* 0x0042e460 */
-extern void CB_42e4b0();                              /* 0x0042e4b0 */
-extern void CB_42e4c0();                              /* 0x0042e4c0 */
-extern void CB_42e500();                              /* 0x0042e500 */
-extern void CB_42e560();                              /* 0x0042e560 */
-extern void CB_42e5d0();                              /* 0x0042e5d0 */
-extern void CB_42e600();                              /* 0x0042e600 */
-extern void CB_42e610();                              /* 0x0042e610 */
-extern void CB_42e770();                              /* 0x0042e770 */
-extern void CB_42e7a0();                              /* 0x0042e7a0 */
-extern void CB_42e7b0();                              /* 0x0042e7b0 */
-extern void CB_42e7e0();                              /* 0x0042e7e0 */
-extern void CB_42e7f0();                              /* 0x0042e7f0 */
-extern void CB_42e820();                              /* 0x0042e820 */
-extern void CB_42e830();                              /* 0x0042e830 */
-extern void CB_42e870();                              /* 0x0042e870 */
-extern void CB_42e8b0();                              /* 0x0042e8b0 */
-extern void CB_42e8d0();                              /* 0x0042e8d0 */
-extern void CB_42e910();                              /* 0x0042e910 */
-extern void CB_42e9c0();                              /* 0x0042e9c0 */
-extern void CB_42ea10();                              /* 0x0042ea10 */
-extern void CB_42ea60();                              /* 0x0042ea60 */
-extern void CB_42ec10();                              /* 0x0042ec10 */
-extern void CB_42ed70();                              /* 0x0042ed70 */
-extern void CB_42ef10();                              /* 0x0042ef10 */
-extern void CB_42efb0();                              /* 0x0042efb0 */
-extern void CB_42f030();                              /* 0x0042f030 */
-extern void CB_42f1a0();                              /* 0x0042f1a0 */
-extern void CB_42f4c0();                              /* 0x0042f4c0 */
-extern void CB_42f720();                              /* 0x0042f720 */
-extern void CB_42f770();                              /* 0x0042f770 */
-extern void CB_42f9a0();                              /* 0x0042f9a0 */
-extern void CB_42fa40();                              /* 0x0042fa40 */
-extern void CB_42fbb0();                              /* 0x0042fbb0 */
-extern void CB_4304a0();                              /* 0x004304a0 */
-extern void CB_430b10();                              /* 0x00430b10 */
-extern void CB_431120();                              /* 0x00431120 */
-extern void CB_431170();                              /* 0x00431170 */
-extern void CB_4312c0();                              /* 0x004312c0 */
-extern void CB_431300();                              /* 0x00431300 */
-extern void CB_4314f0();                              /* 0x004314f0 */
-extern void CB_431520();                              /* 0x00431520 */
-extern void CB_4316f0();                              /* 0x004316f0 */
-extern void CB_431d00();                              /* 0x00431d00 */
-extern void CB_4322a0();                              /* 0x004322a0 */
-extern void CB_432310();                              /* 0x00432310 */
-extern void CB_432390();                              /* 0x00432390 */
-extern void CB_432400();                              /* 0x00432400 */
-extern void CB_433ca0();                              /* 0x00433ca0 */
-extern void CB_433cd0();                              /* 0x00433cd0 */
-extern void CB_433ce0();                              /* 0x00433ce0 */
-extern void CB_433d20();                              /* 0x00433d20 */
-extern void CB_433d90();                              /* 0x00433d90 */
-extern void CB_433fa0();                              /* 0x00433fa0 */
-extern void CB_433fc0();                              /* 0x00433fc0 */
-extern void CB_434040();                              /* 0x00434040 */
-extern void CB_434080();                              /* 0x00434080 */
-extern void CB_4340b0();                              /* 0x004340b0 */
-extern void CB_4340c0();                              /* 0x004340c0 */
-extern void CB_434100();                              /* 0x00434100 */
-extern void CB_434330();                              /* 0x00434330 */
-extern void CB_434650();                              /* 0x00434650 */
-extern void CB_434670();                              /* 0x00434670 */
-extern void CB_434740();                              /* 0x00434740 */
-extern void CB_434cb0();                              /* 0x00434cb0 */
-extern void CB_434e50();                              /* 0x00434e50 */
-extern void CB_434f50();                              /* 0x00434f50 */
-extern void CB_434f90();                              /* 0x00434f90 */
-extern void CB_435150();                              /* 0x00435150 */
-extern void CB_435230();                              /* 0x00435230 */
-extern void CB_435470();                              /* 0x00435470 */
-extern void CB_435750();                              /* 0x00435750 */
-extern void CB_435bd0();                              /* 0x00435bd0 */
-extern void CB_435c70();                              /* 0x00435c70 */
-extern void CB_435ec0();                              /* 0x00435ec0 */
-extern void CB_436160();                              /* 0x00436160 */
-extern void CB_436190();                              /* 0x00436190 */
-extern void CB_4361a0();                              /* 0x004361a0 */
-extern void CB_436200();                              /* 0x00436200 */
-extern void CB_436470();                              /* 0x00436470 */
-extern void CB_4365f0();                              /* 0x004365f0 */
-extern void CB_436a40();                              /* 0x00436a40 */
-extern void CB_43ce60();                              /* 0x0043ce60 */
-extern void CB_43ceb0();                              /* 0x0043ceb0 */
-extern void CB_43ced0();                              /* 0x0043ced0 */
-extern void CB_43cf00();                              /* 0x0043cf00 */
-extern void CB_43d0b0();                              /* 0x0043d0b0 */
-extern void CB_43d1c0();                              /* 0x0043d1c0 */
-extern void CB_43d1d0();                              /* 0x0043d1d0 */
-extern void CB_43d210();                              /* 0x0043d210 */
-extern void CB_43d250();                              /* 0x0043d250 */
-extern void CB_43d2a0();                              /* 0x0043d2a0 */
-extern void CB_43d2c0();                              /* 0x0043d2c0 */
-extern void CB_43d2f0();                              /* 0x0043d2f0 */
-extern void CB_43d580();                              /* 0x0043d580 */
-extern void CB_43d730();                              /* 0x0043d730 */
-extern void CB_43d740();                              /* 0x0043d740 */
-extern void CB_43d780();                              /* 0x0043d780 */
+extern void DrivingSchool_Create();                              /* 0x00405370 */
+extern void DrivingSchool_Destroy();                              /* 0x00405460 */
+extern void DrivingSchool_SelectForPlacement();                              /* 0x00405570 */
+extern void DrivingSchool_Add();                              /* 0x00405630 */
+extern void DrivingSchool_Update();                              /* 0x00405740 */
+extern void DrivingSchool_DrawSelection();                              /* 0x004058a0 */
+extern void DrivingSchool_Remove();                              /* 0x00405940 */
+extern void DrivingSchool_GetDrawDesc();                              /* 0x00405ad0 */
+extern void DrivingSchool_Draw();                              /* 0x00405b10 */
+extern void DrivingSchool_TickRiders();                              /* 0x00405bd0 */
+extern void SaveDrivingSchool();                              /* 0x00405e70 */
+extern void DrivingSchool_BestTake();                              /* 0x00406050 */
+extern void LoadDrivingSchool();                              /* 0x00406070 */
+extern void Pump_LoadResources();                              /* 0x00411a10 */
+extern void Pump_SelectForPlacement();                              /* 0x00411a20 */
+extern void Pump_Add();                              /* 0x00411bf0 */
+extern void Pumps_Remove();                              /* 0x00411c70 */
+extern void Pump_Update();                              /* 0x00411cd0 */
+extern void Roads_LoadResources();                              /* 0x00413a10 */
+extern void Roads_FreeResources();                              /* 0x00413a80 */
+extern void Roads_SelectForPlacement();                              /* 0x00413ad0 */
+extern void Roads_CalcCursor();                              /* 0x00413b50 */
+extern void Road_DrawSelection();                              /* 0x00413fa0 */
+extern void Roads_Add();                              /* 0x00414020 */
+extern void Roads_Remove();                              /* 0x00414220 */
+extern void ZebraCrossing_SelectForPlacement();                              /* 0x00414830 */
+extern void ZebraCrossing_Update();                              /* 0x00414880 */
+extern void ZebraCrossing_LoadResources();                              /* 0x00414940 */
+extern void ZebraCrossing_Add();                              /* 0x00414950 */
+extern void BoatingSchool_Create();                              /* 0x00419d10 */
+extern void BoatingSchool_Destroy();                              /* 0x00419ef0 */
+extern void BoatingSchool_SelectForPlacement();                              /* 0x0041a000 */
+extern void BoatingSchool_Add();                              /* 0x0041a040 */
+extern void BoatingSchool_Update();                              /* 0x0041a2f0 */
+extern void BoatingSchool_DrawSelection();                              /* 0x0041a3d0 */
+extern void BoatingSchool_Remove();                              /* 0x0041a530 */
+extern void BoatingSchool_Tick();                              /* 0x0041a720 */
+extern void BoatingSchool_Draw();                              /* 0x0041abd0 */
+extern void SaveBoatingSchool();                              /* 0x0041acf0 */
+extern void LoadBoatingSchool();                              /* 0x0041aee0 */
+extern void BoatingSchool_BestTake();                              /* 0x0041b100 */
+extern void Mermaid_LoadResources();                              /* 0x0041b250 */
+extern void Mermaid_SelectForPlacement();                              /* 0x0041b260 */
+extern void Mermaid_Add();                              /* 0x0041b2a0 */
+extern void Mermaid_CalcCursor();                              /* 0x0041b4c0 */
+extern void Mermaid_CalcCursor2();                              /* 0x0041b6d0 */
+extern void BsMermaid_Remove();                              /* 0x0041b6f0 */
+extern void BsWater_LoadResources();                              /* 0x0041b830 */
+extern void BsWater_SelectForPlacement();                              /* 0x0041b880 */
+extern void BsWater_Add();                              /* 0x0041b8e0 */
+extern void BsWater_CalcCursor();                              /* 0x0041bd40 */
+extern void BsWater_DrawSelection();                              /* 0x0041bfb0 */
+extern void BoatingSchoolWater_Remove();                              /* 0x0041c130 */
+extern void Balloonz_Create();                              /* 0x0042a7b0 */
+extern void Balloonz_Add();                              /* 0x0042a950 */
+extern void Balloonz_Remove();                              /* 0x0042aa10 */
+extern void Balloonz_Tick();                              /* 0x0042aa90 */
+extern void Balloonz_GetDrawDesc();                              /* 0x0042b2a0 */
+extern void Balloonz_Draw();                              /* 0x0042b2e0 */
+extern void Balloonz_Destroy();                              /* 0x0042b9d0 */
+extern void Balloonz_SelectForPlacement();                              /* 0x0042ba40 */
+extern void Balloonz_Save();                              /* 0x0042ba80 */
+extern void Balloonz_Load();                              /* 0x0042baf0 */
+extern void Carousel_Draw();                              /* 0x0042bcf0 */
+extern void Carousel_Create();                              /* 0x0042c280 */
+extern void Carousel_Destroy();                              /* 0x0042c3f0 */
+extern void Carousel_SelectForPlacement();                              /* 0x0042c460 */
+extern void Carousel_Remove();                              /* 0x0042c4a0 */
+extern void Carousel_Add();                              /* 0x0042c520 */
+extern void Carousel_GetDrawDesc();                              /* 0x0042c550 */
+extern void Carousel_Save();                              /* 0x0042c590 */
+extern void Carousel_Load();                              /* 0x0042c600 */
+extern void Carousel_Tick();                              /* 0x0042c820 */
+extern void EarthSlide_Draw();                              /* 0x0042d070 */
+extern void EarthSlide_Create();                              /* 0x0042d100 */
+extern void EarthSlide_FreeResources();                              /* 0x0042d1f0 */
+extern void EarthSlide_SelectForPlacement();                              /* 0x0042d230 */
+extern void EarthSlide_Remove();                              /* 0x0042d270 */
+extern void EarthSlide_Add();                              /* 0x0042d2c0 */
+extern void EarthSlide_Save();                              /* 0x0042d2f0 */
+extern void EarthSlide_Load();                              /* 0x0042d400 */
+extern void EarthSlide_Tick();                              /* 0x0042d610 */
+extern void Entrance1_Draw();                              /* 0x0042d9c0 */
+extern void Entrance1_Create();                              /* 0x0042de50 */
+extern void Entrance1_Destroy();                              /* 0x0042def0 */
+extern void Entrance1_Remove();                              /* 0x0042df70 */
+extern void Entrance1_Tick();                              /* 0x0042dfa0 */
+extern void ChuckWagon_LoadResources();                              /* 0x0042e220 */
+extern void ChuckWagon_FreeResources();                              /* 0x0042e250 */
+extern void ChuckWagon_DrawOverlay();                              /* 0x0042e260 */
+extern void ChuckWagon_TickCustomers();                              /* 0x0042e2a0 */
+extern void Brolly_LoadResources();                              /* 0x0042e460 */
+extern void Brolly_FreeResources();                              /* 0x0042e4b0 */
+extern void Brolly_SelectForPlacement();                              /* 0x0042e4c0 */
+extern void Brolly_Add();                              /* 0x0042e500 */
+extern void Brolly_GetDrawDesc();                              /* 0x0042e560 */
+extern void SharkCafe_LoadResources();                              /* 0x0042e5d0 */
+extern void SharkCafe_FreeResources();                              /* 0x0042e600 */
+extern void SharkCafe_Tick();                              /* 0x0042e610 */
+extern void FoodcartDrink_LoadResources();                              /* 0x0042e770 */
+extern void FoodcartDrink_FreeResources();                              /* 0x0042e7a0 */
+extern void FoodcartIcecream_LoadResources();                              /* 0x0042e7b0 */
+extern void FoodcartIcecream_FreeResources();                              /* 0x0042e7e0 */
+extern void FoodcartFood_LoadResources();                              /* 0x0042e7f0 */
+extern void FoodcartFood_FreeResources();                              /* 0x0042e820 */
+extern void Foodcart_DrawOverlay();                              /* 0x0042e830 */
+extern void CastleBbq_LoadResources();                              /* 0x0042e870 */
+extern void CastleBbq_FreeResources();                              /* 0x0042e8b0 */
+extern void Food_SelectForPlacement();                              /* 0x0042e8d0 */
+extern void CastleBbq_Draw();                              /* 0x0042e910 */
+extern void CastleBbq_Add();                              /* 0x0042e9c0 */
+extern void CastleBbq_Remove();                              /* 0x0042ea10 */
+extern void CastleBbq_Tick();                              /* 0x0042ea60 */
+extern void FoodcartDrink_Tick();                              /* 0x0042ec10 */
+extern void FoodcartFood_Tick();                              /* 0x0042ed70 */
+extern void Restaurant1_Add();                              /* 0x0042ef10 */
+extern void Restaurant1_Remove();                              /* 0x0042efb0 */
+extern void Restaurant1_Create();                              /* 0x0042f030 */
+extern void Restaurant1_Tick();                              /* 0x0042f1a0 */
+extern void Restaurant1_Draw();                              /* 0x0042f4c0 */
+extern void Restaurant1_FreeResources();                              /* 0x0042f720 */
+extern void Restaurant2_Create();                              /* 0x0042f770 */
+extern void Restaurant2_Add();                              /* 0x0042f9a0 */
+extern void Restaurant2_Remove();                              /* 0x0042fa40 */
+extern void Restaurant2_Tick();                              /* 0x0042fbb0 */
+extern void Restaurant2_GetDrawDesc();                              /* 0x004304a0 */
+extern void Restaurant2_Draw();                              /* 0x00430b10 */
+extern void Restaurant2_Destroy();                              /* 0x00431120 */
+extern void FoodcartIcecream_Tick();                              /* 0x00431170 */
+extern void FoodService_Remove();                              /* 0x004312c0 */
+extern void OctopusCafe_Create();                              /* 0x00431300 */
+extern void OctopusCafe_Add();                              /* 0x004314f0 */
+extern void OctopusCafe_Destroy();                              /* 0x00431520 */
+extern void OctopusCafe_Tick();                              /* 0x004316f0 */
+extern void OctopusCafe_Draw();                              /* 0x00431d00 */
+extern void Restaurant1_Save();                              /* 0x004322a0 */
+extern void Restaurant1_Load();                              /* 0x00432310 */
+extern void Restaurant2_Save();                              /* 0x00432390 */
+extern void Restaurant2_Load();                              /* 0x00432400 */
+extern void JcMonkeyTree_Create();                              /* 0x00433ca0 */
+extern void JungleCruiseMonkeyTree_Destroy();                              /* 0x00433cd0 */
+extern void JcMonkeyTree_SelectForPlacement();                              /* 0x00433ce0 */
+extern void MonkeyTree_Add();                              /* 0x00433d20 */
+extern void MonkeyTree_CalcCursor();                              /* 0x00433d90 */
+extern void JungleCruiseMonkeyTree_DrawSelection();                              /* 0x00433fa0 */
+extern void MonkeyTree_Remove();                              /* 0x00433fc0 */
+extern void JcMonkeyTree_GetDrawDesc();                              /* 0x00434040 */
+extern void JcMonkeyFish_Create();                              /* 0x00434080 */
+extern void JungleCruiseMonkeyFish_Destroy();                              /* 0x004340b0 */
+extern void JcMonkeyFish_SelectForPlacement();                              /* 0x004340c0 */
+extern void MonkeyFish_Add();                              /* 0x00434100 */
+extern void MonkeyFish_CalcCursor();                              /* 0x00434330 */
+extern void JungleCruiseMonkeyFish_DrawSelection();                              /* 0x00434650 */
+extern void MonkeyFish_Remove();                              /* 0x00434670 */
+extern void JcMonkeyFish_GetDrawDesc();                              /* 0x00434740 */
+extern void JungleCruise_Create();                              /* 0x00434cb0 */
+extern void JungleCruise_Destroy();                              /* 0x00434e50 */
+extern void JungleCruise_SelectForPlacement();                              /* 0x00434f50 */
+extern void JungleCruise_Add();                              /* 0x00434f90 */
+extern void JungleCruise_Update();                              /* 0x00435150 */
+extern void JungleCruise_DrawSelection();                              /* 0x00435230 */
+extern void JungleCruise_Remove();                              /* 0x00435470 */
+extern void JungleCruise_Tick();                              /* 0x00435750 */
+extern void JungleCruise_Draw();                              /* 0x00435bd0 */
+extern void SaveJungleCruise();                              /* 0x00435c70 */
+extern void LoadJungleCruise();                              /* 0x00435ec0 */
+extern void JungleCruise_BestValue();                              /* 0x00436160 */
+extern void JungleCruiseWater_Create();                              /* 0x00436190 */
+extern void JcWater_SelectForPlacement();                              /* 0x004361a0 */
+extern void JcWater_CalcCursor();                              /* 0x00436200 */
+extern void JcWater_DrawSelection();                              /* 0x00436470 */
+extern void JcWater_Add();                              /* 0x004365f0 */
+extern void JungleCruiseWater_Remove();                              /* 0x00436a40 */
+extern void PottingShed_Create();                              /* 0x0043ce60 */
+extern void PottingShed_Add();                              /* 0x0043ceb0 */
+extern void PottingShed_Remove();                              /* 0x0043ced0 */
+extern void PottingShed_Tick();                              /* 0x0043cf00 */
+extern void PottingShed_Draw();                              /* 0x0043d0b0 */
+extern void PottingShed_Destroy();                              /* 0x0043d1c0 */
+extern void PottingShed_Select();                              /* 0x0043d1d0 */
+extern void PottingShed_GetDrawDesc();                              /* 0x0043d210 */
+extern void MechanicsHut_Create();                              /* 0x0043d250 */
+extern void MechanicsHut_Add();                              /* 0x0043d2a0 */
+extern void MechanicsHut_Remove();                              /* 0x0043d2c0 */
+extern void MechanicsHut_Tick();                              /* 0x0043d2f0 */
+extern void MechanicsHut_Draw();                              /* 0x0043d580 */
+extern void MechanicsHut_Destroy();                              /* 0x0043d730 */
+extern void MechanicsHut_Select();                              /* 0x0043d740 */
+extern void MechanicsHut_GetDrawDesc();                              /* 0x0043d780 */
 
 /* class-name -> callback-set table */
 static const char kPathControl[]                 = "PATH CONTROL";
@@ -859,239 +859,239 @@ void SetCustomCallbacks(RideElem* elem)
         def->cb_ac = Dino_AC;
         Dino_InitSound(elem);
     } else if (NameCompare(kDrivingSchoolPumps, elem->name) == 0) {
-        def->cb_a4 = CB_411a10;
-        def->cb_8c = CB_411a20;
-        def->cb_90 = CB_411cd0;
-        def->cb_add = CB_411bf0;
-        def->cb_remove = CB_411c70;
+        def->cb_a4 = Pump_LoadResources;
+        def->cb_8c = Pump_SelectForPlacement;
+        def->cb_90 = Pump_Update;
+        def->cb_add = Pump_Add;
+        def->cb_remove = Pumps_Remove;
     } else if (NameCompare(kDrivingSchool, elem->name) == 0) {
-        def->cb_a4 = CB_405370;
-        def->cb_8c = CB_405570;
-        def->cb_90 = CB_405740;
-        def->cb_94 = CB_4058a0;
-        def->cb_add = CB_405630;
-        def->cb_remove = CB_405940;
-        def->cb_a8 = CB_405bd0;
-        def->cb_a0 = CB_405ad0;
-        def->cb_b0 = CB_405b10;
-        def->cb_save = CB_405e70;
-        def->cb_load = CB_406070;
-        def->cb_ac = CB_405460;
-        def->cb_c0 = CB_406050;
+        def->cb_a4 = DrivingSchool_Create;
+        def->cb_8c = DrivingSchool_SelectForPlacement;
+        def->cb_90 = DrivingSchool_Update;
+        def->cb_94 = DrivingSchool_DrawSelection;
+        def->cb_add = DrivingSchool_Add;
+        def->cb_remove = DrivingSchool_Remove;
+        def->cb_a8 = DrivingSchool_TickRiders;
+        def->cb_a0 = DrivingSchool_GetDrawDesc;
+        def->cb_b0 = DrivingSchool_Draw;
+        def->cb_save = SaveDrivingSchool;
+        def->cb_load = LoadDrivingSchool;
+        def->cb_ac = DrivingSchool_Destroy;
+        def->cb_c0 = DrivingSchool_BestTake;
     } else if (NameCompare(kDrivingSchoolRoads, elem->name) == 0) {
-        def->cb_a4 = CB_413a10;
-        def->cb_ac = CB_413a80;
-        def->cb_8c = CB_413ad0;
-        def->cb_90 = CB_413b50;
-        def->cb_94 = CB_413fa0;
-        def->cb_add = CB_414020;
-        def->cb_remove = CB_414220;
+        def->cb_a4 = Roads_LoadResources;
+        def->cb_ac = Roads_FreeResources;
+        def->cb_8c = Roads_SelectForPlacement;
+        def->cb_90 = Roads_CalcCursor;
+        def->cb_94 = Road_DrawSelection;
+        def->cb_add = Roads_Add;
+        def->cb_remove = Roads_Remove;
     } else if (NameCompare(kZebraCrossing, elem->name) == 0) {
-        def->cb_a4 = CB_414940;
-        def->cb_8c = CB_414830;
-        def->cb_90 = CB_414880;
-        def->cb_94 = CB_413fa0;
-        def->cb_add = CB_414950;
-        def->cb_remove = CB_414220;
+        def->cb_a4 = ZebraCrossing_LoadResources;
+        def->cb_8c = ZebraCrossing_SelectForPlacement;
+        def->cb_90 = ZebraCrossing_Update;
+        def->cb_94 = Road_DrawSelection;
+        def->cb_add = ZebraCrossing_Add;
+        def->cb_remove = Roads_Remove;
     } else if (NameCompare(kEntrance1, elem->name) == 0) {
-        def->cb_a4 = CB_42de50;
-        def->cb_ac = CB_42def0;
-        def->cb_a8 = CB_42dfa0;
-        def->cb_b0 = CB_42d9c0;
-        def->cb_remove = CB_42df70;
+        def->cb_a4 = Entrance1_Create;
+        def->cb_ac = Entrance1_Destroy;
+        def->cb_a8 = Entrance1_Tick;
+        def->cb_b0 = Entrance1_Draw;
+        def->cb_remove = Entrance1_Remove;
     } else if (NameCompare(kPottingShed, elem->name) == 0) {
-        def->cb_a4 = CB_43ce60;
-        def->cb_8c = CB_43d1d0;
-        def->cb_add = CB_43ceb0;
-        def->cb_remove = CB_43ced0;
-        def->cb_a8 = CB_43cf00;
-        def->cb_b0 = CB_43d0b0;
-        def->cb_ac = CB_43d1c0;
-        def->cb_a0 = CB_43d210;
+        def->cb_a4 = PottingShed_Create;
+        def->cb_8c = PottingShed_Select;
+        def->cb_add = PottingShed_Add;
+        def->cb_remove = PottingShed_Remove;
+        def->cb_a8 = PottingShed_Tick;
+        def->cb_b0 = PottingShed_Draw;
+        def->cb_ac = PottingShed_Destroy;
+        def->cb_a0 = PottingShed_GetDrawDesc;
     } else if (NameCompare(kMechanicsHut, elem->name) == 0) {
-        def->cb_a4 = CB_43d250;
-        def->cb_8c = CB_43d740;
-        def->cb_add = CB_43d2a0;
-        def->cb_remove = CB_43d2c0;
-        def->cb_a8 = CB_43d2f0;
-        def->cb_b0 = CB_43d580;
-        def->cb_ac = CB_43d730;
-        def->cb_a0 = CB_43d780;
+        def->cb_a4 = MechanicsHut_Create;
+        def->cb_8c = MechanicsHut_Select;
+        def->cb_add = MechanicsHut_Add;
+        def->cb_remove = MechanicsHut_Remove;
+        def->cb_a8 = MechanicsHut_Tick;
+        def->cb_b0 = MechanicsHut_Draw;
+        def->cb_ac = MechanicsHut_Destroy;
+        def->cb_a0 = MechanicsHut_GetDrawDesc;
     } else if (NameCompare(kCarousel, elem->name) == 0) {
-        def->cb_a4 = CB_42c280;
-        def->cb_ac = CB_42c3f0;
-        def->cb_8c = CB_42c460;
-        def->cb_a8 = CB_42c820;
-        def->cb_b0 = CB_42bcf0;
-        def->cb_remove = CB_42c4a0;
-        def->cb_add = CB_42c520;
-        def->cb_a0 = CB_42c550;
-        def->cb_load = CB_42c600;
-        def->cb_save = CB_42c590;
+        def->cb_a4 = Carousel_Create;
+        def->cb_ac = Carousel_Destroy;
+        def->cb_8c = Carousel_SelectForPlacement;
+        def->cb_a8 = Carousel_Tick;
+        def->cb_b0 = Carousel_Draw;
+        def->cb_remove = Carousel_Remove;
+        def->cb_add = Carousel_Add;
+        def->cb_a0 = Carousel_GetDrawDesc;
+        def->cb_load = Carousel_Load;
+        def->cb_save = Carousel_Save;
     } else if (NameCompare(kBalloonz, elem->name) == 0) {
-        def->cb_a4 = CB_42a7b0;
-        def->cb_8c = CB_42ba40;
-        def->cb_add = CB_42a950;
-        def->cb_remove = CB_42aa10;
-        def->cb_a8 = CB_42aa90;
-        def->cb_b0 = CB_42b2e0;
-        def->cb_ac = CB_42b9d0;
-        def->cb_a0 = CB_42b2a0;
-        def->cb_save = CB_42ba80;
-        def->cb_load = CB_42baf0;
+        def->cb_a4 = Balloonz_Create;
+        def->cb_8c = Balloonz_SelectForPlacement;
+        def->cb_add = Balloonz_Add;
+        def->cb_remove = Balloonz_Remove;
+        def->cb_a8 = Balloonz_Tick;
+        def->cb_b0 = Balloonz_Draw;
+        def->cb_ac = Balloonz_Destroy;
+        def->cb_a0 = Balloonz_GetDrawDesc;
+        def->cb_save = Balloonz_Save;
+        def->cb_load = Balloonz_Load;
     } else if (NameCompare(kEarthSlideRide, elem->name) == 0) {
-        def->cb_a4 = CB_42d100;
-        def->cb_ac = CB_42d1f0;
-        def->cb_8c = CB_42d230;
-        def->cb_a8 = CB_42d610;
-        def->cb_b0 = CB_42d070;
-        def->cb_remove = CB_42d270;
-        def->cb_add = CB_42d2c0;
-        def->cb_save = CB_42d2f0;
-        def->cb_load = CB_42d400;
+        def->cb_a4 = EarthSlide_Create;
+        def->cb_ac = EarthSlide_FreeResources;
+        def->cb_8c = EarthSlide_SelectForPlacement;
+        def->cb_a8 = EarthSlide_Tick;
+        def->cb_b0 = EarthSlide_Draw;
+        def->cb_remove = EarthSlide_Remove;
+        def->cb_add = EarthSlide_Add;
+        def->cb_save = EarthSlide_Save;
+        def->cb_load = EarthSlide_Load;
     } else if (NameCompare(kCastleBbq, elem->name) == 0) {
-        def->cb_a4 = CB_42e870;
-        def->cb_ac = CB_42e8b0;
-        def->cb_8c = CB_42e8d0;
-        def->cb_a8 = CB_42ea60;
-        def->cb_b0 = CB_42e910;
-        def->cb_add = CB_42e9c0;
-        def->cb_remove = CB_42ea10;
+        def->cb_a4 = CastleBbq_LoadResources;
+        def->cb_ac = CastleBbq_FreeResources;
+        def->cb_8c = Food_SelectForPlacement;
+        def->cb_a8 = CastleBbq_Tick;
+        def->cb_b0 = CastleBbq_Draw;
+        def->cb_add = CastleBbq_Add;
+        def->cb_remove = CastleBbq_Remove;
     } else if (NameCompare(kFoodcartDrink, elem->name) == 0) {
-        def->cb_a4 = CB_42e770;
-        def->cb_ac = CB_42e7a0;
-        def->cb_8c = CB_42e8d0;
-        def->cb_a8 = CB_42ec10;
-        def->cb_remove = CB_4312c0;
-        def->cb_b0 = CB_42e830;
+        def->cb_a4 = FoodcartDrink_LoadResources;
+        def->cb_ac = FoodcartDrink_FreeResources;
+        def->cb_8c = Food_SelectForPlacement;
+        def->cb_a8 = FoodcartDrink_Tick;
+        def->cb_remove = FoodService_Remove;
+        def->cb_b0 = Foodcart_DrawOverlay;
     } else if (NameCompare(kFoodcartFood, elem->name) == 0) {
-        def->cb_a4 = CB_42e7f0;
-        def->cb_ac = CB_42e820;
-        def->cb_8c = CB_42e8d0;
-        def->cb_a8 = CB_42ed70;
-        def->cb_remove = CB_4312c0;
-        def->cb_b0 = CB_42e830;
+        def->cb_a4 = FoodcartFood_LoadResources;
+        def->cb_ac = FoodcartFood_FreeResources;
+        def->cb_8c = Food_SelectForPlacement;
+        def->cb_a8 = FoodcartFood_Tick;
+        def->cb_remove = FoodService_Remove;
+        def->cb_b0 = Foodcart_DrawOverlay;
     } else if (NameCompare(kFoodcartIcecream, elem->name) == 0) {
-        def->cb_a4 = CB_42e7b0;
-        def->cb_ac = CB_42e7e0;
-        def->cb_8c = CB_42e8d0;
-        def->cb_a8 = CB_431170;
-        def->cb_remove = CB_4312c0;
-        def->cb_b0 = CB_42e830;
+        def->cb_a4 = FoodcartIcecream_LoadResources;
+        def->cb_ac = FoodcartIcecream_FreeResources;
+        def->cb_8c = Food_SelectForPlacement;
+        def->cb_a8 = FoodcartIcecream_Tick;
+        def->cb_remove = FoodService_Remove;
+        def->cb_b0 = Foodcart_DrawOverlay;
     } else if (NameCompare(kOctopusCafe, elem->name) == 0) {
-        def->cb_a4 = CB_431300;
-        def->cb_add = CB_4314f0;
-        def->cb_8c = CB_42e8d0;
-        def->cb_a8 = CB_4316f0;
-        def->cb_remove = CB_4312c0;
-        def->cb_b0 = CB_431d00;
-        def->cb_ac = CB_431520;
+        def->cb_a4 = OctopusCafe_Create;
+        def->cb_add = OctopusCafe_Add;
+        def->cb_8c = Food_SelectForPlacement;
+        def->cb_a8 = OctopusCafe_Tick;
+        def->cb_remove = FoodService_Remove;
+        def->cb_b0 = OctopusCafe_Draw;
+        def->cb_ac = OctopusCafe_Destroy;
     } else if (NameCompare(kRestaurant1, elem->name) == 0) {
-        def->cb_a4 = CB_42f030;
-        def->cb_8c = CB_42e8d0;
-        def->cb_a8 = CB_42f1a0;
-        def->cb_add = CB_42ef10;
-        def->cb_remove = CB_42efb0;
-        def->cb_ac = CB_42f720;
-        def->cb_b0 = CB_42f4c0;
-        def->cb_save = CB_4322a0;
-        def->cb_load = CB_432310;
+        def->cb_a4 = Restaurant1_Create;
+        def->cb_8c = Food_SelectForPlacement;
+        def->cb_a8 = Restaurant1_Tick;
+        def->cb_add = Restaurant1_Add;
+        def->cb_remove = Restaurant1_Remove;
+        def->cb_ac = Restaurant1_FreeResources;
+        def->cb_b0 = Restaurant1_Draw;
+        def->cb_save = Restaurant1_Save;
+        def->cb_load = Restaurant1_Load;
     } else if (NameCompare(kRestaurant2, elem->name) == 0) {
-        def->cb_a4 = CB_42f770;
-        def->cb_8c = CB_42e8d0;
-        def->cb_a8 = CB_42fbb0;
-        def->cb_add = CB_42f9a0;
-        def->cb_remove = CB_42fa40;
-        def->cb_a0 = CB_4304a0;
-        def->cb_ac = CB_431120;
-        def->cb_save = CB_432390;
-        def->cb_load = CB_432400;
-        def->cb_b0 = CB_430b10;
+        def->cb_a4 = Restaurant2_Create;
+        def->cb_8c = Food_SelectForPlacement;
+        def->cb_a8 = Restaurant2_Tick;
+        def->cb_add = Restaurant2_Add;
+        def->cb_remove = Restaurant2_Remove;
+        def->cb_a0 = Restaurant2_GetDrawDesc;
+        def->cb_ac = Restaurant2_Destroy;
+        def->cb_save = Restaurant2_Save;
+        def->cb_load = Restaurant2_Load;
+        def->cb_b0 = Restaurant2_Draw;
     } else if (NameCompare(kChuckWagon, elem->name) == 0) {
-        def->cb_a4 = CB_42e220;
-        def->cb_8c = CB_42e8d0;
-        def->cb_remove = CB_4312c0;
-        def->cb_a8 = CB_42e2a0;
-        def->cb_b0 = CB_42e260;
-        def->cb_ac = CB_42e250;
+        def->cb_a4 = ChuckWagon_LoadResources;
+        def->cb_8c = Food_SelectForPlacement;
+        def->cb_remove = FoodService_Remove;
+        def->cb_a8 = ChuckWagon_TickCustomers;
+        def->cb_b0 = ChuckWagon_DrawOverlay;
+        def->cb_ac = ChuckWagon_FreeResources;
     } else if (NameCompare(kSharkCafe, elem->name) == 0) {
-        def->cb_a4 = CB_42e5d0;
-        def->cb_ac = CB_42e600;
-        def->cb_8c = CB_42e8d0;
-        def->cb_remove = CB_4312c0;
-        def->cb_a8 = CB_42e610;
-        def->cb_b0 = CB_42e830;
+        def->cb_a4 = SharkCafe_LoadResources;
+        def->cb_ac = SharkCafe_FreeResources;
+        def->cb_8c = Food_SelectForPlacement;
+        def->cb_remove = FoodService_Remove;
+        def->cb_a8 = SharkCafe_Tick;
+        def->cb_b0 = Foodcart_DrawOverlay;
     } else if (NameCompare(kSharkCafeBrolly, elem->name) == 0) {
-        def->cb_a4 = CB_42e460;
-        def->cb_8c = CB_42e4c0;
-        def->cb_add = CB_42e500;
-        def->cb_a0 = CB_42e560;
-        def->cb_ac = CB_42e4b0;
+        def->cb_a4 = Brolly_LoadResources;
+        def->cb_8c = Brolly_SelectForPlacement;
+        def->cb_add = Brolly_Add;
+        def->cb_a0 = Brolly_GetDrawDesc;
+        def->cb_ac = Brolly_FreeResources;
     } else if (NameCompare(kBoatingSchoolWater, elem->name) == 0) {
-        def->cb_a4 = CB_41b830;
-        def->cb_8c = CB_41b880;
-        def->cb_90 = CB_41bd40;
-        def->cb_94 = CB_41bfb0;
-        def->cb_add = CB_41b8e0;
-        def->cb_remove = CB_41c130;
+        def->cb_a4 = BsWater_LoadResources;
+        def->cb_8c = BsWater_SelectForPlacement;
+        def->cb_90 = BsWater_CalcCursor;
+        def->cb_94 = BsWater_DrawSelection;
+        def->cb_add = BsWater_Add;
+        def->cb_remove = BoatingSchoolWater_Remove;
     } else if (NameCompare(kBoatingSchool, elem->name) == 0) {
-        def->cb_a4 = CB_419d10;
-        def->cb_ac = CB_419ef0;
-        def->cb_8c = CB_41a000;
-        def->cb_90 = CB_41a2f0;
-        def->cb_94 = CB_41a3d0;
-        def->cb_add = CB_41a040;
-        def->cb_remove = CB_41a530;
-        def->cb_a8 = CB_41a720;
-        def->cb_b0 = CB_41abd0;
-        def->cb_save = CB_41acf0;
-        def->cb_load = CB_41aee0;
-        def->cb_c0 = CB_41b100;
+        def->cb_a4 = BoatingSchool_Create;
+        def->cb_ac = BoatingSchool_Destroy;
+        def->cb_8c = BoatingSchool_SelectForPlacement;
+        def->cb_90 = BoatingSchool_Update;
+        def->cb_94 = BoatingSchool_DrawSelection;
+        def->cb_add = BoatingSchool_Add;
+        def->cb_remove = BoatingSchool_Remove;
+        def->cb_a8 = BoatingSchool_Tick;
+        def->cb_b0 = BoatingSchool_Draw;
+        def->cb_save = SaveBoatingSchool;
+        def->cb_load = LoadBoatingSchool;
+        def->cb_c0 = BoatingSchool_BestTake;
     } else if (NameCompare(kBoatingSchoolMermaid, elem->name) == 0) {
-        def->cb_a4 = CB_41b250;
-        def->cb_8c = CB_41b260;
-        def->cb_90 = CB_41b4c0;
-        def->cb_94 = CB_41b6d0;
-        def->cb_add = CB_41b2a0;
-        def->cb_remove = CB_41b6f0;
+        def->cb_a4 = Mermaid_LoadResources;
+        def->cb_8c = Mermaid_SelectForPlacement;
+        def->cb_90 = Mermaid_CalcCursor;
+        def->cb_94 = Mermaid_CalcCursor2;
+        def->cb_add = Mermaid_Add;
+        def->cb_remove = BsMermaid_Remove;
     } else if (NameCompare(kJungleCruiseWater, elem->name) == 0) {
-        def->cb_a4 = CB_436190;
-        def->cb_8c = CB_4361a0;
-        def->cb_90 = CB_436200;
-        def->cb_94 = CB_436470;
-        def->cb_add = CB_4365f0;
-        def->cb_remove = CB_436a40;
+        def->cb_a4 = JungleCruiseWater_Create;
+        def->cb_8c = JcWater_SelectForPlacement;
+        def->cb_90 = JcWater_CalcCursor;
+        def->cb_94 = JcWater_DrawSelection;
+        def->cb_add = JcWater_Add;
+        def->cb_remove = JungleCruiseWater_Remove;
     } else if (NameCompare(kJungleCruise, elem->name) == 0) {
-        def->cb_a4 = CB_434cb0;
-        def->cb_ac = CB_434e50;
-        def->cb_8c = CB_434f50;
-        def->cb_90 = CB_435150;
-        def->cb_94 = CB_435230;
-        def->cb_add = CB_434f90;
-        def->cb_remove = CB_435470;
-        def->cb_a8 = CB_435750;
-        def->cb_b0 = CB_435bd0;
-        def->cb_save = CB_435c70;
-        def->cb_load = CB_435ec0;
-        def->cb_c0 = CB_436160;
+        def->cb_a4 = JungleCruise_Create;
+        def->cb_ac = JungleCruise_Destroy;
+        def->cb_8c = JungleCruise_SelectForPlacement;
+        def->cb_90 = JungleCruise_Update;
+        def->cb_94 = JungleCruise_DrawSelection;
+        def->cb_add = JungleCruise_Add;
+        def->cb_remove = JungleCruise_Remove;
+        def->cb_a8 = JungleCruise_Tick;
+        def->cb_b0 = JungleCruise_Draw;
+        def->cb_save = SaveJungleCruise;
+        def->cb_load = LoadJungleCruise;
+        def->cb_c0 = JungleCruise_BestValue;
     } else if (NameCompare(kJungleCruiseMonkeyTree, elem->name) == 0) {
-        def->cb_a4 = CB_433ca0;
-        def->cb_ac = CB_433cd0;
-        def->cb_8c = CB_433ce0;
-        def->cb_90 = CB_433d90;
-        def->cb_94 = CB_433fa0;
-        def->cb_add = CB_433d20;
-        def->cb_remove = CB_433fc0;
-        def->cb_a0 = CB_434040;
+        def->cb_a4 = JcMonkeyTree_Create;
+        def->cb_ac = JungleCruiseMonkeyTree_Destroy;
+        def->cb_8c = JcMonkeyTree_SelectForPlacement;
+        def->cb_90 = MonkeyTree_CalcCursor;
+        def->cb_94 = JungleCruiseMonkeyTree_DrawSelection;
+        def->cb_add = MonkeyTree_Add;
+        def->cb_remove = MonkeyTree_Remove;
+        def->cb_a0 = JcMonkeyTree_GetDrawDesc;
     } else if (NameCompare(kJungleCruiseMonkeyFish, elem->name) == 0) {
-        def->cb_a4 = CB_434080;
-        def->cb_ac = CB_4340b0;
-        def->cb_8c = CB_4340c0;
-        def->cb_90 = CB_434330;
-        def->cb_94 = CB_434650;
-        def->cb_add = CB_434100;
-        def->cb_remove = CB_434670;
-        def->cb_a0 = CB_434740;
+        def->cb_a4 = JcMonkeyFish_Create;
+        def->cb_ac = JungleCruiseMonkeyFish_Destroy;
+        def->cb_8c = JcMonkeyFish_SelectForPlacement;
+        def->cb_90 = MonkeyFish_CalcCursor;
+        def->cb_94 = JungleCruiseMonkeyFish_DrawSelection;
+        def->cb_add = MonkeyFish_Add;
+        def->cb_remove = MonkeyFish_Remove;
+        def->cb_a0 = JcMonkeyFish_GetDrawDesc;
     }
 
     CastleLevel1_GetInterfaces(elem, def);
