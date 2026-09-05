@@ -37,7 +37,7 @@ extern long __stdcall DirectSoundCreate(const void*, IDSound**, void*); /* 0x004
 extern int g_samples_ready; /* 0x007988c0 */
 extern IDSound* g_dsound; /* 0x007cad40 */
 extern DSCaps g_dsound_caps; /* 0x007cace0 */
-extern void ReadBE32(void* f, void* out); /* 0x00480150 */
+extern void ReadBE32(void* f, void* dest); /* 0x00480150 */
 
 typedef struct WaveFormat {
     unsigned short tag, channels;
@@ -81,11 +81,11 @@ extern IDSBuffer* KLIBAUDIO_CreateAVISoundBuffer(WaveFormat*, unsigned long); /*
 extern int KLIBAUDIO_DestroyAVISoundBuffer(IDSBuffer*); /* 0x004964c0 */
 
 // FUNCTION: LEGOLAND 0x00480170
-void ReadBE16(void* f, void* out)
+void ReadBE16(void* f, void* dest)
 {
-    RES_ReadFile(f, out, 2);
+    RES_ReadFile(f, dest, 2);
     __asm {
-        mov eax, out
+        mov eax, dest
         movzx edx, word ptr [eax]
         xchg dh, dl
         mov word ptr [eax], dx
@@ -93,11 +93,11 @@ void ReadBE16(void* f, void* out)
 }
 
 // FUNCTION: LEGOLAND 0x00480150
-void ReadBE32(void* f, void* out)
+void ReadBE32(void* f, void* dest)
 {
-    RES_ReadFile(f, out, 4);
+    RES_ReadFile(f, dest, 4);
     __asm {
-        mov eax, out
+        mov eax, dest
         mov edx, dword ptr [eax]
         bswap edx
         mov dword ptr [eax], edx

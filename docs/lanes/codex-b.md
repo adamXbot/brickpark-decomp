@@ -124,6 +124,8 @@ marker `FUNCTION` for every row; no divergent index/residual. `/W3` clean.
   these tiny /O2 readers support source inline assembly. VC6 MASM's spelling
   `xchg dh,dl` reproduces the original opcode/decoded operand order; the
   opposite spelling has identical semantics but one strict mismatch.
+  The pointer parameter is `dest`: `out` is a MASM reserved word and produced
+  C4405 warnings despite matching code; renaming cleared `/W3` without a byte change.
 - **Failure block placement**: InitSoundSampleSystem's first guards jump
   INTO the GetCaps failure block, leaving success last. A nested success
   return (including a trailing success label) gives 11/39 strict mismatches;
