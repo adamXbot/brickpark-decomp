@@ -341,17 +341,18 @@ extern void  SetPersonPosition(BlokePerson* p, int x, int y);      /* 0x00440190
 /* Project a bloke's 24.8 map position onto the screen and push it into its 3D
  * person: isometric transform, scroll, the map origin and a half-height lift,
  * then the sprite fudge AdjustBlokePosition applies to every walking bloke. */
-/* RESIDUAL: 8 of 74, all register allocation. (a) The original builds the
- * y-sum with `lea ecx,[ebx+ebp]`, a THIRD register, where ours coalesces it
- * into the x local's `add ebp,ebx` — the only byte of difference, and no
- * spelling of the two expressions (temps, operand order, either statement
- * order, a volatile read on either load) moves it. (b) The x-scroll block
- * uses ebx/eax where ours uses edx/ecx. The free volatile read on pos.x is
- * worth 2 (it closes the y-scroll block); without it the residual is 10. */
-// WIP-FUNCTION: LEGOLAND 0x004401b0  (89%, 8 of 74, register allocation)
+/* Exact, Scope I (2026-09-05): the two unscaled isometric coordinates are
+ * one Pos local. Defining both components before their scaled stores gives
+ * the original lea ecx,[ebx+ebp], rather than destroying bx with add ebp,ebx.
+ * With that source shape, ordinary pos.x -= Get_XScroll() also reproduces
+ * the original scroll loads; the former volatile read was compensating for
+ * the wrong coordinate web and must be removed. 74 instructions / 213 bytes.
+ */
+// FUNCTION: LEGOLAND 0x004401b0
 void UpdatePersonPos(BlokePerson* p, WalkBloke* b)
 {
     Pos pos;
+    Pos projected;
     int tw, th;
     int by, bx;
 
@@ -359,9 +360,11 @@ void UpdatePersonPos(BlokePerson* p, WalkBloke* b)
     by = b->y;
     bx = b->x;
     GetTileDimensions(&tw, &th);
-    pos.x = ((bx - by) * tw) >> 9;
-    pos.y = ((by + bx) * th) >> 9;
-    pos.x = *(int volatile*)&pos.x - Get_XScroll();
+    projected.x = bx - by;
+    projected.y = by + bx;
+    pos.x = (projected.x * tw) >> 9;
+    pos.y = (projected.y * th) >> 9;
+    pos.x -= Get_XScroll();
     pos.y -= Get_YScroll();
     p->depth = pos.y;
     pos.x += g_screencfg->origin_x;
