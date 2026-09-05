@@ -1,30 +1,32 @@
 # Presentation requirement and evidence audit
 
-Stage 1: inventory the 57 assigned sources, their headers, behavior/bug comments and WIP boundaries; compare them with the presentation page.
+Stage 1: inventory the 58 assigned sources, their headers, behavior/bug comments and WIP boundaries; compare them with the presentation page.
 
 Stage 2: consolidate recoverable omissions, reconcile conflicting layouts and annotate only actual source gaps. Output: [presentation specification](presentation.md).
 
-Stage 3: verify source coverage, citations, relative links, required contract terms, source fingerprints and whitespace. The final results and source ledger follow below.
+Stage 3: verify source coverage, citations, relative links, required contract terms, source fingerprints and whitespace.
+
+Stage 4: close the remaining material source boundaries using the original executable and shipped assets; independently validate extracted tables, function ranges, popup writers and all type-3 physical frames. Output: [executable and asset evidence](presentation-data.md). The final results and source ledger follow below.
 
 This audit concerns documentation of recovered behavior. It neither compiles the C nor certifies new executable parity. Scope J explicitly requires documentation only. [Scope J](../SCOPE_J_runtime_spec.md)
 
 ## Requirements and outcomes
 
-The presentation page follows structures first, then behavior and state machines, decoded tables beside their consumers, original faults, and callback roles linked to the current registration matrix. Every recovered numeric table is transcribed or expressed as an exact generation formula; arrays declared without initializers are explicitly external. [Scope J](../SCOPE_J_runtime_spec.md), [presentation](presentation.md), [callback registrations](callbacks.md)
+The presentation page follows structures first, then behavior and state machines, decoded tables beside their consumers, original faults, and callback roles linked to the current registration matrix. Every recovered numeric table is transcribed or expressed as an exact generation formula; arrays declared without initializers in C are completed by the [binary data manifest](presentation-data.md). [Scope J](../SCOPE_J_runtime_spec.md), [presentation](presentation.md), [callback registrations](callbacks.md)
 
 | Requirement | Evidence and disposition | Result |
 | --- | --- | --- |
 | Data structures | Sections 1,3,4,5,6: byte offsets/sizes for UI, sprites, LLS/CSP, output lists, popup/orders, pixels and save records; shared full ride records link to transport/attractions | Documented |
 | Rules/state machines | Sections 2–6: input, slide states, screens, 1-based report index, popup, frame/raster pipeline, terrain, food service, power | Documented |
-| Tables/constants | Button masks, menu/list ordering, price sentinel and decoded prices, screen positions, picker type labels, type3 dispatch, quadrant corrections, bridge offsets, overview terrain switch, heading floats, shade/channel/reciprocal formulas, service actions and unmet-goal codes | Documented; source-only tables enumerated below |
+| Tables/constants | Button masks, menu/list ordering, price sentinel and decoded prices, screen positions, picker type labels, type3 dispatch, quadrant corrections, bridge offsets, overview terrain switch, heading floats, shade/channel/reciprocal formulas, service actions and unmet-goal codes | Documented; complete binary tables included |
 | Original bugs | Section 7 plus local behavior: every explicit bug/uninitialized/leak/unchecked note in the assigned files was checked; newly identified body/header disagreements are separated from memory-safety departures | Documented |
 | Callback slots | Section 6 and callbacks.md preserve class/slot/current-name/VA mapping; no duplicated legacy alias matrix | Documented |
 
-The table above records completion of the documentation audit against the [Scope J requirements](../SCOPE_J_runtime_spec.md); it does not convert absent source into known runtime behavior. The [presentation coverage table](presentation.md) retains Partial for five subsystem groups (17 assigned files) with named source boundaries, and Documented for the other 40 files. A Partial label identifies the source boundary; it does not mean the audit or recovered specification was deferred.
+The table above records completion against the [Scope J requirements](../SCOPE_J_runtime_spec.md). The five previously Partial groups (17 files) now have explicit [executable/asset closure](presentation-data.md), so the [presentation coverage table](presentation.md) records all 58 assigned files as Documented. This change is supported by new decoded data and bounded disassembly, not by relabeling unresolved source. It does not claim that reconstructed C is executable-matching or that a replacement renderer has been implemented.
 
 ## Source-by-source evidence ledger
 
-All 57 assigned files are represented below. “Blocks” counts every C block comment, including field/extern/codegen comments; WIP counts only current `// WIP-FUNCTION` markers. The short SHA-256 fingerprints pin the reviewed source snapshot at integration baseline `f8f5854481b2a87fb456a37b02ce581e9206b400`; source bytes were compared against that commit after rebasing the documentation. Pure compiler-allocation experiments are not runtime rules; their semantic or uncertainty consequences are captured in the WIP ledger. Links in the first column are the evidence for that row. Section numbers refer to [presentation](presentation.md).
+All 58 assigned files are represented below. “Blocks” counts every C block comment, including field/extern/codegen comments; WIP counts only current `// WIP-FUNCTION` markers. The short SHA-256 fingerprints pin the reviewed source snapshot at integration baseline `cf8e88c845dc4b109bbb2bd9f2a31d1177a9c9aa`; source bytes were compared against that commit after rebasing the documentation. Pure compiler-allocation experiments are not runtime rules; their semantic or uncertainty consequences are captured in the WIP ledger. Links in the first column are the evidence for that row. Section numbers refer to [presentation](presentation.md).
 
 | Source | Sections | Recovered scope checked | Blocks | WIP | SHA-256 prefix |
 | --- | --- | --- | ---: | ---: | --- |
@@ -73,7 +75,7 @@ All 57 assigned files are represented below. “Blocks” counts every C block c
 | [scroll.c](../../LEGOLAND/scroll.c) | 1 | Eight fractional bits; pixel rather than tile scroll units | 3 | 0 | `fc84b73e93b8` |
 | [scrolltick.c](../../LEGOLAND/scrolltick.c) | 5,6 | Projected diamond clamp; wear/broken thresholds; power effects | 61 | 0 | `79266390ddb8` |
 | [softblit.c](../../LEGOLAND/softblit.c) | 2,4,7 | Raw/type2 recoloring and hit logic; goal dispatch; override asymmetry | 163 | 0 | `3875d64592a5` |
-| [softblit2.c](../../LEGOLAND/softblit2.c) | 4 | Type2 two-bit grammar; type3 eight-painter dispatch and external boundary | 80 | 0 | `4f68ead5a0ec` |
+| [softblit2.c](../../LEGOLAND/softblit2.c) | 4 | Type2 two-bit grammar; type3 dispatch and binary leaf contracts | 80 | 0 | `4f68ead5a0ec` |
 | [sprite.c](../../LEGOLAND/sprite.c) | 4 | Surface-pixel residency accessor | 1 | 0 | `0482476a86cb` |
 | [sprite2.c](../../LEGOLAND/sprite2.c) | 1,4 | Image/Sprite/ILF ownership, kinds and allocation/residency | 99 | 0 | `240570f4562b` |
 | [sprite_override.c](../../LEGOLAND/sprite_override.c) | 4 | Palette override pointer; frame override -1 reset | 3 | 0 | `733edd973a55` |
@@ -83,6 +85,7 @@ All 57 assigned files are represented below. “Blocks” counts every C block c
 | [tilehelp.c](../../LEGOLAND/tilehelp.c) | 1,5 | Tile centers; half offsets; sprite-slot first-fit and flags | 29 | 0 | `6b0a5f0acd63` |
 | [tri3d.c](../../LEGOLAND/tri3d.c) | 1,5,7 | Fixed edge/spans; shade/channel tables; unsigned Z; bounds and ownership quirks | 89 | 0 | `3e9b7af9209c` |
 | [uimisc.c](../../LEGOLAND/uimisc.c) | 2,3,7 | Help/script lifecycle; report persistence; icon unlink; free-play restore | 142 | 0 | `6e4bde49cc64` |
+| [uimisc3.c](../../LEGOLAND/uimisc3.c) | 1,2,3,7 | Modal advert/certificate controls; help expiry; narration; script ownership; geometry/free-play leaves | 140 | 0 | `cd48d7db68e8` |
 | [uimisc2.c](../../LEGOLAND/uimisc2.c) | 1,2,3,7 | Help/movie/report state; priority queue; profile restore; icon hit bounds and ownership; free-play/level-end transitions | 218 | 0 | `9053dec1a6e6` |
 | [wndenv.c](../../LEGOLAND/wndenv.c) | 2 | Native handle storage/accessors | 3 | 0 | `bef3b6f6559a` |
 
@@ -94,7 +97,7 @@ WIP status is the source's executable-matching status, not an automatic document
 
 | Function and VA | Source-note boundary | Documentation treatment |
 | --- | --- | --- |
-| RenderCursor `0x45ff00` | Scratch-register permutation and switch-tail merge threshold | Full footprint, point/color selection, arrow and recursion contract; external segment painters remain unavailable. [bigrender.c](../../LEGOLAND/bigrender.c) |
+| RenderCursor `0x45ff00` | Scratch-register permutation and switch-tail merge threshold | Full footprint, point/color selection, arrow and recursion contract; [both binary segment painters](presentation-data.md) now close pixel behavior. [bigrender.c](../../LEGOLAND/bigrender.c) |
 | InsertChildIntoList `0x475630` | Missing argument-copy instruction; no inferred semantic change | Parent/sibling ordering and absent-parent behavior documented. [fpui.c](../../LEGOLAND/fpui.c) |
 | ScrollIconPanel `0x46d850` | Allocation rank residual | Full axis/asymmetric snap and clamp behavior documented from body. [fpui4.c](../../LEGOLAND/fpui4.c) |
 | RemoveNewObjectMarker `0x471ca0` | Source/destination induction-pointer anchor | Full shift/clamp/close behavior and adjacent-duplicate skip documented. [fpui5.c](../../LEGOLAND/fpui5.c) |
@@ -107,22 +110,24 @@ WIP status is the source's executable-matching status, not an automatic document
 | JcWater_DrawSelection `0x436470` | Same register rotation | Same water-query contract with river globals. [screencb.c](../../LEGOLAND/screencb.c) |
 | InitExitCheckBox `0x48f0f0` | Shared zero-register/prologue difference | Confirmation panel behavior and default handlers documented. [screens2.c](../../LEGOLAND/screens2.c) |
 
-## Reconciliations and source-only gaps
+## Reconciliations and executable closure
 
-The audit resolved the popup “ride” as a work order: target element/name `+4`, assigned `+18`, worker `+1c` and worker action `+60` agree with allocator, assignment and cancel consumers. No recovered C writer populates popup `0x7fdf80` with an order or selects kinds `0x10b/0x10c`; PopUpInfoSetUp has neither case. Therefore payload semantics are established, while entry ownership remains unknown. [popup.c](../../LEGOLAND/popup.c), [fpui5.c](../../LEGOLAND/fpui5.c), [fpui2.c](../../LEGOLAND/fpui2.c), [workorder2.c](../../LEGOLAND/workorder2.c)
+The popup “ride” is a work order: target element/name `+4`, assigned `+18`, worker `+1c` and action `+60` agree across allocator, assignment and cancel consumers. Binary setup and direct-reference analysis establish that popup display kinds `0x10b/0x10c` are dormant: setup rejects them and no payload writer exists beyond initial zeroing. Separate work-order mouse-hit kinds are active and have identified producers. The evidence therefore resolves entry reachability without inventing a missing ownership transfer. [Popup evidence](presentation-data.md), [popup.c](../../LEGOLAND/popup.c), [fpui5.c](../../LEGOLAND/fpui5.c), [workorder2.c](../../LEGOLAND/workorder2.c)
 
-Body checks also establish cursor blink as mask `0x100` (512 ms period) and Z sprite codes as two bits (16 codes per dword), correcting contrary header prose. `RenderTiledSprite` terminates with exit(1); only scaled rendering uses the scratch-surface stretch. Type3 A/B/C boundaries agree between dispatchers, but B is described as 16-bit pixels in one header and 8-bit indices in another; absent painters prevent choosing that interpretation. [renderview.c](../../LEGOLAND/renderview.c), [bigrender.c](../../LEGOLAND/bigrender.c), [softblit2.c](../../LEGOLAND/softblit2.c)
+Body checks establish cursor blink mask `0x100` (512 ms period), two-bit Z sprite codes, and fatal exit(1) tiled rendering. Binary type-3 leaves resolve A/B/C as u16 pixel words / u8 run lengths / two-bit controls; all 5,285 checked physical frames agree. This supersedes conflicting header names rather than preserving a false ambiguity. The editor's temporary length byte is an overlap bug within the saved/live 32-byte name region, not a distinct shorter serialization layout. [Executable evidence](presentation-data.md), [renderview.c](../../LEGOLAND/renderview.c), [bigrender.c](../../LEGOLAND/bigrender.c), [screens2.c](../../LEGOLAND/screens2.c)
 
-| Remaining source boundary | Why it cannot be supplied from this snapshot | Exact supplied contract |
+| Former boundary | New evidence | Closure |
 | --- | --- | --- |
-| Full free-play price table | Extern rows; headers decode 133+sentinel and four prices only | Row format, case-insensitive lookup, empty-string terminator and 32/27/59/171 decoded prices. [fpui2.c](../../LEGOLAND/fpui2.c), [fpui5.c](../../LEGOLAND/fpui5.c) |
-| Keyboard and cheat tables | 59 key pairs and cheat strings are external | Poll/edge/case/ring rules plus decoded special values. [input.c](../../LEGOLAND/input.c), [input2.c](../../LEGOLAND/input2.c) |
-| World-marker and interface control rows | Extern tables retain undeclared positions/strings | Record stride, level order, tutorial positions, group/axis positions. [bigscreens.c](../../LEGOLAND/bigscreens.c), [screens3.c](../../LEGOLAND/screens3.c) |
-| Type3 specialized painters | Eight plain painters and recoloring frame painter have declarations, no bodies | A/B/C byte offsets, frame/base/override selection, eight-way dispatch geometry and hit arguments; no internal block-B type inferred. [softblit2.c](../../LEGOLAND/softblit2.c), [render3.c](../../LEGOLAND/render3.c), [bigrender.c](../../LEGOLAND/bigrender.c) |
-| Cursor segments/colors | DrawCursorSegmentA/B and four color tables are external | Per-point selection, height arguments, footprint tiles and arrow ordering. [bigrender.c](../../LEGOLAND/bigrender.c) |
-| Text pixels and asset pixels | Fonts/assets are runtime dependencies rather than decoded source tables | Font sizes/weights, format flags, layouts and clipping. [screen.c](../../LEGOLAND/screen.c), [text.c](../../LEGOLAND/text.c) |
+| Full free-play prices | 2,144 bytes at 0x4bdeb8; 133 rows plus sentinel, all names and initial fields, table/name digests | All prices and IDs supplied; zero-filled virtual sentinel distinguished from file bytes. [Data manifest](presentation-data.md) |
+| Character map / cheats | 118 bytes at 0x4bad58; all 59 u8/s8 pairs; existing UpdateControllerFromKeyboardData body and original instructions | Complete map, ordered matching, two case-sensitive codes and travel suffix rules. [Data manifest](presentation-data.md), [input.c](../../LEGOLAND/input.c) |
+| Front-end/control tables | Fifteen marker rows, nine positions, four theme/submenu strings and closed flags, exact digests | All position/name/ID rows supplied; WESTERN/CASTLE index mismatch retained. [Data manifest](presentation-data.md) |
+| Type3 leaves | Ten complete executable ranges: eight plain, recolor and highlight | Frame fields, stream grammar, clipping, pixel writes, hit behavior and original defects specified. [Leaf evidence](presentation-data.md) |
+| Cursor segment leaves/colors | Two complete executable ranges and four RGB pairs; imported PtInRect resolved | Exact sample geometry, phase, color patterns, format gate and companion clipping defect. [Cursor evidence](presentation-data.md) |
+| Work-order popup entry | Setup control flow, all direct payload/kind references, initializer and distinct mouse-hit producers | Dormant popup display branch; active mouse-hit ownership remains separate. [Popup evidence](presentation-data.md) |
+| Goal text provenance | 36 embedded English formats decoded with exact addresses, NUL-inclusive sizes and hashes; code0 script table traced through LoadGame/LoadScripts/LoadScriptString | No localization-ID boundary: constant wording is fully supplied and variable hint text has explicit index/load framing. [Exact formats](presentation-data.md#exact-unmet-goal-format-strings), [softblit.c](../../LEGOLAND/softblit.c), [savechunks.c](../../LEGOLAND/savechunks.c) |
+| ILF/CSP allocated fields | LLIDB initialization, direct CSP loader and layer/render/release consumers | +14 is zeroed only by successful LLIDB loads; +0/+18/+1c/+20 are unwritten, and direct CSP leaves all five unwritten. Active consumer fields are count and three arrays; no invented reserved semantics. [llidb_load.c](../../LEGOLAND/llidb_load.c), [render3.c](../../LEGOLAND/render3.c), [sprite2.c](../../LEGOLAND/sprite2.c), [memdb.c](../../LEGOLAND/memdb.c) |
 
-The documentation-completeness claim is limited to recovered facts in this source snapshot. It does not promise undecompiled painter behavior, exact external table values, runtime tests or browser pixel parity. [Scope J](../SCOPE_J_runtime_spec.md), [presentation](presentation.md)
+GDI text measurements, an implemented portable renderer, rendered-image comparison and whole-game execution are separate validation deliverables. Scope J now supplies recovered rules and data needed for those tasks; it does not claim those runtime tests occurred. Source reconstruction scheduling/allocation notes remain in the WIP ledger rather than being converted into missing behavior. [Scope J](../SCOPE_J_runtime_spec.md), [presentation](presentation.md), [executable evidence](presentation-data.md)
 
 ## Integration delta: f22f7cc to f8f5854
 
@@ -151,27 +156,42 @@ The integration baseline added render5.c (six recovered bodies) and uimisc2.c (f
 | UpdateHelpBar `0x0046d110` | Four-frame hold-off, 500-ms hover, request lifecycle and three filename formats | [uimisc2.c](../../LEGOLAND/uimisc2.c) |
 | PlayMovie `0x004771f0` | Fixed 320×240 target, two prefixes, suppression/return values, audio/render/button lifecycle | [uimisc2.c](../../LEGOLAND/uimisc2.c) |
 
-The new render source closes path-tile composition, cursor tile traversal and column-scan resumption; it does **not** supply DrawCursorSegmentA/B, the eight type-3 plain pixel painters or their recoloring painter. Those unrelated source boundaries remain Partial. The cursor queue's old producer claim is corrected from the lane's executable scan, while the exact path-base expression corrects the header shorthand code+0..15 to code+3..18. [render5.c](../../LEGOLAND/render5.c), [bigrender.c](../../LEGOLAND/bigrender.c), [softblit2.c](../../LEGOLAND/softblit2.c), [lanes/fable-d-render5.md](../lanes/fable-d-render5.md)
+The new render source closes path-tile composition, cursor tile traversal and column-scan resumption. Its C delta does not supply DrawCursorSegmentA/B or the type-3 leaves; the subsequent [original-binary audit](presentation-data.md) supplies those contracts, including highlight. The cursor queue's old producer claim is corrected from the lane's executable scan, while the exact path-base expression corrects the header shorthand code+0..15 to code+3..18. [render5.c](../../LEGOLAND/render5.c), [bigrender.c](../../LEGOLAND/bigrender.c), [softblit2.c](../../LEGOLAND/softblit2.c), [lanes/fable-d-render5.md](../lanes/fable-d-render5.md)
 
 The new movie wrapper's header promises all audio layers are restored, but its body resumes only samples/music; it never resumes the streaming track, including after open failure. Help narration has its own target −1 pause-without-resume arm. The specification follows those calls and returns, and retains the int-returning movie ABI despite older void declarations. New names at existing VAs are reconciled locally: PrintSpriteAt/PrintSpriteXY, PrintCursor/small centered text, ResetFrontEnd/PauseCurrentTrack and InitOptionSamples/PauseAllSamples. [uimisc2.c](../../LEGOLAND/uimisc2.c), [tinystubs.c](../../LEGOLAND/tinystubs.c)
 
-Tinystubs is additional borrowed evidence, not a 58th primary file. Its UI/help/popup/render leaves were reviewed and added: default input result, tail linking, clip hook, popup retry/input disabling, guarded state-2 info reset, marker/menu/help clearing, report mode/theme state, cursor validity, empty hooks, two render allocators, detail-image registration and count-owned report buffer freeing. The core audit covers its non-presentation functions. [tinystubs.c](../../LEGOLAND/tinystubs.c), [lanes/scope-e.md](../lanes/scope-e.md)
+Tinystubs remains additional borrowed evidence, without its own presentation inventory row. Its UI/help/popup/render leaves were reviewed and added: default input result, tail linking, clip hook, popup retry/input disabling, guarded state-2 info reset, marker/menu/help clearing, report mode/theme state, cursor validity, empty hooks, two render allocators, detail-image registration and count-owned report buffer freeing. The core audit covers its non-presentation functions. [tinystubs.c](../../LEGOLAND/tinystubs.c), [lanes/scope-e.md](../lanes/scope-e.md)
+
+## Integration delta: uimisc3.c
+
+The subsequent main integration at `263cf60` adds uimisc3.c: 771 lines, 23 function markers, zero WIP markers. Every header, body and behavior/bug comment was read. All 58 source fingerprints were subsequently checked against full baseline `cf8e88c845dc4b109bbb2bd9f2a31d1177a9c9aa`; the earlier 57 source byte sequences are unchanged. The presentation additions cover every leaf, exact constants, modal/event gates, callback/return ABI differences, script ownership transfer, help timer asymmetry, free-play underflow behavior and the original front-end restore defect. Compiler-experiment prose is matching evidence, not a new runtime rule. [uimisc3.c](../../LEGOLAND/uimisc3.c), [presentation](presentation.md)
 
 ## Final verification
 
-The final checks operated on the two documentation files and the unchanged source snapshot recorded above. No C, tools or shared index files were changed by this audit, and no compiler, runtime or pixel-comparison test was run.
+The final checks operated on three documentation files, the pinned source snapshot, the original executable and shipped graphics archives. No C, tools or shared index files were changed by this audit, and no compiler, game runtime or pixel-comparison test was run. All four executable/asset code fences in [presentation-data](presentation-data.md) were executed successfully.
 
 | Check | Exact method | Outcome |
 | --- | --- | --- |
-| Assigned-source coverage | Compare the 57 ledger filenames and the introductory presentation-table source links with the presentation inventory; require set equality and 57 unique rows | Passed, 57/57 in each |
-| Integration baseline | Compare each of the 57 source files byte-for-byte with `git show f8f5854481b2a87fb456a37b02ce581e9206b400:LEGOLAND/<name>` | Passed, 57/57 |
-| Source fingerprints | Compute SHA-256 for each linked source and compare its first 12 hexadecimal characters with the ledger | Passed, 57/57 |
-| Comment/WIP inventory | Compare each Blocks count with `source.count('/*')`; compare each WIP count with line-anchored `// WIP-FUNCTION` markers | Passed, 6,571 block comments and 12 WIP markers |
-| Relative links | Resolve every Markdown target in both pages against its containing directory, ignoring only URL targets and fragments | Passed, 697 local links and no missing targets |
+| Assigned-source coverage | Compare the 58 ledger filenames and the introductory presentation-table source links with the presentation inventory; require set equality and 58 unique rows | Passed, 58/58 in each |
+| Integration baseline | Read all 58 sources through `git show cf8e88c845dc4b109bbb2bd9f2a31d1177a9c9aa:LEGOLAND/<name>`; compare their ledger digests/counts, preserving the reviewed immutable baseline | Passed, 58/58 |
+| Source fingerprints | Compute SHA-256 for each linked source at the pinned baseline and compare its first 12 hexadecimal characters with the ledger | Passed, 58/58 |
+| Comment/WIP inventory | Compare each Blocks count with `source.count('/*')`; compare each WIP count with line-anchored `// WIP-FUNCTION` markers | Passed, 6,711 block comments and 12 WIP markers |
+| Relative links | Resolve every Markdown target in all three pages against its containing directory, ignoring only URL targets and fragments | Passed, 856 local links and no missing targets |
 | Narrative citations | Check each presentation prose paragraph longer than 100 characters, excluding headings, tables and fenced code, for a Markdown citation | Passed, no uncited factual narrative paragraphs |
 | Required recovered contracts | Check the page contains the 1-based report convention, 32n popup width, work-order kind 0x10b, RLEPaintHitClipLR dispatch, SHARK CAFE service, 512 ms blink period, two-bit Z controls, exit(1) tiled stub, 0x24-byte slide save and exact work-order edge expression | Passed; reviewed against the cited function bodies |
-| Coverage vocabulary | Require Partial for the five groups with material source gaps; distinguish WIP executable-matching residuals from unknown runtime behavior | Passed, 17 Partial / 40 Documented assigned sources |
-| Placeholders | Search both pages for TODO, TBD, FIXME, placeholder, pending audit or audit-to-follow language | Passed, none |
-| Whitespace | `git diff --check -- docs/runtime/presentation.md docs/runtime/presentation-audit.md` | Passed |
+| Coverage vocabulary | Require Documented only after all five groups have concrete binary/data closure; distinguish WIP executable-matching residuals from runtime behavior | Passed, 58 Documented / 0 Partial assigned sources |
+| Placeholders | Search all three pages for TODO, TBD, FIXME, placeholder, pending audit or audit-to-follow language | Passed, none |
+| Whitespace | `git diff --check -- docs/runtime/presentation.md docs/runtime/presentation-audit.md docs/runtime/presentation-data.md` | Passed |
 
-These checks establish source traceability, inventory completeness and consistency of this documentation. The WIP and source-boundary ledgers above remain the limits on recovered runtime knowledge.
+These checks establish source traceability, inventory completeness, binary/table identity, asset structure and consistency of this documentation. The WIP ledger remains the limit on reconstructed-C matching; it does not undo the executable contracts documented here. [Executable and asset evidence](presentation-data.md)
+
+| Additional binary/asset check | Exact method | Outcome |
+| --- | --- | --- |
+| Executable identity | SHA-256 over original PE; section-based VA reader rejects non-file-backed spans | Passed, c50865b6…e2bd9 |
+| Static tables | Nine VA/type/count/size/SHA manifests, complete decoded rows; price names separately hashed; BSS sentinel checked against section virtual extent | Passed, 9/9 |
+| Original leaf ranges | Capstone32 decode to exclusive end, exact byte length/SHA and instruction count, final ret | Passed, 13/13 ranges: ten type-3 leaves, two cursor leaves and popup setup |
+| Popup references | Whole-text bytewise pointer scan, exact five payload and ten displayed-kind operand locations; decode each payload read | Passed; normal setup cannot select dormant order display branches |
+| Graphics directory | Follow actual child/sibling tree; enforce unique nodes/paths and payload bounds; compare physical payload set with existing reader | Passed: Graphics1 574 paths/581 nodes/570 payloads; Graphics2 905/907/898 |
+| Physical type-3 frames | Independent opcode consumer; row bounds, all pixel words, exact four-byte length/16-code padding, zero padding, frame/member end and opcode histograms | Passed, 959 unique sprite payloads / 5,285 frames; no primary code 1 or secondary 3 |
+| Copters LLS headers | Five complete member SHA-256 checks, bpp8/count32/flags2 headers,32 positive frame-size advances to exact member end | Passed,5 physical payloads/160 frame boundaries; separate from type-3 opcode checks |
+| Exact goal formats | Independent raw-backed reader compares all 36 table rows with exact CP1252+NUL bytes, individual/combined hashes, sizes and code0 wrapper | Passed, 36/36 formats / 1811 NUL-inclusive bytes; four executable/asset recipes total |

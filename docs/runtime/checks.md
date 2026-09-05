@@ -38,13 +38,16 @@ for page in pages:
         if target.exists() and fragment and target.suffix == '.md':
             require(fragment in headings(target), f'{page.name}: missing anchor {url}')
     expected = None
-    for line_number, line in enumerate(prose.splitlines(), 1):
+    prose_lines = prose.splitlines()
+    for line_number, line in enumerate(prose_lines, 1):
         if not line.startswith('|'):
             expected = None
             continue
         count = len(re.findall(r'(?<!\\)\|', line))
         if expected is None:
             expected = count
+            following = prose_lines[line_number] if line_number < len(prose_lines) else ''
+            require(re.fullmatch(r'\|(?:\s*:?-+:?\s*\|)+\s*', following) is not None, f'{page.name}:{line_number}: orphan table row/header')
         require(count == expected, f'{page.name}:{line_number}: malformed table')
 
 # Where an audit records a source fingerprint, require it to match this tree.
@@ -72,6 +75,12 @@ for line in coverage.splitlines():
     match = re.match(r'\| \[[^]]+\.c\]\(../../(LEGOLAND/[^)]+)\)', line)
     if match:
         require(primary is not None and '../../' + match[1] in primary.read_text(), f'No primary-page citation: {match[1]}')
+
+# The index must agree with actual per-source status counts, not a stale total.
+index = (root / 'docs/RUNTIME_SPEC.md').read_text()
+counts = Counter(row[2] for row in rows)
+summary = re.search(r'\*\*(\d+) documented; (\d+) partial; (\d+) not yet\*\*', index)
+require(summary is not None and tuple(map(int, summary.groups())) == tuple(counts[k] for k in ('documented','partial','not yet')), 'Stale top-level coverage totals')
 
 # Validate callback labels against actual function definitions, not extern aliases.
 implementations = set()
