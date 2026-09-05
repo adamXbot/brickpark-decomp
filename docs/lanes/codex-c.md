@@ -179,4 +179,158 @@ and existing path/road/work-order callers are retained.
   some callers call `SettleOrderSpan` by the alias `WalkOrderSpan` and some
   discard the route-node return. No duplicate implementation is added.
 
-Remaining files are in progress.
+
+## sysstubs.c — complete
+
+All 42 functions pass audit, 100% matchfull, warning-free compilation and
+actual relocated-byte comparison (123 address relocations). Every marker is
+FUNCTION, including the import thunk and terminal tail call; no divergence
+or residual remains.
+
+| Address | Name | Instructions | Match | Audit [OK] | Marker |
+| --- | --- | ---: | ---: | --- | --- |
+| 0x00499450 | `GetTicks` | 1 | 100% | Yes | FUNCTION |
+| 0x0047f850 | `DebugFlush` | 1 | 100% | Yes | FUNCTION |
+| 0x0047f870 | `DebugPrintf` | 1 | 100% | Yes | FUNCTION |
+| 0x004688e0 | `ScriptState_NoOp` | 1 | 100% | Yes | FUNCTION |
+| 0x00443710 | `GetModelContext` | 2 | 100% | Yes | FUNCTION |
+| 0x00443250 | `Sin` | 3 | 100% | Yes | FUNCTION |
+| 0x00443260 | `Cos` | 3 | 100% | Yes | FUNCTION |
+| 0x00458bb0 | `SetMapReady` | 3 | 100% | Yes | FUNCTION |
+| 0x00474880 | `SetInGameIconHandlers` | 3 | 100% | Yes | FUNCTION |
+| 0x00474070 | `IsLShiftDown` | 4 | 100% | Yes | FUNCTION |
+| 0x00474080 | `IsRShiftDown` | 4 | 100% | Yes | FUNCTION |
+| 0x00468840 | `ClearScriptStateBytes` | 5 | 100% | Yes | FUNCTION |
+| 0x00492110 | `MakePlayable` | 5 | 100% | Yes | FUNCTION |
+| 0x00492d80 | `StopMusic` | 5 | 100% | Yes | FUNCTION |
+| 0x0047fe70 | `WNDENV_Minimise` | 5 | 100% | Yes | FUNCTION |
+| 0x0047fe80 | `WNDENV_Restore` | 5 | 100% | Yes | FUNCTION |
+| 0x00499460 | `GetSimClock` | 7 | 100% | Yes | FUNCTION |
+| 0x00488820 | `GetZBufferPixel` | 8 | 100% | Yes | FUNCTION |
+| 0x00497580 | `NewSprite` | 9 | 100% | Yes | FUNCTION |
+| 0x00453ce0 | `DBError` | 10 | 100% | Yes | FUNCTION |
+| 0x00475f10 | `RestoreCurrentMenu` | 10 | 100% | Yes | FUNCTION |
+| 0x00498900 | `SetSpeechVolume` | 10 | 100% | Yes | FUNCTION |
+| 0x00442de0 | `DotProduct` | 11 | 100% | Yes | FUNCTION |
+| 0x00474190 | `SaveSidePanelState` | 11 | 100% | Yes | FUNCTION |
+| 0x004741c0 | `LoadSidePanelState` | 11 | 100% | Yes | FUNCTION |
+| 0x00473a60 | `KillMouseDevice` | 11 | 100% | Yes | FUNCTION |
+| 0x00499380 | `FreezeGameClock` | 12 | 100% | Yes | FUNCTION |
+| 0x00468910 | `NewScriptEvent` | 13 | 100% | Yes | FUNCTION |
+| 0x0049a120 | `CanHireGardener` | 14 | 100% | Yes | FUNCTION |
+| 0x0049a160 | `CanHireMechanic` | 14 | 100% | Yes | FUNCTION |
+| 0x00457910 | `SaveCurrency` | 15 | 100% | Yes | FUNCTION |
+| 0x00457940 | `LoadCurrency` | 15 | 100% | Yes | FUNCTION |
+| 0x0046b760 | `RestoreScriptStepHelp` | 15 | 100% | Yes | FUNCTION |
+| 0x00468940 | `FreeScriptEvent` | 15 | 100% | Yes | FUNCTION |
+| 0x004920e0 | `NewSampleRecord` | 16 | 100% | Yes | FUNCTION |
+| 0x00495a10 | `InitMusicSystem` | 16 | 100% | Yes | FUNCTION |
+| 0x0046ce20 | `KillAdvisorHelp` | 17 | 100% | Yes | FUNCTION |
+| 0x00442da0 | `CrossProduct` | 22 | 100% | Yes | FUNCTION |
+| 0x00456770 | `HalfPos` | 22 | 100% | Yes | FUNCTION |
+| 0x00468bb0 | `AddHelpMessage` | 24 | 100% | Yes | FUNCTION |
+| 0x004887a0 | `InitZBuffer` | 25 | 100% | Yes | FUNCTION |
+| 0x0048af40 | `FreePlayItemAdd` | 27 | 100% | Yes | FUNCTION |
+
+### Naming evidence
+
+- `sub_4688e0` → `ScriptState_NoOp`: a bare return called by `LoadScripts`
+  after the ten-byte state reset. No behavior is inferred for the empty hook.
+- `sub_458bb0` → `SetMapReady`: stores its argument to `g_map_ready` at
+  0x00667c7c, the readiness latch consumed by `bighelp.c`.
+- `sub_474880` → `SetInGameIconHandlers`: installs 0x00474820/30 into the
+  icon callbacks at 0x006687bc/c0; this name already appears in `screens3.c`.
+- `sub_468840` → `ClearScriptStateBytes`: clears the exact ten-byte script
+  state serialized by `savechunks.c` at 0x007fe930.
+- `sub_475f10` → `RestoreCurrentMenu`: rechecks the selected menu unless its
+  index is 5, then sets the side-panel restore byte to 3 after loading.
+- `sub_474190` / `sub_4741c0` → `SaveSidePanelState` / `LoadSidePanelState`:
+  write/read menu index, object-list mode and the 16-byte panel record.
+- `sub_46b760` → `RestoreScriptStepHelp`: when the script is not running and
+  a current step exists, displays its text in mode 1 and resets its timer.
+- All remaining function names follow the scope and existing callers. No
+  second body is introduced for a caller alias.
+
+### Mechanics and retained behavior
+
+- `GetTicks` is an indirect `GetTickCount` import jump, bounded by the audit.
+  `DebugFlush`, `DebugPrintf` and the script hook are bare returns. `Sin` and
+  `Cos` are actual x87 `fld/fsin/ret` and `fld/fcos/ret` sequences, not CRT
+  jumps. Shift queries return bit 7 of the corresponding key byte.
+- Clock freezing records system ticks and the current simulation counter,
+  returns 0 for a new freeze and 1 if already frozen. `GetSimClock` chooses
+  the saved/current counter and subtracts the offset. Its explicit if/else
+  closes a 7i/27B, three-mismatch eager-initialization form to 7i/26B exact.
+- Audio stop sets a flag and signals the music event. Speech volume is cached
+  and forwarded to DirectSound +0x3c when a buffer exists. Music setup creates
+  a thread with a 0x4000-byte stack only when the engine exists; it still
+  reports success if thread creation fails. `KillMouseDevice` unacquires and
+  releases the interface without clearing the global pointer.
+- `NewSampleRecord` allocates 0x38 bytes with no null check and clears only
+  the observed fields, in original order; the remaining source payload is
+  uninitialized. `MakePlayable` pushes the result on the live list. Sprite
+  allocation checks for failure but initializes only the link. Script events
+  use zeroed 0x44-byte storage with explicit next/text/kind/mode stores;
+  destruction frees text only when flag 0x20 owns it.
+- Currency save/load short-circuit on the first failure and normalize the
+  second result. Side-panel save/load ignore each operation's result. Both
+  hiring predicates have a side effect: after checking 30 bricks and a
+  count below 15, they spend 30 bricks, without incrementing worker counts.
+- `DBError` and `AddHelpMessage` retain unbounded varargs formatting into
+  shared buffers. The former calls a no-op error sink; the latter attaches
+  copied text to a new event and queues it. Help teardown releases owned text,
+  restores the help icon, clears flags/menu help/advisor pose, and tail-calls
+  speech stop. It does not clear the freed text pointer.
+- Dot product sums z, then y, then x. Cross product preserves the exact x87
+  operand order and sequential stores, including aliasing effects. `HalfPos`
+  uses explicit sign branches and shifts; the INT_MIN negation edge is left
+  as the binary implements it, rather than replacing it with signed division.
+- Z-buffer reads use byte pitch and return the high byte of a 32-bit pixel.
+  Initialization builds the 640×480 image around the original static storage,
+  creates its sprite and ORs 0x208, without allocation checks. Free-play add
+  accumulates lookup cost, marks a found entry and increments the selected
+  count even for unknown names; the first increment enables the accept icon.
+
+### ABI and measured levers
+
+- Forty-one bodies close on first compile; `GetSimClock` is the only source
+  shape adjustment, described above. Math uses VC6 intrinsics; no inline
+  assembly, fabricated tails or extra optimization flags are needed.
+- The original PE import directory verifies the four IAT slots for
+  `GetTickCount`, `SetEvent`, `ShowWindow` and `CreateThread`. Imported and COM
+  calls use stdcall; game routines use cdecl. The varargs list starts directly
+  after the format pointer in the x86 stack arguments. Intrinsics have
+  declarations but no emitted external calls; all emitted extern callees
+  carry their original address comments.
+- Local return types recover actual pointer, AL, eax or x87 results even when
+  existing callers discard them or use a differently named declaration.
+  `RestoreScriptStepHelp` returns a Boolean although `savegame.c` declares
+  its old name void; no caller was edited. Callback definitions retain the
+  original stack shape. There are no unresolved byte-level ABI differences.
+
+## Final scope C result
+
+| File | Functions | Exact | WIP | Instructions | Bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| screencb7.c | 7 | 7 | 0 | 48 | 140 |
+| lfmisc.c | 16 | 16 | 0 | 238 | 621 |
+| simcore2.c | 10 | 10 | 0 | 173 | 485 |
+| pathmisc.c | 13 | 13 | 0 | 220 | 589 |
+| sysstubs.c | 42 | 42 | 0 | 431 | 1386 |
+| **Total** | **88** | **88** | **0** | **1110** | **3221** |
+
+All 88 scope-table addresses are implemented once, with 100% matchfull and
+[OK] full-extent audit results. All five compile cleanly with /W3; independent
+COFF checks verify all 204 address relocations and all 3221 original body
+bytes. No runtime gameplay claim is made: validation is original-executable
+matching. There are no remaining partials, escapes or unexplained differences.
+
+Only the five assigned new C files and this report are committed. Existing
+sources, other lanes, shared tools and central progress documents are unchanged
+by this lane. Scratch disassembly, experiments and per-function verification
+outputs remain untracked under `scratchpad/codex-c/`; binaries are not staged.
+
+Local checkpoints follow the requested file order on `codex/scope-c`.
+Publishing the branch is pending separate user approval: automatic approval
+review rejected the scope-C push because it treated the earlier GitHub
+approval as applying only to scope A. No retry or alternate upload was made.
