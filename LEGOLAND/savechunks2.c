@@ -196,7 +196,16 @@ int SaveScriptEvent(ScriptEvent* ev)
  * bottom, both DBPrintf traces and the timestamp rebase between them, the byte
  * OR of flag 0x20, and the free()/FreeScriptEvent asymmetry of the two error
  * paths. */
-// WIP-FUNCTION: LEGOLAND 0x0046c7e0  (94.4%, 124/124 insns, mismatch 26; cold-block ORDER only -- the `head = 0` arm is emitted at index 95 instead of 117, first diverging index 95)
+/* Scope I (2026-09-05): at its measured cold-block-order floor,
+ * 26/124 strict, first 95, 323/319 bytes. Moving the entire terminator
+ * handler out of the loop behind a goto gives the SAME object. A saved read
+ * result with a break and shared post-loop dispatch gives 37 or 47 by
+ * polarity, moving the first mismatch to 85/69. The original two-predecessor
+ * head-zero join cannot be placed last by these forms; keep the proven
+ * ownership cleanup and name-error leak rather than trading them for score.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x0046c7e0  (79.0%, 26/124 strict; cold-block ordering floor; first 95)
 ScriptEvent* LoadScriptEvent(void)
 {
     ScriptEvent* head;

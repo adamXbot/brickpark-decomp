@@ -77,7 +77,16 @@ extern int  SetSampleScreenPos(Sample* s, int x, int y);   /* 0x004965a0 (intern
  * (without it the load sinks below it, 12 mismatches), but it also pins that
  * load FIRST in the block. The following sar/sub/store differ only in register
  * naming, which follows. Scheduling residual; the tail and cases 0-2 are exact. */
-// WIP-FUNCTION: LEGOLAND 0x004966a0  (91%, 6 of 66, case-3 load scheduling)
+/* Scope I (2026-09-05): at its measured scheduling/tail-merge floor,
+ * 6/66 strict (rb 3, ob 6), first 46, 175/175 bytes. Ten additional ordered
+ * input/snapshot/aggregate spellings were measured. Three ordered volatile
+ * reads get the desired input order but rotate the final y out of eax and
+ * lose the case-1 tail merge (28 strict). Ordinary pair accumulation/copy,
+ * input and scroll pairs, and named accumulators give 27-32. Keep this form;
+ * changing the shared tail to improve one arm regresses the other.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x004966a0  (90.9%, 6/66 strict; scheduling/tail-merge floor; first 46)
 int UpdateSampleSource(Sample* s)
 {
     Pos p;
@@ -341,17 +350,18 @@ extern void  SetPersonPosition(BlokePerson* p, int x, int y);      /* 0x00440190
 /* Project a bloke's 24.8 map position onto the screen and push it into its 3D
  * person: isometric transform, scroll, the map origin and a half-height lift,
  * then the sprite fudge AdjustBlokePosition applies to every walking bloke. */
-/* RESIDUAL: 8 of 74, all register allocation. (a) The original builds the
- * y-sum with `lea ecx,[ebx+ebp]`, a THIRD register, where ours coalesces it
- * into the x local's `add ebp,ebx` — the only byte of difference, and no
- * spelling of the two expressions (temps, operand order, either statement
- * order, a volatile read on either load) moves it. (b) The x-scroll block
- * uses ebx/eax where ours uses edx/ecx. The free volatile read on pos.x is
- * worth 2 (it closes the y-scroll block); without it the residual is 10. */
-// WIP-FUNCTION: LEGOLAND 0x004401b0  (89%, 8 of 74, register allocation)
+/* Exact, Scope I (2026-09-05): the two unscaled isometric coordinates are
+ * one Pos local. Defining both components before their scaled stores gives
+ * the original lea ecx,[ebx+ebp], rather than destroying bx with add ebp,ebx.
+ * With that source shape, ordinary pos.x -= Get_XScroll() also reproduces
+ * the original scroll loads; the former volatile read was compensating for
+ * the wrong coordinate web and must be removed. 74 instructions / 213 bytes.
+ */
+// FUNCTION: LEGOLAND 0x004401b0
 void UpdatePersonPos(BlokePerson* p, WalkBloke* b)
 {
     Pos pos;
+    Pos projected;
     int tw, th;
     int by, bx;
 
@@ -359,9 +369,11 @@ void UpdatePersonPos(BlokePerson* p, WalkBloke* b)
     by = b->y;
     bx = b->x;
     GetTileDimensions(&tw, &th);
-    pos.x = ((bx - by) * tw) >> 9;
-    pos.y = ((by + bx) * th) >> 9;
-    pos.x = *(int volatile*)&pos.x - Get_XScroll();
+    projected.x = bx - by;
+    projected.y = by + bx;
+    pos.x = (projected.x * tw) >> 9;
+    pos.y = (projected.y * th) >> 9;
+    pos.x -= Get_XScroll();
     pos.y -= Get_YScroll();
     p->depth = pos.y;
     pos.x += g_screencfg->origin_x;

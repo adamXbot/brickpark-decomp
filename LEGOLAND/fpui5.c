@@ -452,7 +452,14 @@ extern void KillSprite(Sprite* s);                               /* 0x00497bd0 *
  * latch's two updates: 11 mismatches instead of 5.  The anchor and the
  * schedule are one decision and cannot be had at the same time from C.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00471ca0  (90.6%: 53/53 insns, 155B vs 154B, 5 mismatches at indices 22-23 and 25-27 -- the inner shift loop's strength-reduced cursor is anchored on the source element `&spr[j]` where the original anchors it on the destination `&spr[j-1]`, so all four displacements are 4 low and the preheader lea carries the extra byte. Every spelling that fixes the anchor makes `j+1` a derived IV and costs 6 more elsewhere; see the note)
+/* Scope I (2026-09-05): at its recorded cursor-anchor floor, 5/53 strict
+ * mismatches (rb 5, ob 5), first 22, 155/154 bytes. Instruction reading
+ * confirms that all four array accesses remain equivalent; the skip-one bug
+ * is preserved. The recorded pointer/counter/order/volatile families already
+ * test the coupled anchor and induction scheduling; they were not repeated.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x00471ca0  (90.6%, 5/53 strict; cursor-anchor floor; first 22)
 void RemoveNewObjectMarker(void* def)
 {
     int i;

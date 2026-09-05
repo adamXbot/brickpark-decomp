@@ -975,7 +975,16 @@ void InitNewSaveGamePOPUP(Icon* popup)
  *    The LFPiece_IsVisible shape is therefore unavailable here, which closes
  *    the last open direction.  FLOOR.
  */
-// WIP-FUNCTION: LEGOLAND 0x0048f0f0  (audit 119i/480B vs 119i/469B, mismatch 118; the real body is 116 instructions - only push ebx / xor ebx,ebx / pop ebx are missing, so every index is shifted by one and the three zero stores are immediates - see note)
+/* Scope I (2026-09-05): at the recorded constant-web floor. Contrary
+ * to the scope brief's "unexplored" description, five prior passes already
+ * investigated this body. Re-read the original: three dword zero stores,
+ * no loop-weighted fourth use or byte consumer, and no second reaching
+ * definition for the zero variable. Audit stays 118/119 strict, first 0,
+ * 480/469 bytes; the real emitted code has 116 instructions. No extra
+ * fourth store, narrowed store, or fabricated saved-register use was added.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x0048f0f0  (0.8%, 118/119 strict; three-instruction zero-web shift; first 0)
 void InitExitCheckBox(int x, int y)
 {
     Icon* panel;

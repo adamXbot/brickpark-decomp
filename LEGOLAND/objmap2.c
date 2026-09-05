@@ -1419,7 +1419,15 @@ static __inline int UidHit(Cell* c, ObjDef* def, int x, int y)
  *   [esp+0x14] width spill and the whole head.  Only "make rematerialising
  *   the global at the right probe unattractive" is left.
  */
-// WIP-FUNCTION: LEGOLAND 0x0048a3e0  (89.5%, left/right probes reload g_map at its use into edx, the original at the probe entry into esi)
+/* Scope I (2026-09-05): at its measured two-load placement floor,
+ * 20/191 strict, rb 8, ob 20, first 95, 477/477 bytes. Naming horizontal
+ * coordinates in plain locals or a Pos remains byte-identical. Free
+ * volatile reads of the horizontal x or y input give 96/187 and enlarge
+ * the body. Together with the documented row-table and map-pin experiments,
+ * this rules out the remaining cheap call-argument temporary route.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x0048a3e0  (89.5%, 20/191 strict; two displaced map loads; first 95)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {
     Cell* c;

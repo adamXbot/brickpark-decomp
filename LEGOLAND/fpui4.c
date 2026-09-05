@@ -658,7 +658,14 @@ extern int  SnapIconScroll(int mask, short limit, short edge, short group,
  * reason; (3) MoveIcons's and SnapIconScroll's middle parameters must be
  * `short`, which is what produces the 16-bit field loads and the
  * deliberately dirty upper halves. */
-// WIP-FUNCTION: LEGOLAND 0x0046d850  (121/121 insns, 304/304 bytes, 35 strict / 10 register-blind; first divergence at index 62, a four-value allocation rank)
+/* Scope I (2026-09-05): at its measured four-value allocation floor,
+ * 35/121 strict, first 62, 304/304 bytes. In addition to the recorded
+ * nx/ny aggregate and write-back sweeps, carrying SnapIconScroll's RESULT
+ * in a one-field struct or Pos is byte-identical. Its web rank does not
+ * move. Keep the asymmetric horizontal/vertical snapping and short ABI.
+ * Full measurements: docs/lanes/scope-i.md.
+ */
+// WIP-FUNCTION: LEGOLAND 0x0046d850  (71.1%, 35/121 strict; four-value allocation floor; first 62)
 void ScrollIconPanel(ObjListPanel* w, int dx, int dy)
 {
     int step;
