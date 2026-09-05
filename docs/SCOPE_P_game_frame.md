@@ -1,6 +1,6 @@
 # Scope P — the game frame: dispatcher, in-game frame, map click handler (2026-09-05)
 
-> **Status: OPEN, unclaimed.** Branch `scope/P`. Notes: `docs/lanes/scope-p.md`.
+> **Status: DONE — 10 of 10 exact (1,403 instructions), merged into `main` 2026-09-05.** Branch `scope/P`. Notes: `docs/lanes/scope-p.md`.
 > Object prefix `/tmp/sp_`. Any agent. Cut from group 16 of the whole-binary
 > inventory (`docs/lanes/scope-n.md`, Appendix A); its sibling is
 > `SCOPE_Q_game_main.md` (group 17), which holds this file's caller.

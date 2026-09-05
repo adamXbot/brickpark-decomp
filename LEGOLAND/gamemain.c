@@ -65,7 +65,7 @@ extern int        g_game_mode_saved;               /* 0x00667c60  mode stashed b
 extern int        g_map_click_time;                /* 0x00667c68  double-click detection on the map screen (first named here) */
 extern int        g_map_click_x;                   /* 0x00667c70 */
 extern int        g_map_click_y;                   /* 0x00667c74 */
-extern int        g_80ff70;                        /* 0x0080ff70 */
+extern int        g_map_screen_leave;                        /* 0x0080ff70 */
 extern void*      g_hedge_def;                     /* 0x0081cd08  ElemID("HEDGE")->def */
 extern volatile int g_music_disabled;              /* 0x007988bc  volatile as musicthread.c declares it: the load may not hoist above the cleanup */
 extern int        g_detail;                        /* 0x008119a4 */
@@ -99,7 +99,7 @@ extern void  LLIDB_ClearOnLevel(void);                                       /* 
 extern void  ResetController(void);                                          /* 0x004589a0  gameframe.c (scope P) */
 extern int   ProcessSystemEvents(void);                                      /* 0x00480050 */
 extern void  PlayMovie(const char* name, int a, int b);                      /* 0x004771f0 */
-extern void  ShowWaitSprite(void);                                           /* 0x004588c0  gameframe.c (scope P) */
+extern void  ShowTitleScreen(void);                                           /* 0x004588c0  gameframe.c (scope P) */
 extern void  SetWaitSpriteRect(int a, int b);                                /* 0x00466360 */
 extern void  progress_tick(void);                                            /* 0x004663f0 */
 extern void  ClearWaitSprite(void);                                          /* 0x004663c0 */
@@ -292,7 +292,7 @@ void MapScreenFrame(void)
             if (now - g_map_click_time < 500 &&
                 abs(g_gfx_point.x - g_map_click_x) < 5 &&
                 abs(g_gfx_point.y - g_map_click_y) < 5) {
-                g_80ff70 = 1;
+                g_map_screen_leave = 1;
                 g_game_mode = g_game_mode_saved;
                 g_game_mode_saved = 1;
             }
@@ -324,7 +324,7 @@ void RunGame(void)
     SetPointer(0);
     ProcessSystemEvents();
     PlayMovie("lmi.avi", 0, 1);
-    ShowWaitSprite();
+    ShowTitleScreen();
     ResumeMusicThread();
     SetWaitSpriteRect(0, 0);
     while (g_music_disabled == 0) {

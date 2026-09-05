@@ -127,7 +127,7 @@ extern void  sub_48a040(void);                                         /* 0x0048
 extern void  sub_46cb20(void);                                         /* 0x0046cb20 */
 extern void  sub_483090(void);                                         /* 0x00483090 */
 extern void  sub_49cfc0(void);                                         /* 0x0049cfc0  frees the object lists */
-extern void  sub_474ed0(void);                                         /* 0x00474ed0 */
+extern void  UnLoadInGameIcons(void);                                         /* 0x00474ed0 */
 
 /* GameFrame's callees. */
 extern void  InitOptionSamples(void);                                  /* 0x00492830 */
@@ -226,7 +226,7 @@ extern void  RenderWorkerOnMouse(void);                                /* 0x0047
 extern int   IsLShiftDown(void);                                       /* 0x00474070 */
 extern int   IsRShiftDown(void);                                       /* 0x00474080 */
 extern void  sub_46f100(int group);                                    /* 0x0046f100 */
-extern void  sub_46ee00(void);                                         /* 0x0046ee00 */
+extern void  UpdateIconPage(void);                                         /* 0x0046ee00 */
 extern void  sub_46cff0(void);                                         /* 0x0046cff0 */
 extern int   sub_482cb0(void* value);                                    /* 0x00482cb0 */
 extern void  sub_455fc0(HelpRect* r, char* text, int font, int a);     /* 0x00455fc0  HTBubbleHelp with an extra arg */
@@ -382,7 +382,7 @@ void BeginParkLoad(void)
     ResetInfoStruct();
     ClearBuildObjList();
     sub_49cfc0();
-    sub_474ed0();
+    UnLoadInGameIcons();
     sub_457870(1);
     g_ui_flags &= ~0x1400;
     g_map_ready = 0;
@@ -548,7 +548,7 @@ static __inline void InGameFrameBody(BlitCtx* ctx)
         cell = g_hit_cell.i;
         PrintSprite(g_ci_interface_bg, 0, 0, 0, ctx);
         sub_46f100(0x2c3);
-        sub_46ee00();
+        UpdateIconPage();
         g_dbg_where = g_str_in_game_help;
         ProcessInGameHelp();
         DrawPopUpInfo();

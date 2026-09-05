@@ -91,8 +91,8 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **60.4% exact, 71.6% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2416 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **61.3% exact, 72.5% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2426 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 113, ~5,200 instructions — the 47 game-code callees O left (2,023 insns: Codex-F's 27 and the 20-function tier O's files declare, 721 insns) plus the tier Q's files declare; use `tools/inventory.py` for the real list |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 77 |
@@ -272,6 +272,23 @@ DECOMP below. The merge exposed the next tier: 20 game-code callees, 721
 instructions (`ParseKeywordSections` 194, `CollectPathSquareNeighboursCounted`
 127, `RefillNarrationRing` 102, `NewScriptEvent` 91, ...), all named.
 
+**Scope P merged (2026-09-05, last of the day): 10 of 10 exact, 1,403
+instructions — the startup spine is closed.** `gameframe.c`: `GameFrame`
+(the per-frame dispatcher and its three pending transitions), `InGameFrame`
+(the phased in-game frame), `HandleMapClick` (751 instructions, every edit
+mode of the click-on-map handler, 75% -> 100%), `StartPark`, `BeginParkLoad`,
+`ResetController`, `ReadExeVersionString`, `ShowTitleScreen` (the brief's
+`ShowWaitSprite`), `EnterFrontEnd`, `CompleteLevelForProfile`. With Q's
+`RunGame`/`MapScreenFrame` the whole path from WinMain's session routine to
+the frame is now exact C, and `docs/lanes/scope-p.md` is the control-flow
+spec the runtime needs. Its relocation gate caught a swapped struct copy the
+instruction gate passed. Placeholders it settled were renamed at the merge
+(`screens3.c`'s `sub_458a50/458b20/458be0`, `uimisc2.c`'s `sub_458940`, the
+`g_8119bc/g_80ff70/g_667c64/g_667c80` flags). One finding to keep: **two
+names for one address were a LEVER in `HandleMapClick`** (a single name
+created a CSE the original lacks), so the name-hygiene review must measure,
+not just unify.
+
 **Scope Q merged (2026-09-05, late; the integrator session's own scope, on
 `scope/Q`; O above was integrated by its own session at the same time):
 `gamemain.c` 10 of 10 (`RunGame`, `MapScreenFrame`, `ResetLevelObjects`, the
@@ -314,12 +331,13 @@ coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
 Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed).
-Running: F (this machine), G, H, P (`scope/P`, a Claude session). Merged
+Running: F (this machine), G, H. Merged
 since: N (`tools/inventory.py` and `docs/lanes/scope-n.md`, 2026-09-05; no C,
 no existing tool touched), O (21 of 21 exact — the 19 K exposed plus two
 undeclared siblings — three new files, 2026-09-05; `docs/lanes/scope-o.md`)
-and Q (12 of 17 exact, three new files, four WIPs, 2026-09-05;
-`docs/lanes/scope-q.md`). Tree-wide `relocs.py --all` after this checkpoint:
+Q (12 of 17 exact, three new files, four WIPs, 2026-09-05;
+`docs/lanes/scope-q.md`) and P (10 of 10 exact, `gameframe.c`, 2026-09-05;
+`docs/lanes/scope-p.md`). Tree-wide `relocs.py --all` after this checkpoint:
 2,383 checked, 17 mismatched positions, all in the four deferred functions.
 
 **The runtime spec exists (scope J, merged 2026-09-05).** `docs/RUNTIME_SPEC.md`

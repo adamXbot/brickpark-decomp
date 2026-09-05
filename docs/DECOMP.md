@@ -424,6 +424,65 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **FROM THE PARALLEL SESSION `scope-p` (10 of 10 exact — the per-frame
+  dispatcher, the in-game frame, the 751-instruction map click handler;
+  evidence in `docs/lanes/scope-p.md`).** Folded:
+  - **A sub-object `memset` keeps a small struct's zeros out of the constant
+    web (RC08)**: `InGameFrame`'s blit context {1,0,0} as three stores or as
+    `= {1,0,0}` webbed the two zeros with the guard compare in esi and pinned
+    `push esi/edi` to the prologue (224/282); `ctx.a = 1; memset(&ctx.b, 0,
+    8)` gives `xor eax,eax` + two stores and lets the pushes sink past the AI
+    phase. (Scope Q hit the identical thing in `MapScreenFrame` the same
+    evening.) Six type variants were inert; only the memset split the web.
+  - **Push sinking needs the sunk values in a `static __inline` helper (or an
+    inner block) opened after the guard — and only once the zero web is
+    gone**; with the web present the helper was inert. `InGameFrame`'s body
+    from "ProcessStuff" to the switch lives in `InGameFrameBody(&ctx)`.
+  - **Register phase of a guarded block: test the global directly and name
+    the copy inside**: `if (g_edit_mode == 0 || g_edit_mode == 2) { int edit
+    = g_edit_mode; ... }` (283 -> 293 -> 299/299); a copy before the test,
+    x/y locals or a `Pos` copy were 1–2 registers out of phase.
+  - **A cached global is not a local**: `HandleMapClick`'s edi is
+    `g_hit_type`'s forwarded value (`mov edi,K / mov [g_hit_type],edi`, then
+    reloads after calls); a local `hit` constant-propagates (`mov [mem],K`)
+    and lands in ecx. Read the global at every use (also `g_sel_def`,
+    `g_input.map.x/y`, `g_edit_object` in the loops, `g_icon_value` in the
+    work-order arms).
+  - **Identical `if/else if` arms are cross-jumped at IR level unless they
+    differ; name the pointer differently in each** (`d`, `d2`, `d3`): the
+    original keeps three copies of the slot-+0x94 call with the scratch
+    rotation advancing across them; one shared arm was 3 instructions short.
+  - **A second name for the same address defeats a CSE the original does
+    not have.** The leading test reads `g_edit.mode` (the aggregate) while
+    the off-map compare reads `g_edit_mode`; with ONE name the top load
+    survives `g_sel_def = 0` and is re-materialised, misaligning 600
+    positions; the loops' bounds read `g_level_map` while the classification
+    reads `g_map` (0x004bcbf4), or the post-call reloads come out in
+    temporary-creation order (4 strict, 0 rb). The tree already carried both
+    names for both addresses. **So two names for one address can be a
+    LEVER, not only hygiene** — record such pairs, do not "fix" them blindly.
+  - **`g_hit_info` as one 12-byte aggregate {type, obj, cell}** for the
+    by-value pop-up call: the copy takes its first dword from the cached
+    register and loads the rest in field order; three globals plus a local
+    rotate the scratch registers one step. A `Pos` copy of the cursor point
+    sets the rotation for that record copy (12 -> 4).
+  - **VC6 moves an 8-byte struct high dword FIRST**: `g_query_cursor.origin
+    = g_input.map` is the only way to get the y-before-x order the original
+    has there — invisible to the normalised gate (`relocs.py` flagged the
+    swapped identities at i=706..710 after `audit.py` said `[OK]`); the
+    other arm assigns x then y as scalars and is exact that way.
+  - `if (CursorIsValid(&c)) SetPointer(2); else SetPointer(1);` — a
+    ternary argument compiles to `neg/sbb/neg/inc`; the original branches on
+    the pushes and merges the call. **Byte fields stored twice need `int`
+    temporaries** (`unsigned char` grows the frame by 8). **Load the
+    definition before the two stores** (`g_sel_def = obj->def; g_sel_bpos.w
+    = sq`) to get the stores in the original order. The one-web appeared by
+    itself once the `int` temporaries and direct global reads were in.
+  - `InitScreens(char)` here (a byte load) where the definition says `int`;
+    `PopUpInfoSetUp(HitInfo, int, int)` takes the 12-byte record by value;
+    the version-resource imports WITHOUT `dllimport` (thunks at
+    0x0049e3a0..0x0049e3ac), `SystemParametersInfoA` WITH it.
+
 - **FROM THE PARALLEL SESSION `scope-q` (12 of 17 exact — the session and
   main loop, the map-screen frame, level state, the cursor segment fills;
   evidence in `docs/lanes/scope-q.md`).** Folded:

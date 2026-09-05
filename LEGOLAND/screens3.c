@@ -197,8 +197,8 @@ extern int   g_game_mode;                 /* 0x008119b4  1 = full-screen map */
 extern int   g_game_mode_saved;           /* 0x00667c60  mode stashed by the map button */
 extern int   g_edit_changed;              /* 0x008119b0  EditMode */
 extern unsigned int g_ui_flags;           /* 0x00813a40  GamePad */
-extern int   g_8119bc;                    /* 0x008119bc */
-extern int   g_80ff70;                    /* 0x0080ff70 */
+extern int   g_map_screen_pending;                    /* 0x008119bc */
+extern int   g_map_screen_leave;                    /* 0x0080ff70 */
 extern int   g_6687b0;                    /* 0x006687b0 */
 extern int   g_drag_lock;                 /* 0x00668954 */
 extern int   g_icons2_mode;               /* 0x00668e38 */
@@ -312,8 +312,8 @@ extern unsigned char g_temp_save_type;    /* 0x007cad84  temp profile +0x24 */
 extern int   g_temp_vol_speech;           /* 0x007cad88 */
 extern int   g_temp_vol_music;            /* 0x007cad8c */
 extern int   g_temp_vol_sfx;              /* 0x007cad90 */
-extern int   g_667c64;                    /* 0x00667c64 */
-extern int   g_667c80;                    /* 0x00667c80 */
+extern int   g_park_start_pending;                    /* 0x00667c64 */
+extern int   g_game_load_pending;                    /* 0x00667c80 */
 extern const char g_str_empty_slot[];     /* 0x004befa0 "EMPTY" */
 
 extern unsigned int g_save_time;           /* 0x00669204  last-save stamp */
@@ -411,7 +411,7 @@ extern void  KillSaveScreenSprites(void);
 /* 0x0048e160 (not exported): frees the saved-game list. */
 extern void  DeleteSavedGameList(void);
 /* 0x00458b20 (not exported): starts the actual load. */
-extern void  sub_458b20(void);
+extern void  BeginParkLoad(void);
 /* 0x004912e0 (not exported): clears the temp profile record. */
 extern void  ResetTempProfile(void);
 /* 0x0048e280 (not exported): builds the new-saved-game name popup over `p`. */
@@ -424,7 +424,7 @@ extern Icon* FindIcon(int group);                             /* 0x0046d630 */
 extern void  DeleteIcon(Icon* p);                             /* 0x0046d4e0 */
 extern void  MemFree(void* p);                                /* 0x0049e4d0 */
 /* 0x00458be0 / 0x00459820 (not exported): the script stop path. */
-extern void  sub_458be0(void);
+extern void  CompleteLevelForProfile(void);
 extern void  sub_459820(int a);
 /* 0x0048c720 / 0x0048c860 (not exported): the delete-confirmation popups of
  * the profile list and of the saved-game screen. */
@@ -449,7 +449,7 @@ extern int   RenderFlashingSpriteIcon(Icon*);                 /* 0x0046e8a0 */
 extern void  SetWaitSpriteRect(int a, int b);
 extern void  ClearWaitSprite(void);
 /* 0x00458a50 (not exported): park start-up. */
-extern void  sub_458a50(void);
+extern void  StartPark(void);
 /* Progress-screen icon handlers that forward to each other. */
 extern char  ProgressAcceptInput(Icon*, int, int, int);       /* 0x0048bc20 */
 extern char  LowProgressAcceptInput(Icon*, int, int, int);    /* 0x0048bf90 */
@@ -618,9 +618,9 @@ char MapIconInput(Icon* p, int buttons, int a3, int a4)
             g_edit_changed = 0;
             g_game_mode_saved = g_game_mode;
             g_game_mode = 1;
-            g_8119bc = 1;
+            g_map_screen_pending = 1;
         } else {
-            g_80ff70 = 1;
+            g_map_screen_leave = 1;
             g_game_mode = g_game_mode_saved;
             g_game_mode_saved = 1;
             RestoreIconHandlers();
@@ -1325,7 +1325,7 @@ char ProgressAcceptInput(Icon* p, int buttons, int a3, int a4)
             InitGameInterface(1);
             g_game_mode = 3;
             SetInGameIconHandlers();
-            sub_458a50();
+            StartPark();
             ClearWaitSprite();
             g_progress_resume = 0;
             g_progress_798668 = 0;
@@ -1363,7 +1363,7 @@ char LowProgressAcceptInput(Icon* p, int buttons, int a3, int a4)
         InitGameInterface(1);
         g_game_mode = 3;
         SetInGameIconHandlers();
-        sub_458a50();
+        StartPark();
         ClearWaitSprite();
         g_progress_resume = 0;
         g_progress_798668 = 0;
@@ -1543,7 +1543,7 @@ void StopScript(int running)
     g_script_running = running;
     ScriptSetRunning(1);
     if (running) {
-        sub_458be0();
+        CompleteLevelForProfile();
         if (!g_832ba8)
             sub_459820(1);
     }
@@ -1662,15 +1662,15 @@ char LoadAcceptInput(Icon* p, int buttons, int a3, int a4)
             g_vol_speech = g_temp_vol_speech;
             g_vol_music = g_temp_vol_music;
             g_vol_sfx = g_temp_vol_sfx;
-            g_667c64 = 1;
-            g_667c80 = 1;
+            g_park_start_pending = 1;
+            g_game_load_pending = 1;
         }
         RemoveIconGroup(7);
         KillSaveScreenSprites();
         KillTitleScreenSprites();
         DeleteSavedGameList();
         if (!g_save_7cb324)
-            sub_458b20();
+            BeginParkLoad();
     }
     return 1;
 }

@@ -248,7 +248,7 @@ extern void* LoadLevelDatabase(const char* name);              /* 0x0047afb0 */
 extern void sub_457870(int);                                   /* 0x00457870 */
 extern void sub_48ab60(void);                                  /* 0x0048ab60 */
 extern void AllocBlokeCounters(int count);                     /* 0x00480e10 */
-extern void sub_458940(void);                                  /* 0x00458940 */
+extern void EnterParkPlayMode(void);                                  /* 0x00458940 */
 extern void sub_489ee0(void);                                  /* 0x00489ee0 */
 extern void UpdateMenu(void);                                  /* 0x004758c0 */
 extern void ClearWaitSprite(void);                             /* 0x004663c0 */
@@ -370,7 +370,7 @@ void StartFreePlayPark(void)
     sub_457870(0);
     sub_48ab60();
     AllocBlokeCounters(g_game->max_blokes);
-    sub_458940();
+    EnterParkPlayMode();
     g_pending_state = 0;
     sub_489ee0();
     UpdateMenu();
