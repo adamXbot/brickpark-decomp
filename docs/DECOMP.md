@@ -424,6 +424,282 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **Two arrays indexed by ONE variable versus one array indexed by an OFFSET
+  expression is a codegen decision worth 300 instructions.**
+  `g_seg_first[a]` / `g_seg_second[a]` (two link-time bases, one index
+  register -> `[edi+K1]` / `[edi+K2]`, the index merged with the hoisted zero
+  register) against `g_segments[a]` / `g_segments[a+5]` (VC6 folds the pair
+  into one walking pointer and the zero register loses its rank):
+  319 -> 18 on `MusicThread` from that change alone. Corollary: **when a
+  loop's induction variable can start at the value already in the hoisted
+  zero register, VC6 MERGES them and the zero register gets a better physical
+  register**, permuting the whole callee-saved assignment.
+- **A cross-thread flag global must be declared `volatile` even where no read
+  needs it.** `extern volatile int g_music_disabled;` was worth 9 at two
+  unrelated sites: plain, VC6 hoists two global loads above the `= 1` store
+  and sinks the shutdown store pair into the epilogue's pops. Other files
+  declare the same global plain `int` — externs legitimately disagreeing per
+  translation unit, again.
+- **A counted loop written over the natural 1-based quantity beats a 0-based
+  one plus `+1`**: `for (a = 1; a < 5; a++)` gives the memory-homed `a`, the
+  `5*a` induction variable and the rebased `cmp edi,0x10`; `for (a = 0;
+  a < 4; a++)` with `a+1` recomputes inside the body. **`bad = (x != y);
+  if (bad) f(..., bad);` is the source of `xor edx,edx / cmp / setne dl /
+  mov eax,edx / cmp eax,<zeroreg> / je`** — confirmed thirty times over. And
+  **`if (n < K) p = f(K); else p = f(n);` cross-jumps onto one call and leaves
+  `push K / jmp / push eax`** where the ternary yields `mov eax,K / push eax`
+  (second measurement; `ReadNarrationWaveHeader` was the first).
+- **`MusicThread` (0x00492db0) is real, is C, and is 81% two macros written
+  out thirty times each** (`LOAD_SEGMENT` 30x39, `BUILD_SEGMENT` 30x46,
+  byte-periodic at a 0x80 stride). The 3161 count is exact: the body ends on
+  the message loop's back edge, and the three "trailing functions" a
+  disassembler sees are an alignment `nop`, the five-entry jump table, and
+  the next function (the thread STARTER, which `CreateThread`s this body and
+  stores the handle `KillMusicSystem` terminates). Its 7-mismatch residual:
+  the original caches `__imp__WaitForSingleObject`/`__imp__ResetEvent` in
+  esi/edi and reloads both TWICE — preheader and latch — because only the
+  notification path's `repe cmpsd` clobbers them; ours loads once at the loop
+  top, two instructions shorter and correctly placed by every spelling tried
+  (`while(1)`/`for(;;)`, trailing `continue`, dllimport order, volatile
+  reads). Recorded so nobody re-derives it; a 99.78% body.
+
+- **FROM THE PARALLEL SESSION `codex-d` (49 of 49 exact — the ride-record
+  verbs and the path/order helpers; evidence in `docs/lanes/codex-d.md`).**
+  Folded: **`int i = 0` BEFORE computing a u16 key moves the zero into its
+  original position** (fifth instance of the early-zero rule); **explicit
+  `int x = pos.x; int y = pos.y;` before a pair of calls restores the
+  callee-saved assignment** where inline argument fields cost 8;
+  **`NewGardenerOrder` needs its tail assignment written INSIDE both arms** — a
+  shared tail store emitted 72 B against 85 (the tail-duplication rule from
+  the record side). And a caution for every integrator: **a normalised audit
+  is NOT sufficient for global IDENTITIES** — `NewMechanicOrder` passed
+  19i/67B with zero mismatches while its head and tail stores were SWAPPED
+  (the two globals normalise to the same token); an independent COFF
+  relocation review caught it. Where two globals of the same size are stored
+  in one body, check the relocations, not just the mnemonics.
+
+- **FROM THE PARALLEL SESSIONS `scope-e` (147 of 147 exact — the frontier's
+  1-17-instruction tail) and `scope-i` (the UI/system/render partials: one
+  close, two improvements, twelve honest floors); evidence in
+  `docs/lanes/scope-e.md`, `scope-i.md`.** Folded:
+  - **Five record searches closed by the two-byte `memcmp` intrinsic.**
+    `memcmp(&r->tile, tile, 2)` expands after loop-invariant hoisting so the
+    loop reloads the record key into `dx` and compares the query through
+    memory at exactly the two original sites (16i/40B each) — the established
+    form in `JailCell_FindRecord`/`Carousel_FindRec`. Scalar equality and
+    volatile reads were the wrong abstraction; all five close with no volatile.
+  - **A null guard before a returned Win32 result splits the return**:
+    `if (!path) return 0; return SetCurrentDirectoryA(path);` gives the
+    original's `jne/ret` split (7i/17B) where a `void` wrapper shares one
+    final return (6i/16B) — and recovers the real return type.
+  - **`int i = 0;` BEFORE the pointer initialiser, with no initialiser in the
+    `for` clause, produces the original scratch-register order** (fourth
+    instance) — and returning the loop ordinal from `Copters_StepRider`
+    coalesces the counter with eax and removes a duplicate success store.
+  - **Equal `return` cases merge LATE: keep an explicit event-bit case that
+    returns the same value as the default.** It prevents VC6 replacing the
+    preceding conditional with `setne/inc`; the extra test disappears from
+    the code, leaving the original `test al,4 / mov al,2 / jne / mov al,1 /
+    ret` — and the eliminated test's mask is NOT uniquely recoverable
+    (`DefaultIconInput`).
+  - **x87 calling convention in the original: the reciprocal-sqrt target
+    consumes and returns ST(0)** — an inline-assembly call followed by
+    rounding through the argument's float home is the body; `fldcw control`
+    is the float-mode restore, EBP frame and all. Both `[OK]`.
+  - **`UpdatePersonPos` closed by representing the two unscaled isometric
+    coordinates as ONE `Pos` before storing either scaled output**
+    (`projected.x = bx - by; projected.y = by + bx;` recovers
+    `lea ecx,[ebx+ebp]`), after which the compensating volatile read had to
+    be REMOVED to close the last six. A volatile that once helped can become
+    the residual once the real cause is fixed — re-test every shim after a
+    structural change.
+  - **`PaintTileLayer`: grouping `halfw` with the existing ESCAPED `tile`
+    `Pos` keeps an ordinary memory home and refuses the unwanted second-cell
+    induction variable at the original 0x34 frame** — the non-volatile refusal
+    the previous note asked for (389 -> 378, register roles recovered); grouping
+    all seven intervening homes regresses to 395 with ESCAPES.
+    **`RenderFullMap`: an explicit `ILFTable` carrying the `sprite+8` ADDRESS
+    to the loop condition** gives the original's `add eax,8 / mov eax,[eax]`
+    at the latch (844 -> 827); every other of the six recorded register facts
+    costs 873-1066 when forced, and the paired `RenderView` corrections tested
+    TOGETHER regress (381 -> 549) — both now stated as floors with the tests.
+  - Two brief corrections: `InitExitCheckBox` was NOT unexplored — five prior
+    passes exist in its note (the "constant-web floor": three dword zero
+    stores, no fourth use); and a scope table listed fifteen functions where
+    its prose said fourteen. Read the note before the brief.
+
+- **A `memset` intrinsic placed AFTER some plain zero stores gives the body
+  TWO zero registers.** With the memset first, VC6 forwards the fill's own
+  zero out of eax and every store shrinks to the 5-byte `mov moffs32,eax`
+  (63 B against 73); with three plain stores BEFORE it, the zero already
+  exists, VC6 still hoists `rep stosd` above them but materialises
+  `xor edx,edx` in the fill's scheduling slot and all nine stores use edx —
+  exactly the missing 11 bytes. Nine spellings, one exact
+  (`ResetNarrationStreamState`).
+- **A CALL between two subscripts of the same index defeats VC6's
+  induction-variable elimination — and that is how you get TWO lockstep
+  cursors.** `table[i].elem` before the call and `table[i].kind` in the latch
+  as subscripts of one `i` produce the original's two cursors plus the
+  `mov eax,esi` copy; a `p++` walk collapses to one and is two instructions
+  short (`LLIDB_UnLoadTSMData`, ten spellings). Refines "spell two lockstep
+  cursors the SAME way to eliminate one": the call is the barrier.
+- **An eager root copy of an OUT parameter (`void** dst = out;`) moves its
+  load between `push esi` and `push edi` and re-ranks two strength-reduced
+  cursors** — 7 -> 0 at identical counts (`CollectUsedTSFTables`); the same
+  lever closed `SkipStrings` (stepping the parameter itself leaves the
+  zero-trip arm returning `[esp+8]` where the original returns edx).
+- **Read a table's entry COUNT into a named local BEFORE deriving the
+  cursor** — left in the loop condition, VC6 hoists the count after the
+  `lea`, puts `i = 0` above the pushes and the table pointer lands in edx,
+  losing the 5-byte `moffs32` load (`FindCoasterColour`, 6 -> 0). **`int i =
+  0;` as an initialiser AFTER the first call, not inside the guarded `for`,**
+  puts `xor esi,esi` ahead of `test eax,eax`, where the zero register then
+  doubles as a compare operand (`GetObjRiderN`, 3 -> 0).
+- Data-model corrections from `savemisc2.c`, each read off the disassembly:
+  `SaveIconStateChunk` writes four DWORDs, not `u8[0x10]`, and stores the
+  INVERSE of flag 0x400; `SaveScriptString`'s framing is u32 length (-1 =
+  NULL) then exactly `len` bytes with NO terminator (the loader adds the NUL,
+  which is why it mallocs `len+1`) — savechunks.c's "len+1 bytes" note is
+  wrong; `Raster_SaveState` saves nothing (it points the 16-bit rasteriser at
+  the locked surface, and its "restore" partner is a bare `ret`); rin.c's
+  `UnInit3DPrintList` is really the shading-ramp cache teardown; the goal list
+  and the script-event list share a record type; a FREE track end maps to
+  direction 1 (NORTH), not a sentinel.
+
+- **FROM THE PARALLEL SESSION `fable-d` (34 of 34 exact — the narration
+  wave-header reader, the movie player, the coaster's entrance track and RK4
+  callbacks, the cursor-tile painters; evidence in `docs/lanes/fable-d.md`).
+  The strongest, folded here:**
+  - **A trailing `return 0` block at the END of a function is what makes VC6
+    retarget every earlier guard's failure branch to it — and that is not
+    always what the original did.** `ReadNarrationWaveHeader` has nine
+    `if (_read(...) != 4) return 0;` guards; written as
+    `while (...) { ... } return 0;` VC6 collects all nine into the trailing
+    block (151 of 187). Written as `for (;;) { if (...) return 0; ... }`, with
+    no trailing block, each guard keeps its own inline `xor eax,eax / pop /
+    add esp / ret` — the original's ELEVEN identical copies, 187/187. VC6
+    rotates the `for (;;)` into exactly the `while` shape, so the spellings
+    differ ONLY in whether the merge target exists. Sharpens "nested ifs,
+    failures to ONE trailing `return 0`" from the other side.
+  - **WHICH identical `return 0` block VC6 merges into is a `goto` decision,
+    worth four bytes and invisible to the strict/rb/ob triage.** Two separate
+    `return 0;` statements merge the later copy BACKWARDS into a block 323
+    bytes earlier (six-byte `jne`); routing both through one `goto chunkfail;`
+    at the loop's end pins a two-byte forward `jne`. 187/187 either way — only
+    the byte length shows it, which is why the gate checks bytes.
+  - **To EXILE a `return K` block past the function, NEST the rest of the body
+    inside the guard — a `goto` to a trailing label does not do it when the
+    label has more than one predecessor.** `if (mv) { ...; return played; }
+    return 1;` exiles the block and gives `test esi,esi / je <far>`;
+    `if (!mv) return 1;` leaves it inline; two `goto suppressed;` left the
+    block inline at the SECOND goto. So the recorded "write it `goto fail;` to
+    pin the merged block at the END" prescription holds only for a
+    single-predecessor label; the general handle is the nesting (`PlayMovie`).
+  - **`if (a < K) g = f(K); else g = f(a);` — two textual calls — gives
+    `push K / jmp / push eax / call`; the ternary `f(a < K ? K : a)` gives
+    `mov eax,K / push eax / call`** and also merged a malloc's `add esp,4`
+    into the next cleanup. **An if/else whose two arms both begin with a call
+    sharing a constant argument gets that push HEAD-MERGED into the test
+    block** — a lone `push` between a load and its `cmp` is the tell.
+  - **An explicit `i = 0;` statement at the TOP of a function is what gives
+    VC6 a SECOND zero register** — the still-zero long-lived index supplies
+    the float-zero stores while ebx supplies the `push 0` arguments
+    (`Castle_InitEntranceTrack`, 170 of 230 -> 187 of 231 on that alone).
+    **Where a shared register is FREED decides which register carries a
+    function-wide zero**: six stores written BEFORE `sq = corner;` keep ebx
+    busy so VC6 takes edx for the zero; written after, ebx frees early, VC6
+    takes ebx, and EVERY register in the last two loops shifts — 201 -> 231/231
+    with no other change. Also there: **`prev` before `next` in each store
+    pair is load-bearing** (227 the other way).
+  - **A `short` local keeps its sign extension at the USE; an `int` one moves
+    it to the definition and loses an instruction** — when a body is exactly
+    one short and the original sign-extends late, narrow the local's type.
+    **An `int` local with a `(short)` cast at its use** is how a dword store
+    and a `movsx word ptr` load coexist on one slot; and
+    `mov ax,[m] / lea ecx,[eax+eax] / movsx ecx,cx / movsx eax,ax` reads as
+    `short w = (short)(h + h);` — the doubling done 32-bit then narrowed only
+    happens when the RESULT is a `short`.
+  - **Three adjacent constant stores to one array are emitted in SOURCE
+    order** (`m[11] = m[7] = m[3] = 0.0f` exact only descending, all six
+    permutations swept) — the "adjacent stores come out REVERSED" rule is for a
+    PAIR; with three, sweep. **The `- 1` of an end bound belongs in the loop
+    CONDITION**, not the end pointer's initialiser (`while (p < end - 1)` gives
+    `add` + `lea [eax-1]`; folded, one `lea [eax+esi-1]`).
+  - **A float value that must survive a call needs its OWN IR temporary, and a
+    block-scoped SECOND local supplies it** — `{ float brake = -(vv / (d+d)); }`
+    forces `vv`'s memory home and restores `call / fmul [vv] / add esp /
+    fmul [v]` (49 -> 57/57). **`x * 2` on a float is `fadd st(0),st(0)` only
+    when the operand is ALREADY on the stack.** **A `double`-typed threshold
+    (`< 0.05`, no `f`) survives as `fcomp qword`**; `fcomp / test ah,1 / je`
+    is `<`, not `>=`. **`1.175494351e-38f` is FLT_MIN** and reproduces.
+  - **A struct copy placed between a count and a divide keeps the `fidiv`
+    spill out of the copied-to local's frame slot** — the store must be live
+    across the divide for the slot to be denied.
+  - **The by-value `WinRect` field-assignment-order rule holds for LIVE values,
+    not just constants** (`PrintReportLine`, 13 of 43 at identical bytes, rb 0
+    -> exact on the reorder alone). **A 15-byte packed struct copy must be a
+    STRUCT ASSIGNMENT** — it materialises the source address in a register
+    (`lea ecx,[edx+0x38]` then dword/dword/dword/word/byte); a named pointer
+    to the sub-struct does NOT reach it (VC6 folds it back).
+  - **A list search whose success body lives INSIDE the loop threads away the
+    post-loop null test**, and VC6 DUPLICATES the two-byte `ret` for the
+    exhausted edge because the pushes live inside the found path — read a
+    lone mid-function `ret` with no pops as exactly this shape.
+  - **VC6's inline `strcpy` copies a string LITERAL as one dword plus one
+    byte; a named `extern const char[]` gets the full scan-and-copy
+    expansion** — both sit in one body (`PlayMovie`). **`#pragma
+    function(memcpy)` around one body is how a file mixes a CALLED and an
+    INLINED `memcpy`**; under `/O2` alone the intrinsic wins everywhere.
+  - **Naming the derived limit hoists a `lea` above a two-arm clamp**
+    (`int lim = base + 0x28;` gives `lea ecx,[eax+0x28]` scheduled into the
+    first clamp's gap and a memory-operand compare; 7 -> 0). **Nine cdecl
+    pushes across a straight-line function merge into ONE `add esp,0x58`**, so
+    one local is addressed as `[esp]` at one call and `[esp+8]` at the next —
+    resolve displacements by push depth before deciding two `lea`s name
+    different locals. **Seven literal zeros hoist the zero register with no
+    loop** — a run of `cmp reg,<callee-saved>` guards in a teardown function
+    means that many literal zeros.
+  - **`i++` as a STATEMENT before a cursor advance, versus in the `for`
+    increment, swaps two ALU ops and sinks the store below the compare** — the
+    increment-order rule from the increment side, with a free second
+    consequence. **A `char` local homed in a dead parameter slot is passed on
+    as a RAW DWORD** (stale high bytes visible in the argument, the `& 0xff`
+    a SEPARATE `and` after the call). **A three-case `dec/je` chain lays its
+    blocks in REVERSE source order and the LAST case shares the function's
+    epilogue.** **A twin found by callee overlap, not size** — two adjacent
+    functions calling the same three helpers in order were one source two
+    arguments apart. And **`&arr[i]` was enough for both strength-reduced
+    cursors in `render5.c`** — the biased-pointer form is for READ-ONLY tables
+    walked by more than one field.
+
+- **"Store a global, then walk a pointer chain": the chain head must be a
+  FUNCTION-LEVEL local assigned AFTER the store.** Inline
+  (`p->owner->obj->elem->flags |= 8`) the chain takes the eax->ecx->edx
+  rotation where the original's first dereference is in place
+  (`mov eax,[eax+0x18]`) — 3 wrong at identical length; as a BLOCK-scope local
+  the rotation is right but the global store sinks below three of the four
+  argument pushes — 3 wrong the other way. Only the function-level declaration
+  with the store first gets both (7 spellings, `ChildrenBarInput`, transferred
+  to its twin). Scope decides the SCHEDULE, not just the frame slot.
+- **A call result added to a global must be a NAMED LOCAL to make the
+  global's load the `add`'s destination.** `g_x + f(a)` inline gives
+  `add <result>,<load>`; `int c = f(a); ... g_x + c` gives the original's
+  `mov ecx,[g_x] / add ecx,eax`. Commutation is inert. Three instructions and a
+  byte on `FreePlayItemAvailable`.
+- **A preheader `mov ecx,1` paired with a trailing `lea eax,[ecx-1]` proves
+  the source counted from ONE** — the 0-based `for (i = 0; i < 4; i++) ...
+  return i;` is two instructions shorter and emits no `lea` (`GetBlokeAgeGroup`;
+  the `i <= N-1` -> `jle` rule confirmed at the same site). **A merged
+  `add esp` spans every call in a guarded block when no call consumes
+  another's result** — `0x14`, `0x1c` and `0x114` (a 256-byte buffer included)
+  measured in one file.
+- Five UI families confirmed as ONE source each (`Advert*Input` x3,
+  `EnqueueStep*Event`, `*ChildrenBarInput`, `PlayReport*`, `*HelpExpired`),
+  and an original quirk worth the runtime knowing: `ObjectHelpExpired`'s
+  timer arm is `GetGameTimer() - g_advisor_last < 0` against a stamp set to
+  NOW every frame, so object help is dropped on the first frame after the
+  bubble closes.
+
 - **FROM THE PARALLEL SESSION `codex-c` (88 of 88 exact — the frontier's
   1-28-instruction tail; evidence in `docs/lanes/codex-c.md`).** Small bodies
   close almost entirely on the recorded rules; the few new measurements: **a

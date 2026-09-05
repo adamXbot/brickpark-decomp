@@ -91,10 +91,10 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **55.5% exact, 64.7% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2020 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **58.1% exact, 69.0% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2310 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 316, ~10,200 instructions (the merges exposed new callees) |
+| unmatched callees | `python3 tools/callees.py` | 108, ~5,000 instructions (every merge exposes another tier) |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 74 |
 
 (Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
@@ -214,6 +214,19 @@ tools, take `web/`/`runtime/`/tests/docs, take the 5 net-new functions, drop
 its 20 duplicate bodies, gate every touched LEGOLAND file, `verify.py` alone —
 or have the branch owner rebase with those rules.
 
+**Wave eighteen plus five parallel scopes (2026-09-05): +290 exact, coverage
+55.5% -> 58.1%.** Three lanes here closed 59 (`uimisc3.c` 23 of 23,
+`coaster8.c`+`savemisc2.c` 30 of 30, `lfmisc2.c` 6 of 6) and took
+**`MusicThread` — 3,161 instructions, the largest unmatched body in the
+project — to 7 mismatches (99.78%)**: it is real, it is C, and 81% of it is
+two macros written out thirty times; its residual is one import-caching
+placement stated in its note. Merged in the same round: the Fable session's
+scope D (34 of 34), Codex scope D (49 of 49), **scope E (147 of 147 — the
+frontier's 1-17-instruction tail)** and scope I (the UI/system/render
+partials: one close, two improvements, twelve measured floors). Ten parallel
+scopes have now merged with zero conflicts. `docs/PARALLEL_CONTRACT.md` is
+the shared contract; the scope files are one page each.
+
 The arithmetic behind the pivot is simple and worth restating: the 37 partials
 are worth almost nothing in BYTES even if every one closed, while the frontier
 holds ~22,000 instructions of unwritten behaviour. Grinding a residual competes
@@ -260,6 +273,22 @@ cannot swap. 10 are scheduling tie-breaks with named mechanisms, each measured
 at 25-600 to disturb; the last 2 are a commutative-sum canonicalisation
 invariant under every spelling tried. The only construct known to reach the
 original's frame order costs 24 extra instructions, destroying the exact 1023.
+
+**Scope I (2026-09-05) reviewed all fifteen UI/system/render partials under
+the contract's partial rules: `UpdatePersonPos` closed, `PaintTileLayer` and
+`RenderFullMap` improved, and twelve were retained as measured floors with
+their tests recorded above each marker** — `RemoveNewObjectMarker` (the
+cursor-anchor coupling), `UpdateSampleSource` (improving one arm regresses the
+shared tail), `BuildPTPRoute` (rb 0, every temporary route costs),
+`UnlinkGardenerOrder` (the early head tail cannot survive), `DrawPopUpInfo`
+(a real memory home for `halfw` repositions the frame), `GetObjectUID`,
+`LoadScriptEvent` (the two-predecessor head-zero join cannot be placed last),
+`ScrollIconPanel` (the four-value web rank does not move),
+`CheckWorkerOnMouseStatus`, `InitExitCheckBox` (five prior passes; a
+constant-web floor), `RenderCursor`, `RenderView` (the two documented
+placement corrections regress when applied together, 381 -> 549). "Floor"
+there means the best measured form after the listed tests, not a proof over
+all C — reopen only with new reconstruction or compiler evidence.
 
 **Five more retired at wave eleven (2026-09-05).** All were chosen as the
 project's closest partials by strict mismatch and all turned out to be AT their
