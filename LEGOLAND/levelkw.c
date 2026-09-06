@@ -509,7 +509,7 @@ int LevelKw_LOOKAT(char** args, int argc, int extra)
 /* BREIFINGFILE [name]: load the briefing now on level 1, else queue it.
  * (The keyword is misspelt in the table; BRIEFINGFILE is a synonym.) */
 // FUNCTION: LEGOLAND 0x00478e20
-int LevelKw_BREIFINGFILE(char** args, int argc, int extra)
+int LevelKw_BREIFINGFILE_BRIEFINGFILE(char** args, int argc, int extra)
 {
     const char* name = kEmpty;
 
@@ -893,7 +893,7 @@ int UpcaseString(char* s)
  * words; one whose last keyword is "check" names a handler that runs at the
  * end with the count of lines whose handler returned 0. A negative handler
  * result aborts and is returned; otherwise the skipped count is. */
-// WIP-FUNCTION: LEGOLAND 0x00478280
+// WIP-FUNCTION: LEGOLAND 0x00478280  (63%, 124/196: VC6 folds the per-line found flag that the original keeps in bl, exiles the match block, and register-allocates rc/nwords)
 int ParseKeywordSections(void* f, KeywordEntry* table, int count, int extra)
 {
     int       skipped = 0;
