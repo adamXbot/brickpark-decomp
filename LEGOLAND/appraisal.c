@@ -47,6 +47,25 @@ typedef struct MapHdr {
 } MapHdr;
 
 typedef struct Sprite Sprite;
+typedef struct Icon   Icon;
+
+/* An icon: its box, its click handler and its flags. 0x400 is "disabled". */
+typedef char (*IconInputFn)(Icon* icon, int event, int x, int y);
+struct Icon {
+    char        pad00[0x0c];
+    short       x;                /* +0x0c */
+    short       y;                /* +0x0e */
+    short       w;                /* +0x10 */
+    short       h;                /* +0x12 */
+    char        pad14[0x2c - 0x14];
+    IconInputFn handler;          /* +0x2c */
+    char        pad30[0x34 - 0x30];
+    unsigned int flags;           /* +0x34 */
+    const char*  text;            /* +0x38 */
+    int          text_id;         /* +0x3c */
+};
+
+typedef struct Pos { int x, y; } Pos;
 
 extern MapHdr* g_map;                                       /* 0x004bcbf4 */
 extern ObjDef* g_objdef_head;                               /* 0x00669240 ObjectClassList */
@@ -78,6 +97,30 @@ extern Sprite* g_rep_next_lit;        /* 0x0081c034 NextPageLit.lls */
 extern Sprite* g_rep_mark[3][5];      /* 0x0081c040 App_tick/cross/bullet%d.lls */
 extern Sprite* g_rep_prev;            /* 0x0081c080 PreviousPage.lls */
 extern Sprite* g_rep_prev_lit;        /* 0x0081c084 PreviousPageLit.lls */
+extern Sprite* g_backdrop;            /* 0x00810148 AppraisalBK.lls */
+
+/* The report screen's own state. */
+extern int   g_report_open;           /* 0x0081c038  the screen is up */
+extern int   g_report_page_turned;    /* 0x0081c07c */
+extern int   g_report_pages;          /* 0x006660a0  pages in this report */
+extern int   g_report_page;           /* 0x006660a4  the page on screen */
+extern Icon* g_report_next_icon;      /* 0x006660a8 */
+extern Icon* g_report_prev_icon;      /* 0x006660ac */
+
+extern IconInputFn g_icon_handler1;   /* 0x006687bc */
+extern IconInputFn g_icon_handler2;   /* 0x006687c0 */
+extern int   g_6687b0;                /* 0x006687b0  hold-off frame counter */
+extern Pos   g_gfx_point;             /* 0x00813a44  the cursor */
+extern void* g_snd_click;             /* 0x004b92c0  the UI click sample */
+
+extern Icon* LoadSpriteIcon(const char* name, int mode, int x, int y, int group); /* 0x0046d7b0 */
+extern Icon* InsertIcon(short x, short y, unsigned short group, Sprite* s);       /* 0x0046d6c0 */
+extern void  SetIconSprite(Icon* p, Sprite* s);            /* 0x0046d680 */
+extern void  RemoveIconGroup(unsigned short group);        /* 0x0046d520 */
+extern int   KillSprite(Sprite* s);                        /* 0x00497bd0 */
+extern char* GetString(int id);                            /* 0x00498f50 */
+extern void  PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
+extern void  PauseCurrentTrack(void);                      /* 0x00498920 */
 
 /* ========================================================================== */
 /* The five attraction counters.                                              */
@@ -294,5 +337,190 @@ void CountVisitors(int* visitors, int* mood, int* ages)
             (*mood)++;
         *ages += 4 - GetBlokeAgeGroup(b);
         b = b->next;
+    }
+}
+
+/* ========================================================================== */
+/* The screen's two page buttons and its Go Back icon.                        */
+/* ========================================================================== */
+
+void UpdateAppraisalPageButtons(void);   /* 0x00445310, below */
+
+/* Go Back: leave the report. Also the handler the next-page button runs
+ * once there is no next page. */
+// FUNCTION: LEGOLAND 0x00444eb0
+char AppraisalGoBack(Icon* icon, int event, int x, int y)
+{
+    if (event & 2) {
+        PlayInstanceOfSample(g_snd_click, 0, 1, 0);
+        g_report_open = 0;
+        g_report_next_icon = 0;
+        g_report_prev_icon = 0;
+    }
+    return 1;
+}
+
+/* Next page. The lit sprite is never drawn: the guard below is the
+ * original's, and `!icon->flags & 0x400` parses as `(!icon->flags) & 0x400`,
+ * which is always zero. */
+// FUNCTION: LEGOLAND 0x00444ef0
+char AppraisalNextPage(Icon* icon, int event, int x, int y)
+{
+    if (g_report_next_icon) {
+        if (!g_report_next_icon->flags & 0x400)
+            SetIconSprite(g_report_next_icon, g_rep_next_lit);
+        if (event & 2) {
+            if (g_report_next_icon->flags & 0x400)
+                return AppraisalGoBack(0, event, 0, 0);
+            g_report_page_turned = 1;
+            PlayInstanceOfSample(g_snd_click, 0, 1, 0);
+            PauseCurrentTrack();
+            g_6687b0 = 4;
+            if (g_report_page < g_report_pages - 1)
+                g_report_page++;
+            UpdateAppraisalPageButtons();
+        }
+    }
+    return 1;
+}
+
+/* Previous page. */
+// FUNCTION: LEGOLAND 0x00444f90
+char AppraisalPrevPage(Icon* icon, int event, int x, int y)
+{
+    SetIconSprite(g_report_prev_icon, g_rep_prev_lit);
+    if (event & 2) {
+        g_report_page_turned = 1;
+        PlayInstanceOfSample(g_snd_click, 0, 1, 0);
+        if (g_report_page)
+            g_report_page--;
+        PauseCurrentTrack();
+        g_6687b0 = 4;
+        UpdateAppraisalPageButtons();
+    }
+    return 1;
+}
+
+/* Drop every sprite the screen loaded and take its icons away. */
+// FUNCTION: LEGOLAND 0x00445000
+void FreeAppraisalScreenSprites(void)
+{
+    int i;
+
+    for (i = 0; i < 5; i++) {
+        if (g_rep_mark[0][i]) {
+            KillSprite(g_rep_mark[0][i]);
+            g_rep_mark[0][i] = 0;
+        }
+        if (g_rep_mark[1][i]) {
+            KillSprite(g_rep_mark[1][i]);
+            g_rep_mark[1][i] = 0;
+        }
+        if (g_rep_mark[2][i]) {
+            KillSprite(g_rep_mark[2][i]);
+            g_rep_mark[2][i] = 0;
+        }
+    }
+    if (g_rep_barmarker) {
+        KillSprite(g_rep_barmarker);
+        g_rep_barmarker = 0;
+    }
+    if (g_rep_bar) {
+        KillSprite(g_rep_bar);
+        g_rep_bar = 0;
+    }
+    if (g_backdrop) {
+        KillSprite(g_backdrop);
+        g_backdrop = 0;
+    }
+    if (g_rep_next) {
+        KillSprite(g_rep_next);
+        g_rep_next = 0;
+    }
+    if (g_rep_next_lit) {
+        KillSprite(g_rep_next_lit);
+        g_rep_next_lit = 0;
+    }
+    if (g_rep_prev) {
+        KillSprite(g_rep_prev);
+        g_rep_prev = 0;
+    }
+    if (g_rep_prev_lit) {
+        KillSprite(g_rep_prev_lit);
+        g_rep_prev_lit = 0;
+    }
+    RemoveIconGroup(1);
+}
+
+/* Unlight either page button the cursor has left. */
+// FUNCTION: LEGOLAND 0x00445100
+void UnlightAppraisalPageButtons(void)
+{
+    if (g_gfx_point.x < g_report_next_icon->x
+        || g_gfx_point.x > g_report_next_icon->x + g_report_next_icon->w
+        || g_gfx_point.y < g_report_next_icon->y
+        || g_gfx_point.y > g_report_next_icon->y + g_report_next_icon->h)
+        SetIconSprite(g_report_next_icon, g_rep_next);
+    if (g_gfx_point.x < g_report_prev_icon->x
+        || g_gfx_point.x > g_report_prev_icon->x + g_report_prev_icon->w
+        || g_gfx_point.y < g_report_prev_icon->y
+        || g_gfx_point.y > g_report_prev_icon->y + g_report_prev_icon->h)
+        SetIconSprite(g_report_prev_icon, g_rep_prev);
+}
+
+/* Load the screen's own sprites and put its three icons up. */
+// FUNCTION: LEGOLAND 0x00445190
+void LoadAppraisalScreenSprites(void)
+{
+    Icon* icon;
+
+    g_rep_next = LoadSprite("NextPage.lls", 4);
+    g_rep_next_lit = LoadSprite("NextPageLit.lls", 4);
+    g_rep_prev = LoadSprite("PreviousPage.lls", 4);
+    g_rep_prev_lit = LoadSprite("PreviousPageLit.lls", 4);
+    g_backdrop = LoadSprite("AppraisalBK.lls", 0);
+
+    icon = LoadSpriteIcon("GoBack_on_Report.lls", 4, 0x1fb, 0x161, 1);
+    icon->text_id = 0xde;
+    icon->text = GetString(0xde);
+    icon->flags |= 0x6002;
+    icon->handler = AppraisalGoBack;
+    g_icon_handler2 = AppraisalGoBack;
+
+    g_report_next_icon = InsertIcon(0x1b9, 0x1ae, 1, g_rep_next);
+    g_report_next_icon->text_id = 0xdc;
+    g_report_next_icon->text = GetString(0xdc);
+    g_report_next_icon->flags |= 0x2000;
+    g_report_next_icon->flags |= 0x4002;
+    g_report_next_icon->handler = AppraisalNextPage;
+    g_icon_handler1 = AppraisalNextPage;
+
+    g_report_prev_icon = InsertIcon(6, 0x1ae, 1, g_rep_prev);
+    g_report_prev_icon->text_id = 0xdd;
+    g_report_prev_icon->text = GetString(0xdd);
+    g_report_prev_icon->flags |= 0x2000;
+    g_report_prev_icon->flags |= 0x4002;
+    g_report_prev_icon->handler = AppraisalPrevPage;
+    UpdateAppraisalPageButtons();
+    g_report_open = 1;
+}
+
+/* Enable or grey each page button for the page we are on. */
+// FUNCTION: LEGOLAND 0x00445310
+void UpdateAppraisalPageButtons(void)
+{
+    if (g_report_pages > 1 && g_report_page < g_report_pages - 1) {
+        g_report_next_icon->handler = AppraisalNextPage;
+        g_report_next_icon->flags &= ~0x400;
+    } else {
+        g_report_next_icon->handler = 0;
+        g_report_next_icon->flags |= 0x400;
+    }
+    if (g_report_page != 0) {
+        g_report_prev_icon->handler = AppraisalPrevPage;
+        g_report_prev_icon->flags &= ~0x400;
+    } else {
+        g_report_prev_icon->handler = 0;
+        g_report_prev_icon->flags |= 0x400;
     }
 }
