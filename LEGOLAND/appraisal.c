@@ -14,11 +14,23 @@ typedef struct Elem   Elem;
 typedef struct ObjDef ObjDef;
 
 struct ObjDef {
-    char  pad00[0xc0];
+    ObjDef*        next;              /* +0x00  the class list at 0x00669240 */
+    void*          instances;         /* +0x04 */
+    int            count;             /* +0x08  how many are in the park */
+    char           pad0c[0x20 - 0x0c];
+    unsigned short type;              /* +0x20  1,3 attraction; 2 scenery; 4 food; 5 shop */
+    char           pad22[0xc0 - 0x22];
     /* The class's "how many of me are there" callback and its argument. */
     int   (*loop_size)(Elem*, int);   /* +0xc0 */
     Elem* elem;                       /* +0xc4 */
 };
+
+/* A visitor, as the mood walk reads it. */
+typedef struct Bloke {
+    struct Bloke*  next;              /* +0x00 */
+    char           pad04[0x7a - 0x04];
+    short          mood;              /* +0x7a */
+} Bloke;
 
 struct Elem {
     const char* name;                 /* +0x00 */
@@ -37,10 +49,23 @@ typedef struct MapHdr {
 typedef struct Sprite Sprite;
 
 extern MapHdr* g_map;                                       /* 0x004bcbf4 */
+extern ObjDef* g_objdef_head;                               /* 0x00669240 ObjectClassList */
+extern Bloke*  g_people_head;                               /* 0x0066b574 */
+/* The 22 class names that are parts of a ride, not attractions of their own. */
+extern const char* g_ride_part_names[22];                   /* 0x004b7e9c */
+/* The two upper mood thresholds (workers.c's HAPPINESS_ENV rates; simcore2.c
+ * calls 0x00832934 g_mood_high). */
+extern int     g_rate_t2;                                   /* 0x00832934 */
+extern int     g_rate_t3;                                   /* 0x00832938 */
 
 extern Elem*   ElemID(const char* name);                    /* 0x0047b3f0 */
 extern Sprite* LoadSprite(const char* name, int mode);      /* 0x00497ab0 */
 extern int     sprintf(char* buf, const char* fmt, ...);    /* 0x0049e573 (CRT) */
+extern int     LookupNamedIndex(const char* name, const char** table, int n); /* 0x004781b0 */
+extern int     PrintSprite(Sprite* s, int x, int y, int mode, void* ctx);     /* 0x004853a0 */
+extern void    PushRenderingStatusAndLockVideoSurface(void);                  /* 0x00463fc0 */
+extern void    PopRenderingStatus(void);                                      /* 0x004641f0 */
+extern signed char GetBlokeAgeGroup(Bloke* b);                                /* 0x0044eb10 */
 
 /* The report screen's sprites (mapscreen2.c names the page buttons). */
 extern Sprite* g_rep_bar;             /* 0x0081c028 App_bar.lls */
@@ -146,4 +171,128 @@ void LoadAppraisalTickSprites(void)
     }
     g_rep_barmarker = LoadSprite("App_barmarker.lls", 4);
     g_rep_bar = LoadSprite("App_bar.lls", 4);
+}
+
+/* Draw one of the three marks: a tick for a passed line, a cross for a
+ * failed one, a bullet for a line that is only being counted. The bullet
+ * sits five pixels in from the other two. */
+// FUNCTION: LEGOLAND 0x00444b70
+void BlitAppraisalSprite(int x, int y, int kind, int step)
+{
+    PushRenderingStatusAndLockVideoSurface();
+    if (kind == 1)
+        PrintSprite(g_rep_mark[0][step], x, y, 0, 0);
+    else if (kind == 0)
+        PrintSprite(g_rep_mark[1][step], x, y, 0, 0);
+    else if (kind == -1)
+        PrintSprite(g_rep_mark[2][step], x + 5, y + 5, 0, 0);
+    PopRenderingStatus();
+}
+
+/* ========================================================================== */
+/* What the park holds: a count and a variety for each report line.           */
+/* ========================================================================== */
+
+/* Attractions: class types 1 and 3. */
+// FUNCTION: LEGOLAND 0x00444bf0
+void CountAttractions(int* num, int* variety)
+{
+    ObjDef* d = g_objdef_head;
+
+    *num = 0;
+    *variety = 0;
+    while (d) {
+        int n = d->count;
+
+        if (n && (d->type == 1 || d->type == 3)) {
+            *num += n;
+            (*variety)++;
+        }
+        d = d->next;
+    }
+}
+
+/* A class that is part of a ride (its track, its water, its dummy) rather
+ * than an attraction in its own right. */
+// FUNCTION: LEGOLAND 0x00444c40
+int IsRidePartClass(ObjDef* d)
+{
+    return LookupNamedIndex(d->elem->name, g_ride_part_names, 22) >= 0;
+}
+
+/* Scenery: class type 2, less the ride parts. */
+// FUNCTION: LEGOLAND 0x00444c70
+void CountScenery(int* num, int* variety)
+{
+    ObjDef* d = g_objdef_head;
+
+    *num = 0;
+    *variety = 0;
+    while (d) {
+        if (d->count && d->type == 2 && !IsRidePartClass(d)) {
+            *num += d->count;
+            (*variety)++;
+        }
+        d = d->next;
+    }
+}
+
+/* Food: class type 4. */
+// FUNCTION: LEGOLAND 0x00444cd0
+void CountFood(int* num, int* variety)
+{
+    ObjDef* d = g_objdef_head;
+
+    *num = 0;
+    *variety = 0;
+    while (d) {
+        int n = d->count;
+
+        if (n && d->type == 4) {
+            *num += n;
+            (*variety)++;
+        }
+        d = d->next;
+    }
+}
+
+/* Shops: class type 5. */
+// FUNCTION: LEGOLAND 0x00444d20
+void CountShops(int* num, int* variety)
+{
+    ObjDef* d = g_objdef_head;
+
+    *num = 0;
+    *variety = 0;
+    while (d) {
+        int n = d->count;
+
+        if (n && d->type == 5) {
+            *num += n;
+            (*variety)++;
+        }
+        d = d->next;
+    }
+}
+
+/* The visitors: how many there are, how many mood thresholds they are over
+ * between them, and their age spread (a four-year-old scores 4, and so on
+ * down). */
+// FUNCTION: LEGOLAND 0x00444d70
+void CountVisitors(int* visitors, int* mood, int* ages)
+{
+    Bloke* b = g_people_head;
+
+    *visitors = 0;
+    *mood = 0;
+    *ages = 0;
+    while (b) {
+        (*visitors)++;
+        if (b->mood > g_rate_t2)
+            (*mood)++;
+        if (b->mood > g_rate_t3)
+            (*mood)++;
+        *ages += 4 - GetBlokeAgeGroup(b);
+        b = b->next;
+    }
 }
