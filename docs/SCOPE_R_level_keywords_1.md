@@ -21,7 +21,7 @@ section; every line's first word is looked up in **the keyword table at
 0x004bb6f8**: 93 entries of `{const char* keyword; void (*handler)(void)}`
 (dump it with `tools/disasm.py`'s neighbour or a 12-line Python over
 `match.load_exe`). Each handler reads its arguments with the primitives
-below (`NextKeywordArg` 0x004786c0 first, `atoi` at CRT 0x004a04b9 for
+below (`KwLineApplies` 0x004786c0 — `(g_level_number & mask) && argc >= nargs`, the section-kind and word-count test, first; `atoi` at CRT 0x004a04b9 for
 numbers, `ElemID` for object names, `LookupNamedIndex` 0x004781b0 for
 enumerated words) and then either acts immediately (`MAP` loads the base
 map, `ENABLE`/`LOAD` mark and load classes) or **creates a script event**
@@ -48,9 +48,9 @@ record every rename. The handler names are `LevelKw_<KEYWORD>`; keep them.
 | 0x004785d0 | `CurLevelSection` | 21 | called by 0x00478a80 [unmatched] (+4 more). globals `0x00669058`, `g_level_number` |
 | 0x00478610 | `CurLevelFlags` | 16 | called by 0x00478a40 [unmatched] (+4 more). globals `g_level_byte_669050` |
 | 0x00478650 | `IsPurgeLine` | 18 | called by 0x00478a40 [unmatched] (+1 more). calls `_stricmp`; strings "PURGE"; globals `g_level_byte_669050` |
-| 0x00478690 | `sub_478690` | 6 | called by 0x004786c0 [unmatched] (+2 more).  |
-| 0x004786a0 | `CurLevelIndex` | 7 | called by 0x0047af80 [unmatched] (+8 more). globals `g_level_number` |
-| 0x004786c0 | `NextKeywordArg` | 27 | called by 0x0047aea0 [unmatched] (+75 more). calls `0x004786a0`, `0x00478690` |
+| 0x00478690 | `KwHasArgs` (settled by scope T: `argc >= nargs`) | 6 | called by 0x004786c0 [unmatched] (+2 more).  |
+| 0x004786a0 | `KwSectionMatches` (settled by scope T: `(g_level_number & mask) != 0`) | 7 | called by 0x0047af80 [unmatched] (+8 more). globals `g_level_number` |
+| 0x004786c0 | `KwLineApplies` (settled by scope T: `(g_level_number & mask) && argc >= nargs`) | 27 | called by 0x0047aea0 [unmatched] (+75 more). calls `0x004786a0`, `0x00478690` |
 | 0x00478700 | `ParseRectArgs` | 38 | called by 0x0047a7b0 [unmatched] (+6 more). calls `0x004a04b9` x4 |
 | 0x00478770 | `ParsePosArgs` | 19 | called by 0x0047a5a0 [unmatched] (+1 more). calls `0x004a04b9` x2 |
 | 0x004787a0 | `sub_4787a0` | 3 | called by 0x00478be0 [unmatched] (+2 more).  |
@@ -93,7 +93,7 @@ record every rename. The handler names are `LevelKw_<KEYWORD>`; keep them.
 | 0x00499300 | `sub_499300` | ? | called by `ParseKeywordSections`; not probed (outside the inventory groups) — disassemble and name |
 
 **Order:** the primitives (smallest first), then the handlers in address
-order — they are one shape (`NextKeywordArg`, convert, call the constructor),
+order — they are one shape (`KwLineApplies`, convert, call the constructor),
 so build one, then transfer. `ParseKeywordSections` (194i) last.
 
 ## Owned elsewhere — do not create or edit

@@ -11,7 +11,7 @@ here** — including the relocation step of the gate
 
 NEW-FUNCTION scope, **37 functions, ≈1561 instructions**, one
 new file `LEGOLAND/levelkw2.c`. Every function is a keyword handler: read
-the arguments (`NextKeywordArg` 0x004786c0, `atoi` 0x004a04b9, `ElemID`,
+the arguments (`KwLineApplies` 0x004786c0, `atoi` 0x004a04b9, `ElemID`,
 `LookupNamedIndex` 0x004781b0 — declare them `extern`, scope R defines them),
 then call the keyword's constructor (`AddEvent_<KW>` in scope W — declare
 `extern` with the address from the table below). The goal keywords

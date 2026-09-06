@@ -1,6 +1,6 @@
 # Scope T — the level-database keyword tier, part 3, and the process start-up (2026-09-06)
 
-> **Status: OPEN, unclaimed.** Branch `scope/T`. Notes: `docs/lanes/scope-t.md`.
+> **Status: DONE — 29 of 29 exact, merged into `main` 2026-09-06 (integrator session).** Branch `scope/T`. Notes: `docs/lanes/scope-t.md`.
 > Object prefix `/tmp/st_`. Any agent. Cut from inventory groups 24–25. Read
 > `docs/SCOPE_R_level_keywords_1.md`'s "What this tier is" first.
 
@@ -59,12 +59,12 @@ block (`docs/lanes/scope-n.md`, "extents"). It calls `ReadExeVersionString`
 | 0x0047f840 | `sub_47f840` | 2 | called by 0x0047f880 [unmatched].  |
 | 0x0047f860 | `sub_47f860` | 1 | unreferenced (swept) **DEAD**.  |
 | 0x0047f880 | `InitSession` | 262 | called by 0x0047fd10 [unmatched]. calls `0x0047f830`, `RES_EnsureMounted`, `RES_OpenVolume`, `0x00498d00`, `InitHostSystemGPU`, `InitScreen`, `GetString` x4, `KillHostSystemGPU` x3, `RES_CloseVolume` x4, `sprintf`, `InitInputSystem`, `KillInputSystem`, `LoadSprite` x8, `LLIDB_LoadICM`, `LLIDB_RegisterNewElement` x5, `RunGame`, `DebugPrintf`, `0x0047f840`, `DeleteStrings`, `LLIDB_CloseICM`, `UnreferenceSprite` x8; strings "legoland.log", "Failed to open resource %s", "LEGOLAND Error", "erase it.lls"; globals `0x007fd640`, `0x007fd64c`, `0x007fe9c4`, `0x007fe9c8`; IAT [4ab2d8] [4ab2a4] [4ab2d8] [4ab2a4] |
-| 0x0047fc40 | `ParseCommandSwitch` | 95 | called by 0x0047fd10 [unmatched]. calls `HeapAlloc_w` x2, `0x004a0600` x2, `HeapFree_w` x3, `0x004a0580` |
+| 0x0047fc40 | `FindCommandSwitch` | 95 | called by 0x0047fd10 [unmatched]. calls `HeapAlloc_w` x2, `0x004a0600` x2, `HeapFree_w` x3, `0x004a0580` |
 | 0x0047fd10 | `GameMain` | 84 | called by 0x00453d10 [unmatched]. calls `DBPrintf` x2, `0x0047fc40` x4, `CheckHostSystemGPU`, `0x0047f880`; strings "LegolandGameMutex", "WINDEBUG", "BLT", "-nointro"; globals `g_windowed`, `0x0066920c`, `g_hinstance`; IAT [4ab10c] [4ab110] [4ab260] |
 
 `GameMain` (0x0047fd10): `CreateMutexA("LegolandGameMutex")` / "Program
 already running.", the command-line switches (`WINDEBUG`, `BLT`,
-`-nointro`, `-nomusic`) through `ParseCommandSwitch` four times, `g_hinstance`,
+`-nointro`, `-nomusic`) through `FindCommandSwitch` four times, `g_hinstance`,
 `CheckHostSystemGPU`, then `InitSession`. `InitSession` (0x0047f880, 262i):
 `legoland.log`, `RES_EnsureMounted`/`RES_OpenVolume` ("Failed to open
 resource %s" / "LEGOLAND Error" through the two message-box imports),

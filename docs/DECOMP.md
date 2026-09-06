@@ -424,6 +424,62 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **FROM THE PARALLEL SESSION `scope-t` (29 of 29 exact — the last
+  twenty-two level-database keyword handlers and the process start-up;
+  evidence in `docs/lanes/scope-t.md`).** Folded:
+  - **A `|=` of a small constant on an `unsigned short` field is narrowed
+    to `or byte ptr [base+index+disp], imm8` and leaves a dead `lea` of
+    the field's address behind.** `LevelKw_GLUE`'s `g_map_rows[y][x].flags
+    |= 0x40` with `unsigned short flags`: 63/63. With `unsigned char` the
+    same statement splits into load / `or bl,0x40` / store through a
+    `lea`'d pointer (58/67); through a `Cell*` it is `mov bl,0x40 / or
+    [mem],bl` plus a `push ebx` (58/66); bit-fields behave like the byte.
+    Template: pathgfx.c's exact `AddPathTileGFX` carries the identical
+    `or byte ptr [ecx+edx*4+0xc],0x10 / lea eax,[ecx+edx*4+0xc]` pair.
+    **Read the field width from the neighbours, not from the `or`.**
+  - **An index loop `for (i = 1; i <= argc; i++)` over `argv[i]` puts the
+    pointer step in the loop PREHEADER, after the guard**: VC6
+    strength-reduces it to a countdown (`cmp edi,1 / jl`, `dec edi / jne`)
+    plus a pointer IV initialised after the guard. A separate pointer
+    (`p = argv + 1; for (n = argc; n >= 1; n--, p++)`) hoists the `add`
+    above the guard (63/64); `if (argc >= 1) { p = argv + 1; n = argc; do
+    … while (--n); }` places it right but lets a preceding `if (argc == 0)
+    bits = -1;` be jump-threaded past the guard (`jmp end` instead of the
+    fall-through, 67/68); stepping the parameters themselves re-rolls the
+    register roles (55/64). `FLASHBUTTON` 64/64, `FLASHBUTTOFF` 67/67.
+  - **`if (!flag) return 1;` as an early return keeps its epilogue inline
+    and lets the later pushes sink** (`LevelKw_PLACE` 58 -> 71/71,
+    `DEGRADE` 41 -> 54/54); the enclosing `if (flag) { … } return 1;` merges
+    the inactive path into the final return and pins the pushes at entry.
+    The other twenty handlers, which have no sunk push, want the enclosing
+    form — same source family, two spellings, decided by the push.
+  - **The fall-through arm is the one written first** (`REPORT`: `if
+    (NameCompare(argv[2], "off")) { … } else { off = 1; }` 119 -> 126), and
+    **a ternary argument becomes two calls sharing their trailing pushes**
+    (`if (NameCompare(a, "HAPPY_VIS") == 0) idx = Lookup("Happpy_Vis", …);
+    else idx = Lookup(a, …);` 126 -> 129/129; the ternary materialises the
+    pointer in a register first). Third sighting of P's `SetPointer(2)/(1)`
+    rule.
+  - **Two independent stores, reverse source order, twice more**:
+    `MAXBLOKES` `g_visitor_cap = g_map->max_blokes; g_visitor_cap_extra =
+    0;` (30/30); `GameMain` `g_hinstance = hinst; g_ncmdshow = ncmdshow;`
+    (84/84).
+  - **`int i` with an unsigned bound** (`i < sizeof(tbl) / sizeof(tbl[0])`)
+    gives a `jb` open loop and a signed `jle` failure loop from one
+    variable; the close-on-failure loop is `if (i > 0) { p = tbl; do {
+    Close(*p); p++; } while (--i); }` — the increment as its own statement
+    after the call (`*p++` lifts the `add` above the push). `InitSession`
+    262/262 after those two.
+  - `if (!p) return p;` after `malloc` and `r = Check(); if (!r) return
+    r;` give the `test / jne / ret` shapes with no `xor` (Q's `return
+    (int)c` rule, twice more); the arm that also frees (`if (!q) { free(p);
+    return 0; }`) is the one that carries `xor eax,eax`.
+  - Uninitialised locals whose only definition is in one arm (`REPORT`'s
+    `a`, `b` when the word is `off`) are read from the argc slot at the
+    join (`mov ebx,[esp+0x18] / mov ebp,[esp+0x18]`) — FR09 seen from the
+    source side: declare them, assign them in the one arm, and let VC6
+    home the phantom reads.
+
 - **FROM THE PARALLEL SESSION `scope-p` (10 of 10 exact — the per-frame
   dispatcher, the in-game frame, the 751-instruction map click handler;
   evidence in `docs/lanes/scope-p.md`).** Folded:

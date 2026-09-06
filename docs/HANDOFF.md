@@ -91,8 +91,8 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **61.3% exact, 72.5% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2426 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **61.9% exact, 73.1% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2455 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 113, ~5,200 instructions — the 47 game-code callees O left (2,023 insns: Codex-F's 27 and the 20-function tier O's files declare, 721 insns) plus the tier Q's files declare; use `tools/inventory.py` for the real list |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 77 |
@@ -272,6 +272,25 @@ DECOMP below. The merge exposed the next tier: 20 game-code callees, 721
 instructions (`ParseKeywordSections` 194, `CollectPathSquareNeighboursCounted`
 127, `RefillNarrationRing` 102, `NewScriptEvent` 91, ...), all named.
 
+**Scope T merged (2026-09-06): 29 of 29 exact, ≈1,430 instructions — the
+first of the seven script-tier briefs, done by the integrator session.**
+`levelkw3.c`: the last twenty-two level-database keyword handlers
+(`LevelKw_PLACE` … `LevelKw_ENDLEVEL`), which settled the handler contract
+for scopes R and S — `int handler(char** argv, int argc)`, `g_level_number`
+is the SECTION KIND (1 = `[INIT]` applies now, 4 = a step section queues an
+`AddEvent_*`), and the primitives at 0x004786c0/0x004786a0/0x00478690 are
+`KwLineApplies` (`(kind & mask) && argc >= nargs`), `KwSectionMatches` and
+`KwHasArgs`, not a token reader (the R/S briefs were corrected). `startup.c`:
+`GameMain` (WinMain's body: the mutex, `WINDEBUG`/`BLT`/`-nointro`/
+`-nomusic`), `FindCommandSwitch`, `InitSession` (volumes, strings, GPU,
+screen, input, the eight pointer sprites, the ICM, `RunGame`, teardown) and
+the compiled-out debug-log stubs — with P and Q the path from the CRT entry
+to the frame is now C except WinMain's 48-instruction SEH shell. Two new
+levers worth remembering: an `unsigned short` field's `|= K` narrows to
+`or byte ptr …, imm8` (a byte field splits it), and an index loop over
+`argv[i]` is what puts the pointer step after the loop guard. Levers folded
+under `scope-t`.
+
 **Scope P merged (2026-09-05, last of the day): 10 of 10 exact, 1,403
 instructions — the startup spine is closed.** `gameframe.c`: `GameFrame`
 (the per-frame dispatcher and its three pending transitions), `InGameFrame`
@@ -331,10 +350,10 @@ coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
 Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed) and
-the seven briefs cut on 2026-09-06 from the inventory's script tier —
-`SCOPE_R_level_keywords_1.md`, `SCOPE_S_level_keywords_2.md`,
-`SCOPE_T_level_keywords_3_startup.md` (the 93 level-database keyword handlers,
-their parse primitives and the process start-up), `SCOPE_W_event_constructors.md`
+six of the seven briefs cut on 2026-09-06 from the inventory's script tier —
+`SCOPE_R_level_keywords_1.md`, `SCOPE_S_level_keywords_2.md` (the level-database
+keyword handlers and their parse primitives; T, the third part and the process
+start-up, is DONE and merged), `SCOPE_W_event_constructors.md`
 (the `AddEvent_*` bodies), `SCOPE_V_event_ticks_1.md` and
 `SCOPE_X_event_ticks_2.md` (the `g_event_tick[]` handlers and goal checks) and
 `SCOPE_U_exception_report_objdesc.md` — 311 functions, ≈8,000 instructions,
