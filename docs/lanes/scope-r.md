@@ -293,12 +293,44 @@ and `while (!h)`: every form whose match path leaves the loop directly
 through the loop bottom and `nwords` in esi differ). `handled = strcmp(…)
 == 0; if (handled)` keeps the flag and the original's block layout but
 materialises it with `sete bl` (153/196). The C++ front end (`bool`) folds
-too. `/O1`, `/Os`, `/Ob0`, `/Gf` change nothing useful. Next thing to try:
-a form where the flag has a non-constant reaching definition on the match
-edge without generating code for it — I found none; or check whether the
-original TU had the fallback test and the handler call in a different
-lexical relationship (e.g. the handler call after the loop guarded by the
-flag with the `rc == 0` test folded in), since VC6 threads only one hop.
+too. `/O1`, `/Os`, `/Ob0`, `/Gf` change nothing useful.
+
+**Second pass (same day), and why this is the floor under this toolchain.**
+Seventy more spellings plus fifteen toy files (a 125-instruction model of
+the loop, compiled and disassembled in isolation) established the rule:
+VC6 SP3 (cl 12.00.8168, C2 8447) folds a flag whenever every definition
+reaching the test is a constant, and it does so per edge — in the toy a
+non-constant `h = i < n` kept `test bl,bl` on the match edge while the
+loop-exit edge was still threaded straight to the fallback load. It sees
+through branch conditions (`h = r + 1`, `h = !r` inside `if (r == 0)`,
+`h = nw != 0` inside `if (nw)` all fold), through copies (`h = (char)i`
+after `i = 0`), dead non-constant defs, `char`/`short`/`unsigned char`,
+`register`, `const` sources, struct and union members and 8-bit bitfields,
+inlined helpers returning the flag, the C++ front end, and a 2,500-
+instruction body. The only flags it keeps are (a) memory-resident ones
+(ReadLine's `eof`, SafariRide_Interact's `any` — both pressure spills, both
+matched) and (b) flags set on a path that *continues* the loop (loop-carried
+phi): every kept register flag in the whole binary is of kind (b)
+(Coaster_TickLoadingBay, RenderIconsExtra, RES_EnsureMounted,
+Goto_ProfileDir, BsWater_Probe — all matched by this toolchain). The
+original parser's flag is set on a path that exits the loop directly *and*
+is kept — the only `xor r8,r8 … mov r8,1 … test r8,r8` in the executable
+(scratchpad `flagscan.py`). Every continuing-path spelling reproduces the
+kept flag but pays for it with the loop bottom on the match path (`i =
+count` 165/197, `i = count - 1` 144/193, `!handled` in the condition
+150/194 with the test at the loop head or bottom — VC6 never folds a loop
+condition, even `count < count` is folded only outside one); every exiting
+spelling folds the flag. Compiler switches (`/Oa /Ow /Zi /Gs- /G3 /G4 /G5
+/G6 /GB /J /Za /Zp1 /GF /Gi /Gm /GX /Op`, `_DEBUG`/`NDEBUG`) leave the
+score unchanged; `/Og-`, `/O1`, `/Os`, `/Oy-`, `/Ge`, `/Ob2` wreck the
+neighbours that are exact. Conclusion: no C spelling produces this object
+with this compiler build; the original TU was most likely compiled by a
+later VC6 C2 (SP4–SP6 shipped optimiser fixes; the game is from 2000) whose
+threading declined this byte flag. The committed body is the natural form
+and is behaviourally complete. To close it: try `C2.DLL` from VC6 SP5/SP6
+on this file (`tools/matchfull.py` takes the wrapper's compiler as is;
+swap `toolchain/msvc6.3/Bin/C2.DLL`), and if the flag survives there, the
+gate needs a per-file compiler note rather than a source change.
 
 ## Verification
 
