@@ -424,6 +424,106 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **FROM THE PARALLEL SESSION `scope-r` (48 of 48 exact — the level-database
+  reader `ParseKeywordSections`, the parse primitives and the first keyword
+  handlers, `levelkw.c`; evidence in `docs/lanes/scope-r.md`).** Folded:
+  - **A set-and-break found flag survives only with a DEFINITION of it at
+    the merge point** (`ParseKeywordSections`, 194/194 after three passes
+    63% -> 99% -> 100%). VC6 SP3 folds a flag that is set right before a
+    `break` and tested after the loop: it threads every edge into the test
+    with the flag's constant value, exiles the match block, and re-allocates
+    everything after with the freed registers. It threads only when the
+    test is the FIRST statement of the merge block; any definition there
+    whose value the propagator cannot reduce to a constant on either edge
+    stops it. The exact spelling is two flags, both zeroed before the loop,
+    the loop setting one, the merge or-ing them: `found = 0; handled = 0;
+    for (i = 0; i < count; i++) { if (strcmp(words[0], table[i].keyword) ==
+    0) { found = 1; rc = table[i].handler(words, nwords - 1, extra); if (rc
+    == 0) skipped++; break; } } handled = found | handled; if (!handled &&
+    fallback) rc = fallback(…);` — both live in `bl`, the or of two
+    register variables is not folded, the allocator coalesces them, and the
+    original's `test bl,bl / jne` follows, with `table` cached in `ebp` and
+    the strength-reduced cursor coalesced onto it. A self-modifying
+    `handled ^= 1` (99%) and a cursor reset `e = table` at the merge (96%)
+    show the same mechanism but leave their own instruction. The only kept
+    flag of its kind in the executable.
+  - **A five-element store loop is an index loop, not a pointer loop**:
+    `for (i = 0; i < 5; i++) g_rate_t0[i] = atoi(args[i + 1])` gives the
+    strength-reduced pointer with a SIGNED `jl` against the end address;
+    the pointer form compiles to `jb` with a `lea/sub` base (23/34 ->
+    34/34).
+  - **Single-return `if/else` beats two returns whenever the arms differ
+    only in the callee** — it hoists the shared push above the compare and
+    sinks the saved-register push (`PROMPT` 41/49 -> 49/49 with argc in
+    esi; `WORKERS` `if (level == 1) {…} else AddEvent_Workers(a, b); return
+    1;` sinks `push esi` past the early returns, while `return 1` inside
+    the arm pushed esi in the prologue, 44/55). `BREIFINGFILE`/`HINTSFILE`
+    need `if (!g_level_db_active) return 1;` with `name = kEmpty` as the
+    declaration's initialiser (35/42 -> 42/42; a wrapper `if`, a ternary or
+    an `if/else` assignment all land elsewhere).
+  - **`LOOKAT`: copy `pos.x/pos.y` into locals AFTER the shifts are stored,
+    with `y` declared before `x`** — the shifted values stay in edx/ecx for
+    the store and are copied to edi/esi only inside the arm (`push edi`
+    sinks there), and `w`/`h` land in the dead `args`/`argc` parameter
+    slots as in the original. Temporaries first 62/77; `x` declared first
+    swaps edi/esi (72/77).
+  - **`ReadLine` is `while (1)` with separate `if (c == '\r') break; if (c
+    == '\n') break;` and `if (++n >= max) break;`** — not rotated (one
+    `RES_ReadFile` call, `jge exit; jmp top`), the two breaks threaded into
+    the post-loop `if (c == '\r')` (46/66 -> 58/58); `for (;;)` with `||`
+    and `n++; if (n >= max)` rotates into two calls.
+  - `SplitWords`' empty-word case is `continue`, not `break`, and the loop
+    is `while (*s)` with the initial test peeled. Direct byte reads of
+    `g_level_flags` at the call give `mov dl,[0x669050]` right before the
+    pushes; a plain `elem = 0` reuses `_stricmp`'s zero register by itself.
+    `GARDENER`/`MECHANIC`'s count loop is `while (i != 0) { …; i--; }` on a
+    copy of n, with the default `if (argc < 3 || (n = atoi(args[3])) < 1)
+    n = 1;` — one shared `mov eax,1` for both fall-throughs.
+  - Extern divergences: `NewScriptEvent(void*, void*, void*)` here (PROMPT
+    passes `(char*, char* or 0, (void*)1)`) against eventmake.c's
+    definition; `GenerateGardener`/`GenerateMechanic` return `void*` here
+    (workers.c: `void`); `ParseKeywordSections(void* f, KeywordEntry*
+    table, int count, int extra)` (movie3.c declares the table `const
+    void*`); `strspn`/`strcspn` return `unsigned int`; `strchr` is a real
+    call — `#pragma intrinsic` only for `strlen`, `strcpy`, `strcmp`. At
+    merge the three primitive DEFINITIONS were renamed to the tree's
+    `KwLineApplies` / `KwSectionMatches` / `KwHasArgs` (R's notes:
+    `LineApplies`, `LevelMaskMatches`, `HasArgs`); code unchanged.
+
+- **FROM THE PARALLEL SESSION `scope-x` (54 of 54 exact — event ticks part
+  2 and the goal primitives, `eventtick2.c` and `eventgoalprim.c`; evidence
+  in `docs/lanes/scope-x.md`).** Folded:
+  - **One local definition pointer resolves scratch-register allocation**:
+    naming the `ObjDef*` before the callback test (LOOPCOMPOSITE 26/28 ->
+    28/28) or inside the condition arm (FIXRIDES 57/61 -> 61/61); naming
+    the element or the callback alone, or a volatile name load, did
+    nothing.
+  - **The scope of a position aggregate controls store scheduling**:
+    RIDEVISITORS' local `Pos` inside the inner arm delayed both stores
+    (64/69); the same `Pos` declared once at function scope interleaves
+    x-store / y-load exactly (69/69). Volatile x/y reads cost four bytes
+    and seven mismatches.
+  - **A free volatile row-pointer read controls the loop-invariant choice**:
+    CLEARAREA hoisted the row table and reloaded the map config (66
+    mismatches, 202B vs 197B); a single `*(Cell** volatile*)&g_map_rows`
+    at the valid-cell lookup keeps the config in edx and reloads the row
+    table in the original arm (81/81, 197B). Confined to that load; the
+    global itself stays ordinary.
+  - **Keep the timer result as the accumulation destination**: `deadline =
+    GetGameTimer(); deadline += minutes * 60000;` gives the original eax
+    accumulation where the one-expression form rotates the time into ecx;
+    `deadline = 0` in the else arm, not before the guard, gives the
+    separate zero-return block (17/17, 54B).
+  - Caller-side types: `SetThemeIcon` and `AddLevelFlag` take a SIGNED BYTE
+    second parameter here (the keyword callers declare `int`);
+    `GetLevelFlag` returns a signed byte (CHECKFLAG's `movsx ecx,al`);
+    `GetRideVisitCountAt` returns `unsigned short` (the caller masks eax to
+    0xffff, the body writes ax); the +0xc0 loop-size callback is cdecl
+    `(Elem*, int) -> int`. New names: `g_goal_kind_count` 0x0066872c,
+    `g_appraisal_minutes` 0x00832978, `SetButtonFlash` 0x00476030 (a
+    bounds-checked write to the nine flash states at 0x007fdd00),
+    `SetThemeIconEnabled` 0x00476140.
+
 - **FROM THE PARALLEL SESSION `scope-w` (72 of 72 exact — the script-event
   constructors `AddEvent_*` 0x0046b590..0x0046c510 with `NewScriptEvent`,
   `LinkStepEvent`/`LinkGoalEvent`, `SetScriptStepText` and `ShowStepHint`;

@@ -1,6 +1,6 @@
 # Scope R — the level-database keyword tier, part 1: the reader, the parse primitives and the first handlers (2026-09-06)
 
-> **Status: CLAIMED — delivered on `origin/scope/R` 2026-09-06 at 47 of 48 exact (`ParseKeywordSections` held at WIP at a compiler-build floor, see its notes); NOT yet merged — the integrator merges it on the user's call, renaming its primitive definitions to the tree's `KwLineApplies` / `KwSectionMatches` / `KwHasArgs`. Do not assign again.** Branch `scope/R`. Notes: `docs/lanes/scope-r.md`.
+> **Status: DONE — 48 of 48 exact, merged into `main` 2026-09-06 (integrator session; the three primitive definitions were renamed at merge to the tree's `KwLineApplies` / `KwSectionMatches` / `KwHasArgs`, code unchanged).** Branch `scope/R`. Notes: `docs/lanes/scope-r.md`.
 > Object prefix `/tmp/sr_`. Any agent. Cut from inventory groups 21–22
 > (`tools/inventory.py`, 2026-09-06). Siblings: S (handlers part 2), T (part 3
 > and the process start-up), W (the event constructors the handlers call),

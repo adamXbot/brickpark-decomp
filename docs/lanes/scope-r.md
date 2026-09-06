@@ -1,6 +1,14 @@
 # Scope R — the level-database keyword tier, part 1: 48 of 48 exact
 
-**Status: complete.** Branch `scope/R`, baseline `origin/main` `0e62e67c`
+**Status: complete.** At merge (2026-09-06) the integrator renamed, in
+`levelkw.c` only, the three primitive definitions to the names the sibling
+files already use — `LineApplies` → `KwLineApplies`, `LevelMaskMatches` →
+`KwSectionMatches`, `HasArgs` → `KwHasArgs` — and two extern declarations
+to eventmake.c's definition names, `FreeScriptSteps` (0x0046b590) →
+`InsertScriptStep` and `AddEvent_Intro` (0x0046b650) → `SetScriptStepText`
+(parameter labels left as written here). Identifier renames only; every
+body still `[OK]`. The text below keeps the names as written. Branch
+`scope/R`, baseline `origin/main` `0e62e67c`
 (2026-09-06). One new file, `LEGOLAND/levelkw.c`, 48 functions, 1,728
 instructions, every one `audit.py [OK]`; `/W3` clean; `relocs.py` 222 of
 222 resolved positions agree, none unresolved. No existing file was

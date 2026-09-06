@@ -1,6 +1,6 @@
 # Scope X — the script-event tick handlers, part 2, and the goal primitives (2026-09-06)
 
-> **Status: OPEN, unclaimed.** Branch `scope/X`. Notes: `docs/lanes/scope-x.md`.
+> **Status: DONE — 54 of 54 exact, merged into `main` 2026-09-06 (integrator session).** Branch `scope/X`. Notes: `docs/lanes/scope-x.md`.
 > Object prefix `/tmp/sx_`. Any agent. Cut from inventory groups 17 and 19.
 > Read `docs/SCOPE_V_event_ticks_1.md` first — this is the second half of the
 > same table, plus the primitives both halves call.

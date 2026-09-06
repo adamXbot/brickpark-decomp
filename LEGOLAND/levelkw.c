@@ -47,7 +47,7 @@ extern unsigned int strlen(const char* s);
 extern char*       strcpy(char* dst, const char* src);
 #pragma intrinsic(strlen, strcpy)
 extern ScriptStep* NewScriptStep(int id);                             /* 0x0046b4f0 */
-extern void        FreeScriptSteps(ScriptStep* s);                    /* 0x0046b590 (scope W) */
+extern void        InsertScriptStep(ScriptStep* s);                    /* 0x0046b590 (scope W) */
 extern void        ClearObjectCounters(void);                         /* 0x00480d10 */
 extern int         LoadBaseMap(const char* name);                     /* 0x00461a50 */
 extern void        CalculateMapRenderOrder(void);                     /* 0x0045a4a0 */
@@ -117,25 +117,25 @@ void IsPurgeLine(char** args, int argc)
 
 /* The line has at least `n` words after the keyword. */
 // FUNCTION: LEGOLAND 0x00478690
-int HasArgs(char** args, int argc, int n)
+int KwHasArgs(char** args, int argc, int n)
 {
     return argc >= n;
 }
 
 /* The current section applies to a level in `mask`. */
 // FUNCTION: LEGOLAND 0x004786a0
-int LevelMaskMatches(char** args, int argc, int mask)
+int KwSectionMatches(char** args, int argc, int mask)
 {
     return (g_level_number & mask) != 0;
 }
 
 /* Both: the section applies and the line has enough words. */
 // FUNCTION: LEGOLAND 0x004786c0
-int LineApplies(char** args, int argc, int mask, int n)
+int KwLineApplies(char** args, int argc, int mask, int n)
 {
-    if (!LevelMaskMatches(args, argc, mask))
+    if (!KwSectionMatches(args, argc, mask))
         return 0;
-    return HasArgs(args, argc, n) != 0;
+    return KwHasArgs(args, argc, n) != 0;
 }
 
 /* Four numbers from args[first..] into a rect, normalised so left <= right
@@ -186,7 +186,7 @@ int LevelKw_none(char** args, int argc, int extra)
 void EndScriptStep(void)
 {
     if (g_script_cur)
-        FreeScriptSteps(g_script_cur);
+        InsertScriptStep(g_script_cur);
     g_script_cur = 0;
 }
 
@@ -256,7 +256,7 @@ int LevelKw_AGES(char** args, int argc, int extra)
 int LevelKw_OBJECTIVE(char** args, int argc, int extra)
 {
     if (g_level_db_active) {
-        if (!LevelMaskMatches(args, argc, 7))
+        if (!KwSectionMatches(args, argc, 7))
             return 0;
         CurLevelSection(args[0], 2);
         CurLevelFlags(1);
@@ -271,7 +271,7 @@ int LevelKw_OBJECTIVE(char** args, int argc, int extra)
 int LevelKw_ONEOFF(char** args, int argc, int extra)
 {
     if (g_level_db_active) {
-        if (!LevelMaskMatches(args, argc, 2))
+        if (!KwSectionMatches(args, argc, 2))
             return 0;
         CurLevelFlags(0);
     }
@@ -283,7 +283,7 @@ int LevelKw_ONEOFF(char** args, int argc, int extra)
 int LevelKw_ONGOING(char** args, int argc, int extra)
 {
     if (g_level_db_active) {
-        if (!LevelMaskMatches(args, argc, 2))
+        if (!KwSectionMatches(args, argc, 2))
             return 0;
         CurLevelFlags(1);
     }
@@ -295,7 +295,7 @@ int LevelKw_ONGOING(char** args, int argc, int extra)
 int LevelKw_PERMANENT(char** args, int argc, int extra)
 {
     if (g_level_db_active) {
-        if (!LevelMaskMatches(args, argc, 2))
+        if (!KwSectionMatches(args, argc, 2))
             return 0;
         CurLevelFlags(2);
         IsPurgeLine(args, argc);
@@ -308,7 +308,7 @@ int LevelKw_PERMANENT(char** args, int argc, int extra)
 int LevelKw_REMINDER(char** args, int argc, int extra)
 {
     if (g_level_db_active) {
-        if (!LevelMaskMatches(args, argc, 2))
+        if (!KwSectionMatches(args, argc, 2))
             return 0;
         CurLevelFlags(3);
         IsPurgeLine(args, argc);
@@ -321,7 +321,7 @@ int LevelKw_REMINDER(char** args, int argc, int extra)
 int LevelKw_REWARD(char** args, int argc, int extra)
 {
     if (g_level_db_active) {
-        if (!LevelMaskMatches(args, argc, 2))
+        if (!KwSectionMatches(args, argc, 2))
             return 0;
         CurLevelSection(args[0], 4);
     }
@@ -335,7 +335,7 @@ int LevelKw_MAP(char** args, int argc, int extra)
     if (g_level_db_active) {
         char* name;
 
-        if (!HasArgs(args, argc, 1))
+        if (!KwHasArgs(args, argc, 1))
             return 0;
         name = Arg1(args, argc);
         ClearObjectCounters();
@@ -353,7 +353,7 @@ int LevelKw_LOAD(char** args, int argc, int extra)
 {
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 1, 1))
+    if (!KwLineApplies(args, argc, 1, 1))
         return 0;
     return EnsureObjectClassLoaded(Arg1(args, argc)) != 0;
 }
@@ -374,7 +374,7 @@ int LevelKw_ENABLE(char** args, int argc, int extra)
 {
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 5, 1))
+    if (!KwLineApplies(args, argc, 5, 1))
         return 0;
     if (g_level_number == 1) {
         char* name = Arg1(args, argc);
@@ -427,7 +427,7 @@ extern void*        NewScriptEvent(void* a, void* b, void* c);            /* 0x0
 extern void         SetCurrency(int amount);                              /* 0x00457900 */
 extern void         LoadBriefingFile(const char* name);                   /* 0x004687f0 */
 extern void         LoadHintsFile(const char* name);                      /* 0x00468810 */
-extern void         AddEvent_Intro(const char* text, ScriptStep* step);   /* 0x0046b650 (scope W) */
+extern void         SetScriptStepText(const char* text, ScriptStep* step);   /* 0x0046b650 (scope W) */
 extern void         AddEvent_Currency(int amount);                        /* 0x0046b850 (scope W) */
 extern void         AddEvent_Gardener_Mechanic(int kind, int n, Pos* pos);/* 0x0046bad0 (scope W) */
 extern void         AddEvent_Workers(int gardeners, int mechanics);       /* 0x0046bb10 (scope W) */
@@ -447,7 +447,7 @@ extern void         AddEvent_Cleararea(unsigned char flags, Rect* r, int n); /* 
 int LevelKw_CURRENCY(char** args, int argc, int extra)
 {
     if (g_level_db_active) {
-        if (!LineApplies(args, argc, 5, 1))
+        if (!KwLineApplies(args, argc, 5, 1))
             return 0;
         if (g_level_number == 1) {
             SetCurrency(atoi(args[1]));
@@ -463,7 +463,7 @@ int LevelKw_CURRENCY(char** args, int argc, int extra)
 int LevelKw_HAPPINESS_ENV(char** args, int argc, int extra)
 {
     if (g_level_db_active) {
-        if (!LineApplies(args, argc, 5, 5))
+        if (!KwLineApplies(args, argc, 5, 5))
             return 0;
         if (g_level_number == 1) {
             int i;
@@ -484,7 +484,7 @@ int LevelKw_LOOKAT(char** args, int argc, int extra)
     Pos pos;
 
     if (g_level_db_active) {
-        if (!LineApplies(args, argc, 5, 2))
+        if (!KwLineApplies(args, argc, 5, 2))
             return 0;
         ParsePosArgs(&pos, args, 1);
         pos.x <<= 8;
@@ -515,7 +515,7 @@ int LevelKw_BREIFINGFILE_BRIEFINGFILE(char** args, int argc, int extra)
 
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 5, 0))
+    if (!KwLineApplies(args, argc, 5, 0))
         return 0;
     if (argc >= 1)
         name = args[1];
@@ -534,7 +534,7 @@ int LevelKw_HINTSFILE(char** args, int argc, int extra)
 
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 5, 0))
+    if (!KwLineApplies(args, argc, 5, 0))
         return 0;
     if (argc >= 1)
         name = args[1];
@@ -554,7 +554,7 @@ int LevelKw_WORKERS(char** args, int argc, int extra)
 
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 5, 2))
+    if (!KwLineApplies(args, argc, 5, 2))
         return 0;
     gardeners = atoi(args[1]);
     mechanics = atoi(args[2]);
@@ -578,7 +578,7 @@ int LevelKw_GARDENER(char** args, int argc, int extra)
     int n;
 
     if (g_level_db_active) {
-        if (!LineApplies(args, argc, 5, 2))
+        if (!KwLineApplies(args, argc, 5, 2))
             return 0;
         pos.x = atoi(args[1]);
         pos.y = atoi(args[2]);
@@ -606,7 +606,7 @@ int LevelKw_MECHANIC(char** args, int argc, int extra)
     int n;
 
     if (g_level_db_active) {
-        if (!LineApplies(args, argc, 5, 2))
+        if (!KwLineApplies(args, argc, 5, 2))
             return 0;
         pos.x = atoi(args[1]);
         pos.y = atoi(args[2]);
@@ -636,7 +636,7 @@ int LevelKw_PROMPT(char** args, int argc, int extra)
 {
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 2, 0))
+    if (!KwLineApplies(args, argc, 2, 0))
         return 0;
     if (argc > 0) {
         if (argc > 1)
@@ -654,10 +654,10 @@ int LevelKw_PROMPT(char** args, int argc, int extra)
 int LevelKw_INTRO(char** args, int argc, int extra)
 {
     if (g_level_db_active) {
-        if (!LineApplies(args, argc, 2, 1))
+        if (!KwLineApplies(args, argc, 2, 1))
             return 0;
         if (g_script_cur)
-            AddEvent_Intro(args[1], g_script_cur);
+            SetScriptStepText(args[1], g_script_cur);
     }
     return 1;
 }
@@ -671,7 +671,7 @@ int LevelKw_NEED(char** args, int argc, int extra)
 
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 2, 1))
+    if (!KwLineApplies(args, argc, 2, 1))
         return 0;
     elem = ElemID(args[1]);
     if (argc <= 1 || (n = atoi(args[2])) == 0)
@@ -690,7 +690,7 @@ int LevelKw_NEEDAT(char** args, int argc, int extra)
 
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 2, 3))
+    if (!KwLineApplies(args, argc, 2, 3))
         return 0;
     elem = ElemID(args[1]);
     pos.x = atoi(args[2]);
@@ -710,7 +710,7 @@ int LevelKw_NEEDIN(char** args, int argc, int extra)
 
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 2, 6))
+    if (!KwLineApplies(args, argc, 2, 6))
         return 0;
     elem = ElemID(args[1]);
     n = atoi(args[2]);
@@ -727,7 +727,7 @@ int LevelKw_CONNECT(char** args, int argc, int extra)
     if (g_level_db_active) {
         void* elem;
 
-        if (!LineApplies(args, argc, 2, 1))
+        if (!KwLineApplies(args, argc, 2, 1))
             return 0;
         elem = ElemID(args[1]);
         if (elem)
@@ -744,7 +744,7 @@ int LevelKw_LINK(char** args, int argc, int extra)
     if (g_level_db_active) {
         void* elem;
 
-        if (!LineApplies(args, argc, 2, 1))
+        if (!KwLineApplies(args, argc, 2, 1))
             return 0;
         if (_stricmp(args[1], g_str_all) == 0) {
             elem = 0;
@@ -767,7 +767,7 @@ int LevelKw_RANGE(char** args, int argc, int extra)
 
     if (!g_level_db_active)
         return 1;
-    if (!LineApplies(args, argc, 2, 2))
+    if (!KwLineApplies(args, argc, 2, 2))
         return 0;
     elem = ElemID(args[1]);
     lo = atoi(args[2]);
@@ -788,7 +788,7 @@ int LevelKw_CLEARAREA(char** args, int argc, int extra)
     int  n;
 
     if (g_level_db_active) {
-        if (!LineApplies(args, argc, 2, 4))
+        if (!KwLineApplies(args, argc, 2, 4))
             return 0;
         ParseRectArgs(&r, args, 1);
         if (argc >= 5)

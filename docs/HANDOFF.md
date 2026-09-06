@@ -91,14 +91,14 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **63.6% exact, 74.8% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2573 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **64.8% exact, 76.0% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2675 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 151, ~6,800 instructions — the script-tier files declare what the open briefs own: the tick handlers and goal checks (V, X) and the reader with its parse primitives (R); use `tools/inventory.py` for the real list |
+| unmatched callees | `python3 tools/callees.py` | 161, ~6,900 instructions — mostly what the open briefs own (V's tick handlers and goal checks, Codex-F's 27) plus the callees the new script-tier files declare by address; use `tools/inventory.py` for the real list |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 77 |
 | **unmatched functions, whole binary** | `python3 tools/inventory.py` (scope N) | **867: 703 live (41,523 insns, 70% of the unmatched bytes), 164 dead, one 8,085-instruction body** — `docs/lanes/scope-n.md` |
 
-(Row values current at the S/U/W merge, 2026-09-06. Section-B waves one to four took
+(Row values current at the R/X merge, 2026-09-06. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
 (1540); waves five to seven added 4 more (1544) for roughly twenty lanes and
 several thousand measured variants, and waves eight, nine and ten closed
@@ -272,6 +272,24 @@ DECOMP below. The merge exposed the next tier: 20 game-code callees, 721
 instructions (`ParseKeywordSections` 194, `CollectPathSquareNeighboursCounted`
 127, `RefillNarrationRing` 102, `NewScriptEvent` 91, ...), all named.
 
+**Scopes R and X merged (2026-09-06): 102 of 102 exact — the level-script
+subsystem is closed but for V.** `levelkw.c` (R, 48 of 48, 1,728
+instructions): `ParseKeywordSections`, the reader (`ReadLine`, `SplitWords`,
+`UpcaseString`), the parse primitives (`KwLineApplies`, `KwSectionMatches`,
+`KwHasArgs`, `ParseRectArgs`, `ParsePosArgs`, `LookupNamedIndex`) and the
+first keyword handlers. The parser took three passes and produced the day's
+most general lever: VC6 SP3 folds a set-and-break found flag unless a
+definition of it sits at the merge point — the exact spelling is two flags
+or-ed at the merge (`handled = found | handled`). R's three primitive
+definitions were renamed at merge to the names S and T already use
+(definition-level rename, code unchanged). `eventtick2.c` and
+`eventgoalprim.c` (X, 54 of 54): the second half of the `g_event_tick[]`
+executors and the goal primitives V's goal checks call (X's notes name
+`GoalCheck_Need`/`Connect`/`Link` for V's 0x00468d80/dc0/e00). With R, S, T,
+W and X in, only V (`eventgoal.c`, `eventtick.c`, running) separates the
+keyword table from a fully C script engine. Levers folded under `scope-r`
+and `scope-x`.
+
 **Scope W merged (2026-09-06): 72 of 72 exact, 1,132 instructions — the
 script-event constructors.** `eventmake.c`: `NewScriptEvent(kind, mode)`,
 `LinkStepEvent`/`LinkGoalEvent`, the `AddEvent_<Keyword>` constructors the
@@ -383,26 +401,24 @@ coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
 Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed) and
-two of the seven briefs cut on 2026-09-06 from the inventory's script tier —
-`SCOPE_V_event_ticks_1.md` and `SCOPE_X_event_ticks_2.md` (the
-`g_event_tick[]` handlers and goal checks, ≈110 functions, ≈3,500
-instructions, named by keyword from the table at 0x004bb6f8 and the
-constructors' kinds). `SCOPE_U_exception_report_objdesc.md` and
-`SCOPE_W_event_constructors.md` are DONE and merged. `SCOPE_R_level_keywords_1.md`
-is CLAIMED and delivered on `origin/scope/R` (2026-09-06, 47 of 48 exact;
-`ParseKeywordSections` 0x00478280 held at WIP because the original keeps a
-set-and-break flag in `bl` that this compiler build folds in every spelling —
-a later VC6 C2.DLL trial, not a source change) but NOT merged: the user has
-not called it, and at merge its primitive definitions must take the tree's
-names (`KwLineApplies` 0x004786c0, `KwSectionMatches` 0x004786a0,
-`KwHasArgs` 0x00478690 — R's notes call them `LineApplies`,
-`LevelMaskMatches`, `HasArgs`).
-Running: F, G, H (the other machine). Each has TWO branches on origin — the
-2026-09-05 `scope/F`, `scope/G`, `scope/H` and the newer `scope/F-fable`,
-`scope/G-fable`, `scope/H-fable` pushed 2026-09-06 from the other machine
-(F-fable: ride callbacks, "14 of 16 exact" in its notes). None is merged;
-the integrator has not been told which twin is the live one — decide before
-touching any of them. Merged
+the two briefs cut on 2026-09-06 after the R/X merge —
+`SCOPE_Y_report_setters_appraisal.md` (the 25 per-report setters behind
+`SetReportMode` and the appraisal report screen's helper tier, 48 functions,
+≈1,230 instructions) and `SCOPE_Z_lowlevel_ai.md` (the 16-entry
+`g_lowlevel_ai` bloke-state dispatch and its helpers, 28 functions, ≈1,650
+instructions). Of the seven script-tier briefs six are DONE and merged (R, S,
+T, U, W, X); `SCOPE_V_event_ticks_1.md` is CLAIMED (a Claude session on this
+machine, `origin/scope/V`).
+Running: V (this machine); F, back on Codex on this machine (`origin/scope/F`,
+pushed 2026-09-06 16:11 — the `scope/F-fable` branch was the other machine's
+attempt and is superseded); G and H on the other machine (`scope/G-fable` /
+`scope/H-fable` carry the 2026-09-06 pushes; `scope/G` / `scope/H` are the
+2026-09-05 checkpoints). None of F/G/H is merged. The next inventory clusters
+after Y and Z: the report/goal-state table tier at 0x0044db20..0x0044fdc9
+(group 12, 14 functions, 1,580 instructions, one 699-instruction body), the
+RLE blitter callees of `SoftBlitRLEPlain` at 0x00466d80..0x004677b0 (group
+16, five bodies, 1,117 instructions), the advisor-movie and `InitMan` subtree
+at 0x00441910..0x00444150 (16 functions, ≈900 instructions). Merged
 since: N (`tools/inventory.py` and `docs/lanes/scope-n.md`, 2026-09-05; no C,
 no existing tool touched), O (21 of 21 exact — the 19 K exposed plus two
 undeclared siblings — three new files, 2026-09-05; `docs/lanes/scope-o.md`)
