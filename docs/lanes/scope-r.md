@@ -254,7 +254,34 @@ is {u16 view_w, u16 view_h, …, int mechanics +0x34, int gardeners +0x38}.
   `if (argc < 3 || (n = atoi(args[3])) < 1) n = 1;` — one shared `mov
   eax,1` for both fall-throughs.
 
-## The WIP: `ParseKeywordSections` 0x00478280 (124/196, first divergence at 60)
+## The WIP: `ParseKeywordSections` 0x00478280 (now 192/194, first divergence at 116)
+
+**Third pass (2026-09-06, later): 63% → 99%.** The mechanism is found: VC6
+threads each edge into the fallback test only when the test is the *first*
+statement of the merge block; any definition at the merge point — the
+cursor reset `e = table` (a load of a memory-resident parameter into a
+long-lived register variable) or a self-modifying `handled ^= 1` — stops
+the fold, and with the fold stopped the whole original shape follows by
+itself: the flag stays in `bl`, `table` is cached in `ebp` with the
+strength-reduced cursor coalesced onto it (so the match block reloads
+`table` from its home slot into `eax` and the compiler restores `ebp` at
+the end of the line body, after the fallback), `rc`/`nwords`/`skipped`/
+`fallback` stay in memory, and the epilogue's `esi`/`ebx` roles land
+(with `if (rc >= 0 && strcmp(..."check") == 0)` for the tail). The
+committed body is the plain reading plus `handled ^= 1; if (handled &&
+fallback)`, semantically identical, at 192/194 and 562 vs 561 bytes: the
+residual is exactly that one instruction, `xor bl,1 / je` where the
+original has `test bl,bl / jne`. Every definition tried at the merge
+either folds (copies of register variables, address-of-locals, empty
+ifs, `__assume`, memory round-trips, algebraic identities including the
+byte-width ones) or emits its own instruction there (`and bl,1`, `add
+bl,bl`, the cursor load). The Rich header dates the build 2000-04-07 and
+lists objects from two C compiler builds, 8168 (123) and 8447 (141);
+the SP3 `libc.lib` objects carry `@comp.id` 8168, so the RTM objects are
+the CRT and the game's own translation units are this toolchain's 8447 —
+the last instruction is a source-level question, not a compiler one.
+
+### Second pass (superseded numbers, kept for the record)
 
 The committed body is the natural reading and is behaviourally complete
 (every path was traced in the disassembly; see the grammar above). The
