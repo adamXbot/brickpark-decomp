@@ -17,13 +17,25 @@ struct ObjDef {
     ObjDef*        next;              /* +0x00  the class list at 0x00669240 */
     void*          instances;         /* +0x04 */
     int            count;             /* +0x08  how many are in the park */
-    char           pad0c[0x20 - 0x0c];
+    int            origin_x;          /* +0x0c  the class's cell offset */
+    int            origin_y;          /* +0x10 */
+    char           pad14[0x20 - 0x14];
     unsigned short type;              /* +0x20  1,3 attraction; 2 scenery; 4 food; 5 shop */
-    char           pad22[0xc0 - 0x22];
+    char           pad22[0x78 - 0x22];
+    const char*    name;              /* +0x78 */
+    char           pad7c[0xc0 - 0x7c];
     /* The class's "how many of me are there" callback and its argument. */
     int   (*loop_size)(Elem*, int);   /* +0xc0 */
     Elem* elem;                       /* +0xc4 */
 };
+
+/* A placed object, as the link walk reads it. */
+typedef struct Cell {
+    Elem*          elem;              /* +0x00 */
+    unsigned char  x, y;              /* +0x04 */
+    char           pad06[0x0c - 0x06];
+    unsigned short flags;             /* +0x0c  0x80: a real object, not scenery fill */
+} Cell;
 
 /* A visitor, as the mood walk reads it. */
 typedef struct Bloke {
@@ -85,6 +97,13 @@ extern int     PrintSprite(Sprite* s, int x, int y, int mode, void* ctx);     /*
 extern void    PushRenderingStatusAndLockVideoSurface(void);                  /* 0x00463fc0 */
 extern void    PopRenderingStatus(void);                                      /* 0x004641f0 */
 extern signed char GetBlokeAgeGroup(Bloke* b);                                /* 0x0044eb10 */
+extern Cell*   GetFirstRenderObject(void);                  /* 0x0045a850 */
+extern Cell*   GetNextRenderObject(Cell* c);                /* 0x0045a8b0 */
+extern void    RefreshEntranceTile(int force);              /* 0x00482b20 */
+extern int     TileJoinsPathNetwork(Pos* pos);              /* 0x00482b60 */
+extern int     DBPrintf(const char* fmt, ...);              /* 0x00453a20 */
+extern int     GetNearestColour(int r, int g, int b);       /* 0x0044e6c0 */
+extern int     RenderBlock(int x, int y, int w, int h, int colour); /* 0x004890c0 */
 
 /* The report screen's sprites (mapscreen2.c names the page buttons). */
 extern Sprite* g_rep_bar;             /* 0x0081c028 App_bar.lls */
@@ -117,7 +136,7 @@ extern Icon* LoadSpriteIcon(const char* name, int mode, int x, int y, int group)
 extern Icon* InsertIcon(short x, short y, unsigned short group, Sprite* s);       /* 0x0046d6c0 */
 extern void  SetIconSprite(Icon* p, Sprite* s);            /* 0x0046d680 */
 extern void  RemoveIconGroup(unsigned short group);        /* 0x0046d520 */
-extern int   KillSprite(Sprite* s);                        /* 0x00497bd0 */
+extern int   UnreferenceSprite(Sprite* s);                        /* 0x00497bd0 */
 extern char* GetString(int id);                            /* 0x00498f50 */
 extern void  PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
 extern void  PauseCurrentTrack(void);                      /* 0x00498920 */
@@ -319,8 +338,8 @@ void CountShops(int* num, int* variety)
 }
 
 /* The visitors: how many there are, how many mood thresholds they are over
- * between them, and their age spread (a four-year-old scores 4, and so on
- * down). */
+ * between them, and their age-group score (4 minus each visitor's group
+ * index). */
 // FUNCTION: LEGOLAND 0x00444d70
 void CountVisitors(int* visitors, int* mood, int* ages)
 {
@@ -409,44 +428,44 @@ void FreeAppraisalScreenSprites(void)
 
     for (i = 0; i < 5; i++) {
         if (g_rep_mark[0][i]) {
-            KillSprite(g_rep_mark[0][i]);
+            UnreferenceSprite(g_rep_mark[0][i]);
             g_rep_mark[0][i] = 0;
         }
         if (g_rep_mark[1][i]) {
-            KillSprite(g_rep_mark[1][i]);
+            UnreferenceSprite(g_rep_mark[1][i]);
             g_rep_mark[1][i] = 0;
         }
         if (g_rep_mark[2][i]) {
-            KillSprite(g_rep_mark[2][i]);
+            UnreferenceSprite(g_rep_mark[2][i]);
             g_rep_mark[2][i] = 0;
         }
     }
     if (g_rep_barmarker) {
-        KillSprite(g_rep_barmarker);
+        UnreferenceSprite(g_rep_barmarker);
         g_rep_barmarker = 0;
     }
     if (g_rep_bar) {
-        KillSprite(g_rep_bar);
+        UnreferenceSprite(g_rep_bar);
         g_rep_bar = 0;
     }
     if (g_backdrop) {
-        KillSprite(g_backdrop);
+        UnreferenceSprite(g_backdrop);
         g_backdrop = 0;
     }
     if (g_rep_next) {
-        KillSprite(g_rep_next);
+        UnreferenceSprite(g_rep_next);
         g_rep_next = 0;
     }
     if (g_rep_next_lit) {
-        KillSprite(g_rep_next_lit);
+        UnreferenceSprite(g_rep_next_lit);
         g_rep_next_lit = 0;
     }
     if (g_rep_prev) {
-        KillSprite(g_rep_prev);
+        UnreferenceSprite(g_rep_prev);
         g_rep_prev = 0;
     }
     if (g_rep_prev_lit) {
-        KillSprite(g_rep_prev_lit);
+        UnreferenceSprite(g_rep_prev_lit);
         g_rep_prev_lit = 0;
     }
     RemoveIconGroup(1);
@@ -523,4 +542,77 @@ void UpdateAppraisalPageButtons(void)
         g_report_prev_icon->handler = 0;
         g_report_prev_icon->flags |= 0x400;
     }
+}
+
+/* What share of the park's attractions, food and shops the paths reach.
+ * An empty park counts as fully linked. */
+// FUNCTION: LEGOLAND 0x00444df0
+int PercentObjectsLinked(void)
+{
+    Cell* c = GetFirstRenderObject();
+    int   linked = 0;
+    int   total = 0;
+
+    RefreshEntranceTile(1);
+    while (c) {
+        if (c->flags & 0x80) {
+            ObjDef* d = c->elem->data;
+
+            if (d->type == 1 || d->type == 4 || d->type == 5) {
+                Pos pos;
+
+                pos.x = c->x + d->origin_x;
+                pos.y = c->y + d->origin_y;
+                total++;
+                if (TileJoinsPathNetwork(&pos))
+                    linked++;
+                else
+                    DBPrintf("Unlinked Object %s\n", d->name);
+            }
+        }
+        c = GetNextRenderObject(c);
+    }
+    if (total != 0)
+        return linked * 100 / total;
+    return 100;
+}
+
+typedef struct AppraisalBox { int left, top, right, bottom; } AppraisalBox;
+
+/* Draw a report bar and target marker. A negative range mirrors the value
+ * and target; values above the range are capped before that reflection.
+ * Original behavior: no lower clamp and no guard against a zero range.
+ * The box is passed as one aggregate: this keeps its dead right-coordinate
+ * parameter slot unavailable for the shared top+2 temporary. Four scalar
+ * coordinates remove the original's four-byte local frame (96 vs 98 insns).
+ * Assign negative in both arms so the zero stays below the sign test; keep
+ * the green branch first to preserve the original's jl to the red branch. */
+// FUNCTION: LEGOLAND 0x00444a70
+void DrawAppraisalBar(AppraisalBox box, int value, int range, int mark)
+{
+    int negative;
+    int colour;
+    int width;
+
+    if (range < 0) {
+        negative = 1;
+        range = -range;
+        mark = range - mark;
+    } else
+        negative = 0;
+    if (value > range)
+        value = range;
+    if (negative)
+        value = range - value;
+    if (value >= mark)
+        colour = GetNearestColour(0, 0xff, 0);
+    else
+        colour = GetNearestColour(0xff, 0, 0);
+
+    width = (box.right - box.left) * value / range;
+    PrintSprite(g_rep_bar, box.left, box.top, 0, 0);
+    RenderBlock(box.left + 3, box.top + 2, width - 2, 1, colour);
+    RenderBlock(box.left + 2, box.top + 3, width, box.bottom - box.top - 1, colour);
+    PrintSprite(g_rep_barmarker, (box.right - box.left - 2) * mark / range + box.left + 2,
+                box.top + 2, 0, 0);
 }

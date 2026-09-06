@@ -2,7 +2,7 @@
  *
  * The level file's REPORT keyword (levelkw3.c) looks its first word up in
  * g_report_names[25] and hands the index and the line's two numbers to
- * SetReportMode (0x0046a140, eventtick.c), which calls
+ * SetReportParam (0x0046a140, eventtick.c), which calls
  * g_report_set[index](a, b) -- the table of 25 function pointers at
  * 0x004b7e38 whose targets are this file, in the same order.
  *
