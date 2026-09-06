@@ -67,9 +67,9 @@ final `ret` (a correct function can score 77%). `audit.py` handles both.
 
 ## Status
 
-**As of 2026-09-04: 1544 functions at 100%** — 665 of the 675 code exports
-(98.5%) plus 879 recovered unexported functions, together **44.9% of the
-game's ~628 KB of code** (`python3 tools/coverage.py`; 51.3% including
+**As of 2026-09-07: 2751 functions at 100%** — 665 of the 675 code exports
+(98.5%) plus 2086 recovered unexported functions, together **66.1% of the
+game's ~628 KB of code** (`python3 tools/coverage.py`; 77.3% including
 partials).
 `SaveGame` and `LoadGame` are both exact so the whole `.sav` format is
 documented and reproduced; `tri3d.c` reproduces the software 3D renderer;
@@ -91,12 +91,12 @@ for the live list.
 | --- | --- | --- |
 | exported functions matched | `tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `tools/callees.py` | moves both ways — the frontier, not progress |
-| **bytes of game code matched** | **`tools/coverage.py`** | **44.9% (51.3% with partials)** |
+| **bytes of game code matched** | **`tools/coverage.py`** | **66.1% (77.3% with partials)** |
 
 The first two are both true and both misleading on their own.
 
 **Exports are a fraction of the game.** They are only the symbols the linker
-exposed; 1544 functions are matched but just 665 of them are exports. Quoting
+exposed; 2751 functions are matched but just 665 of them are exports. Quoting
 98.5% as "the project is nearly done" is wrong by a wide margin.
 
 **The unmatched-callee number moves in both directions.** Every newly matched
@@ -423,6 +423,53 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 `verify.py` confirms all of them.
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
+
+- **SCOPES Y AND Z (merged 2026-09-07, 76 of 76 exact; evidence in
+  `docs/lanes/scope-y.md` and `docs/lanes/scope-z.md`).**
+  - **A by-value aggregate protects dead parameter homes.** Z's
+    `TurnIfBlocked(Bloke*, Pos)` keeps the random direction byte in the dead
+    bloke parameter slot; two scalar coordinates put it in the third
+    parameter slot (six offset mismatches, 97 instructions). This transfers
+    to Y's `DrawAppraisalBar(AppraisalBox, int, int, int)`: four scalar box
+    coordinates let the shared top+2 temporary reuse the dead right slot,
+    eliminating a four-byte local frame and two instructions. The aggregate
+    restores the local frame and all 98 instructions / 246 bytes. Its sign
+    flag must also be assigned in both branches, with the green comparison
+    arm first, to retain the original zero placement and red-arm `jl`.
+  - **World-coordinate copies must be one aggregate assignment.** Z's
+    `b->world = next` places the animation argument push between the two
+    stores; separate x/y assignments leave two strict differences. The
+    same change closes all ten movement handlers.
+  - **Inline helper argument order sets the shift schedule.** Z's
+    `CellAt(int y, int x)` retains both coordinate shifts before the bounds
+    test, closing `BeginTileWait` (54i) and `TryTileWait` (79i). The opposite
+    parameter order emits a `js` and leaves each body one instruction short.
+    Reading old y before old x closes the final six register differences
+    in `NotifyTileTransition` (107i).
+  - **Adjacent switch cases preserve the original signed range test.**
+    Cases 1 and 2 sharing the resume block in `LowAI_WaitForTile` produce
+    a dword mask and signed comparisons, with the byte local spilled in a
+    dead parameter slot. Equivalent `if` tests narrow to AL and lose the
+    spill. The switch matches 123 instructions / 321 bytes.
+  - **Comparison operand order remains observable.** Z's
+    `radius * radius >= delta.x * delta.x + delta.y * delta.y` gives the
+    original `cmp ecx,edx / setge`; reversing the equivalent inequality
+    emits `cmp edx,ecx / setle` (two differences in `BlokeNearTarget`).
+  - **Report flags precede slot values in source, despite their emitted
+    store order.** Y's `flags |= BIT` before the value assignment keeps the
+    full-width OR and interleaved flags load/store. Written last, it narrows
+    the OR and scores 11/14 on the first zone setter. The correct shape
+    transfers to all 25 report setters. One 3x5 sprite array similarly
+    preserves the loader's middle-row anchoring at offsets -0x14/+0x14.
+  - **Put the nonempty result before the empty-case return.** In Y's
+    `PercentObjectsLinked`, `if (total != 0) return linked * 100 / total;`
+    followed by `return 100;` matches 74/74. The early empty-case return
+    relocates the epilogue and scored 67/74 in the interrupted session.
+  - Declaration reconciliation: Y uses main's `UnreferenceSprite` for
+    `0x00497bd0`; the former `KillSprite` name describes a different
+    operation. Z retains `(Pos, unsigned char)` for `GetTileInDir` and a
+    short speed for `NavigMoveLine`; these caller-side types are measured
+    codegen choices, not a reason to change other files' declarations.
 
 - **FROM THE PARALLEL SESSION `scope-r` (48 of 48 exact — the level-database
   reader `ParseKeywordSections`, the parse primitives and the first keyword

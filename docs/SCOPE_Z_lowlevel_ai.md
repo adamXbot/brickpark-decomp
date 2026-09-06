@@ -1,7 +1,9 @@
 # Scope Z — the low-level bloke AI: the 16-entry state dispatch and its helpers (2026-09-06)
 
-> **Status: OPEN, unclaimed.** Branch `scope/Z`. Notes: `docs/lanes/scope-z.md`.
-> Object prefix `/tmp/sz_`. Any agent. Cut from inventory groups 20–21
+> **Status: COMPLETE, 28 of 28 exact; merged 2026-09-07.** Branch `scope/Z`.
+> Notes: `docs/lanes/scope-z.md`. Source completion commit `c35f3c97`.
+> Original brief below; corrections and measured results are in the notes.
+> Object prefix `/tmp/sz_`. Cut from inventory groups 20–21
 > (`tools/inventory.py`, 2026-09-06, the tree at the R/X merge).
 
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written

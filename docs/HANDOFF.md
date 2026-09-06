@@ -1,8 +1,8 @@
 # Handoff — LEGOLAND matching decompilation
 
-**Checkpoint: 2026-09-03, 10:55 AEST (Thursday).** Written for the next session
-to pick up cold. Everything below is verifiable from the repo; where a number is
-quoted, the command that produces it is given.
+**Integration checkpoint: 2026-09-07, scopes Z and Y merged.** Written for
+the next session to pick up cold. Earlier dated environment and wave notes
+are retained below; use §1 for current scope ownership and progress.
 
 Read this, then `docs/DECOMP.md` (the living codegen playbook),
 `docs/LANE_BRIEF.md` (the verbatim text every matching agent gets) and
@@ -91,14 +91,43 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **64.8% exact, 76.0% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2675 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **66.1% exact, 77.3% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2751 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 161, ~6,900 instructions — mostly what the open briefs own (V's tick handlers and goal checks, Codex-F's 27) plus the callees the new script-tier files declare by address; use `tools/inventory.py` for the real list |
+| unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and the separate 26-function Codex-F brief own part of this list; use `tools/inventory.py` for game-code targets. |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 77 |
-| **unmatched functions, whole binary** | `python3 tools/inventory.py` (scope N) | **867: 703 live (41,523 insns, 70% of the unmatched bytes), 164 dead, one 8,085-instruction body** — `docs/lanes/scope-n.md` |
+| **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
 
-(Row values current at the R/X merge, 2026-09-06. Section-B waves one to four took
+**Scopes Z and Y merged (2026-09-07): 76 of 76 exact, 2,880 instructions,
+8,246 bytes; coverage 64.8% -> 66.1% exact.** Z's `lowlevelai.c` closes the
+16-state low-level bloke AI dispatch and twelve helpers (28 functions,
+source commit `c35f3c97`, merge `ff886cc3`). Y's `reportset.c` and
+`appraisal.c` close all 25 REPORT setters and 23 appraisal helpers
+(48 functions, completion `211d7a79`, merge `09a63673`). The interrupted
+Y work was recovered with `PercentObjectsLinked` still uncommitted and
+`DrawAppraisalBar` absent; both are now exact and committed. Y's sprite
+release declaration uses main's `UnreferenceSprite` name at `0x00497bd0`.
+Full-tree audit passes all 2,751 exact markers with 77 honest WIPs, and
+the three new files compile cleanly under `/W3`. Relocation checks have zero
+mismatches (Z: 146 resolved, Y: 289 resolved), with only checked literal
+references unresolved. Full-tree verification passes **2751/2751 at 100%**.
+Progress reports and the Y/Z briefs are refreshed. Levers from both scopes
+are folded at the top of DECOMP's codegen section; the per-function reports
+are `docs/lanes/scope-z.md` and `docs/lanes/scope-y.md`.
+
+Verification execution: background F/G/H experiments resumed during the
+initial run. Their compiler outputs and the verifier's per-process objects
+were separate. To avoid repeated compiler and Python startup costs, a
+temporary runner executed the unchanged `verify.py` with `match.main()`
+in process, preserving its arguments, captured output and exit status.
+It performed all 2,751 comparisons using 218 real VC6 compilations, reusing
+identical per-file objects. Source, header, tool, compiler and executable
+hashes were checked before and after and were unchanged. The independent
+full-tree `audit.py` run also passed without this adapter. No repository
+tool or compiler setting was changed.
+
+Coverage, exact count and inventory above are current at the Z/Y merge.
+Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
 (1540); waves five to seven added 4 more (1544) for roughly twenty lanes and
 several thousand measured variants, and waves eight, nine and ten closed
@@ -400,20 +429,19 @@ Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
 coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
-Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed) and
-the two briefs cut on 2026-09-06 after the R/X merge —
-`SCOPE_Y_report_setters_appraisal.md` (the 25 per-report setters behind
-`SetReportMode` and the appraisal report screen's helper tier, 48 functions,
-≈1,230 instructions) and `SCOPE_Z_lowlevel_ai.md` (the 16-entry
-`g_lowlevel_ai` bloke-state dispatch and its helpers, 28 functions, ≈1,650
-instructions). Of the seven script-tier briefs six are DONE and merged (R, S,
-T, U, W, X); `SCOPE_V_event_ticks_1.md` is CLAIMED (a Claude session on this
-machine, `origin/scope/V`).
-Running: V (this machine); F, back on Codex on this machine (`origin/scope/F`,
-pushed 2026-09-06 16:11 — the `scope/F-fable` branch was the other machine's
-attempt and is superseded); G and H on the other machine (`scope/G-fable` /
-`scope/H-fable` carry the 2026-09-06 pushes; `scope/G` / `scope/H` are the
-2026-09-05 checkpoints). None of F/G/H is merged. The next inventory clusters
+Open for assignment: `SCOPE_CODEX_F.md` (26 new functions, unclaimed;
+distinct from the partial scope F). Y and Z are complete and merged.
+Of the seven script-tier briefs six are DONE and merged (R, S, T, U, W, X).
+V remains unmerged: its committed `scope/V` checkpoint is 58/62, but
+`.claude/worktrees/scope-v/LEGOLAND/eventtick.c` has three additional exact
+fixes (`Lookat`, `Connect`, `Link`) still uncommitted. A fresh audit on
+2026-09-06 confirmed 61/62; only `EventTick_Clear` remains. Preserve those
+local changes and update its stale lane report when resuming V.
+F, G and H are handled in other Codex sessions, per the user's latest
+instruction. None is merged into this main checkpoint; their results and
+the four deferred relocation corrections still need integration. Use the
+current session work rather than assuming an older `-fable` checkpoint is
+the final delivery. The next inventory clusters
 after Y and Z: the report/goal-state table tier at 0x0044db20..0x0044fdc9
 (group 12, 14 functions, 1,580 instructions, one 699-instruction body), the
 RLE blitter callees of `SoftBlitRLEPlain` at 0x00466d80..0x004677b0 (group
@@ -424,7 +452,8 @@ no existing tool touched), O (21 of 21 exact — the 19 K exposed plus two
 undeclared siblings — three new files, 2026-09-05; `docs/lanes/scope-o.md`)
 Q (12 of 17 exact, three new files, four WIPs, 2026-09-05;
 `docs/lanes/scope-q.md`) and P (10 of 10 exact, `gameframe.c`, 2026-09-05;
-`docs/lanes/scope-p.md`). Tree-wide `relocs.py --all` after this checkpoint:
+`docs/lanes/scope-p.md`). Historical tree-wide `relocs.py --all` result
+(before the later integrations):
 2,383 checked, 17 mismatched positions, all in the four deferred functions.
 
 **The runtime spec exists (scope J, merged 2026-09-05).** `docs/RUNTIME_SPEC.md`
@@ -774,12 +803,13 @@ slot usually transfers straight to the same slot on another ride. That has
 turned one fix into four repeatedly.
 
 **C. The remaining frontier is now enumerated.** `python3 tools/inventory.py`
-(scope N, 2026-09-05; method, limits and the full list in
-`docs/lanes/scope-n.md`) finds every unmatched function in the game-code range
-— 867, of which 703 are live (41,523 instructions) and 164 are dead code the
-linker kept — with how each is reached, its nearest matched neighbour and 31
-address-ordered candidate groups of ~1,200 instructions. `callees.py --by-file`
-sees only the 47 that matched code declares. Cut new scopes from the groups:
+(scope N; method and original snapshot in `docs/lanes/scope-n.md`) finds
+unwritten functions in the game-code range. The 2026-09-07 run after Z/Y
+has 495 game targets: 340 live (26,952 instructions) and 155 dead functions.
+It records each one's reach, nearest matched neighbour and address-ordered
+candidate group. The smaller `callees.py` frontier only sees declarations
+in existing C and also includes CRT/import targets. Regenerate inventory
+before assigning work; group numbers change as functions land. Prior cuts:
 P and Q took 16 and 17 (the startup spine); R–X took the script tier
 (groups 17–24 of the 2026-09-06 run: the keyword table at `0x004bb6f8`, its
 constructors and `g_event_tick[]`); groups 3–7 hold most of the dead code,

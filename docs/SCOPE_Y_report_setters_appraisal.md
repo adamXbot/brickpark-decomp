@@ -1,7 +1,9 @@
 # Scope Y — the 25 report setters and the appraisal report screen's helper tier (2026-09-06)
 
-> **Status: OPEN, unclaimed.** Branch `scope/Y`. Notes: `docs/lanes/scope-y.md`.
-> Object prefix `/tmp/sy_`. Any agent. Cut from inventory groups 9–10 (plus
+> **Status: COMPLETE, 48 of 48 exact; merged 2026-09-07.** Branch `scope/Y`.
+> Notes: `docs/lanes/scope-y.md`. Source completion commit `211d7a79`.
+> Original brief below; corrections and measured results are in the notes.
+> Object prefix `/tmp/sy_`. Cut from inventory groups 9–10 (plus
 > one function of group 16) — `tools/inventory.py`, 2026-09-06, the tree at
 > the R/X merge.
 
