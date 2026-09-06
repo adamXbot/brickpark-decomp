@@ -1,6 +1,10 @@
 # Scope S — the level-database keyword tier, part 2: 37 of 37 exact
 
-**Status: complete.** Branch `scope/S`, baseline `origin/main` `0e62e67c`
+**Status: complete.** At merge (2026-09-06) the integrator renamed the file's
+three shared primitives to scope T's names — `NextKeywordArg` →
+`KwLineApplies`, `sub_478690` → `KwHasArgs`, `_stricmp` → `NameCompare` —
+extern renames only, every body still `[OK]`; the text below keeps the
+names as written. Branch `scope/S`, baseline `origin/main` `0e62e67c`
 (2026-09-06). One new file, `LEGOLAND/levelkw2.c`, 37 functions, 1,561
 instructions / 3,859 bytes, every one `audit.py [OK]`; `/W3` clean;
 `relocs.py` 206 of 206 resolved positions agree, 0 `MISMATCH`, 5

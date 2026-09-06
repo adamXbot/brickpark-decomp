@@ -1,6 +1,6 @@
 # Scope S — the level-database keyword tier, part 2 (2026-09-06)
 
-> **Status: OPEN, unclaimed.** Branch `scope/S`. Notes: `docs/lanes/scope-s.md`.
+> **Status: DONE — 37 of 37 exact, merged into `main` 2026-09-06 (integrator session; the three shared primitives were renamed at merge to T's `KwLineApplies` / `KwHasArgs` / `NameCompare`, code unchanged).** Branch `scope/S`. Notes: `docs/lanes/scope-s.md`.
 > Object prefix `/tmp/ss_`. Any agent. Cut from inventory groups 22–23. Read
 > `docs/SCOPE_R_level_keywords_1.md`'s "What this tier is" first — this is
 > the same shape, the next 37 handlers in address order.

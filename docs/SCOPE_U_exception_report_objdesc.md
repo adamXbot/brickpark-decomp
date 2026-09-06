@@ -1,6 +1,6 @@
 # Scope U — the exception-report writer and the object-description loader (2026-09-06)
 
-> **Status: OPEN, unclaimed.** Branch `scope/U`. Notes: `docs/lanes/scope-u.md`.
+> **Status: DONE — 9 of 9 exact, merged into `main` 2026-09-06 (integrator session; the two `__try` bodies were promoted from WIP once `tools/match.py` learned to resolve the CRT's absolute `__except_list` behind every SEH frame's `fs:[0]`).** Branch `scope/U`. Notes: `docs/lanes/scope-u.md`.
 > Object prefix `/tmp/su_`. Any agent. Cut from inventory groups 14 and 24.
 
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written

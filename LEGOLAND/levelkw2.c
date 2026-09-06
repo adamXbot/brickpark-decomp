@@ -7,7 +7,7 @@
  * (0x00478280, scope R) calls a handler as `h(argv, argc, arg)`: `argv[0]` is
  * the keyword, `argv[1..argc]` its words, `arg` the value LoadLevelDatabase
  * passed down (0). Every handler is one shape -- give up when no level
- * database is being read, ask `NextKeywordArg` whether the keyword is allowed
+ * database is being read, ask `KwLineApplies` whether the keyword is allowed
  * in the current section with at least N words, convert the words (`atoi`,
  * `ElemID`, `LookupNamedIndex`), then hand them to the keyword's constructor
  * (`AddEvent_*`, scope W) or, for the four level-setup keywords when the
@@ -26,7 +26,7 @@ typedef struct LLElem LLElem;
 /* A level database is being read (movie3.c's name). */
 extern int           g_level_db_active;      /* 0x004bb5b0 */
 /* movie3.c's name for 0x00669054; here it is the bit of the section being
- * read (1 = [INIT], 2 = a goal section, 4 = [REWARD]): `NextKeywordArg`
+ * read (1 = [INIT], 2 = a goal section, 4 = [REWARD]): `KwLineApplies`
  * masks it, and the four level-setup keywords act at once when it is 1. */
 extern int           g_level_number;         /* 0x00669054 */
 /* The event flags of the section being read (movie3.c's name); every goal
@@ -42,19 +42,19 @@ extern const char* const g_mode_names[5];    /* 0x004bb5e0  QUERY BUILD ERASE PA
 /* ---- scope R's parse primitives (declared, not defined, here) ----------- */
 /* 0x004786c0: `(g_level_number & sections) && argc >= need` -- whether the
  * keyword applies in the section being read with enough words. */
-extern int   NextKeywordArg(char** argv, int argc, int sections, int need);      /* 0x004786c0 */
-/* 0x00478690: `argc >= need` (the second half of NextKeywordArg, called
+extern int   KwLineApplies(char** argv, int argc, int sections, int need);      /* 0x004786c0 */
+/* 0x00478690: `argc >= need` (the second half of KwLineApplies, called
  * again by REMOVE); scope R's placeholder name. */
-extern int   sub_478690(char** argv, int argc, int need);                        /* 0x00478690 */
+extern int   KwHasArgs(char** argv, int argc, int need);                        /* 0x00478690 */
 /* 0x00478700: atoi argv[first..first+3] into rect and order the corners. */
 extern void  ParseRectArgs(int* rect, char** argv, int first);                   /* 0x00478700 */
-/* 0x004781b0: index of the word in names (_stricmp), or -1. */
+/* 0x004781b0: index of the word in names (NameCompare), or -1. */
 extern int   LookupNamedIndex(const char* word, const char* const* names, int count); /* 0x004781b0 */
 
 /* ---- other callees ------------------------------------------------------- */
 extern LLElem* ElemID(const char* name);                                         /* 0x0047b3f0 */
 extern int   atoi(const char* s);                                                /* 0x004a04b9 (CRT) */
-extern int   _stricmp(const char* a, const char* b);                             /* 0x004aab90 (CRT) */
+extern int   NameCompare(const char* a, const char* b);                             /* 0x004aab90 (CRT) */
 extern char* strcpy(char* dst, const char* src);   /* intrinsic, no call */
 extern char* strcat(char* dst, const char* src);   /* intrinsic, no call */
 #pragma intrinsic(strcpy, strcat)
@@ -109,7 +109,7 @@ extern void  AddEvent_Addbricks(int count);                                     
 /* ========================================================================= */
 
 /* REMOVE <object> <count>: checks the word count a second time through the
- * primitive NextKeywordArg already used. */
+ * primitive KwLineApplies already used. */
 // FUNCTION: LEGOLAND 0x00479550
 int LevelKw_REMOVE(char** argv, int argc, int arg)
 {
@@ -118,9 +118,9 @@ int LevelKw_REMOVE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
-    if (!sub_478690(argv, argc, 2))
+    if (!KwHasArgs(argv, argc, 2))
         return 0;
     e = ElemID(argv[1]);
     n = atoi(argv[2]);
@@ -138,7 +138,7 @@ int LevelKw_REMOVERANGE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     e  = ElemID(argv[1]);
     lo = atoi(argv[2]);
@@ -160,7 +160,7 @@ int LevelKw_COMPOSITE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     e = ElemID(argv[1]);
     n = atoi(argv[2]);
@@ -184,7 +184,7 @@ int LevelKw_LOOPCOMPOSITE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     e = ElemID(argv[1]);
     n = atoi(argv[2]);
@@ -204,7 +204,7 @@ int LevelKw_TECHLEVEL(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     e = ElemID(argv[1]);
     n = atoi(argv[2]);
@@ -220,7 +220,7 @@ int LevelKw_RESEARCH(char** argv, int argc, int arg)
 {
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     ElemID(argv[1]);
     if (argc >= 2)
@@ -236,7 +236,7 @@ int LevelKw_PARKVISITORS(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Parkvisitors(g_level_byte_669050, n);
@@ -252,7 +252,7 @@ int LevelKw_RIDEVISITORS(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     e = ElemID(argv[1]);
     n = atoi(argv[2]);
@@ -270,7 +270,7 @@ int LevelKw_RIDERS(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     e = ElemID(argv[1]);
     n = atoi(argv[2]);
@@ -287,7 +287,7 @@ int LevelKw_SCENERYCOVERAGE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Scenerycoverage(g_level_byte_669050, n);
@@ -302,7 +302,7 @@ int LevelKw_PATHSCENERY(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Pathscenery(g_level_byte_669050, n);
@@ -317,7 +317,7 @@ int LevelKw_RIDECOVERAGE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Ridecoverage(g_level_byte_669050, n);
@@ -332,7 +332,7 @@ int LevelKw_SHOPCOVERAGE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Shopcoverage(g_level_byte_669050, n);
@@ -347,7 +347,7 @@ int LevelKw_FOODCOVERAGE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Foodcoverage(g_level_byte_669050, n);
@@ -362,7 +362,7 @@ int LevelKw_TOTCOVERAGE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Totcoverage(g_level_byte_669050, n);
@@ -380,7 +380,7 @@ int LevelKw_APPRAISAL(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 1, 0))
+    if (!KwLineApplies(argv, argc, 1, 0))
         return 0;
     if (argc >= 1)
         state = atoi(argv[1]);
@@ -404,7 +404,7 @@ int LevelKw_STUDAREA(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 5))
+    if (!KwLineApplies(argv, argc, 2, 5))
         return 0;
     ParseRectArgs(rect, argv, 1);
     n = atoi(argv[5]);
@@ -420,7 +420,7 @@ int LevelKw_SAVE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Save(g_level_byte_669050, n);
@@ -435,7 +435,7 @@ int LevelKw_HAPPINESS(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     a = atoi(argv[1]);
     b = atoi(argv[2]);
@@ -451,7 +451,7 @@ int LevelKw_NEEDGARDENERS(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Needgardeners(g_level_byte_669050, n);
@@ -466,7 +466,7 @@ int LevelKw_NEEDMECHANICS(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Needmechanics(g_level_byte_669050, n);
@@ -481,7 +481,7 @@ int LevelKw_HUNGER(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     a = atoi(argv[1]);
     b = atoi(argv[2]);
@@ -501,7 +501,7 @@ int LevelKw_FIXRIDES(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     a = atoi(argv[1]);
     b = atoi(argv[2]);
@@ -517,7 +517,7 @@ int LevelKw_POWERRIDES(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     n = atoi(argv[1]);
     AddEvent_Powerrides(g_level_byte_669050, n);
@@ -532,7 +532,7 @@ int LevelKw_ZONING(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 2))
+    if (!KwLineApplies(argv, argc, 2, 2))
         return 0;
     zone = LookupNamedIndex(argv[1], g_zoning_names, 4);
     if (zone == -1)
@@ -550,7 +550,7 @@ int LevelKw_CHECKFLAG(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 1))
+    if (!KwLineApplies(argv, argc, 2, 1))
         return 0;
     flag = atoi(argv[1]);
     if (argc >= 2)
@@ -569,7 +569,7 @@ int LevelKw_THEMEICON(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 5, 1))
+    if (!KwLineApplies(argv, argc, 5, 1))
         return 0;
     icon = atoi(argv[1]);
     if (argc >= 2)
@@ -591,7 +591,7 @@ int LevelKw_ADDFLAG(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 5, 1))
+    if (!KwLineApplies(argv, argc, 5, 1))
         return 0;
     flag = atoi(argv[1]);
     if (argc >= 2)
@@ -614,7 +614,7 @@ int LevelKw_BRIDGES(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 5, 1))
+    if (!KwLineApplies(argv, argc, 5, 1))
         return 0;
     count = atoi(argv[1]);
     if (count > 0)
@@ -641,7 +641,7 @@ int LevelKw_ENDSCREENS(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 5, 1))
+    if (!KwLineApplies(argv, argc, 5, 1))
         return 0;
     which = atoi(argv[1]);
     if (argc >= 2)
@@ -665,7 +665,7 @@ int LevelKw_SELECTTHEME(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (NextKeywordArg(argv, argc, 2, 0)) {
+    if (KwLineApplies(argv, argc, 2, 0)) {
         theme = argc ? LookupNamedIndex(argv[1], g_theme_names, 5) : 0;
         if (theme != -1) {
             AddEvent_Selecttheme(g_level_byte_669050, theme);
@@ -684,7 +684,7 @@ int LevelKw_SELECTTAB(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (NextKeywordArg(argv, argc, 2, 0)) {
+    if (KwLineApplies(argv, argc, 2, 0)) {
         tab = argc ? LookupNamedIndex(argv[1], g_tab_names, 2) : 0;
         if (tab != -1) {
             AddEvent_Selecttab(g_level_byte_669050, tab);
@@ -695,7 +695,7 @@ int LevelKw_SELECTTAB(char** argv, int argc, int arg)
 }
 
 /* SELECTMODE [<QUERY|BUILD|ERASE|PATH|MAP>]: no word means mode argc, i.e.
- * 0 = QUERY (unreachable through NextKeywordArg's need of 1, kept as
+ * 0 = QUERY (unreachable through KwLineApplies's need of 1, kept as
  * written). The original reloads argc from its stack home for that arm
  * (`mov eax,[esp+0x10]`) instead of using the esi copy or threading the
  * known zero the way SELECTTHEME does; the volatile re-read of the
@@ -707,7 +707,7 @@ int LevelKw_SELECTMODE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (NextKeywordArg(argv, argc, 2, 1)) {
+    if (KwLineApplies(argv, argc, 2, 1)) {
         mode = argc ? LookupNamedIndex(argv[1], g_mode_names, 5)
                     : *(volatile int*)&argc;
         if (mode != -1) {
@@ -724,7 +724,7 @@ int LevelKw_FOREVER(char** argv, int argc, int arg)
 {
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 2, 0))
+    if (!KwLineApplies(argv, argc, 2, 0))
         return 0;
     AddEvent_Forever(g_level_byte_669050);
     return 1;
@@ -739,10 +739,10 @@ int LevelKw_GIVE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 4, 1))
+    if (!KwLineApplies(argv, argc, 4, 1))
         return 0;
     e = ElemID(argv[1]);
-    if (argc >= 2 && _stricmp(argv[2], "NOPOPUP") == 0)
+    if (argc >= 2 && NameCompare(argv[2], "NOPOPUP") == 0)
         popup = 0;
     if (e)
         AddEvent_Give(e, popup);
@@ -757,7 +757,7 @@ int LevelKw_TAKE(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 4, 1))
+    if (!KwLineApplies(argv, argc, 4, 1))
         return 0;
     e = ElemID(argv[1]);
     if (e)
@@ -773,7 +773,7 @@ int LevelKw_ADDBRICKS(char** argv, int argc, int arg)
 
     if (!g_level_db_active)
         return 1;
-    if (!NextKeywordArg(argv, argc, 4, 1))
+    if (!KwLineApplies(argv, argc, 4, 1))
         return 0;
     n = atoi(argv[1]);
     if (n > 0)

@@ -424,6 +424,139 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **FROM THE PARALLEL SESSION `scope-w` (72 of 72 exact — the script-event
+  constructors `AddEvent_*` 0x0046b590..0x0046c510 with `NewScriptEvent`,
+  `LinkStepEvent`/`LinkGoalEvent`, `SetScriptStepText` and `ShowStepHint`;
+  69 first-try; evidence in `docs/lanes/scope-w.md`).** Folded:
+  - **A 16-byte field copy is ONE aggregate assignment, `e->area = *r`**:
+    VC6 emits `lea ecx,[eax+0x28]` then four `mov esi,[edx+k] / mov
+    [ecx+k],esi` pairs with the fourth's load hoisted above the flags
+    store, exactly the original; the 8-byte `e->pos = *pos` is two
+    register moves. Four scalar stores give four different temporaries.
+  - **Emitted store order is the source order EXCEPT across an aggregate
+    copy** (`AddEvent_Needin`): written `f1c = count; elem = elem; area =
+    *r;` VC6 emitted elem first (4 mismatches); written `elem = elem; f1c
+    = count; area = *r;` it emits f1c first, as the original. The other 70
+    constructors kept their source order — the flags store included, which
+    is why `AddEvent_Take`/`Addbricks`/`Currency`/`Entrancefee` write
+    `flags = 0` BEFORE the argument store and `Give` between its two.
+  - **Nest the body under the guard for an exiled `return 0`**
+    (`ShowStepHint`, BL07's PlayMovie shape): `if (!g_script_cur) return
+    0;` keeps `xor eax,eax / ret` inline behind the test (19 mismatches);
+    `if (g_script_cur) { … return 1; … return 1; } return 0;` puts it
+    last. Same family as U's `GetFreePlayItemInfo` and S's `SELECT*`.
+  - **Read the parameter order off the frame** (`SetScriptStepText`): the
+    step is `[esp+0xc]` after one push and the text `[esp+0x10]` after
+    three, so the text is the FIRST argument; the brief's caller-side
+    guess had them swapped.
+  - `if (step->events) { e->next = …; step->events = e; } else
+    step->events = e;` with the store in both arms is exact for
+    `LinkStepEvent` (two stores through different registers);
+    `LinkGoalEvent` has the single shared store after the `if` — spell
+    what the original's block count says.
+  - `for (step = head; step; step = step->next) { if (…) break; prev =
+    step; }` gives the rotated walk with the null head threaded straight
+    to the "no predecessor" arm and `push esi` sunk past it.
+  - Extern divergences: the goal constructors take `unsigned char flags`
+    first (`mov cl, byte ptr [esp+0xc]`), as levelkw2.c declares; the
+    rect/pos constructors take `Rect*` / `Pos*` here where levelkw3.c
+    passes `int*` (either is fine on the caller's side; the callee's copy
+    needs the aggregate); `g_script_root` is `ScriptEvent*` (movie3.c:
+    `void*`). Nothing else: no volatile, no register spelling.
+
+- **FROM THE PARALLEL SESSION `scope-u` (9 of 9 exact — the exception-report
+  writer, the first `__try/__except` bodies in the tree, and the free-play
+  object-description loader; evidence in `docs/lanes/scope-u.md`).** Folded:
+  - **An EBP/SEH frame lays its locals out by VC6's symbol-hash bucket, so
+    the local NAMES decide the frame — in `/O2` bodies with `__try`, not
+    only under `#pragma optimize("", off)` (LEVERS FR10's regime
+    generalises).** Every local, stored or not, gets a home; bucket 0 is
+    assigned first from ebp down, the same bucket most-recently-declared
+    first, block scopes after the enclosing scope. Single letters hash to
+    `c mod 16`, two and three letters to `(4*c[n-2] + c[n-1] + 6) mod 16`,
+    and from four letters the first character re-enters (`aaaa` 15, `baaa`
+    0) — probe with `/FAs` rather than compute. `WriteExceptionReport`
+    needed 23 names in non-decreasing buckets with ties declared in reverse
+    slot order (58 -> 4 -> 0, frame 0xb40 -> 0xb44); `ReportModuleDetails`
+    15 -> 3 -> 0 by `nt` -> `pe` (bucket 2 -> 12, below `h`) and adding the
+    original's block-scoped `IMAGE_DOS_HEADER* dos = base`. Declaration
+    order still carries the initialiser order; both constraints were
+    satisfiable at once.
+  - **A named `pagesize` local decides which candidate loses its register**
+    (`ReportModuleLine` 41 -> 0): with `si.dwPageSize` read at each use VC6
+    gave ebp to the parameter and reloaded the page size; the original keeps
+    the page size in edi for its three loop uses and re-reads the parameter
+    at its one call.
+  - **Nest the body under `if (f)` and the tail under `if (name[0])`** so
+    both failures fall into ONE trailing `return 0` (`GetFreePlayItemInfo`
+    280 -> 137 -> 0); leading `return 0` guards gave three inline epilogues.
+    The `d == 0` guard keeps its own inline `xor eax,eax` before the pops.
+  - `code == tab[i].code` gives `cmp edx,[ecx]`; the reverse gives
+    `cmp [ecx],edx`. `rw = "Read from"; if (info[0]) rw = "Write to";` is
+    `mov eax,A / test / je / mov eax,B`; the ternary tests first and loads
+    after. `char date[100] = ""` inside the `if` block runs its fill after
+    the guard, where the original has it.
+  - `__asm mov eax, dword ptr fs:[4]` / `__asm mov stackend, eax` is the
+    only way to the original's `mov eax, fs:[4]`; `NtCurrentTeb()` reads
+    `fs:[0x18]`.
+  - **Gate: an SEH frame's `fs:[0]` is a relocation against
+    `__except_list`, an UNDEFINED external (section 0) that the CRT library
+    defines as the absolute 0.** `tools/match.py` now resolves it to 0
+    (`KNOWN_ABSOLUTE`) instead of applying the sentinel, which had scored
+    every SEH prologue/epilogue as `fs:[<abs>]` against the original's
+    `fs:[0]`; the two `__try` bodies audit `[OK]`. Any future absolute CRT
+    symbol goes into that table.
+  - Extern divergences: `LLIDB_FindElement(const char*, FPElem**, unsigned
+    int*)` with a local `FPElem` whose +0x08 is a BYTE (`mov dl,[eax+8] /
+    test dl,0x10`; legoland.h's LLElem has a dword there);
+    `FormatFileTime(char*, FILETIME)` by value (both halves pushed).
+
+- **FROM THE PARALLEL SESSION `scope-s` (37 of 37 exact — the second tier of
+  level-database keyword handlers, REMOVE .. ENDSCREENS; evidence in
+  `docs/lanes/scope-s.md`).** Folded:
+  - **A shared `-1` test over a ternary is how VC6 spells "else jump
+    straight into the call" (SELECTTHEME, SELECTTAB).** Exact: `if
+    (KwLineApplies(...)) { i = argc ? Lookup(...) : 0; if (i != -1) { call;
+    return 1; } } return 0;` — one textual `return 0` collects both failures
+    into the last block and VC6 jump-threads the constant arm past the `!=
+    -1` test into the call, which IS the exiled `xor eax,eax / jmp`. `if
+    (argc) { i = Lookup(); if (i == -1) return 0; } else i = 0; call; return
+    1;` keeps two return-0 sites (30/42); `goto fail` 25/39; a second
+    `return 0` inside the arm 37/43; two separate call sites with a constant
+    argument 42/51 — VC6 does not merge calls whose argument differs in
+    constant-ness.
+  - **A parameter re-read from its stack home while its register copy is
+    live needs the volatile slot read** (SELECTMODE's else arm is `mov eax,
+    [esp+0x10]`, the `argc` slot): `: *(volatile int*)&argc` reproduces it;
+    `: argc`, a cast, a pre-call `int n = argc` copy, or routing the early
+    uses through the copy all let VC6 thread the known zero into `xor
+    eax,eax / jmp` (42/44). First use of the "read the stack PARAMETER
+    itself" lever on an `int`.
+  - `if (!KwLineApplies(...)) return 0;` emits a bare `ret` (eax is the
+    call's zero) while it is the only `return 0`; add a second and both
+    become `xor` blocks.
+  - **Push sinking decides whether the early `return 1` shares the tail,
+    and no source change is needed either way**: the plain `if
+    (!g_level_db_active) return 1;` gave REMOVERANGE/COMPOSITE (ebp/edi
+    pushed after the test) and the SELECT*/GIVE shape their inline `pop /
+    mov eax,1 / pop / ret`, and REMOVE, RESEARCH, PARKVISITORS' family and
+    FOREVER (tail is a join or has no pushes) the merged form.
+  - `int popup = 1;` at declaration (GIVE) puts `mov ebp,1` above the guard
+    and lets the early `return 1` come out as `mov eax,ebp`. Locals for call
+    results keep `add esp` merged: `n = atoi(argv[1]); AddEvent_X(flags,
+    n);` -> one `add esp,0xc` (the 27-instruction family, HAPPINESS 0x14,
+    STUDAREA 0x1c).
+  - `char buf[0x200] = "";` is the exact spelling of the 1-byte copy + `rep
+    stosd / stosw / stosb` fill; `strcat(buf, ";")` then `strcat(buf,
+    argv[3])` are the two `repne scasb … rep movsd/movsb` sequences.
+  - Extern divergences: the goal constructors take `unsigned char flags`
+    first (the callers `mov al,[0x669050] / push eax`; an `int` parameter
+    would zero-extend); `SetLevelGoalState(int, const char*)` here vs
+    movie3.c's `(int, int)`; `atoi` 0x004a04b9 declared `extern int
+    atoi(const char*)` (savegame.c reaches it via `<stdlib.h>`). At merge
+    the file's three primitive names were aligned to T's `KwLineApplies` /
+    `KwHasArgs` / `NameCompare` — extern renames, code unchanged.
+
 - **FROM THE PARALLEL SESSION `scope-t` (29 of 29 exact — the last
   twenty-two level-database keyword handlers and the process start-up;
   evidence in `docs/lanes/scope-t.md`).** Folded:

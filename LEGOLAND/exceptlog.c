@@ -176,15 +176,13 @@ void ReportModuleLine(void* f)
 /* One module line: file name, base, file size, PE time stamp and the file's
  * write time. Guarded by __try because the base may not be a PE image.
  *
- * Gate note: 110 of 110 instructions and 380 of 380 bytes agree; the 3
- * residual "mismatches" are the SEH prologue/epilogue's `fs:[0]` accesses,
- * which our object encodes as a relocation against the absolute CRT symbol
- * __except_list (value 0) and match.py patches to its sentinel, while the
- * linked original carries the resolved 0. Nothing in the C can change that;
- * the marker stays WIP until the gate normalises `fs:[<abs>]` to `fs:[0]`.
- * Block-scope local names are load-bearing (frame slot order follows the
- * symbol-hash bucket): `pe` sits after `h`, `dos` before `date`. */
-// WIP-FUNCTION: LEGOLAND 0x00454380  (100% by instruction and byte count; 3 residual = the relocated fs:[__except_list] displacement the gate's normaliser reads as fs:[<abs>] against the original's fs:[0])
+ * Gate note: the SEH prologue/epilogue's `fs:[0]` accesses are relocations
+ * against __except_list, an undefined external the CRT defines as the
+ * absolute 0; match.py resolves it to 0 (its KNOWN_ABSOLUTE rule, added at
+ * this scope's merge) instead of applying the sentinel, and the body is
+ * exact. Block-scope local names are load-bearing (frame slot order follows
+ * the symbol-hash bucket): `pe` sits after `h`, `dos` before `date`. */
+// FUNCTION: LEGOLAND 0x00454380
 void ReportModuleDetails(void* f, char* base)
 {
     __try {
@@ -327,12 +325,11 @@ char* PathFileName(char* path)
  * declaration order also carries the initialiser order (progname, culprit,
  * column, textline, leeway) and the within-bucket ties.
  *
- * Gate note: 345 of 345 instructions and 1256 of 1256 bytes agree; the 4
- * residual "mismatches" are the SEH frame's `fs:[0]` accesses (prologue,
- * both epilogues), encoded in our object as a relocation against the
- * absolute CRT symbol __except_list (value 0) that match.py patches to its
- * sentinel, where the linked original carries the resolved 0. */
-// WIP-FUNCTION: LEGOLAND 0x00453da0  (100% by instruction and byte count; 4 residual = the relocated fs:[__except_list] displacement the gate's normaliser reads as fs:[<abs>] against the original's fs:[0])
+ * Gate note: the SEH frame's `fs:[0]` accesses (prologue, both epilogues)
+ * are relocations against __except_list, an undefined external the CRT
+ * defines as the absolute 0; match.py resolves it to 0 (KNOWN_ABSOLUTE)
+ * instead of applying the sentinel, and the body is exact. */
+// FUNCTION: LEGOLAND 0x00453da0
 int WriteExceptionReport(EXCEPTION_POINTERS* ep, const char* where)
 {
     void*       report;                     /* the log file           bucket 3 */

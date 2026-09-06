@@ -91,14 +91,14 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **61.9% exact, 73.1% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2455 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **63.6% exact, 74.8% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2573 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 113, ~5,200 instructions — the 47 game-code callees O left (2,023 insns: Codex-F's 27 and the 20-function tier O's files declare, 721 insns) plus the tier Q's files declare; use `tools/inventory.py` for the real list |
+| unmatched callees | `python3 tools/callees.py` | 151, ~6,800 instructions — the script-tier files declare what the open briefs own: the tick handlers and goal checks (V, X) and the reader with its parse primitives (R); use `tools/inventory.py` for the real list |
 | partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 77 |
 | **unmatched functions, whole binary** | `python3 tools/inventory.py` (scope N) | **867: 703 live (41,523 insns, 70% of the unmatched bytes), 164 dead, one 8,085-instruction body** — `docs/lanes/scope-n.md` |
 
-(Row values current at wave TEN, 2026-09-05. Section-B waves one to four took
+(Row values current at the S/U/W merge, 2026-09-06. Section-B waves one to four took
 30 partials plus one new twin to 1504/1504, then 15 (1519), 10 (1529) and 11
 (1540); waves five to seven added 4 more (1544) for roughly twenty lanes and
 several thousand measured variants, and waves eight, nine and ten closed
@@ -272,6 +272,39 @@ DECOMP below. The merge exposed the next tier: 20 game-code callees, 721
 instructions (`ParseKeywordSections` 194, `CollectPathSquareNeighboursCounted`
 127, `RefillNarrationRing` 102, `NewScriptEvent` 91, ...), all named.
 
+**Scope W merged (2026-09-06): 72 of 72 exact, 1,132 instructions — the
+script-event constructors.** `eventmake.c`: `NewScriptEvent(kind, mode)`,
+`LinkStepEvent`/`LinkGoalEvent`, the `AddEvent_<Keyword>` constructors the
+keyword handlers of R/S/T call (0x0046b590..0x0046c510), `SetScriptStepText`
+and `ShowStepHint`. 69 exact on the first compile; the three that were not
+gave the levers — a 16-byte field copy must be one aggregate assignment,
+store order follows the source except across such a copy, and an exiled
+`return 0` wants the body nested under the guard. With W the level-script
+subsystem is C from the keyword table to the event list; the executors (V,
+X) and the reader with its parse primitives (R) remain. Levers folded under
+`scope-w`.
+
+**Scopes S and U merged (2026-09-06): 46 of 46 exact, ≈2,640 instructions.**
+`levelkw2.c` (S, 37 of 37): the second tier of level-database keyword
+handlers, `LevelKw_REMOVE` … `LevelKw_ENDSCREENS` — the goal keywords, the
+reward keywords GIVE/TAKE/ADDBRICKS and the four level-setup keywords that
+act at once in `[INIT]`; 34 exact on the first compile, the three `SELECT*`
+handlers each needed one layout lever (a shared `-1` test over a ternary is
+"else jump straight into the call"; the volatile slot read of `argc`). Its
+three shared primitives were renamed at merge to T's `KwLineApplies` /
+`KwHasArgs` / `NameCompare` (extern renames, code unchanged). `exceptlog.c`
+and `objdesc.c` (U, 9 of 9): `WriteExceptionReport` and its seven helpers —
+the `exceptlog.txt` crash report WinMain's `__except` writes (module list,
+registers, stack and code dumps, `ExceptionCodeName`) — and
+`GetFreePlayItemInfo`, the free-play object-description loader. These are
+the tree's first `__try/__except` bodies and they taught two things: VC6
+lays an EBP/SEH frame out by the locals' symbol-hash buckets, so the local
+NAMES are load-bearing (23 of them chosen for `WriteExceptionReport`); and
+the frame's `fs:[0]` is a relocation against the CRT's absolute
+`__except_list`, which `tools/match.py` now resolves (`KNOWN_ABSOLUTE`)
+instead of sentinel-patching — the two bodies U held at WIP audit `[OK]` and
+were promoted at merge. Levers folded under `scope-u` and `scope-s`.
+
 **Scope T merged (2026-09-06): 29 of 29 exact, ≈1,430 instructions — the
 first of the seven script-tier briefs, done by the integrator session.**
 `levelkw3.c`: the last twenty-two level-database keyword handlers
@@ -350,15 +383,26 @@ coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
 Open for assignment after this checkpoint: `SCOPE_CODEX_F.md` (unclaimed) and
-six of the seven briefs cut on 2026-09-06 from the inventory's script tier —
-`SCOPE_R_level_keywords_1.md`, `SCOPE_S_level_keywords_2.md` (the level-database
-keyword handlers and their parse primitives; T, the third part and the process
-start-up, is DONE and merged), `SCOPE_W_event_constructors.md`
-(the `AddEvent_*` bodies), `SCOPE_V_event_ticks_1.md` and
-`SCOPE_X_event_ticks_2.md` (the `g_event_tick[]` handlers and goal checks) and
-`SCOPE_U_exception_report_objdesc.md` — 311 functions, ≈8,000 instructions,
-named by keyword from the table at 0x004bb6f8 and the constructors' kinds.
-Running: F (this machine), G, H. Merged
+two of the seven briefs cut on 2026-09-06 from the inventory's script tier —
+`SCOPE_V_event_ticks_1.md` and `SCOPE_X_event_ticks_2.md` (the
+`g_event_tick[]` handlers and goal checks, ≈110 functions, ≈3,500
+instructions, named by keyword from the table at 0x004bb6f8 and the
+constructors' kinds). `SCOPE_U_exception_report_objdesc.md` and
+`SCOPE_W_event_constructors.md` are DONE and merged. `SCOPE_R_level_keywords_1.md`
+is CLAIMED and delivered on `origin/scope/R` (2026-09-06, 47 of 48 exact;
+`ParseKeywordSections` 0x00478280 held at WIP because the original keeps a
+set-and-break flag in `bl` that this compiler build folds in every spelling —
+a later VC6 C2.DLL trial, not a source change) but NOT merged: the user has
+not called it, and at merge its primitive definitions must take the tree's
+names (`KwLineApplies` 0x004786c0, `KwSectionMatches` 0x004786a0,
+`KwHasArgs` 0x00478690 — R's notes call them `LineApplies`,
+`LevelMaskMatches`, `HasArgs`).
+Running: F, G, H (the other machine). Each has TWO branches on origin — the
+2026-09-05 `scope/F`, `scope/G`, `scope/H` and the newer `scope/F-fable`,
+`scope/G-fable`, `scope/H-fable` pushed 2026-09-06 from the other machine
+(F-fable: ride callbacks, "14 of 16 exact" in its notes). None is merged;
+the integrator has not been told which twin is the live one — decide before
+touching any of them. Merged
 since: N (`tools/inventory.py` and `docs/lanes/scope-n.md`, 2026-09-05; no C,
 no existing tool touched), O (21 of 21 exact — the 19 K exposed plus two
 undeclared siblings — three new files, 2026-09-05; `docs/lanes/scope-o.md`)

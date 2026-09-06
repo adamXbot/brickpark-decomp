@@ -1,6 +1,6 @@
 # Scope W — the script-event constructors (2026-09-06)
 
-> **Status: OPEN, unclaimed.** Branch `scope/W`. Notes: `docs/lanes/scope-w.md`.
+> **Status: DONE — 72 of 72 exact, merged into `main` 2026-09-06 (integrator session).** Branch `scope/W`. Notes: `docs/lanes/scope-w.md`.
 > Object prefix `/tmp/sw_`. Any agent. Cut from inventory groups 20–21. Read
 > `docs/SCOPE_R_level_keywords_1.md`'s "What this tier is" for the pipeline.
 

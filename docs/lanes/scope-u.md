@@ -1,6 +1,9 @@
-# Scope U — the exception-report writer and the object-description loader: 9 of 9 bodies byte-identical, 7 `[OK]`, 2 held at WIP by the gate
+# Scope U — the exception-report writer and the object-description loader: 9 of 9 exact (7 `[OK]` at hand-off, the two `__try` bodies promoted at merge)
 
-**Status: complete, with one tooling decision for the integrator.** Branch
+**Status: complete; the tooling decision below was taken at merge
+(2026-09-06): `tools/match.py` resolves the CRT's `__except_list` to the
+absolute 0 (`KNOWN_ABSOLUTE`), both `__try` bodies audit `[OK]` and carry
+`// FUNCTION:` markers.** The text below is the hand-off as written. Branch
 `scope/U`, baseline `origin/main` `0e62e67c` (2026-09-06). Two new files,
 `LEGOLAND/exceptlog.c` (8 functions, 766 instructions) and
 `LEGOLAND/objdesc.c` (1 function, 316 instructions). Seven bodies are

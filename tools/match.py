@@ -92,6 +92,24 @@ def obj_function_code(obj_path, func):
         return rec.split(b"\0")[0].decode("latin1")
     # section relocations (offset -> apply a sentinel so global refs disassemble
     # as an absolute address, matching the linked exe after normalisation).
+    # A relocation against an ABSOLUTE symbol is resolved by the linker to the
+    # symbol's value plus the field's addend, not to an address, so it is
+    # resolved the same way here. VC6 emits one: every SEH frame's fs:[0]
+    # (`mov eax, fs:[0]` / `mov fs:[0], esp`) is a relocation against
+    # `__except_list`, an UNDEFINED external in the object (section 0) that
+    # the CRT library defines as the absolute 0. Without this the sentinel
+    # made the operand fs:[<abs>] against the linked original's fs:[0].
+    KNOWN_ABSOLUTE = {"__except_list": 0}
+    def absolute_value(symidx):
+        if symidx >= nsym:
+            return None
+        rec = d[symptr + symidx * 18:symptr + symidx * 18 + 18]
+        value, secnum = struct.unpack_from("<Ih", rec, 8)
+        if secnum == -1:
+            return value
+        if secnum == 0:
+            return KNOWN_ABSOLUTE.get(symname(rec))
+        return None
     def patched_section(secidx):
         o = 20 + secidx * 40
         rawsz, rawptr, relptr = struct.unpack_from("<III", d, o + 16)
@@ -101,7 +119,12 @@ def obj_function_code(obj_path, func):
             ro = relptr + r * 10
             va, sym, typ = struct.unpack_from("<IIH", d, ro)
             if va + 4 <= len(code):
-                struct.pack_into("<I", code, va, 0x00990099)  # 6-hex sentinel
+                absval = absolute_value(sym)
+                if absval is not None:
+                    addend = struct.unpack_from("<I", code, va)[0]
+                    struct.pack_into("<I", code, va, (absval + addend) & 0xffffffff)
+                else:
+                    struct.pack_into("<I", code, va, 0x00990099)  # 6-hex sentinel
         return code
     # find the symbol for func (VC6 prepends '_' to cdecl C names)
     targets = {func, "_" + func}
