@@ -1,11 +1,11 @@
-# Scope R — the level-database keyword tier, part 1: 47 of 48 exact
+# Scope R — the level-database keyword tier, part 1: 48 of 48 exact
 
-**Status: complete but for one WIP.** Branch `scope/R`, baseline `origin/main`
-`0e62e67c` (2026-09-06). One new file, `LEGOLAND/levelkw.c`, 48 functions,
-1,728 instructions: 47 `audit.py [OK]` (1,534 instructions), one
-`WIP-FUNCTION` (`ParseKeywordSections`, 194 instructions, 124/196 index for
-index). `/W3` clean; `relocs.py` 211 of 211 resolved positions agree, none
-unresolved. No existing file was edited.
+**Status: complete.** Branch `scope/R`, baseline `origin/main` `0e62e67c`
+(2026-09-06). One new file, `LEGOLAND/levelkw.c`, 48 functions, 1,728
+instructions, every one `audit.py [OK]`; `/W3` clean; `relocs.py` 222 of
+222 resolved positions agree, none unresolved. No existing file was
+edited. `ParseKeywordSections` took three passes (63% → 99% → 100%); the
+lever that closed it is a general one and is written up below.
 
 ## Per function
 
@@ -58,7 +58,7 @@ unresolved. No existing file was edited.
 | 0x00478110 | `SplitWords` (brief `sub_478110`) | 67 / 145 | OK | `// FUNCTION:` | first try; the tokenizer |
 | 0x00489e60 | `ReadLine` (brief `sub_489e60`) | 58 / 126 | OK | `// FUNCTION:` | 70% → 100%: loop shape (below) |
 | 0x00499300 | `UpcaseString` (brief `sub_499300`) | 23 / 53 | OK | `// FUNCTION:` | first try |
-| 0x00478280 | `ParseKeywordSections` | 194 / 561 (ours 556) | **WIP** | `// WIP-FUNCTION: … (63%, …)` | first divergence at index 60; residual below |
+| 0x00478280 | `ParseKeywordSections` | 194 / 561 | OK | `// FUNCTION:` | 63% → 99% → 100%: the two-flag merge (below) |
 
 Renames from the brief, each from the body: `sub_478690` → `HasArgs`
 (returns `argc >= n`); `CurLevelIndex` → `LevelMaskMatches` (it tests
@@ -207,6 +207,12 @@ is {u16 view_w, u16 view_h, …, int mechanics +0x34, int gardeners +0x38}.
 
 ## Levers, with evidence
 
+- **A set-and-break found flag survives only with a definition of it at the
+  merge point** — `handled = found | handled` with both flags zeroed before
+  the loop (the parser, 194/194). Everything single-flag folds: the match
+  edge is threaded past the test, the block is exiled, and the freed
+  registers change the allocation of everything after. See the parser
+  section below for the full account.
 - **A five-element store loop is an index loop, not a pointer loop.**
   `for (i = 0; i < 5; i++) g_rate_t0[i] = atoi(args[i + 1])` gives the
   original's strength-reduced pointer with a *signed* `jl` against the end
@@ -254,7 +260,47 @@ is {u16 view_w, u16 view_h, …, int mechanics +0x34, int gardeners +0x38}.
   `if (argc < 3 || (n = atoi(args[3])) < 1) n = 1;` — one shared `mov
   eax,1` for both fall-throughs.
 
-## The WIP: `ParseKeywordSections` 0x00478280 (now 192/194, first divergence at 116)
+## `ParseKeywordSections` 0x00478280: how it closed (63% → 99% → 100%)
+
+**The lever.** A found flag that is set immediately before a `break` and
+tested after the loop is folded by VC6 SP3: it threads every edge into the
+test with the flag's constant value, exiles the match block, and then has
+registers to spare. What keeps the flag is a *definition of it at the merge
+point* whose value the propagator cannot reduce to a constant on either
+edge. The spelling that reproduces the original byte for byte uses two
+flags, both zeroed before the lookup loop, the loop setting one of them,
+and the merge or-ing them:
+
+```c
+found = 0;
+handled = 0;
+for (i = 0; i < count; i++) {
+    if (strcmp(words[0], table[i].keyword) == 0) {
+        found = 1;
+        rc = table[i].handler(words, nwords - 1, extra);
+        if (rc == 0)
+            skipped++;
+        break;
+    }
+}
+handled = found | handled;
+if (!handled && fallback)
+    rc = fallback(words, nwords - 1, extra);
+```
+
+Both flags live in `bl`; the or of two register variables is not folded,
+the allocator coalesces them, and the codegen emits the flag-setting
+compare as the original's `test bl,bl / jne`. With the fold stopped the
+rest of the original shape follows by itself: `table` cached in `ebp` with
+the strength-reduced cursor coalesced onto it (so the match block reloads
+`table` from its home slot into `eax` and the compiler restores `ebp` at
+the end of the line body, after the fallback), `rc`/`nwords`/`skipped`/
+`fallback` in memory, the epilogue's `esi`/`ebx` roles, and the tail
+written `if (rc >= 0 && strcmp(table[count - 1].keyword, "check") == 0)`.
+Before the two-flag form, a self-modifying `handled ^= 1` (99%, `xor bl,1
+/ je`) and a cursor reset `e = table` at the merge (96%, one extra copy)
+had already shown the mechanism; both leave their own instruction at the
+merge, which the or does not.
 
 **Third pass (2026-09-06, later): 63% → 99%.** The mechanism is found: VC6
 threads each edge into the fallback test only when the test is the *first*
@@ -362,7 +408,7 @@ gate needs a per-file compiler note rather than a source change.
 ## Verification
 
 ```sh
-$PY tools/audit.py LEGOLAND/levelkw.c          # 47 x [OK], 1 x [WIP], PASS
-$PY tools/relocs.py LEGOLAND/levelkw.c         # 211 relocations, 0 MISMATCH, 0 unresolved
+$PY tools/audit.py LEGOLAND/levelkw.c          # 48 x [OK], PASS
+$PY tools/relocs.py LEGOLAND/levelkw.c         # 222 relocations, 0 MISMATCH, 0 unresolved
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" "$LEGOLAND_CL" /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/sr_w3.obj LEGOLAND/levelkw.c
 ```

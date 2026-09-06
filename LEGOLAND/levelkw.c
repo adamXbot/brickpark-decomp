@@ -893,7 +893,7 @@ int UpcaseString(char* s)
  * words; one whose last keyword is "check" names a handler that runs at the
  * end with the count of lines whose handler returned 0. A negative handler
  * result aborts and is returned; otherwise the skipped count is. */
-// WIP-FUNCTION: LEGOLAND 0x00478280  (99%, 192/194, 562 vs 561 bytes: the original tests the found flag with `test bl,bl / jne`; the `handled ^= 1` below is the only spelling found that stops VC6 folding the flag, and it compiles to `xor bl,1 / je`)
+// FUNCTION: LEGOLAND 0x00478280
 int ParseKeywordSections(void* f, KeywordEntry* table, int count, int extra)
 {
     int       skipped = 0;
@@ -901,6 +901,7 @@ int ParseKeywordSections(void* f, KeywordEntry* table, int count, int extra)
     KeywordFn fallback = 0;
     int       nwords;
     char      handled;
+    char      found;
     char*     words[20];
     char      line[0x400];
 
@@ -920,23 +921,24 @@ int ParseKeywordSections(void* f, KeywordEntry* table, int count, int extra)
             int  i;
 
             UpcaseString(words[0]);
+            found = 0;
             handled = 0;
             for (i = 0; i < count; i++) {
                 if (strcmp(words[0], table[i].keyword) == 0) {
-                    handled = 1;
+                    found = 1;
                     rc = table[i].handler(words, nwords - 1, extra);
                     if (rc == 0)
                         skipped++;
                     break;
                 }
             }
-            /* The original keeps `handled` in bl and tests it here (`test
-             * bl,bl / jne`); every plain spelling lets VC6 fold the flag and
-             * jump each path straight past the test. A definition of the flag
-             * at this merge point stops the fold; this inverting one is the
-             * closest (`xor bl,1 / je`, one byte longer). */
-            handled ^= 1;
-            if (handled && fallback)
+            /* Two flags, merged here: with a single flag set before the
+             * `break`, VC6 folds its test away and jumps each path straight
+             * past the fallback; the or of the two (both zeroed above, both
+             * living in bl) is what keeps the original's `test bl,bl / jne`
+             * and, with it, the whole shape of the loop and its epilogue. */
+            handled = found | handled;
+            if (!handled && fallback)
                 rc = fallback(words, nwords - 1, extra);
         }
         if (rc < 0)
