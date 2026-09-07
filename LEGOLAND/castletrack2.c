@@ -41,7 +41,7 @@ void TrackCurve_InitLine(RouteGeom* curve, const Vec3f* from,
 
 /* Quarter-turn arc: copy the two in-plane axes and the centre, store the
  * two rail-radius scales, parameter range [0, pi/2], arc hook table. */
-// WIP-FUNCTION: LEGOLAND 0x00421ce0  (94.7%, r1 loaded in edx not ecx; r0 load not hoisted before the +0x28 store)
+// WIP-FUNCTION: LEGOLAND 0x00421ce0  (36/38, r1 in edx not ecx; r0 load after the +0x28 store)
 void TrackCurve_InitArc(const Vec3f* a, const Vec3f* b, const Vec3f* c,
                         RouteGeom* curve, int r0, int r1)
 {
