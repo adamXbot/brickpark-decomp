@@ -1,6 +1,6 @@
 # Scope V — event tick handlers and goal checks: 61 of 62 exact
 
-**Status: in progress, 2026-09-07.** Recovered the interrupted session's
+**Status: in progress, 2026-09-08 (see the eighth pass at the end).** Recovered the interrupted session's
 three saved exact fixes (`EventTick_Lookat`, `EventTick_Connect`, and
 `EventTick_Link`). A fresh whole-file audit reports 61 exact functions and
 one WIP, `EventTick_Clear` (177i/576B versus 177i/577B, 24 strict mismatches
@@ -1267,3 +1267,76 @@ No flag set produces the original's colouring or byte reload.
   position flips two-register mirrors", "mutate address-taken out-params",
   "named index local", "loop form" — all consistent with this project's
   corpus; none names the store/byte-reload split CLEAR needs.
+
+## Eighth pass — the allocator's priority rule, measured (2026-09-08, `feat/v-completion-worktree-69a63a`)
+
+CLEAR is unchanged: **177i/576B against 177i/577B, 24 strict, first difference
+110**; whole-file gate PASS (45 `[OK]` + CLEAR `[WIP]`, 16 `[OK]` in
+`eventgoal.c`), `relocs.py` zero MISMATCH, `/W3` clean. This pass measured the
+register allocator on the real body (a splice-and-score harness in the
+session scratchpad; nothing committed) and turns the fourth pass's colouring
+table into a rule that predicts every variant measured so far.
+
+**How VC6 SP3 colours the two coordinates.** Webs are coloured in priority
+order, priority being a weighted use count over the web: every def/use counts
+one and a register byte USE adds about two more. The highest-priority web
+takes the best register its class allows; a tie goes to the first-defined web
+(x). Nothing already coloured is displaced. Evidence, all with the footprint
+block otherwise identical:
+
+| x uses | y uses | x byte need | winner of edx |
+| ---: | ---: | --- | --- |
+| 5 | 5 | no (both bytes `volatile`) | x |
+| 5 | 6 (one extra dword store of `by`) | no | **y**, x → ebp via the def fix-up |
+| 6 | 6..8 | yes | x |
+| 4 (def, two adds, byte store) | 5, 6 | yes | x |
+| 4 | 7, 8 | yes | **y**; x takes **ebx** and `next` moves to ebp |
+
+The last row is the decisive one: a web with a byte need is never served by a
+fix-up copy while a byte-capable register can be freed for it, and `next`
+yields ebx to it. The original keeps `next` in ebx and pays `mov ecx, ebp`,
+so at colouring time x carried **no** byte need and at most four weighted
+uses, while y carried five (def, two adds, `sq.y`, `origin.y`). The byte
+need therefore sits on a **separate web T**, defined after the `rep movsd`
+as a copy of x, holding the three x stores (`sq.x`, `origin.x`, `g_sel_bpos.b.x`),
+coloured ecx once the copy has freed it. T is not coalesced with x although x
+dies at the copy, which is the behaviour VC6 shows for its own byte-class
+fix-ups (the `mov ebp, edx` after the zero-extending load) and for nothing
+written in C so far.
+
+**Negatives added (each compiles to a body already in the tables above):**
+
+- Twenty-five zero-cost spellings of `tx = <bx>` all fold to `bx` in the
+  front end: `+0 -0 |0 ^0 <<0 >>0 &-1 *1 /1`, `~~`, `-(-)`, `+`, `(bx)`,
+  `d ? bx : bx`, `*(&bx)`, `bx++` (dead increment), and the casts through
+  `unsigned`, `long`, `void*`, `char*`, `Cell*`, `char* - 0`, `__int64`,
+  `unsigned __int64`, `double`, `long double`. `(unsigned short)` and
+  `(float)` keep a real op. A struct-returning `__inline` (`sq = MakePos(bx,
+  by)`) folds too.
+- A second `c->x` load in the cursor block (before or after the copy) costs
+  instructions: the cell pointer is dead after the footprint loads.
+- `int sq[2]`, two address-taken `int` scalars passed as `(Pos*)&qx`, and
+  `Pos sq` declared inside the `if` body all forward like `Pos sq`.
+- Source store order is inert: `sq.y` before the copy and `sq.x` after (the
+  original's emitted order), both before, both after, and the byte stores
+  ahead of the origin stores all give the plain row-four body. The hoisted
+  `mov [esp+0x1c], edx` is the scheduler's.
+- A separate `QueryBlock g_query_block` extern (fpui3.c's spelling of
+  0x00811564, the PU_ToolB idiom) is inert; PU_ToolB's own exact body
+  forwards both bytes from registers, so it is not the sibling to copy.
+- A bitfield selection square (`unsigned x : 8, y : 8` on `char`, `short`,
+  `int`) is never narrowed to byte stores: `char` fields are plain bytes,
+  `short`/`int` fields are assembled with `mov ch, bl` / `xor` / `or` and
+  stored as a word or dword.
+- The frame-preserving aggregate for the fourth kill, `struct { Pos sq; int
+  pad0, top, pad1, bottom; Cursor saved; }`, lands `top`/`bottom` at
+  0x24/0x2c but memory-homes them (double stores, reloads): 179i.
+- Keeping x live across `d->query` pins it to ebx, not ebp, and displaces
+  `next`.
+
+**What would close it.** A C construct that makes VC6 keep an un-coalesced
+register copy of a dead `int` local — the copy VC6 only inserts itself for a
+byte-class conversion — paired with the y byte read from `sq.y`'s home. The
+front end folds every identity expression, so the copy has to come from the
+optimizer or the allocator; phis do it but cost a branch. Everything else in
+this block is now pinned by measurement.
