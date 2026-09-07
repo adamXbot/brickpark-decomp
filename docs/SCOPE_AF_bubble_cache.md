@@ -1,9 +1,9 @@
 # Scope AF — bubble-help / text-cache helpers (inventory group 15 live) (2026-09-07)
 
-> **Status: IN PROGRESS (integrator cut 2026-09-07 for Grok).** Branch
-> `scope/AF`. Notes: `docs/lanes/scope-af.md`. Object prefix `/tmp/saf_`.
-> Cut from inventory group 15 live members. Skip DEAD bodies and addresses
-> already owned elsewhere.
+> **Status: DONE — 7 of 8 exact, merged into `main` 2026-09-07 (integrator
+> session).** One honest WIP: `FootprintClearanceTest` (FR02 dead-arg floor).
+> Branch `scope/AF`. Notes: `docs/lanes/scope-af.md`. Object prefix
+> `/tmp/saf_`. Cut from inventory group 15 live members.
 
 **Read `docs/PARALLEL_CONTRACT.md` first.** Relocation gate required.
 

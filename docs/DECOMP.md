@@ -424,6 +424,20 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **SCOPE AF (merged 2026-09-07, 7 of 8 exact; evidence in
+  `docs/lanes/scope-af.md`).** Bubble-help / text-cache helpers
+  (`bubblecache.c`):
+  - **Volatile cache count** in lookup latches — same free volatile as
+    `FindCachedText` / `ExpireCachedText`.
+  - **RasterizeText:** `volatile` count so the increment is a second load;
+    `int f = *(volatile int*)&format` so format wins eax before strlen's
+    `xor eax`; keep `HeapAlloc_w(strlen(text)+1)` as one expression.
+  - **DrawCachedTextSprite:** `p = s` first; `rc.left = 0` then
+    `memset(&rc.top, 0, 12)` splits the four-zero edi web so `push edi`
+    stays below the find.
+  - **Floor:** `FootprintClearanceTest` — every 4-byte address-taken `elem`
+    steals the dead x-arg (FR02); 8-byte aggregate is too big. Leave WIP.
+
 - **SCOPE AC (merged 2026-09-07, 13 of 15 exact; evidence in
   `docs/lanes/scope-ac.md`).** Advisor movie helpers and InitMan texture
   callees (`advisor.c`, `mantex.c`):
