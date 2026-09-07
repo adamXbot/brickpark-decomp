@@ -580,7 +580,7 @@ void PresentNoOp(void)
  * read; reproduced.
  * ========================================================================= */
 
-// WIP-FUNCTION: LEGOLAND 0x0045ade0  (58%, 122/291 strict, rb 118, ob 69, first diverging index 29: spill-slot permutation)
+// WIP-FUNCTION: LEGOLAND 0x0045ade0  (71%, 84/291 strict, rb 78, ob 65, first diverging index 42: three spill slots permuted (w / qx+saverow / savecol over +0x24,+0x28,+0x2c))
 void DrawTileDebugOverlay(void)
 {
     ClipRect clip;
@@ -590,7 +590,7 @@ void DrawTileDebugOverlay(void)
     int      hh, hw;
     int      sx, sy;
     int      qx, qy, rx, ry;
-    int      col, row;
+    struct { int c, r; } cur;
     int      savecol, saverow;
     int      q;
     int      x, y;
@@ -611,8 +611,8 @@ void DrawTileDebugOverlay(void)
     rx = sx % w;
     qy = sy / h;
     ry = sy % h;
-    col = qy + qx - 3;
-    row = qy - qx;
+    cur.c = qy + qx - 3;
+    cur.r = qy - qx;
 
     q = (rx >= hw) + 1;
     if (ry > hh)
@@ -620,28 +620,28 @@ void DrawTileDebugOverlay(void)
     switch (q) {
     case 1:
         if (rx < hw - 2 * ry) {
+            cur.c--;
             rx += hw;
-            col--;
             ry += hh;
         }
         break;
     case 2:
         if (rx >= hw + 2 * ry) {
             rx -= hw;
-            row--;
+            cur.r--;
             ry += hh;
         }
         break;
     case 3:
         if (rx < hw + 2 * (ry - h)) {
-            row++;
+            cur.r++;
             rx += hw;
             ry -= hh;
         }
         break;
     case 4:
         if (rx >= hw + 2 * (h - ry)) {
-            col++;
+            cur.c++;
             rx -= hw;
             ry -= hh;
         }
@@ -649,35 +649,35 @@ void DrawTileDebugOverlay(void)
     }
 
     for (y = clip.y - 2 * h - ry; y < h * 2 + clip.h; y += h) {
-        savecol = col;
-        saverow = row;
+        savecol = cur.c;
+        saverow = cur.r;
         for (x = clip.x - 2 * w - rx; x < w * 2 + clip.w; x += w) {
-            if (col >= 0 && col < g_map->cells_w && row >= 0 && row < g_map->cells_h)
-                cell = g_map_rows[row][col];
+            if (cur.c >= 0 && cur.c < g_map->cells_w && cur.r >= 0 && cur.r < g_map->cells_h)
+                cell = g_map_rows[cur.r][cur.c];
             else
                 cell.rf = 0;
             if (cell.rf & 2)
                 PrintSprite(g_tile_sprites[(g_tileset_id3 & 0xff) + *g_basic_tiles_data],
                             x, y, TILE_OVERLAY_COLOUR, 0);
-            col++;
-            row--;
+            cur.c++;
+            cur.r--;
         }
         savecol++;
-        col = savecol;
-        row = saverow;
+        cur.c = savecol;
+        cur.r = saverow;
         for (x = clip.x - 2 * w - rx; x < w * 2 + clip.w; x += w) {
-            if (col >= 0 && col < g_map->cells_w && row >= 0 && row < g_map->cells_h)
-                cell = g_map_rows[row][col];
+            if (cur.c >= 0 && cur.c < g_map->cells_w && cur.r >= 0 && cur.r < g_map->cells_h)
+                cell = g_map_rows[cur.r][cur.c];
             else
                 cell.rf = 0;
             if (cell.rf & 2)
                 PrintSprite(g_tile_sprites[(g_tileset_id3 & 0xff) + *g_basic_tiles_data],
                             x + hw, y + hh, TILE_OVERLAY_COLOUR, 0);
-            col++;
-            row--;
+            cur.c++;
+            cur.r--;
         }
-        col = savecol;
-        row = saverow + 1;
+        cur.c = savecol;
+        cur.r = saverow + 1;
     }
 }
 

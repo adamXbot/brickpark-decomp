@@ -22,7 +22,7 @@ Object prefix `/tmp/sll13_`. Brief: `docs/SCOPE_LL13_unref_gamemain_bighelp.md`.
 | 0x00455220 | PrintWrappedTextOnSurface | 120 | 100 | [OK] | FUNCTION |
 | 0x00455de0 | FindCachedTextByString | 51 | 100 | [OK] | FUNCTION |
 | 0x00466070 | PresentNoOp | 1 | 100 | [OK] | FUNCTION |
-| 0x0045ade0 | DrawTileDebugOverlay | 291 | 58 | — | WIP-FUNCTION |
+| 0x0045ade0 | DrawTileDebugOverlay | 291 | 71 | — | WIP-FUNCTION |
 | 0x00453c20 | DDrawErrorPassThrough | 20 | 20 | — | WIP-FUNCTION |
 
 **14 of 17 bodies are byte-exact** (408 of 846 instructions), of which
@@ -267,24 +267,37 @@ what does and does not keep an empty switch alive.
   which is the only shape that can reproduce 0x00453c20. `return hr` with one
   case label per arm is constant-folded into `mov eax,<case value>` per arm;
   the arms must share ONE body for the fold to be impossible.
-- **Declaration order really is irrelevant to spill-slot assignment.** Three
-  very different declaration orders (including fully reversed, and the two
-  aggregates swapped) produced byte-identical code for
-  `DrawTileDebugOverlay`. Its residual is a pure permutation of eleven
-  4-byte slots in the same 0x50 frame; the original coalesces `qx` with the
-  outer `row` in slot +0x28, ours does not.
+- **Declaration order really is irrelevant to spill-slot assignment — but
+  aggregate-ness is not (FR01).** Three very different declaration orders
+  (including fully reversed, and the two aggregates swapped) produced
+  byte-identical code for `DrawTileDebugOverlay`. Wrapping the two cursor
+  scalars in a struct (`struct { int c, r; } cur;`, address never taken, so
+  VC6 still scalarizes them) moved five of the eleven spill slots into place
+  and took the body from 122/291 to 90/291. Wrapping any of the other pairs
+  (`rx`/`ry`, `hh`/`hw`, `savecol`/`saverow`) made it worse, so this is a
+  per-pair lever, not a general one.
+- **Statement order inside a switch arm decides where a reload is
+  scheduled, not just the store order.** `cur.c--; rx += hw; ry += hh;`
+  costs six fewer instructions than `rx += hw; cur.c--; ry += hh;` in
+  0x0045ade0's case 1 (90 -> 84): with the decrement first, the `hh` reload
+  stays at the end of the block where the original has it; with the store
+  first, VC6 hoists it four slots. The emitted STORE order (rx then col) is
+  the same either way.
 
 ## Residuals — what a stronger model could still move
 
-- **0x0045ade0 `DrawTileDebugOverlay` (122/291 strict, rb 118, ob 69, first
-  index 29).** Instruction count and byte count are already exact and the
-  whole body lines up shape-for-shape; the residual is the spill-slot
-  permutation (ours puts `col` in +0x10 and `rx` in +0x14, the original the
-  other way round, which then swaps the registers that load them and
-  cascades). Ideas not tried: making `rx`/`ry` or `col`/`row` a two-int
-  aggregate (FR01 says an aggregate moves the frame even when scalarized);
-  forcing `qx` and the outer `row` to share a slot by shortening `qx`'s live
-  range; the `= 0` initialiser lever (FR-class) on one of the eleven.
+- **0x0045ade0 `DrawTileDebugOverlay` (84/291 strict, rb 78, ob 65, first
+  index 42).** Instruction count and byte count are exact and the body lines
+  up shape-for-shape. Eight of the eleven 4-byte spill slots now agree; the
+  residual is a THREE-WAY permutation of the remaining ones — the original
+  has `w`@+0x24, `qx`(coalesced with the outer `row`)@+0x28 and
+  `savecol`@+0x2c, ours has `savecol`@+0x24, `w`@+0x28, `qx`@+0x2c. That
+  swaps which of `rx`/`col` is loaded into ecx at the top of the outer loop
+  and costs one extra `mov` in the loop-A preheader, which is the whole
+  `ob` residual. Measured and rejected: `savecol`/`saverow` as an aggregate
+  (97), in (r, c) order (98), assigned in the other order (90),
+  `rx`/`ry` as an aggregate (132), `qx`/`qy` as an aggregate (90, no change),
+  `hh`/`hw` as an aggregate (107), every declaration order.
 - **0x00451280 `UnlockAllPhysicalLocks` (46/88, first index 1).** Everything
   from the loop preheader to the latch (indices 46..67) already matches
   exactly. The single blocker is that the original SINKS `push ebx` past the
