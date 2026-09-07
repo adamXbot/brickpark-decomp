@@ -79,6 +79,14 @@ typedef struct HelpRect {
     int y1;   /* +0x0c */
 } HelpRect;
 
+/* Same two-int cell as gameframe.c.  Taken by value so the incoming
+ * slots are one aggregate and cannot be reused for the FindElement
+ * out-local (FR02 / fable-b two-ints→Pos). */
+typedef struct Pos {
+    int x;    /* +0x00 */
+    int y;    /* +0x04 */
+} Pos;
+
 typedef struct ObjDef {
     char    pad00[0x3c];
     int     ox;        /* +0x3c */
@@ -339,10 +347,15 @@ void UnloadBubbleHelpGFX(void)
  * when it is off-map, null, carries flags 0x8f8, or has extra != 0 and the
  * edit class's +0xc4 is not the PATH CONTROL element.  An empty footprint
  * (fp_w or fp_h <= 0) succeeds.
+ *
+ * Taken as Pos by value: the two incoming slots are one aggregate, so
+ * elem cannot steal the dead x-arg and the original `push ecx` falls out
+ * (FR02 / fable-b).  Assign into p.x / p.y so ebx loads p.x and y0 lives
+ * in the y-arg slot.
  */
 
-// WIP-FUNCTION: LEGOLAND 0x00457970  (90.2%, elem in dead x-arg; original push ecx)
-int FootprintClearanceTest(int x, int y)
+// FUNCTION: LEGOLAND 0x00457970
+int FootprintClearanceTest(Pos p)
 {
     int oy;
     int xx;
@@ -351,13 +364,13 @@ int FootprintClearanceTest(int x, int y)
     Cell* cell;
 
     oy = g_edit_object->oy;
-    x += g_edit_object->ox;
-    y += oy;
-    yy = y;
-    if (yy >= y + g_fp_h)
+    p.x += g_edit_object->ox;
+    p.y += oy;
+    yy = p.y;
+    if (yy >= p.y + g_fp_h)
         goto success;
 loop:
-    for (xx = x; xx < x + g_fp_w; xx++) {
+    for (xx = p.x; xx < p.x + g_fp_w; xx++) {
         if (xx < 0 || xx >= (int)g_map->cells_w || yy < 0 || yy >= (int)g_map->cells_h)
             goto fail;
         cell = &g_map_rows[yy][xx];
@@ -372,7 +385,7 @@ loop:
         }
     }
     yy++;
-    if (yy >= y + g_fp_h)
+    if (yy >= p.y + g_fp_h)
         goto success;
     goto loop;
 fail:
