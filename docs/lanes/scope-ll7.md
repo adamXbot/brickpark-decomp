@@ -22,10 +22,10 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 | 0x0042a680 | TrackCursorPair_Draw | 82 | 100 | [OK] | FUNCTION |
 | 0x00429cf0 | Track_StepObjective | 93 | 100 | [OK] | FUNCTION |
 | 0x00429560 | TrackRunSetSlope | 90 | 92 | 7 (eax/edx) **floor** | WIP |
-| 0x00429f30 | Track_StepAlong | 70 | 72 | 47 (226/232B) | WIP |
+| 0x00429f30 | Track_StepAlong | 70 | 89 | 11 (232/232B) | WIP |
 | 0x00428860 | TrackShade_FillPoly | 254 | 38 | 243 **ZBuffer floor** | WIP |
 
-**14 / 17 exact.** Three WIPs retired or recorded at their measured floor. `/W3` clean. `relocs.py` 0 MISMATCH on the 14 FUNCTION bodies.
+**14 / 17 exact.** SetSlope and FillPoly at their floors; StepAlong size-exact at 11 (not floored). `/W3` clean. `relocs.py` 0 MISMATCH on the 14 FUNCTION bodies.
 
 ## Names
 
@@ -62,7 +62,7 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **Track_MeasureDistance**: extra `g_dist_at = &cur` before the loop integrate and the final `[t0, t]` integrate (equal path sets it to `from`). 0.01f is `0x3c23d70a`.
 - **TrackCursorPair_Draw**: interleave `s=sin; m[0]=s; c=cos; m[2]=c; m[8]=-c; m[10]=s` so the leftover sin is `fst` then later `fstp`. Computing both trigs first emitted `fld st(1)`. Mat slots are 0/2/8/10 (not 1/2/8/10). `#pragma intrinsic(sin, cos)`.
 - **Track_StepObjective**: `if ((dist2 = x*x+y*y+z*z) > hi2)` (assignment-in-condition) lands `fld st / fcomp hi2`. A named `dist2 = sum; if (dist2 > hi2)` emitted `fcom [home]`.
-- **Track_StepAlong**: best body is `hi = tol; … hi = t;` plus late `t0 = cur.geom->t0` (70i/226B vs 232B, matchfull 72.5%, audit 47). That lands the early `push out_t` and `fstp [esp]` overwrite. Residual: original pushes `tol` as the hi placeholder and dword-moves `t0` into the dead `from` slot *during* hi2 setup; we push `cur.geom` and load `t0` after. Early `int t0bits` dropped to 67%/66. `from`-slot puns still worse. Not a floor — the 6-byte gap is that placeholder/t0-slot pair — but further puns have not closed it.
+- **Track_StepAlong**: size-exact **70i/232B**, matchfull 88.6%, audit **11**. `org = origin` live-across + late `g_step_origin = org` puts origin in edx during `rep movsd`. `hi = tol; … hi = t` + `t0 = cur.geom->t0` before `g_step_len2 = step2` lands `push tol` as the hi placeholder, dword `t0` into the dead `from` slot, and `fstp [esp]`. Loop is exact (`hi = cur.geom->t1`). Residual is one schedule split: `mov esi, out_t` matches, but `push esi` is 7 insns late (batched with `push tol` after t0/fstp/fadd); `g_step_len = step` is 2 insns late (after `fld st/fmul` instead of right after `push tol`). `g = cur.geom` then `g_step_len2` then `t0` got the early push (90% matchfull) but hoisted fstp/fadd and **21** audit. Comma/helper/volatile/dword-`t0bits`/`from`-pun: inert or worse. Not a floor — the 11 is that push/len-store pair.
 - **TrackShade_FillPoly**: **ZBuffer floor**, same class as schoolcar6.c `ZBuffer_FillPoly` (EBP frame, `xchg ebx,eax`, `add ebx,1`, mixed `__asm`). 254/254i, 748/771B, frame 0x6c vs 0x70. Not ground further.
 
 ## Extern-type divergences

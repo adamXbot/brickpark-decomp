@@ -428,7 +428,7 @@ float Track_StepObjective(float t)
 
 /* Walk backward along the track until |pos - origin| == step. First try
  * the current geom's [t0, t]; then retreat and try each prior [t0, t1]. */
-// WIP-FUNCTION: LEGOLAND 0x00429f30  (70/70i, 226/232B, 47; hi=tol then hi=t)
+// WIP-FUNCTION: LEGOLAND 0x00429f30  (70/70i, 232/232B, 11; push out_t 7 late)
 void Track_StepAlong(Vec3f* origin, float step, RoutePos* from, float t,
                      float tol, RoutePos* out, float* out_t)
 {
@@ -436,23 +436,26 @@ void Track_StepAlong(Vec3f* origin, float step, RoutePos* from, float t,
     float step2 = step * step;
     float t0;
     float hi;
+    Vec3f* org;
 
+    org = origin;
     cur = *from;
-    g_step_origin = origin;
-    g_step_len2 = step2;
-    g_step_len = step;
     hi = tol;
+    t0 = cur.geom->t0;
+    g_step_len2 = step2;
+    g_step_origin = org;
+    g_step_len = step;
     g_curve_offset = hi;
     g_curve_at = &cur;
     g_step_hi2 = (step + hi) * (step + hi);
     g_step_lo2 = (step - hi) * (step - hi);
-    t0 = cur.geom->t0;
     hi = t;
     if (!g_track_solver(Track_StepObjective, t0, hi, out_t)) {
         do {
             TrackCursor_RetreatGeometry(&cur);
             t0 = cur.geom->t0;
-        } while (!g_track_solver(Track_StepObjective, t0, cur.geom->t1, out_t));
+            hi = cur.geom->t1;
+        } while (!g_track_solver(Track_StepObjective, t0, hi, out_t));
     }
     *out = cur;
 }
