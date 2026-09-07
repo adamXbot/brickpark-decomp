@@ -771,11 +771,10 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
  * closed to in[0].  Negative plane distance is inside.  Crossing edges
  * lerp every dword 0..g_span_vtx of the PolyVtx into *cursor and emit
  * that cursor pointer; both-inside emits the previous vertex. */
-/* Residual: continue-header latch held (jmp over reload; in+=4; dec left;
- * jne). ebx=n via byte-n. Frame 0x2c via destrel-pad. Loop abs and ebx via
- * destrel-before-fild. Plane writeback dropped (no colouring). Sign still
- * ebp, not esi. Do not extend n across ftol. */
-// WIP-FUNCTION: LEGOLAND 0x0041f050  (25%, latch jne, ebx=n, and ebx abs, frame 0x2c)
+/* Residual: shared *cursor=dst after n>=1 (early-out stores dest, no
+ * xor-eax). lea edi lerp remains — destrel pin / pad+delta steal dest=edi
+ * and and-ebx. bits still n-slot 0x40. 606B ESCAPES. */
+// WIP-FUNCTION: LEGOLAND 0x0041f050  (33.9%, latch jne, ebx=n, and ebx, frame 0x2c)
 int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
 {
     void** in = (void**)in_v;
@@ -899,8 +898,6 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
             }
             in++;
         } while (--left);
-        *cursor = dst;
-        return out_n;
     }
     *cursor = dst;
     return out_n;
