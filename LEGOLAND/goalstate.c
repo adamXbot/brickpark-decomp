@@ -29,6 +29,33 @@ extern void ResetAppraisalDeadline(void);                /* 0x0044db40 */
 extern void ThawGameClock(void);                         /* 0x004993c0 */
 extern void ResumePausedSamples(void);                   /* 0x00492850 */
 extern void SetLevelEndSequence(int which, const char* s); /* 0x004597e0 */
+extern int  sprintf(char* buf, const char* fmt, ...);      /* 0x0049e573 */
+extern void DBPrintf(const char* fmt, ...);                /* 0x00453a20 */
+
+typedef struct Bloke {
+    char           pad00[0x0e];
+    unsigned short state;          /* +0x0e  low-level AI state */
+} Bloke;
+
+typedef struct SeatSlot {
+    struct SeatSlot* next;         /* +0x00 */
+    char             pad04[8];
+    unsigned short   seat;         /* +0x0c */
+} SeatSlot;
+
+typedef struct SeatOwner {
+    char      pad00[0x2e];
+    short     rider_capacity;      /* +0x2e */
+    char      pad30[0xcc - 0x30];
+    SeatSlot* head;                /* +0xcc */
+} SeatOwner;
+
+extern char* g_bloke_msg_slot[8];          /* 0x004b8348 */
+extern char  g_bloke_msg_bank[];           /* 0x006661cc  8 x 100-byte rows */
+extern int   g_bloke_msg_rot;              /* 0x006664ec */
+extern int   g_cur_bloke_f81;              /* 0x00813b08 */
+extern const char g_fmt_bloke_msg[];       /* 0x004b8404 "%c:%s" */
+extern const char g_fmt_bloke_log[];       /* 0x004b83f0 "[Bloke %c] - %s\n" */
 
 /* movie3.c ResetLevelGlobals zeroes the sim counter at 0x00832b9c. */
 // FUNCTION: LEGOLAND 0x0044db20
@@ -113,4 +140,57 @@ void SetLevelGoalState(int state, const char* text)
     g_level_goal_state = state;
     ClearSim832b9c();
     SetLevelEndSequence(0, text);
+}
+
+/* Rotate the eight 100-byte bloke-message scratch slots, sprintf the caller's
+ * text into the last one, and mirror it through DBPrintf. Called from the
+ * long-term action handlers and from sub_44f610. */
+// FUNCTION: LEGOLAND 0x0044ed00
+void FormatBlokeMessage(const char* text)
+{
+    int rot;
+    int i;
+    char* dest;
+
+    for (i = 0, rot = g_bloke_msg_rot; i < 8; i++)
+        g_bloke_msg_slot[i] = &g_bloke_msg_bank[((rot + i) & 7) * 100];
+    g_bloke_msg_rot = rot + 1;
+    dest = g_bloke_msg_slot[7];
+    sprintf(dest, g_fmt_bloke_msg, g_cur_bloke_f81, text);
+    DBPrintf(g_fmt_bloke_log, g_cur_bloke_f81, text);
+}
+
+/* Long-term action table slot 0x01: set the bloke's low-level AI state to 4. */
+// FUNCTION: LEGOLAND 0x0044f170
+void BlokeAction_SetState4(Bloke* b)
+{
+    b->state = 4;
+}
+
+/* rides.c CountBlokesAtRideID: how many seat-list slots share ride_id. */
+// FUNCTION: LEGOLAND 0x0044f3d0
+int CountBlokesAtRideID(SeatOwner* owner, unsigned short* ride_id)
+{
+    SeatSlot* s;
+    int count;
+    unsigned short id;
+
+    count = 0;
+    s = owner->head;
+    if (!s)
+        return 0;
+    id = *ride_id;
+    do {
+        if (s->seat == id)
+            count++;
+        s = s->next;
+    } while (s);
+    return count;
+}
+
+/* True when the seat list already holds rider_capacity entries for ride_id. */
+// FUNCTION: LEGOLAND 0x0044f400
+int SeatListFull(SeatOwner* owner, unsigned short* ride_id)
+{
+    return CountBlokesAtRideID(owner, ride_id) >= owner->rider_capacity;
 }

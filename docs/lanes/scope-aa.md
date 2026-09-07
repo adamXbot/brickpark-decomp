@@ -12,12 +12,12 @@ Branch `scope/AA`. File `LEGOLAND/goalstate.c`. Object prefix `/tmp/saa_`.
 | 0x0044db90 | AppraisalDueTick | 60 | 100 | [OK] | FUNCTION |
 | 0x0044dc70 | SetLevelGoalState | 9 | 100 | [OK] | FUNCTION |
 | 0x0044ebf0 | — | 92 | — | — | pending |
-| 0x0044ed00 | — | 32 | — | — | pending |
+| 0x0044ed00 | FormatBlokeMessage | 32 | 100 | [OK] | FUNCTION |
 | 0x0044ed70 | — | 328 | — | — | pending |
-| 0x0044f170 | — | 3 | — | — | pending |
+| 0x0044f170 | BlokeAction_SetState4 | 3 | 100 | [OK] | FUNCTION |
 | 0x0044f180 | — | 201 | — | — | pending |
-| 0x0044f3d0 | — | 15 | — | — | pending |
-| 0x0044f400 | — | 14 | — | — | pending |
+| 0x0044f3d0 | CountBlokesAtRideID | 15 | 100 | [OK] | FUNCTION |
+| 0x0044f400 | SeatListFull | 14 | 100 | [OK] | FUNCTION |
 | 0x0044f4a0 | JoinSeatList | 121 | — | — | pending |
 | 0x0044f610 | — | 699 | — | — | pending |
 
@@ -37,6 +37,13 @@ Branch `scope/AA`. File `LEGOLAND/goalstate.c`. Object prefix `/tmp/saa_`.
   Returns 1 when the screen ran, else 0.
 - **SetLevelGoalState**: stores state at 0x0083297c, clears the sim counter,
   seeds end-sequence slot 0 via `SetLevelEndSequence(0, text)`.
+- **FormatBlokeMessage**: rotates eight 100-byte scratch rows at 0x006661cc
+  into the pointer table at 0x004b8348, sprintf `%c:%s` with `g_cur_bloke_f81`,
+  DBPrintf `[Bloke %c] - %s\n`.
+- **BlokeAction_SetState4**: long-term action table slot 0x01; writes
+  `bloke->state = 4`.
+- **CountBlokesAtRideID / SeatListFull**: walk the +0xcc seat list counting
+  matching `seat` words; full when count ≥ `rider_capacity` (+0x2e).
 
 ## Levers
 
@@ -50,11 +57,23 @@ Branch `scope/AA`. File `LEGOLAND/goalstate.c`. Object prefix `/tmp/saa_`.
 - **Fail-path sim**: `if (sim < 0) sim--; else sim = -1;` then stash
   `goal = g_level_goal_state` before the store so eax holds the goal across
   the `neg`/`cmp` against ecx.
+- **FormatBlokeMessage signed end + lea base**: `for (i = 0; i < 8; i++)`
+  over the global slot table yields strength-reduced `cmp cursor,end / jl`.
+  The `(rot + i)` lea must be `8d0416` (`[esi+edx]`). A prior
+  `int rot = g_bloke_msg_rot;` makes `i` the later-defined operand and emits
+  `8d0432` (96.9%). Fix: initialize rot in the for-init
+  (`for (i = 0, rot = g_bloke_msg_rot; i < 8; i++)`) so rot wins the
+  commutative-add destination, or read `g_bloke_msg_rot` as a memory operand
+  inside the sum.
 
 ## Names
 
 - `GetSim832b9c` for the dead getter at 0x0044db30 (pair of ClearSim832b9c).
 - `AppraisalDueTick` renames gameframe's `sub_44db90`.
 - `RunAppraisalScreen` for the unassignable 0x004453a0 callee.
+- `FormatBlokeMessage` for 0x0044ed00 (sprintf + DBPrintf helper).
+- `BlokeAction_SetState4` for table slot 0x01 at 0x0044f170.
+- `CountBlokesAtRideID` / `SeatListFull` from rides.c's existing names /
+  capacity compare.
 - `g_sim_832b9c` / `g_level_goal_state` / `g_appraisal_result` for the three
   globals this tier owns the writes of.
