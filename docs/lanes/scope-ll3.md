@@ -21,13 +21,13 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041d950 | Route_SetTrainAt | 66 | 100 | [OK] | FUNCTION |
 | 0x0041f3e0 | Span_FillEvalTable | 85 | 100 | [OK] | FUNCTION |
 | 0x0041ee40 | TrackPlace_TestSquare | 79 | 100 | [OK] | FUNCTION |
-| 0x00411fa0 | LFQueue_StepRider | 74 | 89 | 55 mis | WIP |
-| 0x0041ef60 | Raster_ClipPoly | 80 | 82 | 43 mis | WIP |
+| 0x00411fa0 | LFQueue_StepRider | 74 | 100 | [OK] | FUNCTION |
+| 0x0041ef60 | Raster_ClipPoly | 80 | 86 | 44 mis | WIP |
 | 0x0041db90 | Route_GetMassAndPower | 77 | 70 | 51 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
 | 0x0041f050 | Span_ClipPlane | 179 | 9 | 178 mis ESCAPES | WIP |
 
-**14 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
+**15 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
 ## Names
 
@@ -72,7 +72,8 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
 - **Raster_ClipPoly**: mask 0xf is a no-op (`*count = 3`). Otherwise
   `SetVertexBuf(n+1)` and clip against the low/high nibble of the mask:
   flags 3 → 4 planes at ctx+4; 2 → 2 planes at ctx+0x1c; 1 → 2 planes at
-  ctx+4.
+  ctx+4. flags==0 (both nibbles full, only reachable if mask!=0xf were
+  possible) returns `count`, not `v`.
 - **Span_FillEvalTable**: alloc `(n+1)*(n+2)/2` via vtable +0x20, fill row
   pointers at 0x004d88cc, evaluate `eval` at n+1 samples centred on `a`
   with step `b`, then combine adjacent pairs down the rows via +0x04.
@@ -116,17 +117,18 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   sq->x; int lim = sq->x + ctx->x1; x += ctx->x0` (textual `sq->x`
   repeat) emits `mov esi,eax / add esi,edx`. A named `sx` fuses to
   `add esi,eax` (191B, 96%).
-- **Raster_ClipPoly** (WIP): switch dec/je and `cmp esi,0xf / jne work`
-  early-out are right. Cases 1 and 2 share one tail if both use
-  `ctx+off` inline (71i/160B, 75%). Distinct plane-pointer locals
-  un-merge all three copies (80i/193B vs 194B, 43 mis). Next: emit
-  `add ecx,OFF` on each copy without re-merging. Goto / char nibbles
-  move mask into ebx and drop below 50%.
-- **LFQueue_StepRider** (WIP): Pos `to` plus `pathp = b->path` between
-  the unshifted adds and `<<= 8` lands the path lea and `dec ax`
-  clamp (74i/174B vs 177B, 55 mis, matchfull 89%). Residual: shl
-  y-then-x and stores interleaved with CalcMoveLine pushes; need
-  both target stores first, then `mov eax,ecx / mov ecx,[target.x]`.
+- **Raster_ClipPoly** (WIP): 80i/193B vs 194B, 44 mis (~86%). Default
+  is `return count` (`mov eax,[esp+0x10]`), not `v`. Cases 2 and 3
+  with inline `g+OFF` emit `add ecx,OFF` unmerged; case 1's named
+  `p = g; p+4` un-merges but colors g in eax (the missing byte).
+  All-inline merges the three tails (60i/149B). `void* r = count;
+  switch { r = Clip(); break; } return r` gives `dec/jne default`
+  / case-3-inline but hoists count into eax and `dec ecx`.
+- **LFQueue_StepRider**: field stores `b->target.x/y = to.x/y` then
+  `CalcMoveLine(b->world, b->target, pathp)` emit both stores before
+  the pushes, `shl eax,8 / shl ecx,8`, then `mov eax,ecx /
+  mov ecx,[target.x]`. Aggregate `b->target = to` plus
+  `CalcMoveLine(..., to)` interleaved stores with the pushes.
 - **BsRoute_Trace** (**FLOOR**): 130i/339B byte-exact, 105 mismatches.
   Identical NG22 phase-order ALLOCATION as `JungleCruise_TraceRoute`
   (jcroute.c / LEVERS NG22). Original: esi=x, edi=y, ebp=x1, ebx=y1, `w`
@@ -146,4 +148,3 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
 - **Span_ClipPlane** (WIP): 179i, ESCAPES. Need the original's 0x2c frame,
   `in++` cursor in the latch, and the three-way sign classify
   (`(prev_sign>>1)|next_sign` against 0x80000000 / 0xC0000000 / 0x40000000).
-- **LFQueue_StepRider** (WIP): see above (89%).

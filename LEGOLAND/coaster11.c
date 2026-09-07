@@ -498,10 +498,11 @@ int TrackPlace_TestSquare(PackedSquare* sq, PlaceRect* ctx)
 /* Clip a 3-vertex ring against the span clip set.  mask 0xf is a no-op
  * (*count = 3).  Otherwise set the vertex stride and ping-pong the ring
  * through the planes named by the low/high nibble of the mask. */
-/* Residual: switch dec/je and early-out jne are right. Distinct plane
- * pointer locals un-merge the three call tails (80i) but add lea/reloads
- * (193B vs 194B, 43 mis). Shared-tail form is 71i/160B / 75%. */
-// WIP-FUNCTION: LEGOLAND 0x0041ef60  (82%, 80i/193B vs 194B, unmerged tails)
+/* Residual: 80i/193B vs 194B, 44 mis (~86%). Cases 2/3 emit add ecx,OFF
+ * unmerged. Default returns count ([esp+0x10]), not v. Still je case3
+ * (default first) and case 1 colors g in eax. All-inline merges tails;
+ * r=count + break gives jne/case3-inline but hoists count into eax. */
+// WIP-FUNCTION: LEGOLAND 0x0041ef60  (86%, case1 eax + switch polarity)
 void* Raster_ClipPoly(void** v, int* count, int mask, int n)
 {
     int flags = 0;
@@ -516,20 +517,18 @@ void* Raster_ClipPoly(void** v, int* count, int mask, int n)
     if ((mask & 0xc) < 0xc)
         flags |= 2;
     switch (flags) {
+    case 1: {
+        void* p = g_span_context;
+        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2, (char*)p + 4);
+    }
+    case 2:
+        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2,
+                                        (char*)g_span_context + 0x1c);
     case 3:
         return Raster_ClipAgainstPlanes(3, (int*)v, count, 4,
                                         (char*)g_span_context + 4);
-    case 2: {
-        void* p = (char*)g_span_context + 0x1c;
-        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2, p);
-    }
-    case 1: {
-        void* p = (char*)g_span_context;
-        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2,
-                                        (char*)p + 4);
-    }
     default:
-        return v;
+        return count;
     }
 }
 
@@ -537,10 +536,9 @@ void* Raster_ClipPoly(void** v, int* count, int mask, int n)
  * path->pts[index] + (tx, ty) in 24.8, then CalcMoveLine / NewDirForAction
  * and index++.  Clamp at the last point; if another bloke already occupies
  * the new index, step back. */
-/* Residual: path lea sits between the adds and shls; clamp is dec ax.
- * Still need shl x-then-y, both target stores before pushes, then
- * mov eax,ecx / reload to.x. 74i/174B vs 177B, 55 mis / 89%. */
-// WIP-FUNCTION: LEGOLAND 0x00411fa0  (89%, CalcMoveLine store/push interleave)
+/* Field stores into b->target then CalcMoveLine(..., b->target, pathp)
+ * keep both stores before the pushes and emit mov eax,ecx / reload to.x. */
+// FUNCTION: LEGOLAND 0x00411fa0
 void LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b)
 {
     LFPath* path = q->path;
@@ -556,8 +554,9 @@ void LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b)
     pathp = b->path;
     to.x <<= 8;
     to.y <<= 8;
-    b->target = to;
-    a = (unsigned char)(CalcMoveLine(b->world, to, pathp) + 0x10);
+    b->target.x = to.x;
+    b->target.y = to.y;
+    a = (unsigned char)(CalcMoveLine(b->world, b->target, pathp) + 0x10);
     b->state = 7;
     b->dir8 = a;
     NewDirForAction(b, (unsigned char)((a >> 5) + 3));
