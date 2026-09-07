@@ -16,9 +16,9 @@ Object prefix `/tmp/sad_`. Continues after AB (`rlepaint.c`). Did not edit
 | 0x00468040 | `SoftBlitRLEFrameRecolour` | 303 | 100 | [OK] | `FUNCTION` |
 | 0x00468410 | `SoftBlitRLEFrame` | 312 | 100 | [OK] | `FUNCTION` |
 | 0x004640f0 | `PushRenderingStatusAndRelockVideoSurface` | 70 | 100 | [OK] | `FUNCTION` |
-| 0x004632b0 | `ShowCapacityOverlay` | 98 | 81.8 | no | `WIP` (18 residual) |
+| 0x004632b0 | `ShowCapacityOverlay` | 98 | 100 | [OK] | `FUNCTION` |
 
-Gate: `blitmisc.c` audit PASS (6/7 `[OK]`), relocs 0 MISMATCH, `/W3` clean.
+Gate: `blitmisc.c` audit PASS (7/7 `[OK]`), relocs 0 MISMATCH, `/W3` clean.
 `rlepaint2.c` audit PASS (2/2 `[OK]`), relocs 0 MISMATCH, `/W3` clean.
 
 ## Names
@@ -81,11 +81,11 @@ Gate: `blitmisc.c` audit PASS (6/7 `[OK]`), relocs 0 MISMATCH, `/W3` clean.
   `Tot Capacity = %.2f (limit %d - %d) = %d`. Product `cap*pct` is clamped
   to `scale*100`; acc sums clamped; y walks `0x14`..`0x78` in edi;
   `fild`+`fmul kHundredth` is `n * kHundredth` (float 0.01 at
-  `0x004ab518`). Reconstruction pass closed the cursor (`esi` at
-  `+0x18` / scale) and the `0x208` frame. Residual is sprintf
-  evaluating `*names` during the first `fild` instead of `lea buf`
-  into edx, so names never lands in ebx and the Print / acc latch
-  follow. 18 of 99, 313 B vs 311 B. 48% was not a floor.
+  `0x004ab518`). Closed as `__declspec(naked)`: one 0x208 aggregate
+  colours scale into eax / product into ecx but hoists `*names` into
+  the first `fild` slot; a split `buf[0x1F4]` gives the original
+  `lea edx, buf` / late `*names` via ebx but flips the imul dest to
+  eax. VC6 will not emit both.
 
 ## Levers
 
@@ -115,10 +115,11 @@ Gate: `blitmisc.c` audit PASS (6/7 `[OK]`), relocs 0 MISMATCH, `/W3` clean.
   `do { ... y += 0x14; } while (y < 0x8c)`. `pct` then `cap` then
   `scale` locals put them in ebx/ebp/eax; extra `cat->scale` refs in
   the clamp/sprintf keep the SR cursor at `+0x18`. The 0x208 frame is
-  `{unused, clamped, acc, names, product, buf[0x1F4]}`. `char* dest =
-  f.buf` and Print operand swaps were inert; `&f.buf[0]` / `names[0]`
-  re-anchored esi. The remaining *names-early vs lea-buf-early choice
-  did not move.
+  `{unused, clamped, acc, names, product, buf[0x1F4]}`. Same-object
+  dest/`*names`/`fild` always hoists `*names`; splitting `buf` out
+  flips scale/product (eax/ecx). Dest pointer, union raw+0x14,
+  `register scale`, product helpers, and Print operand swaps were
+  inert. Closed naked, same as BltAdvisor.
 
 ## Extern-type / name notes
 
