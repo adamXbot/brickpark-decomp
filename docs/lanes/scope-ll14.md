@@ -22,7 +22,7 @@ helper name used here.
 | 0x0046ea10 | RenderClippedClassIcon | 43 | 100 | [OK] | FUNCTION |
 | 0x0046f5e0 | AddLabelledClassIcon | 59 | 100 | [OK] | FUNCTION |
 | 0x0046f860 | AddClippedClassIcon | 16 | 100 | [OK] | FUNCTION |
-| 0x0046f9a0 | MakeUpChildrenList | 148 | 57.1 | [WIP] | WIP-FUNCTION |
+| 0x0046f9a0 | MakeUpChildrenList | 148 | 100 | [OK] | FUNCTION |
 | 0x00473560 | GetCursorErrorText | 26 | 100 | [OK] | FUNCTION |
 | 0x004735c0 | ResetMessageTimers | 6 | 100 | [OK] | FUNCTION |
 | 0x00473680 | OpenMessageBar | 30 | 100 | [OK] | FUNCTION |
@@ -37,13 +37,13 @@ helper name used here.
 | 0x00476250 | SaveResearchList | 53 | 100 | [OK] | FUNCTION |
 | 0x004762f0 | LoadResearchList | 67 | 100 | [OK] | FUNCTION |
 
-**20 / 21 exact, 522 of 670 instructions.** `audit.py` ends PASS,
-`relocs.py` zero MISMATCH and zero UNRESOLVED over the 20 exact bodies,
-`/W3` clean.
+**21 / 21 exact, 670 of 670 instructions.** `audit.py` ends PASS,
+`relocs.py` zero MISMATCH and zero UNRESOLVED over all 21 bodies, `/W3`
+clean.
 
-`0x0046f9a0` is the only WIP: exact instruction count (148) and block layout,
-mismatch 139 by `audit.py`, first diverging index 1. See the residual note
-above its marker and "Residual" below.
+`0x0046f9a0` closed on 2026-09-08 (57.1% -> 148/148, 411B) after its
+register-allocation residual was traced to the cursors' NAME-appearance
+count; see "Closing 0x0046f9a0" below and the note above its marker.
 
 ## Mechanics recovered
 
@@ -159,9 +159,9 @@ time as the "researched"/"in research" pair.
   16-bit pair at +0x1c/+0x1e, so its clip origin stays put.
 * Four `return 1` leaves and one empty `void` (see Names).
 
-### 0x0046f9a0 — the children-class panel (WIP)
+### 0x0046f9a0 — the children-class panel
 
-Reconstructed behaviour (the C is committed and the layout is exact):
+Behaviour (exact, 148/148):
 allocate a 0x2c-byte `ObjListPanel`, build the scroll-up / scroll-down / box
 icons with `AddGBarIcons`, record the box's extent in both the panel's
 "list" (+0x0c..+0x18) and "box" (+0x1c..+0x28) rectangles, install
@@ -288,21 +288,37 @@ element) are recorded above.
   original's `xor R,R` / `cmp esi,R` / two `push R` zero web, but VC6 then
   gives `i` its own frame slot (`sub esp,0xc` instead of `sub esp,8`) and
   the carrier register goes on to hold a cursor. Getting the web is not the
-  same as getting the allocation.
-* **The nearest exact sibling bounds what is reachable.** `fpui2.c`'s
-  `MakeUpObjectList` (0x00475960) compiles the same panel prologue with its
-  two cursors in ebx/edi; 0x0046f9a0 has one more live value and the
-  original spills BOTH cursors into dead argument slots instead. When a
-  sibling with one fewer live value gives exactly the allocation you are
-  getting, the residual is a ranking problem, not a statement-order problem.
+  same as getting the allocation. The web the original has came for free
+  once `i` itself won a register (below): a register-resident `i = 0`
+  coalesces with the literal zeros around it.
+* **When four callee-saved registers are oversubscribed, VC6 ranks the
+  candidates by how many times each NAME appears in the source, not by
+  loop weight.** `MakeUpChildrenList` (0x0046f9a0): the two cursors named
+  at the prologue stores, the call, the step, the `list_x1/list_y1` stores
+  and the tail compares (7–8 appearances) beat `group` (7), `i` (5, four of
+  them in the loop) and `flags` (4), and the loop counter with the most
+  loop-weighted uses was the one spilled. Reducing each cursor to four
+  appearances — a named temporary carries the single `icon->x` load to the
+  two panel stores and the cursor (RA01), and the tail reads the
+  just-stored `w->list_x1 / w->list_y1` instead of the cursor — flipped the
+  whole permutation in one step, 57.1% -> 93.4% -> 100%. Naming the
+  temporary matters: `w->box_x0 = w->list_x0 = ix = icon->x` and every
+  other chained form keep the cursor's appearance count and the 57%
+  allocation; three bare `icon->x` reads get the allocation but reload
+  through the may-alias store to `w` three times (93.4%, 152i).
+* **The nearest exact sibling bounds what is reachable — but read it as a
+  ranking hint.** `fpui2.c`'s `MakeUpObjectList` (0x00475960) compiles the
+  same panel prologue with its two cursors in ebx/edi; 0x0046f9a0 has one
+  more live value and the original spills BOTH cursors into dead argument
+  slots instead. The sibling's `p->box->y + p->box->h` tail (no cursor
+  name) was the clue that the original spelled the tail through the panel.
 
-## Residual (0x0046f9a0, and what a stronger model could try)
+## Closing 0x0046f9a0 (2026-09-08)
 
-`audit.py`: ours 148i/420B vs original 148i/411B, mismatch 139, first
-diverging index 1. `matchfull.py` 84/147 = 57.1%. Instruction count, block
+Start: `audit.py` ours 148i/420B vs original 148i/411B, mismatch 139, first
+diverging index 1; `matchfull.py` 84/147 = 57.1%. Instruction count, block
 layout, branch targets, call sequence, struct offsets and the frame size
-(`sub esp,8`, four callee-saved pushes) are all the original's. The entire
-residual is one register-allocation split:
+were already the original's; the whole residual was one allocation split:
 
 ```
 original  esi=panel  edi=group  ebx=flags  ebp=i
@@ -317,20 +333,31 @@ ours      esi=panel  ebx=group  ebp=ix  edi=iy
           i, flags, count spilled; no zero web.
 ```
 
-About thirty spellings were measured and none moves the split: loop as
-`for` / `while` / `continue`-guards; `n++` before and after the call;
-`d = e->def` hoisted into a local; root copies of `group` and `flags` used
-throughout; the tail reading `icon` vs `w->box` and `iy` vs `w->list_y1`;
-`if (!w)` vs `if (w == 0)`; `i = 0` early (48.7%); `register int i` (inert).
-Best measured is 57.1%; the spread over all variants is 48.7%–57.4%.
+Reconstruction pass: the cursors are not reassigned parameters (`x`/`y`'s
+homes E+0xc/E+0x10 are dead and unused; spelling the cursors as `x`/`y`
+measured 57.1%, identical to the baseline), not address-taken (they would
+get real frame slots, and `add dword ptr [esp+X],K` is the fold of an
+ordinary spilled scalar's step), and the count is a plain local. So the
+allocator's RANKING was the only thing left, and a static count of name
+appearances in our spelling predicted exactly our allocation (ix 7, iy 8,
+group 7 in registers; i 5, flags 4 spilled).
 
-**Idea for a stronger attempt:** the two cursors must become *cheap in
-memory* while `group` and `flags` stay register-worthy. The original updates
-them with `add dword ptr [esp+X],K`, i.e. VC6 never gave them a register at
-all. Worth trying: a spelling in which the cursors are not loop-carried
-scalars — e.g. derived each iteration from a base plus the match count
-(`ix = w->list_x0 + n * 0x79`) with the observed `add` recovered by strength
-reduction; or a `static __inline` helper for the per-element step whose
-temporaries share the spill-home pool; or making `flags` participate in a
-constant web (its two `& 1` tests currently narrow to byte operands, which
-RA08 says are not qualifying uses) so it is allocated ahead of the cursors.
+Measured (13 spellings, object prefix `/tmp/sll14b_`):
+
+| spelling | result |
+| --- | --- |
+| baseline (cursors named 7–8 times) | 84/147, 57.1% |
+| prologue stores read `icon->x` / `icon->y` directly | 88/149, 59.1% |
+| + tail compares / shortening read `w->list_x1` / `w->list_y1` | 142/152, 93.4% — allocation flipped, three `movsx` reloads through the may-alias store to `w` |
+| `ix = icon->x; w->box_x0 = w->list_x0 = ix;` | 85/148, 57.4% |
+| `w->box_x0 = w->list_x0 = ix = icon->x;` (and list/box swapped) | 85/148, 57.4% |
+| `ix = icon->x; w->box_x0 = ix; w->list_x0 = w->box_x0;` | 85/148, 57.4% |
+| `ix = w->box_x0 = w->list_x0 = icon->x;` | 146/148, 98.6% |
+| **`t = icon->x; w->box_x0 = t; w->list_x0 = t; ix = t;`** (+ tail through the panel) | **148/148, 100%**, 411B |
+| cursors spelled as the `x` / `y` parameters | 84/147, 57.1% (inert) |
+
+The chained forms all keep the cursor as the value carrier, so its
+appearance count does not drop; a separate named temporary (RA01) gives the
+two panel stores their own web and leaves the cursor with four appearances
+(def, call, step, `list_x1` store). Neither the derived-from-base cursor nor
+a `static __inline` step helper nor a `flags` constant web was needed.

@@ -508,36 +508,29 @@ void LoadResearchList(void)
  * whole group is removed again. The panel record is the same 0x2c-byte
  * ObjListPanel fpui2.c's MakeUpObjectList builds, and the icons get the
  * build panel's own input handler through SetNewGroup_Callbacks. */
-/* RESIDUAL (2026-09-08). Instruction count and block layout are exact
- * (audit: 148i/420B ours vs 148i/411B original, mismatch 139, first
- * diverging index 1; matchfull 84/147 = 57.1%). Every memory offset, every
- * call, every branch target and every field store is in the original's
- * place -- the whole residual is ONE register-allocation split:
- *
- *   original: esi=panel, edi=group, ebx=flags, ebp=i;  ix, iy and count
- *             spilled into the DEAD ARGUMENT SLOTS of `group` (E+4),
- *             `flags` (E+0x14) and `h` (E+0x18), n in the real local at
- *             E-8, and the constant 0 hoisted into ebp before the malloc
- *             (it serves `n = 0`, `cmp esi,ebp`, both SetNewGroup_Callbacks
- *             zero arguments, and then becomes the loop counter).
- *   ours:     esi=panel, ebx=group, ebp=ix, edi=iy;  i, flags and count
- *             spilled, no zero web at all.
- *
- * ix/iy outrank group/flags/i in VC6's ranking for every spelling tried
- * (about 30): loop as for / while / continue-guards; n++ before and after
- * the call; `d = e->def` hoisted; root copies of group and flags; tail
- * reading `icon` vs `w->box` and `iy` vs `w->list_y1`; `if (!w)` vs
- * `if (w == 0)`. Putting `i = 0` at the top of the function (before the
- * allocation) DOES build the zero web -- `xor edi,edi` / `cmp esi,edi` --
- * but VC6 then gives `i` its own frame slot (`sub esp,0xc` instead of 8)
- * and edi still ends up carrying iy, so it scores lower (48.7%). `register`
- * is inert at /O2. What is still untried: a spelling that makes the two
- * cursors cheap in memory (the original updates them with
- * `add dword ptr [esp+X],K`) while leaving group and flags register-worthy.
- * The nearest exact sibling, fpui2.c's MakeUpObjectList 0x00475960, has one
- * fewer live value (it walks a list instead of counting an index) and keeps
- * ix/iy in ebx/edi -- exactly what we get here. */
-// WIP-FUNCTION: LEGOLAND 0x0046f9a0  (57.1%, 84/147 by matchfull; audit 148i/420B vs 148i/411B, mismatch 139, first diverging index 1 -- whole-body register permutation, see the note)
+/* ALLOCATION NOTE (2026-09-08, closed 57.1% -> 148/148). The original keeps
+ * esi=panel, edi=group, ebx=flags, ebp=i and spills BOTH cursors and the
+ * count into dead argument homes (ix -> group's E+4, iy -> h's E+0x18,
+ * count -> flags' E+0x14), updating the cursors with `add dword ptr
+ * [esp+X],K`. VC6 ranked the register candidates here by how often each
+ * NAME appears, not by loop weight: with the cursors spelled at the two
+ * prologue stores, the call, the step, the list_x1/list_y1 stores and the
+ * tail compares (7-8 appearances each) they outrank group (7), i (5) and
+ * flags (4) and take ebp/edi, which is the 57% permutation. Two spellings
+ * bring them down to four appearances each and reproduce the original:
+ *   - the prologue loads icon->x / icon->y ONCE into a named temporary `t`
+ *     and stores it to box_x0, list_x0 and ix (RA01); writing `icon->x`
+ *     three times reloads it three times (a store through `w` may alias
+ *     `icon`), and every chained form (`a = b = ix = icon->x` etc.) keeps
+ *     the 57% allocation;
+ *   - the tail compares and the icon->h/w shortening read w->list_x1 /
+ *     w->list_y1, which are forwarded from the stores just made, instead
+ *     of naming ix / iy again.
+ * With i in a register its `i = 0` coalesces with the constant zero that
+ * serves `n = 0`, `cmp esi,ebp` and the two NULL callback arguments, which
+ * is the ebp zero web and its early push. Reusing the x / y parameters as
+ * the cursors was inert (57.1%); it is not what the original did. */
+// FUNCTION: LEGOLAND 0x0046f9a0
 int MakeUpChildrenList(int group, LLElem* parent, int x, int y, int flags,
                        int h)
 {
@@ -550,6 +543,7 @@ int MakeUpChildrenList(int group, LLElem* parent, int x, int y, int flags,
     int           iy;
     int           i;
     int           count;
+    int           t;
 
     n = 0;
     w = (ObjListPanel*)HeapAlloc_w(sizeof(ObjListPanel));
@@ -557,12 +551,14 @@ int MakeUpChildrenList(int group, LLElem* parent, int x, int y, int flags,
         return 0;
     icon = AddGBarIcons(w, x, y, flags, h, group);
     w->box = icon;
-    ix = icon->x;
-    w->box_x0 = ix;
-    w->list_x0 = ix;
-    iy = icon->y;
-    w->box_y0 = iy;
-    w->list_y0 = iy;
+    t = icon->x;
+    w->box_x0 = t;
+    w->list_x0 = t;
+    ix = t;
+    t = icon->y;
+    w->box_y0 = t;
+    w->list_y0 = t;
+    iy = t;
     w->box_x1 = icon->x + icon->w;
     w->box_y1 = icon->y + icon->h;
     w->f04 = flags;
@@ -585,14 +581,14 @@ int MakeUpChildrenList(int group, LLElem* parent, int x, int y, int flags,
     w->list_y1 = iy;
     icon = w->box;
     if (flags & 1) {
-        if (iy < icon->y + icon->h) {
-            icon->h = (short)(iy - w->list_y0);
+        if (w->list_y1 < icon->y + icon->h) {
+            icon->h = (short)(w->list_y1 - w->list_y0);
             q = FindIcon(group + 4);
             if (q)
                 q->y = (short)w->list_y1;
         }
     } else {
-        if (ix < icon->x + icon->w) {
+        if (w->list_x1 < icon->x + icon->w) {
             icon->w = (short)(w->list_x1 - w->list_x0);
             q = FindIcon(group + 4);
             if (q)
