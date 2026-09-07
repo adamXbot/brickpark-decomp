@@ -16,9 +16,30 @@ Brief: `docs/SCOPE_LL4_coaster_shades.md`.
 | 0x00420200 | IntegrateSimpson | 81 | ~68 | WIP | 81/81i, 251/258B, 61 mismatch |
 | 0x00420780 | GetCoasterTexture | 3 | 100 | [OK] | FUNCTION |
 
-**3 / 8 exact.** All five WIPs are at instruction-count equality. `audit.py`
-PASS; `relocs.py` zero MISMATCH on the three FUNCTION bodies (UNRESOLVED
+**3 / 8 exact.** All five WIPs are at instruction-count equality and at
+floor after the targeted home/latch/cleanup levers. `audit.py` PASS;
+`relocs.py` zero MISMATCH on the three FUNCTION bodies (UNRESOLVED
 float-pool literals on Romberg); `/W3` clean.
+
+## Floor
+
+The four span fillers are NG47 / `ZBuffer_FillPoly` (schoolcar6.c
+0x00423350): count-exact, row/ylast vs argument-slot homes. Original
+FillFlat is `sub esp,0x60` with `y` in the key slot (`[ebp+0x14]`) and
+`color` in the n slot (`[ebp+0x10]`); ours stays `sub esp,0x58` because
+`row`/`dead` take those freed slots instead. ShadeZ is already byte-exact
+(633/633) with the same 62-mismatch home class. A two-field `{crow,zrow}`
+or `{dead,row}` aggregate scalarises back into arg slots (still `0x58` /
+flip leaves the n slot). The four-field sl-struct is the only spelling
+that grew the frame, and it cost bytes (ruled out).
+
+IntegrateSimpson's volatile `0x28` frame is required. `fn(a)`/`fn(b)`
+cleanup merges to `add esp,8`; the counted loop latches `jle`/`inc`
+instead of jmp-to-test `add ecx,1` / `jg`. Pulling `fa` out of the
+struct, a goto latch, a block-local pfn, and an address-taken
+non-volatile frame all shift the home list or stay inert. The `jg` form
+needs a non-volatile spilled `i`; that slot is the hole at `[ebp-0x24]`
+inside the volatile aggregate.
 
 ## Names
 
@@ -89,7 +110,16 @@ Globals first named here: `g_one_sixth` (0x004b5610), `g_span_ramp`
 - Span_FillFlat: sl-struct of {ylast,pitch,dead,row} → 313B / 87 mismatch
   (worse). `n = color` with `__asm` using `n` → 36.7%. Volatile
   row/pitch/dead/ylast → 312B / 95. Capturing `count`/`ramp` then
-  `n = color` → 313B / 99 (still `sub esp,0x58`).
+  `n = color` → 313B / 99 (still `sub esp,0x58`). Setup reorder +
+  ramp/raster locals + `n = color` → 53.6%. `{dead,row}` aggregate →
+  still `0x58`, 56.9%. Volatile at `y` definition → 59.3%, still `0x58`.
+  `for (; y < key->y; row += pitch)` latch → 56.9%, still `0x58`.
+- Span_FillShadeZ: `{crow,zrow}` aggregate moves flip out of the n slot
+  (worse than the 633/633 / 62-mismatch body).
 - IntegrateSimpson: ESP frame without `__asm` → 5.6%. Volatile pfn → 78
   mismatch. Separate `int i` plus `f.i = i` → 64 mismatch. Block-scoped
-  `a0 = a` before `fn(a0)` → 65 mismatch, still `add esp,8`.
+  `a0 = a` before `fn(a0)` → 65 mismatch, still `add esp,8`. Address-taken
+  non-volatile frame (`lea eax, f`) → 55.4%. Goto latch (same as `for`)
+  → inert 67.8%. Block-scoped pfn for `fn(a)` → inert 67.8%, still
+  `add esp,8`. `fa` as a separate (volatile or not) local + 9-field
+  struct → 31%, homes shift, still `add esp,8`.
