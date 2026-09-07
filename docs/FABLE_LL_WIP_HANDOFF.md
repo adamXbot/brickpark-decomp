@@ -55,21 +55,26 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `af5077cd` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `43064ba2` |
 
-**77i / 259/259B**, matchfull **84%**, audit **42** mism — FLOOR notes.
+**77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
 Need / have:
 - `lea ebx,[eax+0x70]` before first `rep movsd` / `mov ebx,eax` then `add` sunk before `Span_EvalRange`
 - `mov edx,[esp+0x84]` then `add esp,4` / reverse (`q` in eax)
 - hist `edx=*mass`, `ecx=i&0x3f` / swapped
 
-`eax` stays live for `[eax+0x24]` after `mov ebx,eax` — sink-vs-fuse, not missing live use. LL2 `Fst` RTL does **not** transfer (that closes 3-scratch SIB lea, not `reg+disp8` dest-coalesce onto callee-saved `p`). Transparent helpers / two-web `t`/`n` / `Mass_End` fold to 65/77. Volatile `head` spills frame; `fr.f24` makes mov/add adjacent but not `lea`.
+Original delay slot is already `lea edi,[esp+0x14]` then wanted `lea ebx`;
+VC6 fills it with a callee-saved **copy of p** and sinks `+0x70`. Interleave
+wave (pos→head→f24, named src, two-step, MassSnap keep, dying next,
+`n` from `g_route_eval`, n-in-EvalRange comma, vol `fr.f24`) still **65/77**
+or worse (54–64%). q still after `add esp,4`; hist swap sticky.
 
-**2026-09-08 probes (still 65/77):** `lea ebx,[eax+0x70]` is unique in `.text`. Live-eax lea sibling is **SetTrainAt** (needs early push/use of head — does not transfer). No-use-lea sibling is **CollectCarSample** (`lea esi,[eax+0x70]` between call pushes) — cannot host Mass’s head lea: Mass already has `lea edx,[eax+0xc]` in-slot and kills eax for f24 before `Span_EvalRange`. Named `&p->pos` + delayed `n` mutates eax (**58/78**). Dest-coalesce stays the attractor.
+Earlier ruled out: LL2 `Fst`; volatile head; SetTrainAt / CollectCarSample
+lea siblings do not transfer; named `&p->pos` + delayed `n` → **58/78**.
 
 (`Raster_ClipPoly` closed via `if (1) { switch (flags) … } return count`.)
-Trace NG22 / ClipPlane ESCAPES unchanged.
+Trace NG22 / ClipPlane ESCAPES unchanged. Park Mass until a new fuse lever.
 
 ### LL6 — `GetTrackSegment` `0x00424050` (22/24 scope)
 
@@ -164,11 +169,11 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 ## Suggested Fable attack order
 
-1. **LL3 MassAndPower** — size-exact 42 mism; dest-coalesce sink; LL2 RTL Fst inert.
-2. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
-3. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
-4. **LL4 Span family** — ZBuffer-class Span_Fill*.
-5. **LL7 ShadeFill** — parked source-level nshade/edx web floor (16/17).
+1. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
+2. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors (Mass parked dest-coalesce).
+3. **LL4 Span family** — ZBuffer-class Span_Fill*.
+4. **LL7 ShadeFill** — parked source-level nshade/edx web floor (16/17).
+5. **LL3 MassAndPower** — parked; VC6 fills lea delay slot with mov/add sink.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
 Do **not** merge partial scopes yourself.
@@ -181,7 +186,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `af5077cd` | `coaster11.c` |
+| LL3 | 16/19 | `43064ba2` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
