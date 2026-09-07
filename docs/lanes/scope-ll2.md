@@ -28,21 +28,44 @@ fails, probe `je` fail, and the people `!= -1` / `== 1` tail.
 The only remaining delta is dest-coalesced people-rect **left**:
 
 ```
-orig: lea edx,[eax+ecx] / mov ecx,[y] / mov [esp],edx
-ours: add ecx,eax       / mov [esp],ecx / mov ecx,[y]
+orig: lea edx,[eax+ecx] / mov ecx,[g_mapref.y] / mov [esp],edx
+ours: add ecx,eax       / mov [esp],ecx        / mov ecx,[g_mapref.y]
 ```
 
-One byte short (`add` 2B vs `lea` 3B). Floor: VC6 coalesces left with dead
-v0 into ecx and stores immediately. Naming the sum (helper temps, `people` /
-`cost` as dest, function-scope `left`) moves v0 into edx and loads y before
-the add — the older index-120 residual, still 3 mismatches. Pos + volatile
-v1 is what keeps v0 in ecx without hoisting v1.
+One byte short (`add` 2B vs `lea` 3B). The ecx load between lea and the left
+store is **oy** (`g_mapref.y` at 0x7fffc8), not v1; v1 is loaded into edx
+*after* the store (`add edx,ecx` for top). ox stays in eax through `r.right`.
 
-Tried and inert for the lea: named sum as dest, v0-first, Pos aggregate,
-volatile v0/v1/y, one-temp, pointer/`&((char*)x)[v0]`, `register`, switch
-people, live `def`/`keep` through the rect, Track_Update operand order,
-helper-local Rect. `ebx` is unused in the original people block; GetObjCost
+Two 149/151 floors, neither is lea-with-v0-in-ecx:
+
+- **Index 121 (kept):** `Pos o` + `r.left = o.x + v[0]` + volatile v1 on top.
+  v0 stays in ecx; dest-coalesces (`add ecx,eax`) and stores immediately.
+- **Index 120:** any named sum / delayed `r.left=left` / sequential helper.
+  Correct *schedule* (y load before store) but v0 is loaded into edx
+  (`add edx,eax`). Same 3 mism.
+
+`LFTrack_Update` emits the exact `lea edx,[eax+ecx]` sequence from four
+plain assigns, but that function still has ebx/esi/edi saved. After this
+body's `pop edi / pop esi` only eax/ecx/edx are free; the same four assigns
+here either dest-coalesce or take the index-120 coloring.
+
+Tried and inert for the lea (this pass + earlier): named sum as dest
+(block/function/`cost`/`people`), v0-first, Pos aggregate, volatile v0/v1/y
+and volatile-y-then-store, one-temp, pointer/`&((char*)ox)[v0]` /
+`(char*)ox+v0` on the baseline, `register`, switch people, live `def`/`keep`,
+Track_Update / Roads operand orders (with and without Pos/volatile),
+y-first top, preload named v0, comma `o.y=(left=..., y)`, helper-local Rect,
+RTL `FillR` (four live arg temps pull esi and move the pops), sequential
+`PeopleRect` helper (ox kept live for right — still index 120), `__inline`
+store-after-y / two-arg lea helpers, Pos-sum then call-arg store, cost/people
+as the y web. `ebx` is unused in the original people block; GetObjCost
 already ran.
+
+Need a spelling that keeps the index-121 v0-in-ecx load *and* the index-120
+y-before-store schedule, so dest cannot coalesce with v0 and must be
+`lea edx,[eax+ecx]`. v0 has to die after the add (interfere with dest) but
+before the y load (so y can reuse ecx). No dummy use found that creates
+that window without an extra insn.
 
 Levers that landed the rest: union `{packed, nb}` in the fp slot; `mode=0`
 after ScreenToMapRef so packed cannot colour onto mode; separate
