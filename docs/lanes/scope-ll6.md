@@ -109,6 +109,14 @@ See the first commit for the exact stubs. New this wave:
   order. A single-predecessor `goto match_tail` inlines the tail call
   between tail and head and undoes both latches. Volatile `from_tail`
   would force tail-first via a runtime test the original does not have.
+  **Fable ICF probe (reverted):** empty `__asm {}` on fail2 only — the
+  one in-tree empty-asm use (LL4 Simpson) — is a frame lever, not an
+  anti-merge: 64/89 = 71.9%. Main has no sibling that keeps two
+  `pop edi / pop esi / xor eax,eax / ret` copies. `popup.c`'s
+  `__asm { mov eax, 0 }` is handwritten depth stubs; `return (int)c`
+  (DoorTileStep) drops the xor; a distinct string load would be
+  `movzx` not xor. Intra-function fold of the identical 4-insn
+  epilogue plus LIFO ch-then-tail is the combined floor.
 - `Raster_AddSpanRecord`: FLOOR 61/61, 175/175, 35 mismatch (~61%).
   Count-before-cursor gives `push ecx` / `mov ecx,[cursor]` /
   `lea eax,[ecx+0x10]` / `jbe` vs `0x004e3870`. `keep=0` is the
@@ -120,6 +128,11 @@ See the first commit for the exact stubs. New this wave:
   `dec edi` not `dec ebx`. Dropping the volatile home yields
   `dec ebx` but loses the frame (58i, cursor in edi). `int yy=y`
   and an early `ebase=edges` do not create the edx copy.
+  **Fable IV probe (reverted):** ridemisc `EarthSlide_LaunchCar`
+  biased `int*` on `&keys->idx`, `k += 2`, `k[-2]` for y. 38/61
+  (was 37). Replaces keys-1 with an idx-anchored `add edx,4` /
+  `[edx]`; does not emit `add edx,8` / `[edx-8]`. ebx/esi, missing
+  `mov edx,ecx`, and `dec edi` unchanged.
 
 ## Extern-type divergences
 
