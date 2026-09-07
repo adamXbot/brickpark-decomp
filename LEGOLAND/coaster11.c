@@ -637,28 +637,14 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
 /* Snapshot the train, run the shade evaluator over CollectCarSample, then
  * fold each car's heading*heading * acceleration * K into *mass.  *power
  * is the sample energy.  The mass is also pushed into a 64-slot ring. */
-/* Residual: 77i/259B, matchfull 65/77 (84%), audit 42 mis. Pre-call
- * `p = rt` puts rt in eax; `acc = 0.0f` after `*mass` homes the sum
- * in the dead power slot (`fstp [esp+0x88]`). Volatile reload into q
- * stops p/rt coalescing (mass stays ebp). Still `mov ebx,eax / add
- * ebx,0x70` vs `lea ebx,[eax+0x70]`, q load after `add esp,4` not
- * before, eax vs edx for the reload, hist ecx/edx swap.
- * SetTrainAt/PositionRouteCars is the live-eax sibling (not FindFreeSeat):
- * `lea ebp,[eax+0x70]` then `mov [eax+0x24],ecx` because `n=rt->head.next`
- * occupies ebx first and `head` is pushed immediately. Mini-morphs emit
- * `lea ebx,[eax+0x70]` only with an early use of n (extra PlaceAndBind)
- * or a simple-body live nxt; on this body both spill or keep dest-coalesce
- * (59–63%). FindFreeSeat's lea still has dead eax after the lea.
- * CollectCarSample's no-use lea (`mov ebp,1 / lea esi,[eax+0x70]`) cannot
- * host `lea ebx,[eax+0x70]` here: Mass already has `lea edx,[eax+0xc]`
- * in-slot and kills eax for f24 before the call (named src + delayed n is
- * `add eax,0xc` / dest-coalesce from edx, 58/78).
- * Interleave hypothesis (pos-copy setup, then lea head, eax live for f24
- * / g_route_eval): still 65/77. Reorder / named src / two-step / helpers
- * / dying next / n-from-g / n-in-call / vol f24 all fail to fuse
- * `mov ebx,eax`+sunk `add ebx,0x70` into `lea ebx,[eax+0x70]`. q load
- * stays after `add esp,4`; hist ecx/edx swap is sticky. */ 
-// WIP-FUNCTION: LEGOLAND 0x0041db90  (84%, lea ebx vs mov/add, q reload)
+/* Residual: 77i/260B, matchfull 66/77 (85.7%), audit 52 mis. ClipPlane-style byte store
+ * through `&p->head` after the pos/f24 snapshot forces `lea ebx,[eax+0x70]`
+ * in the first `rep movsd` delay slot while eax stays p for `[eax+0x24]`.
+ * Imm8 store (not a load / |=0) is required: a byte load steals edx and
+ * dest-coalesces again (57/77). Extra `mov byte ptr [ebx],0` plus q after
+ * `add esp,4` and hist ecx/edx swap remain. Load-only / pad00 without
+ * volatile / store-before-pos keep lea but 57–65%. */ 
+// WIP-FUNCTION: LEGOLAND 0x0041db90  (85.7%, lea ebx landed, q/hist residual)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
     struct {
@@ -675,6 +661,7 @@ void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
     n = &p->head;
     fr.pos = p->pos;
     fr.f24 = p->f24;
+    *(volatile unsigned char*)&p->head = 0;
     g_route_eval = p;
     g_route_eval_at = p->pos;
     Span_EvalRange(Route_CollectCarSample, g_span_eval_ops, fr.f24, 0.1f,
