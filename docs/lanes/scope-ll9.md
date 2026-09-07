@@ -356,8 +356,10 @@ Existing names reused unchanged: `Free_w`, `AllocZeroed`, `CarPoolInit`,
   spills the y-span instead. Inert at 39-40: `while`/`for`/`do-while`
   spellings, reading the head first or last, two-definition spans
   (`h = v[3]; h -= v[1];`), a `Footprint*` local, function-scope cursors,
-  split `continue` guards and swapping the two span initialisers. A
-  `volatile` run is worse (48).
+  split `continue` guards, swapping the two span initialisers, named
+  `v[0]`/`v[1]` locals and a guarded `if (run) do {...} while (run)`. A
+  `volatile` run is worse (48), and so are the two spans as one two-element
+  array (43).
 * **`LFPiece_ShadeForRow` (0x0040adb0), 68 of 69 instructions, 66 strict.**
   Everything from the second `GetTileBounds` on is right, including the frame
   (one `Pos` and one `TileBounds` reused by both calls), the merged

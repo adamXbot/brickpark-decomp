@@ -618,7 +618,9 @@ extern void GetTileBounds(const Pos* tile, TileBounds* out);  /* 0x0045acc0 */
  * reload.  Ruled out (identical 40): while/for/do-while spellings, reading
  * the head first or last, two-definition (`h = v3; h -= v1;`) spans, a
  * Footprint pointer local, function-scope cursors, a `volatile` run (48,
- * worse), split `continue` guards, and swapping the two span initialisers. */
+ * worse), split `continue` guards, swapping the two span initialisers, named
+ * `v[0]`/`v[1]` locals, a guarded `if (run) do {...} while (run)`, and the
+ * two spans as one two-element array (43, worse). */
 // WIP-FUNCTION: LEGOLAND 0x00408f90  (50/50 insns, 40 strict mismatches; run vs h spill choice)
 LFPiece* LFTrack_FindPieceCovering(int x, int y)
 {
