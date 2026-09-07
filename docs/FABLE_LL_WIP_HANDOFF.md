@@ -35,19 +35,24 @@ otherwise stay on the scope branch tip.
 | | |
 | --- | --- |
 | Branch / file | `scope/LL2` · `LEGOLAND/logflume9.c` |
-| Tip | `061f85c8` |
+| Tip | `142842b2` |
 | Notes | `docs/lanes/scope-ll2.md` |
-| Score | 151i, **520/520B**, **1 mism** — SIB only |
+| Score | 151i, **520/520B**, **1 mism** — SIB two-attractor |
 
 ```
 orig: lea edx,[eax+ecx] ; 8D 14 08
 ours: lea edx,[ecx+eax] ; 8D 14 01
 ```
 
-Schedule is exact (`lea` → y-load → store) via two-def `o.y` (v0 then
-`g_mapref.y`) + `unsigned left` stored after the overwrite. VC6 uses the
-last-loaded addend as lea base — need ox in eax as **base**, v0 as index.
-Operand-order / pointer tries so far did not flip it. **One byte from exact.**
+Schedule exact via two-def `o.y` + `unsigned left`. VC6 uses last-loaded
+addend as lea base — **two 150/151 floors that do not combine**:
+
+- ox then v0 → correct loads, wrong SIB (kept)
+- v0 then ox → correct SIB, swapped loads
+
+Commutes/pointers/Track mem+mem/RTL helpers stay `[ecx+eax]` or drop the lea.
+`LFTrack_Update`’s `[eax+ecx]` is mem+mem under saved ebx/esi/edi; the two-def
+that makes this 3-scratch lea turns the add into reg+reg and flips the SIB.
 
 ### LL8 — `AddScriptString` `0x004689f0` (12/13 scope)
 
@@ -210,7 +215,7 @@ Do **not** merge partial scopes yourself.
 | scope | exact | tip (approx) | file |
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
-| LL2 | 5/6 | `061f85c8` | `logflume9.c` |
+| LL2 | 5/6 | `142842b2` | `logflume9.c` |
 | LL3 | 16/19 | `58c2dcca` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
