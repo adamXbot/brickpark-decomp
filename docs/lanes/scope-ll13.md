@@ -25,7 +25,7 @@ Object prefix `/tmp/sll13_`. Brief: `docs/SCOPE_LL13_unref_gamemain_bighelp.md`.
 | 0x0045ade0 | DrawTileDebugOverlay | 291 | 71 | — | WIP-FUNCTION |
 | 0x00453c20 | DDrawErrorPassThrough | 20 | 20 | — | WIP-FUNCTION |
 
-**14 of 17 bodies are byte-exact** (408 of 846 instructions), of which
+**13 of 17 bodies are byte-exact** (408 of 846 instructions), of which
 **11 print `[OK]`** under `audit.py` (355 instructions). Three exact bodies
 cannot be *gated*: see "Tooling" below.
 `audit.py` ends **PASS**, `relocs.py` reports **zero MISMATCH** over the 11
