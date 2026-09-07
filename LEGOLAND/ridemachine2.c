@@ -105,40 +105,34 @@ void Copters_StepCar(CoptersRec* rec, int index)
     }
 }
 
-/* Clear flying flags (paired 0/1 then 3/2 then 4), park frames at frames-1
- * in order 1,0,2,3,4, drop riders, clear ride bits 0x4001. silent!=0 skips
- * the fade/play pair (InitRecord path).
- * Residual: VC6 swaps edx/ebx on paired seat0/1 and seat3/2 loads
- * (strict ~69%, matchfull 85.9%). Source order / volatile / reverse-pair
- * cancel do not flip the coloring. */
-// WIP-FUNCTION: LEGOLAND 0x004049a0
+/* Stop the ride: clear flying flags, drop riders, park frames at frames-1,
+ * clear ride bits 0x4001. Every per-seat group is in the copter enumeration
+ * order 1,0,2,3,4 (ridemachine.c). silent!=0 skips the fade/play pair
+ * (InitRecord path).
+ * Levers: plain `&= ~1u` statements in 1,0,2,3,4 order -- VC6 pairs them
+ * (edx,ebx) and emits the SECOND of each pair first, so the emitted
+ * 0/1,3/2 picture is source order 1,0,2,3,4; explicit edx/ebx temporaries
+ * in emitted order come out mirrored. The `xor ebx,ebx` sits right after
+ * the seat[4] flags store only when the rider stores PRECEDE the frame
+ * stores in source (frames-then-riders puts it after the first `dec`). */
+// FUNCTION: LEGOLAND 0x004049a0
 void Copters_StopRide(CoptersRec* rec, int silent)
 {
-    unsigned mask = ~1u;
-    unsigned edx = rec->seat[0].flags;
-    unsigned ebx = rec->seat[1].flags;
-    edx &= mask;
-    ebx &= mask;
-    rec->seat[0].flags = edx;
-    edx = rec->seat[3].flags;
-    rec->seat[1].flags = ebx;
-    ebx = rec->seat[2].flags;
-    edx &= mask;
-    ebx &= mask;
-    rec->seat[3].flags = edx;
-    rec->seat[2].flags = ebx;
-    ebx = rec->seat[4].flags & mask;
-    rec->seat[4].flags = ebx;
-    rec->seat[1].frame = (signed char)(rec->seat[1].frames - 1);
-    rec->seat[0].frame = (signed char)(rec->seat[0].frames - 1);
-    rec->seat[2].frame = (signed char)(rec->seat[2].frames - 1);
-    rec->seat[3].frame = (signed char)(rec->seat[3].frames - 1);
-    rec->seat[4].frame = (signed char)(rec->seat[4].frames - 1);
+    rec->seat[1].flags &= ~1u;
+    rec->seat[0].flags &= ~1u;
+    rec->seat[2].flags &= ~1u;
+    rec->seat[3].flags &= ~1u;
+    rec->seat[4].flags &= ~1u;
     rec->seat[1].rider = 0;
     rec->seat[0].rider = 0;
     rec->seat[2].rider = 0;
     rec->seat[3].rider = 0;
     rec->seat[4].rider = 0;
+    rec->seat[1].frame = (signed char)(rec->seat[1].frames - 1);
+    rec->seat[0].frame = (signed char)(rec->seat[0].frames - 1);
+    rec->seat[2].frame = (signed char)(rec->seat[2].frames - 1);
+    rec->seat[3].frame = (signed char)(rec->seat[3].frames - 1);
+    rec->seat[4].frame = (signed char)(rec->seat[4].frames - 1);
     rec->mode = 0;
     rec->joined = 0;
     rec->seated = 0;
