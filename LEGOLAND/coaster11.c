@@ -498,11 +498,10 @@ int TrackPlace_TestSquare(PackedSquare* sq, PlaceRect* ctx)
 /* Clip a 3-vertex ring against the span clip set.  mask 0xf is a no-op
  * (*count = 3).  Otherwise set the vertex stride and ping-pong the ring
  * through the planes named by the low/high nibble of the mask. */
-/* Residual: 80i/193B vs 194B, 44 mis (~86%). Cases 2/3 emit add ecx,OFF
- * unmerged. Default returns count ([esp+0x10]), not v. Still je case3
- * (default first) and case 1 colors g in eax. All-inline merges tails;
- * r=count + break gives jne/case3-inline but hoists count into eax. */
-// WIP-FUNCTION: LEGOLAND 0x0041ef60  (86%, case1 eax + switch polarity)
+/* `if (1) { switch { return Clip(); } } return count` is the layout
+ * hammer: constant-true wrapper keeps `dec/jne` + case-3-inline and
+ * stops the three all-inline tails merging, so case 1 colors g in ecx. */
+// FUNCTION: LEGOLAND 0x0041ef60
 void* Raster_ClipPoly(void** v, int* count, int mask, int n)
 {
     int flags = 0;
@@ -516,20 +515,20 @@ void* Raster_ClipPoly(void** v, int* count, int mask, int n)
         flags = 1;
     if ((mask & 0xc) < 0xc)
         flags |= 2;
-    switch (flags) {
-    case 1: {
-        void* p = g_span_context;
-        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2, (char*)p + 4);
+    if (1) {
+        switch (flags) {
+        case 1:
+            return Raster_ClipAgainstPlanes(3, (int*)v, count, 2,
+                                            (char*)g_span_context + 4);
+        case 2:
+            return Raster_ClipAgainstPlanes(3, (int*)v, count, 2,
+                                            (char*)g_span_context + 0x1c);
+        case 3:
+            return Raster_ClipAgainstPlanes(3, (int*)v, count, 4,
+                                            (char*)g_span_context + 4);
+        }
     }
-    case 2:
-        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2,
-                                        (char*)g_span_context + 0x1c);
-    case 3:
-        return Raster_ClipAgainstPlanes(3, (int*)v, count, 4,
-                                        (char*)g_span_context + 4);
-    default:
-        return count;
-    }
+    return count;
 }
 
 /* Walk one queued bloke one pace along the queue path: world target =
@@ -638,10 +637,13 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
 /* Snapshot the train, run the shade evaluator over CollectCarSample, then
  * fold each car's heading*heading * acceleration * K into *mass.  *power
  * is the sample energy.  The mass is also pushed into a 64-slot ring. */
-/* Residual: 77i, 255B vs 259B. Frame is 0x6c when locals are one struct;
- * rt lands in ebp not eax. Sum-of-squares should fstp over the dead
- * power arg slot ([esp+0x88]). Root-copy of rt did not free eax. */
-// WIP-FUNCTION: LEGOLAND 0x0041db90  (70%, rt ebp vs eax, 255/259B)
+/* Residual: 77i/259B, matchfull 65/77 (84%), audit 42 mis. Pre-call
+ * `p = rt` puts rt in eax; `acc = 0.0f` after `*mass` homes the sum
+ * in the dead power slot (`fstp [esp+0x88]`). Volatile reload into q
+ * stops p/rt coalescing (mass stays ebp). Still `mov ebx,eax / add
+ * ebx,0x70` vs `lea ebx,[eax+0x70]`, q load after `add esp,4` not
+ * before, eax vs edx for the reload, hist ecx/edx swap. */ 
+// WIP-FUNCTION: LEGOLAND 0x0041db90  (84%, lea ebx vs mov/add, q reload)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
     struct {
@@ -652,30 +654,37 @@ void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
     RouteNode* n;
     float* h;
     int k;
+    CoasterRoute* p = rt;
+    CoasterRoute* q;
 
-    fr.pos = rt->pos;
-    fr.f24 = rt->f24;
-    n = &rt->head;
-    g_route_eval = rt;
-    g_route_eval_at = rt->pos;
+    n = &p->head;
+    fr.pos = p->pos;
+    fr.f24 = p->f24;
+    g_route_eval = p;
+    g_route_eval_at = p->pos;
     Span_EvalRange(Route_CollectCarSample, g_span_eval_ops, fr.f24, 0.1f,
                    (RouteCarSample*)fr.sample);
     *power = ((RouteCarSample*)fr.sample)->energy;
     *mass = 0.0f;
     h = &((RouteCarSample*)fr.sample)->heading[0].x;
     do {
-        float acc = 0.0f;
+        float acc;
+        acc = 0.0f;
         k = 3;
         do {
             float v = *h;
             acc += v * v;
             h++;
         } while (--k);
-        *mass += RouteNode_GetAcceleration(n) * acc * 2.52015616e-06f;
+        {
+            float a = RouteNode_GetAcceleration(n) * acc;
+            q = *(CoasterRoute* volatile*)&rt;
+            *mass += a * 2.52015616e-06f;
+        }
         n = n->next;
-    } while (n != &rt->head);
-    rt->pos = fr.pos;
-    rt->f24 = fr.f24;
+    } while (n != &q->head);
+    q->pos = fr.pos;
+    q->f24 = fr.f24;
     g_mass_hist[g_mass_hist_i & 0x3f] = *mass;
     g_mass_hist_i++;
 }

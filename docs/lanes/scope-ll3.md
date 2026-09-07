@@ -22,12 +22,12 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041f3e0 | Span_FillEvalTable | 85 | 100 | [OK] | FUNCTION |
 | 0x0041ee40 | TrackPlace_TestSquare | 79 | 100 | [OK] | FUNCTION |
 | 0x00411fa0 | LFQueue_StepRider | 74 | 100 | [OK] | FUNCTION |
-| 0x0041ef60 | Raster_ClipPoly | 80 | 86 | 44 mis | WIP |
-| 0x0041db90 | Route_GetMassAndPower | 77 | 70 | 51 mis | WIP |
+| 0x0041ef60 | Raster_ClipPoly | 80 | 100 | [OK] | FUNCTION |
+| 0x0041db90 | Route_GetMassAndPower | 77 | 84 | 42 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
 | 0x0041f050 | Span_ClipPlane | 179 | 9 | 178 mis ESCAPES | WIP |
 
-**15 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
+**16 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
 ## Names
 
@@ -117,13 +117,13 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   sq->x; int lim = sq->x + ctx->x1; x += ctx->x0` (textual `sq->x`
   repeat) emits `mov esi,eax / add esi,edx`. A named `sx` fuses to
   `add esi,eax` (191B, 96%).
-- **Raster_ClipPoly** (WIP): 80i/193B vs 194B, 44 mis (~86%). Default
-  is `return count` (`mov eax,[esp+0x10]`), not `v`. Cases 2 and 3
-  with inline `g+OFF` emit `add ecx,OFF` unmerged; case 1's named
-  `p = g; p+4` un-merges but colors g in eax (the missing byte).
-  All-inline merges the three tails (60i/149B). `void* r = count;
-  switch { r = Clip(); break; } return r` gives `dec/jne default`
-  / case-3-inline but hoists count into eax and `dec ecx`.
+- **Raster_ClipPoly**: `if (1) { switch (flags) { return Clip(); } }
+  return count`. The constant-true wrapper is the layout hammer:
+  `dec/jne` + case-3-inline, no tail-merge, case 1 colors g in ecx.
+  Bare switch puts default first (`je case3`); `if (flags)` is the
+  same layout plus a `test edi / je`. `r = count; break` hoists
+  count into eax and `dec ecx`. Named `p = g` in case 1 alone
+  un-merges but colors g in eax (193B vs 194B).
 - **LFQueue_StepRider**: field stores `b->target.x/y = to.x/y` then
   `CalcMoveLine(b->world, b->target, pathp)` emit both stores before
   the pushes, `shl eax,8 / shl ecx,8`, then `mov eax,ecx /
@@ -142,9 +142,14 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   `count--; row++; left--; store` so the load is `mov eax,[slot]`
   interleaved with `dec ebx / add edi,4`. Function-scope `left` steals
   ebx (65%). `--*(volatile int*)&a` after the pair uses ecx (5 mis).
-- **Route_GetMassAndPower** (WIP): one struct of `{f24, pos, sample[21]}`
-  restores the 0x6c frame. rt still in ebp. Original stores the heading
-  sum of squares over the dead `power` argument slot (`fstp [esp+0x88]`).
+- **Route_GetMassAndPower** (WIP, 84%): `{f24, pos, sample[21]}` is the
+  0x6c frame. Pre-call `p = rt` puts rt in eax; `acc = 0.0f` after
+  `*mass = 0` homes the heading sum in the dead power slot
+  (`fstp [esp+0x88]`). `q = *(CoasterRoute* volatile*)&rt` after
+  `GetAcceleration * acc` stops p/rt coalescing so mass stays ebp.
+  Plain `q = rt` coalesces back to ebp (70%). Residual: `mov ebx,eax
+  / add ebx,0x70` vs `lea ebx,[eax+0x70]`; q load after `add esp,4`
+  not before; eax vs edx for the reload; hist ecx/edx swap.
 - **Span_ClipPlane** (WIP): 179i, ESCAPES. Need the original's 0x2c frame,
   `in++` cursor in the latch, and the three-way sign classify
   (`(prev_sign>>1)|next_sign` against 0x80000000 / 0xC0000000 / 0x40000000).
