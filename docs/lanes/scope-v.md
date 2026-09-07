@@ -950,3 +950,163 @@ also serves it from `dl`; every construct that serves y from memory removes
 the need. `vy_c` (176 instructions, register-blind 2) is the closest body and
 is one colouring flip away; the retained 24-strict body keeps the colouring
 and mirrors the byte sources. Neither is promotable.
+
+## Fifth pass — the fourth memory kill, and why it does not close CLEAR
+
+Scratch `/tmp/svclear5_*` (`svclear5_bb.c`, `svclear5_agg.c`, `svclear5_split.c`,
+`svclear5_trig.c`, `svclear5_scan.py`, `svclear5_variants.py`, `svclear5_[b-f].py`),
+scored with the third pass's `svclear3_probe.py`. CLEAR is unchanged at **24
+strict, 177i/576B against 177i/577B, first difference at instruction 110**;
+whole-file audit PASS with 45 `[OK]` in `eventtick.c` (CLEAR as WIP) and 16 in
+`eventgoal.c`, `tools/relocs.py` zero MISMATCH, `/W3` clean. The pass found a
+**fourth memory kill** — the first one in four passes that costs no
+instruction — and then proved that it does not help, for a reason that also
+rules out every remaining construct in the space.
+
+### The fourth kill: a block copy into a sibling member of the same aggregate
+
+Third-pass rule was: VC6 SP3 forwards a local's stored register to a later
+narrowing read across anything except a call, a `volatile` access, or a store
+through a pointer it cannot resolve. There is a fourth:
+
+> **A block copy (`rep movsd`) whose destination is a member of a local
+> aggregate kills the cached value of EVERY member of that aggregate.**
+
+`/tmp/svclear5_agg.c` and `/tmp/svclear5_trig.c` pin the trigger exactly:
+
+| shape | forwards? |
+| --- | --- |
+| `Pos sq; Big saved;` two locals, `saved = g_big` between store and read | yes (control) |
+| `struct { Pos sq; Big saved; } L;` — copy into `L.saved`, read `L.sq.y` | **no** |
+| same with `saved` declared first, or the aggregate in a one-element array | **no** |
+| same but the aggregate's address is never taken | **no** — address-taken is irrelevant |
+| aggregate address-taken but the copy destination is a SEPARATE local | yes |
+| `saved` address-taken by a later call, or restored through a `Big*` | yes |
+| the copy spelled `memcpy(&saved, &g_big, sizeof)` | yes |
+| copy into `*(Big*)buf` with `char buf[6196]`, or through a local `Big*` | yes |
+| `union { Pos sq; char raw[8]; }` with the copy in a separate local | yes |
+
+So it is the *shared enclosing object*, not escape and not the pointer
+spelling. `P_C1` in `/tmp/svclear5_agg.c` emits the original's exact shape —
+`mov [esp+X], eax` / `rep movsd` / `mov [glob], eax` / `mov al, byte ptr
+[esp+X]` with eax never redefined — and, because the sibling stored *after*
+the copy still forwards, it even reproduces CLEAR's asymmetry: one
+coordinate's byte from a register, the other's from its home. This is the
+first kill that adds exactly one instruction and no operand the original's
+group lacks, and it is a general VC6 alias-analysis fact worth reusing.
+
+### Why it does not close CLEAR: the byte need goes with the byte source
+
+Wrapping `sq` and `saved` in one aggregate in the real function
+(`/tmp/svclear5_variants.py`) gives 176 instructions with the byte load
+present and the correct group *structure*, but the colouring flips to row two
+(x in edx, y in ebp) exactly as `volatile` does — 76 strict, first difference
+79. Making the reload a re-definition of `by` itself (`by = L.sq.y;`, so the
+byte use stays on `by`'s own web) does not rescue it: six spellings
+(`/tmp/svclear5_f.py`) all compile to the identical 76-strict body. The rule
+from the fourth pass survives its first non-`volatile` test: **whatever serves
+a coordinate's byte from memory removes that coordinate's byte need, whichever
+of the four kills produces the load.**
+
+Layout matters too and cannot be fixed. The original's frame is `pass` 0x10,
+`saved_def` 0x14, `sq` 0x18, `f` 0x20, `saved` 0x30, so the aggregate that
+would reproduce it is `struct { Pos sq; Rect f; Cursor saved; }` — but putting
+`f` inside an address-taken aggregate memory-homes all four of its fields and
+costs four instructions (181i, 101 strict). With only `sq` and `saved` in the
+aggregate, `sq` lands at 0x28 and the two footprint spills move.
+
+### The residual, restated as a register count
+
+Reading the load block sharpens the fourth pass's model. Both coordinates are
+`unsigned char` cell fields loaded with `xor edx, edx / mov dl, [edi+4|5]`, so
+both have a byte need at their DEFINITION; that need is soft and is satisfied
+by using edx as the load scratch and copying out (`mov ebp, edx` at 0x469d5f).
+What is hard is the count across the `rep movsd`:
+
+- the copy owns ecx (0x60d), esi (source) and edi (destination), so only
+  **eax, ebx, edx and ebp survive it**;
+- exactly four values must: `d` (eax, live to the indirect call), `next`,
+  `bx`, `by`;
+- of those four registers only **eax, ebx and edx are byte capable**, and eax
+  is pinned to `d`.
+
+So if both coordinates carry a register byte need, VC6 must move `next` out of
+ebx: that is row four, measured directly (`/tmp/svclear5_p0_both_plain.c`,
+first difference 19, `next` in ebp from instruction 19, x in edx, y loaded
+with `xor ebx, ebx / mov bl, [edi+5]`). The original instead leaves `next` in
+ebx and puts x in ebp — a strictly worse assignment for a byte need — and then
+pays `mov ecx, ebp` to store `cl`. **The original's x therefore carries no
+byte-register need at allocation time, yet its byte is emitted from a register
+copy.** That is the whole residual, and it is now a falsifiable statement
+rather than a preference.
+
+### The five directions, measured
+
+1. **End `by`'s register phase at the origin store.** Dead byte uses that
+   would leave a need behind are all eliminated before allocation: a doubled
+   `g_sel_bpos.b.y` store (either order), a dead `unsigned char` local fed
+   from `by`, and a folded truncating comparison all compile byte-identically
+   to the plain volatile body (`/tmp/svclear5_b.py`, 176i/71 strict each).
+2. **An x byte need the colouring does not see.** Reading the value back out
+   of the global that was just written — `(unsigned char)g_destroy_cursor.origin.x`,
+   `*(unsigned char*)&...origin.x`, both with and without the aggregate origin
+   store, and the same for y — forwards completely: six variants
+   (`/tmp/svclear5_e.py`), all byte-identical to the plain row-four body at
+   108 strict. VC6 forwards a global store to a same-address load in the block,
+   so a global read-back is not a memory operand at allocation.
+3. **Register pressure at the copy.** A fifth value live across it (`inst =
+   d->inst` named early or in the group, `Pos* sp = &sq`, both together)
+   changes the frame and costs two instructions without producing a spill or a
+   fix-up (`/tmp/svclear5_c.py`, 176i/109-110 strict, first difference 0).
+   With four values and four surviving registers the allocator is exactly
+   saturated, never over-subscribed, so there is nothing to spill.
+4. **Scratch characterisation.** Besides the fourth kill above: a basic-block
+   boundary between the store and the read is **not** a kill — an `if`/`endif`,
+   a read inside a conditional, a store hoisted above a short-circuit
+   condition chain, a loop, identical arms, a `goto` join, and the full CLEAR
+   shape with the copy inside the conditional all forward
+   (`/tmp/svclear5_bb.c`, nine cases). Neither is a copy ever un-coalesced:
+   `tx = bx` with the source redefined dead, redefined live, defined in
+   identical arms, or written `-(-bx)` / `bx ^ (v & 0)` all propagate, and so
+   does a copy whose source is read after the temp's byte use — VC6 never
+   needs two registers for two names holding the same value
+   (`/tmp/svclear5_split.c`, eight cases). **A byte need can therefore never be
+   moved off the coordinate's own web by a copy.**
+5. **Asymmetric coordinate types** (unmeasured before; both-narrow was
+   measured in pass four). `unsigned char by` with `int bx` is the only
+   variant in the family that reaches 177 instructions WITH the byte load, but
+   the byte local takes a stack home, the frame grows to 0x1858, the footprint
+   block needs `and ebp, 0xff`, and the colouring is still row two: 40 strict
+   (39 with the y byte read from `sq.y`). `char`, `short` and `unsigned short`
+   on either coordinate cost 155-161 strict (`/tmp/svclear5_d.py`).
+
+### The fix-up copy is unique in the binary too
+
+`/tmp/svclear5_scan.py` scans all 2,517 exact bodies for
+`mov <byte-capable r32>, <ebp|esi|edi>` followed by a use of that register's
+low byte. Four hits: CLEAR's own `mov ecx, ebp` / `mov byte ptr [0x667c54],
+cl`, two `mov ecx, edi` / `shl eax, cl` (a shift-count copy, forced by the
+instruction, `JcBoat_Step` and `BsBoat_StepLeg`), and `PaintPathRect`
+0x0045cb20's `mov edx, esi` / `and dl, 1` — a copy forced because `and`
+destroys its operand and esi is the loop-carried `x + y`. **No exact function
+contains a byte-class fix-up copy of the kind CLEAR needs**, which matches the
+fourth pass's finding that the store/byte-reload pair is also unique. Both
+halves of the residual are single occurrences in the tree, so there is no
+sibling to copy a spelling from.
+
+### State and what a sixth pass should attack
+
+The committed body is unchanged and remains the best measured: 24 strict,
+177i/576B, footprint block and load block exact, one `volatile` byte probe on
+`sq.x`. `vy_c` (176i, register-blind 2) is still the closest structure and
+remains one colouring flip away.
+
+Anyone reopening CLEAR should not look for a fifth memory kill — the fourth
+one is free and still loses the colouring — and should not look for a way to
+split the x web, because copies of equal values provably never survive. The
+one unexplored hypothesis left is the allocator's *priority order*: the
+original's assignment is what a priority-based allocator produces if `next` is
+coloured before x, and row four is what it produces if x is coloured first. If
+some source change can lower x's web priority below `next`'s without changing
+the emitted references — the reference counts of the two coordinates are
+symmetric in every spelling tried — the fix-up copy should appear on its own.

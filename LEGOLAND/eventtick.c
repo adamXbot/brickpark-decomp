@@ -407,9 +407,12 @@ int ClearSfxFade(void* sample)
  * this body has those two roles the other way round, because the volatile
  * read below is the only spelling found that puts base x in ebp at all.
  * A byte re-read of a local's home needs a memory kill between the store
- * and the read, and VC6 has only three: a call, a volatile access, or a
- * store through a pointer it cannot resolve. The original's group contains
- * none of them, and the last two cost instructions it does not have.
+ * and the read, and VC6 has only four: a call, a volatile access, a store
+ * through a pointer it cannot resolve, and a block copy into a sibling
+ * member of the same local aggregate. Every one of them serves the byte
+ * from memory, and serving a coordinate's byte from memory is exactly what
+ * drops its byte need and moves it out of edx, so no kill can produce the
+ * original's pairing.
  * See docs/lanes/scope-v.md for the levers and the bounded negatives.
  * This is a full body ending in ret, not a truncated comparison. */
 // WIP-FUNCTION: LEGOLAND 0x00469c80  (177i/576B vs 177i/577B, 24 strict; cursor-setup byte sources differ)
