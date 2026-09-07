@@ -92,15 +92,15 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **70.3% exact, 81.7% with partials** |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2887 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **70.4% exact, 81.7% with partials** |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2890 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F own part of this list; use `tools/inventory.py` for game-code targets. |
 | partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 79 |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
 
-**Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.0% -> 70.3% exact
-(81.7% with partials).** Exact count **2887**; **79** WIPs.
+**Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.3% -> 70.4% exact
+(81.7% with partials).** Exact count **2890**; **79** WIPs.
 `music2.c` + `pathobj2.c` (group 16). Relocs 0 MISMATCH; `/W3` clean.
 Parallel still open: FGH, V, Codex-F, AG, AC remainders.
 
