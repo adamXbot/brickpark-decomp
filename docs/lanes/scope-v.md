@@ -1235,3 +1235,7 @@ leave the group byte-identical to `/O2` or damage the function elsewhere
 (`/Os`/`/O1` call `memcpy`; `/Ob0` un-inlines; `/Oy-` adds a frame; `/G6`
 reorders the footprint loads and is worse; `/Gr` changes the convention).
 No flag set produces the original's colouring or byte reload.
+- **`__assume()` is inert.** As an equality hint (`__assume(sq.y == by)`)
+  before the byte read or after the copy, as a range hint on the coordinates,
+  on `sq.x`, or wrapping a volatile read (which it elides), it changes nothing
+  in seven placements. It is not a boundary of any kind for VC6 SP3.
