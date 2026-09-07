@@ -99,17 +99,18 @@ and commit messages are that runtime's spec.
 | partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 79 |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
 
-**Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.3% -> 70.4% exact
+**Scope LL5 closed exact (2026-09-08): 3 of 3; coverage 70.3% -> 70.4% exact
 (81.7% with partials).** Exact count **2890**; **79** WIPs.
-`music2.c` + `pathobj2.c` (group 16). Relocs 0 MISMATCH; `/W3` clean.
-Parallel still open: FGH, V, Codex-F, AG, AC remainders.
+`castletrack2.c` (TrackCurve_InitLine/Cubic/Arc). Relocs 0 MISMATCH; `/W3` clean.
 
-**Scope LL5 closed exact (2026-09-08): 3 of 3.** `castletrack2.c` (TrackCurve_InitLine/Cubic/Arc).
+**Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.0% -> 70.3% exact.**
+`music2.c` + `pathobj2.c` (group 16).
+Parallel still open: FGH, V, Codex-F, AG, AC remainders; LL1–LL4/LL6–LL8 in flight.
 
 **LL wave cut (2026-09-07):** letter scopes end at AK; new scopes are
 `LL1`…`LL8` (`docs/SCOPE_LL_WAVE.md`). Live inventory leftovers after excluding
 V/X, Codex-F, AG, AC, F/G/H, LONG appraisal, SEH WinMain — **112 functions,
-≈5.8k instructions**. First allocation: LL1–LL4; LL5–LL8 cut and idle.
+≈5.8k instructions**. LL5 merged; others allocated.
 
 **Scope AK closed exact (2026-09-07): 20 of 20; coverage 69.5% -> 70.0% exact.**
 `narration2.c` (group 18).
