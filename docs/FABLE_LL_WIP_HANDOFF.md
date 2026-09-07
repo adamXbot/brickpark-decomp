@@ -131,16 +131,15 @@ Landed through pitch-volatile pin: `last`/ShadeSetup/`y` split; eax
 `g_zb_polys++`; `imul [ebp-4]`; `py = *(int volatile*)&s.pitch * y` then
 volatile zrow so zrow cannot hoist past the product — `shl` + both `add`s.
 
-**Residual:** original window is `imul` → `edx=[crow]` → `ecx=[zrow]` → `shl`
-→ both `add`s → store crow → **nshade in edx** → `test` → store zrow. Address-take
-`yp=(short*)&s.zrow; z=*(short**)yp` after `c=s.crow` plus dst-first/`grad[0]` lands
-that load order and (with volatile nshade *after both stores*) the crow store
-(firstX 86→92) at same 69.3%/765B — but nshade stays in **eax**. Any nshade
-*between* the two stores (comma, reuse `c`, volatile) swaps the add regs and
-moves `g_zb_polys++` into ebx (66.9/66.1%, firstX=67). Also ruled out: ordinary
-`c`/`z` (crow in edi / frame 0x74); py-live/`&0` folds; for-latch does not
-recolor nshade; `y++` breaks the imul pin. The 6-byte gap is later
-(`inc [y]` / `lea [ecx+ecx]` vs `shl` tail), not this window.
+**Residual (firstX=92 through crow store):** ours does
+`store zrow; mov eax,[g_shade_count]; test eax` vs original
+`mov edx,[g_shade_count]; test edx; store zrow`. nshade-in-EDX only with a
+shape *between* the two stores — that always swaps add dests and moves
+`g_zb_polys++` into ebx (**66.1%**). Inert: dummy/live edx, early nshade,
+named add-then-store, AfterCrow/NThenZ RTL, Fst both-stores, Fst(nshade,py)
+DCE, decl order, unsigned `jbe`. ZBuffer_FillPoly has no nshade analogue.
+Need **edx reuse of crow after it is stored**, without live nshade during
+add allocation.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
