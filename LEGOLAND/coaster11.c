@@ -771,102 +771,109 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
  * closed to in[0].  Negative plane distance is inside.  Crossing edges
  * lerp every dword 0..g_span_vtx of the PolyVtx into *cursor and emit
  * that cursor pointer; both-inside emits the previous vertex. */
-/* Residual: 179i, ESCAPES, frame 0x24 vs 0x2c. ebx=n before *cursor did not
- * land: a long-lived dest pointer always colours ebx; n falls to esi/edi.
- * Homing dest/plane/out moves the deref off ebx (into eax) but n stays esi
- * and prev_abs takes ebx. --n live into the loop overlaps abs and blocks
- * the original n→ebx then ebx→next_abs reuse. */
-// WIP-FUNCTION: LEGOLAND 0x0041f050  (9%, frame 0x24 vs 0x2c ESCAPES)
+/* Residual: 179i, ESCAPES, frame 0x24 vs 0x2c. mov ebx,n + cmp ebx,1 +
+ * [eax+ebx*4] land: dest/plane/out homed, prev_abs and in edx, out_n is
+ * mov [esp+0x10],0, and a byte store of n forces ebx (only byte-addressable
+ * callee-save) over cursor. next_abs and is still edx, not ebx; k down-count
+ * not 0..vtx. */
+// WIP-FUNCTION: LEGOLAND 0x0041f050  (13%, frame 0x24 vs 0x2c ESCAPES)
 int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
 {
-    void** cur = cursor;
     void** in = (void**)in_v;
-    void** out = (void**)out_v;
-    ClipPlane* plane = (ClipPlane*)plane_v;
     void* dst;
     int out_n = 0;
     void* prev;
-    union { float f; int i; } pd;
+    union { float f; int i; } bits;
     int prev_abs;
     int prev_sign;
+    int left;
 
+    /* dest/plane/out off ebx. Byte use of n wins ebx over cursor. */
+    *(void* volatile*)&dst = *cursor;
     in[n] = in[0];
-    dst = *cur;
     prev = in[0];
-    pd.f = plane->d - ((float)((int*)prev)[2] * plane->nx
-                       + (float)((int*)prev)[1] * plane->ny);
-    prev_abs = pd.i & 0x7fffffff;
-    prev_sign = pd.i & 0x80000000;
+    {
+        ClipPlane* plane = *(ClipPlane* volatile*)&plane_v;
+        bits.f = plane->d - ((float)((int*)prev)[2] * plane->nx
+                             + (float)((int*)prev)[1] * plane->ny);
+    }
+    prev_sign = bits.i & 0x80000000;
+    bits.i &= 0x7fffffff;
+    *(volatile int*)&prev_abs = bits.i;
     if (n < 1) {
-        *cur = dst;
+        *cursor = dst;
         return out_n;
     }
     in++;
+    /* Byte use of n forces ebx (only byte-addressable callee-save). */
+    *(volatile unsigned char*)&left = (unsigned char)n;
+    left = n;
     do {
-        void* next = *in;
-        union { float f; int i; } nd;
+        void* nxt = *in;
         union { float f; int i; } pa, na;
-        int next_abs;
         int next_sign;
         int cls;
+        ClipPlane* plane = *(ClipPlane* volatile*)&plane_v;
 
-        nd.f = plane->d - ((float)((int*)next)[2] * plane->nx
-                           + (float)((int*)next)[1] * plane->ny);
-        next_abs = nd.i & 0x7fffffff;
-        next_sign = nd.i & 0x80000000;
+        bits.f = plane->d - ((float)((int*)nxt)[2] * plane->nx
+                             + (float)((int*)nxt)[1] * plane->ny);
+        n = bits.i & 0x7fffffff;
+        next_sign = bits.i & 0x80000000;
         cls = (prev_sign >> 1) & 0x40000000 | next_sign;
+        pa.i = *(volatile int*)&prev_abs;
+        na.i = n;
+        *(volatile int*)&prev_abs = n;
         if (cls == (int)0x80000000) {
-            float t;
-            pa.i = prev_abs;
-            na.i = next_abs;
-            t = na.f / (pa.f + na.f);
+            float t = na.f / (pa.f + na.f);
             if ((int)g_span_vtx >= 0) {
-                int* src = (int*)next;
-                int delta = (char*)prev - (char*)next;
-                int dest = (char*)dst - (char*)next;
-                int k = 0;
+                int* src = (int*)nxt;
+                int delta = (char*)prev - (char*)nxt;
+                int dest = (char*)dst - (char*)nxt;
+                int k = (int)g_span_vtx;
                 do {
-                    int a = src[0];
-                    int dlt = *(int*)((char*)src + delta) - a;
-                    *(int*)((char*)src + dest) = a + (int)((float)dlt * t);
+                    n = src[0];
+                    {
+                        int dlt = *(int*)((char*)src + delta) - n;
+                        *(int*)((char*)src + dest) = n + (int)((float)dlt * t);
+                    }
                     src++;
-                    k++;
-                } while (k <= (int)g_span_vtx);
+                } while (k-- > 0);
             }
-            *out++ = dst;
+            *(void**)out_v = dst;
+            out_v = (char*)out_v + 4;
             dst = (char*)dst + g_span_vtx_stride;
             out_n++;
         } else if (cls == (int)0xc0000000) {
-            *out++ = prev;
+            *(void**)out_v = prev;
+            out_v = (char*)out_v + 4;
             out_n++;
         } else if (cls == 0x40000000) {
-            float t;
-            pa.i = prev_abs;
-            na.i = next_abs;
-            t = pa.f / (pa.f + na.f);
-            *out++ = prev;
+            float t = pa.f / (pa.f + na.f);
+            *(void**)out_v = prev;
+            out_v = (char*)out_v + 4;
             if ((int)g_span_vtx >= 0) {
                 int* src = (int*)prev;
-                int delta = (char*)next - (char*)prev;
+                int delta = (char*)nxt - (char*)prev;
                 int dest = (char*)dst - (char*)prev;
-                int k = 0;
+                int k = (int)g_span_vtx;
                 do {
-                    int a = src[0];
-                    int dlt = *(int*)((char*)src + delta) - a;
-                    *(int*)((char*)src + dest) = a + (int)((float)dlt * t);
+                    n = src[0];
+                    {
+                        int dlt = *(int*)((char*)src + delta) - n;
+                        *(int*)((char*)src + dest) = n + (int)((float)dlt * t);
+                    }
                     src++;
-                    k++;
-                } while (k <= (int)g_span_vtx);
+                } while (k-- > 0);
             }
-            *out++ = dst;
+            *(void**)out_v = dst;
+            out_v = (char*)out_v + 4;
             dst = (char*)dst + g_span_vtx_stride;
             out_n += 2;
         }
-        prev = next;
-        prev_abs = next_abs;
+        prev = nxt;
         prev_sign = next_sign;
         in++;
-    } while (--n);
-    *cur = dst;
+    } while (--left);
+    *cursor = dst;
     return out_n;
 }

@@ -25,7 +25,7 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041ef60 | Raster_ClipPoly | 80 | 100 | [OK] | FUNCTION |
 | 0x0041db90 | Route_GetMassAndPower | 77 | 84 | 42 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
-| 0x0041f050 | Span_ClipPlane | 179 | 9 | 178 mis ESCAPES | WIP |
+| 0x0041f050 | Span_ClipPlane | 179 | 13 | 164 mis ESCAPES | WIP |
 
 **16 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
@@ -229,5 +229,11 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   frame 0x24. Mass/Trace not touched.
   **Left-home wave:** left spill lands (`[esp+0x1c]` after cmp/in++); dest
   off ebx still leaves ebx to plane → prev_abs → xor-zero, never n (esi).
-  Best transient 30/191; tip restored. Next: n/next_abs web that outranks
-  those three for ebx.
+  Best transient 30/191; tip restored.
+  **n/next_abs ebx wave:** `mov ebx,n` / `cmp ebx,1` / `[esi+ebx*4]` landed.
+  dest+plane+out homed, prev_abs and in edx, out_n is `mov [esp+0x10],0`.
+  Cursor still wants ebx for the early-out `*cursor` store; a byte store of
+  n (`*(volatile unsigned char*)&left = (unsigned char)n`) forces ebx
+  because only ebx is byte-addressable among callee-saves. next_abs and
+  stays edx (not the original `and ebx,0x7fffffff`). Frame still 0x24.
+  25/189 (13.2%). Mass/Trace not touched.
