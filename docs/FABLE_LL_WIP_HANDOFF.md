@@ -190,7 +190,6 @@ Do **not** merge partial scopes yourself.
 | scope | exact | tip (approx) | file |
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
-| LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
 | LL3 | 16/19 | `58c2dcca` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |

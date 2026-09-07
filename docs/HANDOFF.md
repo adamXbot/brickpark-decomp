@@ -134,7 +134,7 @@ Parallel still open: FGH, V, Codex-F, AC remainders; LL3–LL4/LL6–LL8 in flig
 **LL wave cut (2026-09-07):** letter scopes end at AK; new scopes are
 `LL1`…`LL8` (`docs/SCOPE_LL_WAVE.md`). Live inventory leftovers after excluding
 V/X, Codex-F, AG, AC, F/G/H, LONG appraisal, SEH WinMain — **112 functions,
-≈5.8k instructions**. LL1+LL5 merged, AG (incl. SEH WinMain) merged; others allocated.
+≈5.8k instructions**. LL1+LL2+LL5 merged, AG (incl. SEH WinMain) merged; others allocated.
 
 **Scope AK closed exact (2026-09-07): 20 of 20; coverage 69.5% -> 70.0% exact.**
 `narration2.c` (group 18).
