@@ -188,3 +188,53 @@ void GetCursorErrorText(char* out, int err)
 {
     strcpy(out, GetString(g_messages[g_cursor_error_msg[err]].topic));
 }
+
+/* ------------------------------------------------ the labelled-icon pair -- */
+
+/* The render callback 0x0046d800 installs: the icon's sprite, then its
+ * caption centred in a 0x40-wide box at the icon origin plus the caption
+ * offset held at +0x20/+0x22. */
+// FUNCTION: LEGOLAND 0x0046dfd0
+int RenderLabelledIcon(Icon* g)
+{
+    BlitCtx ctx;
+
+    ctx.kind = 2;
+    ctx.owner.p = g;
+    ctx.owner.n = 0;
+    if (g->sprite)
+        PrintSprite(g->sprite, g->x, g->y, 0, &ctx);
+    PrintCent(g->x + g->cap_dx, g->y + g->cap_dy, 0x40, g->text, 1);
+    return 0;
+}
+
+/* Build an icon with a caption underneath it. */
+// FUNCTION: LEGOLAND 0x0046d800
+Icon* AddLabelledIcon(SpriteRec* s, int x, int y, short cap_dx, short cap_dy,
+                      int group, char* text)
+{
+    Icon* p = InsertIcon(x, y, group, s);
+    if (p) {
+        p->text = text;
+        p->cap_dx = cap_dx;
+        p->cap_dy = cap_dy;
+        p->render = RenderLabelledIcon;
+        p->flags |= 0x208;
+    }
+    return p;
+}
+
+/* Move every icon of `group` by (dx, dy) and pull the group's clip icon
+ * (group + 2) the other way, so its clip origin stays put. */
+// FUNCTION: LEGOLAND 0x0046de10
+void MoveIconGroupWithClip(int group, int dx, int dy)
+{
+    Icon* p;
+
+    MoveIcons(0xffff, group, dx, dy);
+    p = FindIcon(group + 2);
+    if (p) {
+        p->clip_x -= (short)dx;
+        p->clip_y -= (short)dy;
+    }
+}
