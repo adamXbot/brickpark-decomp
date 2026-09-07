@@ -36,7 +36,7 @@ Contract: `docs/PARALLEL_CONTRACT.md`. Index: `docs/SCOPE_LL_WAVE.md`.
 **EDX**. Volatile shims / `return count++` / LL2 `Fst` could not hold both
 tails at once.
 
-### LL7 — `Track_StepAlong` `0x00429f30` + `TrackRunSetSlope` `0x00429560` (exact on `scope/LL7`; scope **16/17**, tip `8a707802`)
+### LL7 — `Track_StepAlong` `0x00429f30` + `TrackRunSetSlope` `0x00429560` (exact on `scope/LL7`; scope **16/17**, tip `7e90ae76`)
 
 **StepAlong:** Named `float step2 = step * step` was the wall. Write the square
 only at the store after t0: `t0 = cur.geom->t0; g_step_len2 = step * step;`
@@ -45,8 +45,9 @@ only at the store after t0: `t0 = cur.geom->t0; g_step_len2 = step * step;`
 `if (steps > 0) do { … } while (--steps)`) gets the 7 eax↔edx homes.
 Same 90i/302B either way; only the IV/zero colouring differs.
 
-Still open: `TrackShade_FillPoly` — frame 0x70 landed; residual `g_zb_polys++`
-colouring + `y` imul home (61%).
+Still open: `TrackShade_FillPoly` — **254/254i, 765/771B, 68.9%** (tip `7e90ae76`).
+Frame 0x70; g_zb_polys/y homes landed. Residual: zrow-load vs `shl`/nshade
+schedule after crow store.
 
 ---
 
@@ -123,16 +124,19 @@ probes exhausted by Grok.
 
 ### LL7 — `TrackShade_FillPoly` `0x00428860`
 
-**Improved, still WIP** on tip `8a707802` (16/17). Sibling of `ZBuffer_FillPoly`
-(schoolcar6.c). Now **251/254i, ~768/771B, frame 0x70**, matchfull **61%**
-(was 748/771B / 0x6c / ~38%).
+**Improved, still WIP** on tip `7e90ae76` (16/17). Sibling of `ZBuffer_FillPoly`
+(schoolcar6.c). **254/254i, 765/771B, frame 0x70**, matchfull **175/254 = 68.9%**
+(was 748B/0x6c/~38%, then 61%).
 
-Levers landed: keep `last` live as `&keys[n-1].idx` (`lea …-4`); reload
-`keys[n].y` / sentinel via `edges[*last].y1` (not cached `ylast` alone);
-reversed-layout `ShadeSetup` pins eight setup homes.
+Landed: `last = &keys[n-1].idx`; sentinel via `edges[*last].y1`; reversed
+`ShadeSetup`; split `y` out of setup + late volatile `y` bump; volatile
+`nkeys`/`keys` for eax `g_zb_polys++` and `imul [ebp-4]`; named `py` for
+product/`shl`.
 
-Residual: `g_zb_polys++` (ebx vs eax) + hoisted `y` vs `imul [ebp-4]`.
-Param is `nkeys` (`ne` is MASM reserved). EBP / `xchg` / `__asm` still in play.
+**Residual:** three-slot schedule around zrow — volatile zrow after crow store
+is the 68.9% attractor (exact through insn 86); before-store hoists load and
+slides imul; plain `c`/`z` hoist crow into edi before sentinel. Need zrow load
+vs `shl eax,1` / nshade-in-eax after the crow store.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -171,7 +175,7 @@ Do **not** merge partial scopes yourself.
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
-| LL7 | 16/17 | `8a707802` | `coaster13.c` |
+| LL7 | 16/17 | `7e90ae76` | `coaster13.c` |
 | LL8 | **13/13** | merged `main` | `gameframe2.c` |
 
 **WIP count in this wave:** 0+0+3+5+0+2+1+0 = **11 bodies**.

@@ -12,7 +12,7 @@ F/G/H partials, LONG appraisal, and SEH WinMain.
 | LL4 | `scope/LL4` | 4 | 8 | 797 | `coastershade2.c` | 3/8 — 5 floors; parked |
 | LL5 | `scope/LL5` | 5 | 3 | 130 | `castletrack2.c` | DONE 3/3 merged |
 | LL6 | `scope/LL6` | 6 | 24 | 771 | `coaster12.c` | 22/24 — 2 floors; parked |
-| LL7 | `scope/LL7` | 7 | 17 | 999 | `coaster13.c` | 16/17 — FillPoly 0x70/61%; g_zb_polys + y residual |
+| LL7 | `scope/LL7` | 7 | 17 | 999 | `coaster13.c` | 16/17 — FillPoly 254i/68.9%; zrow schedule residual |
 | LL8 | `scope/LL8` | 12+13+14 | 13 | 514 | `gameframe2.c` | DONE 13/13 merged |
 
 **Note:** `logflume7.c` already exists on main — LL1 starts at `logflume8.c`.
