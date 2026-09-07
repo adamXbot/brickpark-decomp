@@ -23,13 +23,53 @@ typedef struct AdvisorBmi {
 } AdvisorBmi;
 
 typedef struct AdvisorClip {
-    char  pad00[0x14];
-    void* getframe;                 /* +0x14  PGETFRAME */
-    char  pad18[0x1c - 0x18];
-    void* video;                    /* +0x1c  PAVISTREAM */
+    int   frames;                   /* +0x00 */
+    int   fps;                      /* +0x04 */
+    int   width;                    /* +0x08 */
+    int   height;                   /* +0x0c */
+    void* file;                     /* +0x10 */
+    void* getframe;                 /* +0x14 */
+    void* audio;                    /* +0x18  unused here */
+    void* video;                    /* +0x1c */
     void (*stop)(struct AdvisorClip*); /* +0x20 */
-    void (*tick)(void);             /* +0x24  set to AdvisorMovieTick */
+    void (*tick)(void);             /* +0x24 */
 } AdvisorClip;
+
+typedef struct AVIFILEINFO {
+    unsigned long dwMaxBytesPerSec;
+    unsigned long dwFlags;
+    unsigned long dwCaps;
+    long          dwStreams;
+    unsigned long dwSuggestedBufferSize;
+    unsigned long dwWidth;
+    unsigned long dwHeight;
+    unsigned long dwScale;
+    unsigned long dwRate;
+    unsigned long dwLength;
+    unsigned long dwEditCount;
+    char          szFileType[64];
+} AVIFILEINFO;
+
+typedef struct AVISTREAMINFO {
+    unsigned long  fccType;
+    unsigned long  fccHandler;
+    unsigned long  dwFlags;
+    unsigned long  dwCaps;
+    unsigned short wPriority;
+    unsigned short wLanguage;
+    unsigned long  dwScale;
+    unsigned long  dwRate;
+    unsigned long  dwStart;
+    unsigned long  dwLength;
+    unsigned long  dwInitialFrames;
+    unsigned long  dwSuggestedBufferSize;
+    unsigned long  dwQuality;
+    unsigned long  dwSampleSize;
+    struct { long left, top, right, bottom; } rcFrame;
+    unsigned long  dwEditCount;
+    unsigned long  dwFormatChangeCount;
+    char           szName[64];
+} AVISTREAMINFO;
 
 /* ---- AVI / CRT ---------------------------------------------------------- */
 extern void  __stdcall AVIFileInit(void);                               /* 0x0049e406 */
@@ -74,6 +114,103 @@ extern const char kAdPhoneDown[];           /* 0x004b7de0 "AD_PhoneDown.avi" */
 extern const char kAdWobble[];              /* 0x004b7dd0 "AD_Wobble.avi" */
 
 extern void SetAdvisorPose(int pose, int arg); /* 0x00444070 */
+extern unsigned long __stdcall AVIFileRelease(void* pfile); /* 0x0049e3dc */
+
+void InitAdvisorBmi(void);
+void AdvisorMovieTick(void);
+void StartAdvisorClip(AdvisorClip* clip);
+
+/* Open one advisor .AVI (video stream only) into a 0x28-byte clip record. */
+// WIP-FUNCTION: LEGOLAND 0x00443bd0
+AdvisorClip* LoadAdvisorMovie(const char* path)
+{
+    void*         pfile;
+    void*         video = 0;
+    int           i;
+    void*         stream;
+    AVISTREAMINFO si;
+    AVIFILEINFO   fi;
+    int           frames = 0;
+    int           fps = 0;
+    int           w = 0;
+    int           h = 0;
+    AdvisorClip*  clip;
+
+    if (g_avi_open_count == 0)
+        AVIFileInit();
+    if (AVIFileOpenA(&pfile, path, 0, 0) != 0) {
+        if (g_avi_open_count == 0)
+            AVIFileExit();
+        return 0;
+    }
+    fi.dwStreams = 0;
+    AVIFileInfoA(pfile, &fi, 0x6c);
+    for (i = 0; i < fi.dwStreams; i++) {
+        if (AVIFileGetStream(pfile, &stream, 0, i) != 0)
+            break;
+        if (AVIStreamInfoA(stream, &si, 0x8c) != 0)
+            continue;
+        if (si.fccType == 0x73646976) {
+            video = stream;
+            AVIStreamAddRef(stream);
+            frames = (int)si.dwLength;
+            fps = (int)(si.dwRate / si.dwScale);
+            w = si.rcFrame.right - si.rcFrame.left;
+            h = si.rcFrame.bottom - si.rcFrame.top;
+        }
+    }
+    if (!video) {
+        AVIFileRelease(pfile);
+        if (g_avi_open_count == 0)
+            AVIFileExit();
+        return 0;
+    }
+    clip = (AdvisorClip*)HeapAlloc_w(0x28);
+    if (!clip) {
+        AVIStreamRelease(video);
+        AVIFileRelease(pfile);
+        if (g_avi_open_count == 0)
+            AVIFileExit();
+        return 0;
+    }
+    clip->frames = frames;
+    clip->fps = fps;
+    clip->width = w;
+    clip->height = h;
+    clip->file = pfile;
+    clip->getframe = 0;
+    clip->video = video;
+    clip->stop = 0;
+    clip->tick = 0;
+    g_avi_open_count++;
+    return clip;
+}
+
+/* Bring up the six AD_*.avi clips and start on blink. */
+// FUNCTION: LEGOLAND 0x00444090
+void InitAdvisorMovies(void)
+{
+    InitAdvisorBmi();
+    g_ad_blink = LoadAdvisorMovie(kAdBlink);
+    if (g_ad_blink)
+        g_ad_blink->tick = AdvisorMovieTick;
+    g_ad_lr = LoadAdvisorMovie(kAdLR);
+    if (g_ad_lr)
+        g_ad_lr->tick = AdvisorMovieTick;
+    g_ad_phone = LoadAdvisorMovie(kAdPhone);
+    if (g_ad_phone)
+        g_ad_phone->tick = AdvisorMovieTick;
+    g_ad_phone_gesture = LoadAdvisorMovie(kAdPhoneGesture);
+    if (g_ad_phone_gesture)
+        g_ad_phone_gesture->tick = AdvisorMovieTick;
+    g_ad_phone_down = LoadAdvisorMovie(kAdPhoneDown);
+    if (g_ad_phone_down)
+        g_ad_phone_down->tick = AdvisorMovieTick;
+    g_ad_wobble = LoadAdvisorMovie(kAdWobble);
+    if (g_ad_wobble)
+        g_ad_wobble->tick = AdvisorMovieTick;
+    StartAdvisorClip(g_ad_blink);
+}
 
 /* Clear the first dword of the report-state block. */
 // FUNCTION: LEGOLAND 0x004441f0

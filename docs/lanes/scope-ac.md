@@ -5,8 +5,9 @@ Worktree `.worktrees/scope-ac`.
 
 ## Status
 
-**11 of 15 exact.** Remaining: `PutOne3DBlokeOnRide` (WIP, size-exact),
-`LoadAltTextures`, `LoadAdvisorMovie` (0x00443bd0), `InitAdvisorMovies`.
+**12 of 15 exact.** Remaining: `PutOne3DBlokeOnRide` (WIP, size-exact,
+34 mism — track in ESI not EDI), `LoadAltTextures` (not started),
+`LoadAdvisorMovie` (WIP, 123i/379B vs 381B, OpenMovie-shaped).
 
 ## Per-function results
 
@@ -17,14 +18,14 @@ Worktree `.worktrees/scope-ac`.
 | `0x004427e0` | `ReadAltLine` | 57 | 100% | [OK] | FUNCTION |
 | `0x00442860` | `FindAltNameIndex` | 45 | 100% | [OK] | FUNCTION |
 | `0x00442980` | `LoadAltTextures` | 229 | — | — | not started |
-| `0x00443bd0` | `LoadAdvisorMovie` | 123 | — | — | not started |
+| `0x00443bd0` | `LoadAdvisorMovie` | 123 | ~82% | WIP | WIP (122 mism, −2B) |
 | `0x00443d50` | `FreeAdvisorClip` | 22 | 100% | [OK] | FUNCTION |
 | `0x00443d90` | `InitAdvisorBmi` | 5 | 100% | [OK] | FUNCTION |
 | `0x00443dc0` | `StartAdvisorClip` | 33 | 100% | [OK] | FUNCTION |
 | `0x00443f90` | `GetAdvisorClipByPose` | 17 | 100% | [OK] | FUNCTION |
 | `0x00443fe0` | `NextAdvisorPose` | 15 | 100% | [OK] | FUNCTION |
 | `0x00444020` | `AdvisorMovieTick` | 17 | 100% | [OK] | FUNCTION |
-| `0x00444090` | `InitAdvisorMovies` | 51 | — | — | not started |
+| `0x00444090` | `InitAdvisorMovies` | 51 | 100% | [OK] | FUNCTION |
 | `0x00444150` | `KillAdvisorMovies` | 46 | 100% | [OK] | FUNCTION |
 | `0x004441f0` | `ClearReportState` | 2 | 100% | [OK] | FUNCTION |
 
