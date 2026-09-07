@@ -305,15 +305,33 @@ void LFPiece_RemoveCommon(void* a, BPosW sq, void* c,
     LFRun_RemovePiece(piece->run, piece);
 }
 
+static __inline void LFAdd_StampAndPlace(Pos* p, unsigned int x, int y,
+                                         RideDef* def, Footprint* f,
+                                         RideElem* e)
+{
+    p->x = (int)x;
+    p->y = y;
+    def->footprint = *f;
+    AddBasicObject(e, p);
+}
+
+static __inline void LFCommit_Stamp(EditCursorRec* c, int x, int y,
+                                    Footprint* fp)
+{
+    c->x = x;
+    c->y = y;
+    c->footprint = *fp;
+}
+
 /* =========================================================================
  * 0x0040d900 -- SHARED ADD.  Allocate, stamp the square, run the class
  * geom/probe/place/shape callbacks, join the first neighbour's run (count
  * +3) and AddBasicObject.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x0040d900  (draft)
-void LFPiece_AddCommon(BPos sq, Footprint* fp, RideElem* elem,
+// FUNCTION: LEGOLAND 0x0040d900
+void LFPiece_AddCommon(unsigned int sq, Footprint* fp, RideElem* elem,
                        void (*place)(LFPiece* p),
-                       void (*geom)(BPos sq, LFGeom* out),
+                       void (*geom)(unsigned int sq, LFGeom* out),
                        void (*shape)(LFPiece* p, LFPiece** ends))
 {
     LFPiece*  piece;
@@ -322,13 +340,13 @@ void LFPiece_AddCommon(BPos sq, Footprint* fp, RideElem* elem,
     LFRun*    run;
     LFPiece*  ends[4];
     RideDef*  def;
-    Pos       p;
+    int       py;
 
     piece = LFPiece_Alloc();
     if (!piece)
         return;
-    piece->sq.b.x = sq.x;
-    piece->sq.b.y = sq.y;
+    piece->sq.b.x = (unsigned char)sq;
+    piece->sq.b.y = *((unsigned char*)&sq + 1);
     piece->def = elem->data;
     piece->f28 = 0;
     geom(sq, &g);
@@ -340,11 +358,10 @@ void LFPiece_AddCommon(BPos sq, Footprint* fp, RideElem* elem,
     LFNb_KeepRun(run, nb);
     place(piece);
     LFRun_AddPiece(run, piece);
+    py = *(int*)((char*)&sq + 1);
     def = elem->data;
-    def->footprint = *fp;
-    p.x = (unsigned char)sq.x;
-    p.y = (unsigned char)sq.y;
-    AddBasicObject(elem, &p);
+    py &= 0xff;
+    LFAdd_StampAndPlace((Pos*)ends, sq &= 0xff, py, def, fp, elem);
     shape(piece, ends);
     LFTrack_LinkEnds(ends, nb);
     LFTrack_ReshapeEnds(ends, nb);
@@ -370,12 +387,12 @@ void LFTrack_CommitPlacement(LFPiece** nb, EditCursorRec* c)
     BPos           sq2;
     BPos           sq3;
 
-    mask = LFTrack_NeighbourMask(nb);
-    g_lf_commit_a = 0;
-    g_lf_commit_b = 0;
-    c->next = &g_lf_place_cursor_a;
-    i = 0;
     cur = 0;
+    mask = LFTrack_NeighbourMask(nb);
+    g_lf_commit_a = (int)cur;
+    g_lf_commit_b = (int)cur;
+    c->next = &g_lf_place_cursor_a;
+    i = (int)cur;
     do {
         if (cur == 0)
             cur = &g_lf_place_cursor_a;
@@ -385,26 +402,25 @@ void LFTrack_CommitPlacement(LFPiece** nb, EditCursorRec* c)
         }
         if (mask & 1) {
             LFPiece_QueryRect(nb[0], &fp0, &sq0);
-            cur->x = (unsigned char)sq0.x;
-            cur->y = (unsigned char)sq0.y;
+            cur->x = *(int*)&sq0 & 0xff;
+            cur->y = *(int*)((char*)&sq0 + 1) & 0xff;
             cur->footprint = *fp0;
             mask &= ~1;
         } else if (mask & 4) {
             LFPiece_QueryRect(nb[1], &fp1, &sq1);
-            cur->y = (unsigned char)sq1.y;
-            cur->x = (unsigned char)sq1.x;
-            cur->footprint = *fp1;
+            LFCommit_Stamp(cur, *(int*)&sq1 & 0xff,
+                           *(int*)((char*)&sq1 + 1) & 0xff, fp1);
             mask &= ~4;
         } else if (mask & 0x10) {
             LFPiece_QueryRect(nb[2], &fp2, &sq2);
-            cur->x = (unsigned char)sq2.x;
-            cur->y = (unsigned char)sq2.y;
+            cur->x = *(int*)&sq2 & 0xff;
+            cur->y = *(int*)((char*)&sq2 + 1) & 0xff;
             cur->footprint = *fp2;
             mask &= ~0x10;
         } else if (mask & 0x40) {
             LFPiece_QueryRect(nb[3], &fp3, &sq3);
-            cur->x = (unsigned char)sq3.x;
-            cur->y = (unsigned char)sq3.y;
+            cur->x = *(int*)&sq3 & 0xff;
+            cur->y = *(int*)((char*)&sq3 + 1) & 0xff;
             cur->footprint = *fp3;
             mask &= ~0x40;
         }
@@ -430,9 +446,6 @@ void LFPiece_UpdateCommon(RideDef* def, int screen, int mode, Footprint* fp,
     BPos      sq;
     LFGeom    g;
     LFPiece** nb;
-    LFRun*    run;
-    int       cost;
-    int       people;
     Rect      r;
 
     g_edit_cursor.footprint = *fp;
@@ -445,30 +458,33 @@ void LFPiece_UpdateCommon(RideDef* def, int screen, int mode, Footprint* fp,
     geom(sq, &g);
     LFGeom_ApplyCursors(&g);
     g_8003f0 = &g_lf_geom_cursor_a;
-    cost = GetObjCost(def);
-    if (GetBrickCount() < cost)
-        SetCursorError(&g_edit_cursor, 2);
+    {
+        int cost = GetObjCost(def);
+        if (GetBrickCount() < cost)
+            SetCursorError(&g_edit_cursor, 2);
+    }
     if (CursorIsValid(&g_edit_cursor)) {
         sq.x = (unsigned char)g_mapref.x;
         sq.y = (unsigned char)g_mapref.y;
         geom(sq, &g);
         LFGeom_ProbeNeighbours(&g, &nb);
         LFNb_DropFull(nb);
-        if (LFNb_Count(nb) == 0) {
-            SetCursorError(&g_edit_cursor, 0xe);
-        } else {
+        if (LFNb_Count(nb) != 0) {
             ResetCursorFootprint(&g_edit_cursor);
-            run = LFNb_FirstRun(nb);
-            LFNb_KeepRun(run, nb);
-            if (LFNb_Count(nb) == 0) {
-                SetCursorError(&g_edit_cursor, 0xe);
-            } else if (probe(nb) == 0) {
-                SetCursorError(&g_edit_cursor, 0xd);
+            LFNb_KeepRun(LFNb_FirstRun(nb), nb);
+            if (LFNb_Count(nb) != 0) {
+                if (probe(nb)) {
+                    ResetCursorFootprint(&g_edit_cursor);
+                    LFTrack_CommitPlacement(nb,
+                        ((EditCursorRec*)g_8003f0)->next);
+                } else {
+                    SetCursorError(&g_edit_cursor, 0xd);
+                }
             } else {
-                ResetCursorFootprint(&g_edit_cursor);
-                LFTrack_CommitPlacement(nb,
-                    ((EditCursorRec*)g_8003f0)->next);
+                SetCursorError(&g_edit_cursor, 0xe);
             }
+        } else {
+            SetCursorError(&g_edit_cursor, 0xe);
         }
     }
     if (CursorIsValid(&g_edit_cursor)) {
@@ -476,11 +492,14 @@ void LFPiece_UpdateCommon(RideDef* def, int screen, int mode, Footprint* fp,
         r.top    = g_mapref.y + g_edit_cursor.footprint.v[1];
         r.right  = g_mapref.x + g_edit_cursor.footprint.v[2];
         r.bottom = g_mapref.y + g_edit_cursor.footprint.v[3];
-        people = CheckForPeople(&r);
-        if (people == -1)
+        switch (CheckForPeople(&r)) {
+        case -1:
             SetCursorError(&g_edit_cursor, 4);
-        else if (people == 1)
+            break;
+        case 1:
             SetCursorError(&g_edit_cursor, 3);
+            break;
+        }
     }
     PropagateCursorStatus(&g_edit_cursor);
 }

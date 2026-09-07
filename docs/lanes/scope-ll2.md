@@ -10,7 +10,7 @@ Brief: `docs/SCOPE_LL2_logflume_drop.md`.
 | 0x0040d420 | LFGeom_ApplyCursors | 73 | 100 | [OK] | FUNCTION |
 | 0x0040d520 | LFTrack_CommitPlacement | 128 |  |  | WIP |
 | 0x0040d6f0 | LFPiece_UpdateCommon | 151 |  |  | WIP (ESCAPES) |
-| 0x0040d900 | LFPiece_AddCommon | 83 |  |  | WIP (23 mismatch, frame 0x40 vs 0x38) |
+| 0x0040d900 | LFPiece_AddCommon | 83 | 100 | [OK] | FUNCTION |
 | 0x0040da10 | LFTrack_UnlinkNeighbours | 61 | 100 | [OK] | FUNCTION |
 | 0x0040db00 | LFPiece_RemoveCommon | 61 | 100 | [OK] | FUNCTION |
 
