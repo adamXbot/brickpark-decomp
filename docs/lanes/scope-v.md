@@ -1122,3 +1122,22 @@ discards after allocation once the store is narrowed. Measured
 `(unsigned char)((bx << 8) >> 8)` costs two instructions. No dword expression
 on a coordinate survives to allocation and dies afterwards. The residual
 stands as the fifth pass stated it.
+
+### Sixth check, continued — the tie-break at instruction 79 (integrator)
+
+Two ways the colouring could be moved without touching the emitted code were
+measured negative (`/tmp/svclear6_*`):
+
+- **A register made to look busy at 79–83** so that y cannot transit through
+  ecx and x is evicted to ebp as in the original: reading `saved_def =
+  g_sel_def` earlier in the block moves its load to where it is read (first
+  difference 73–79, no sinking); keeping `c->obj` live for the query call
+  costs a reload and the frame (182 instructions).
+- **Pinning `next` in ebx while both coordinates need bytes**, which would
+  give y edx and x ebp with the copy: declaration order of `next`/`c`, a
+  `while` loop with the explicit `c = next`, `next = c; next = GetNext(next)`
+  in case 2, and `default:` for case 2 all leave row four (or worse); the
+  row-four body is robust to how `next`'s web is spelled.
+
+Current best bodies are unchanged: the retained 24-strict body (colouring
+right, byte sources mirrored) and `vy_c` (structure right, colouring flipped).
