@@ -677,11 +677,10 @@ void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 /* Alloc a triangular pair table, evaluate `eval` at n+1 samples centred on
  * a, then combine adjacent pairs down the rows.  Returns the row-pointer
  * table at 0x004d88cc. */
-/* Residual: 85i, 204B vs 212B, 29 mismatches. `int count = n` puts n in
- * ebx (original first-insn). Missing the rows stack home that overwrites
- * the dead `a` slot (`mov [esp+0x20],ebx` / dec / store). volatile rows
- * emits the home but steals ebx. Address-taken rows CSE away. */
-// WIP-FUNCTION: LEGOLAND 0x0041f3e0  (95%, rows stack home vs ebx CSE)
+/* Latch `left` must be block-local after the inner combine: load the dead
+ * `a` slot, then count--, row++, dec, store. A function-scope `left` steals
+ * ebx/ebp (65%). `--*(volatile int*)&a` after the pair uses ecx (5 mis). */
+// FUNCTION: LEGOLAND 0x0041f3e0
 void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
                           float a, float b)
 {
@@ -716,17 +715,24 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
         } while (i <= count);
     }
     if (count >= 1) {
-        int rows = count;
         row = &g_span_rows[1];
+        *(volatile int*)&a = count;
         do {
             for (i = 0; i < count; i++) {
                 void** prev = (void**)row[-1];
                 void** cur = (void**)row[0];
                 ops->combine(prev[i + 1], prev[i], cur[i]);
             }
-            count--;
-            row++;
-        } while (--rows);
+            {
+                int left = *(volatile int*)&a;
+                count--;
+                row++;
+                left--;
+                *(volatile int*)&a = left;
+                if (left == 0)
+                    break;
+            }
+        } while (1);
     }
     return g_span_rows;
 }

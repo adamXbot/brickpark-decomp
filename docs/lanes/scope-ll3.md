@@ -19,15 +19,15 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041d210 | TrackFitFindPartners | 60 | 100 | [OK] | FUNCTION |
 | 0x0041f2b0 | Raster_ClipAgainstPlanes | 55 | 100 | [OK] | FUNCTION |
 | 0x0041d950 | Route_SetTrainAt | 66 | 100 | [OK] | FUNCTION |
+| 0x0041f3e0 | Span_FillEvalTable | 85 | 100 | [OK] | FUNCTION |
 | 0x00411fa0 | LFQueue_StepRider | 74 | 72 | 52 mis | WIP |
 | 0x0041db90 | Route_GetMassAndPower | 77 | 70 | 51 mis | WIP |
 | 0x0041ee40 | TrackPlace_TestSquare | 79 | 96 | 60 mis | WIP |
 | 0x0041ef60 | Raster_ClipPoly | 80 | 75 | 47 mis | WIP |
-| 0x0041f3e0 | Span_FillEvalTable | 85 | 95 | 29 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
 | 0x0041f050 | Span_ClipPlane | 179 | 9 | 178 mis ESCAPES | WIP |
 
-**12 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
+**13 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
 ## Names
 
@@ -114,14 +114,17 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
 - **TrackPlace_TestSquare** (WIP): do-while over the PlaceRect list
   (first node is dereferenced with no NULL test — original bug). x = sx+x0
   still emits `mov esi,[x0] / add esi,eax` instead of `mov esi,eax /
-  add esi,edx` (191B vs 192B). Volatile x0, live-sx latch, and a `Pos`
-  wrapper all scramble allocation (53–55%) for a size-exact 192B.
+  add esi,edx` (191B vs 192B). Extra temps, nested x0/x1, textual
+  `ctx->x0`, `lim = sx; lim += x1`, volatile x0, live-sx latch, and a
+  `Pos` wrapper all stay 96% or scramble (53–55%).
 - **Raster_ClipPoly** (WIP): `if (mask == 0xf)` exiles the early-out
   (`je` vs original `jne` fall-through). switch(flags) gives the dec/je
   chain and esi/edi, but cases 1 and 2 (both `planes=2`) share one call
   tail. Original duplicates all three. Signed-char nibble tests match
   `cmp dl,3 / jge` but move mask into ebx. A `goto` early-out produces
   three copies (79i) but still `je` and 71 audit mismatches.
+  `if (mask != 0xf) goto work` + `(char)` nibbles + case-2 `flags` as
+  nplanes drops to 37%. An if-chain is 65 mis.
 - **BsRoute_Trace** (**FLOOR**): 130i/339B byte-exact, 105 mismatches.
   Identical NG22 phase-order ALLOCATION as `JungleCruise_TraceRoute`
   (jcroute.c / LEVERS NG22). Original: esi=x, edi=y, ebp=x1, ebx=y1, `w`
@@ -129,11 +132,12 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   to a loop *before* allocation and ranks the dereferenced pointers
   first. Dead trailing statements restore the int ranking but emit a
   real call instead of the loop. No source spelling has both. Retired.
-- **Span_FillEvalTable** (WIP): `int count = n` first puts n in ebx
-  (78/82 = 95%). Missing the rows counter that overwrites the dead `a`
-  slot (`mov [esp+0x20],ebx` / `dec eax` / store) — 204B vs 212B.
-  `volatile int rows` emits the home but steals ebx (78%). Address-taken
-  rows and `*(int*)&a = count` CSE back to the 95% form.
+- **Span_FillEvalTable**: `int count = n` first puts n in ebx.
+  `*(volatile int*)&a = count` homes the rows counter on the dead `a`
+  slot. Latch is a **block-local** `left = *(volatile int*)&a` then
+  `count--; row++; left--; store` so the load is `mov eax,[slot]`
+  interleaved with `dec ebx / add edi,4`. Function-scope `left` steals
+  ebx (65%). `--*(volatile int*)&a` after the pair uses ecx (5 mis).
 - **Route_GetMassAndPower** (WIP): one struct of `{f24, pos, sample[21]}`
   restores the 0x6c frame. rt still in ebp. Original stores the heading
   sum of squares over the dead `power` argument slot (`fstp [esp+0x88]`).
