@@ -210,6 +210,11 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Hist `edx=*mass; ecx=i&0x3f`: named `m`/`i`/`slot` become `fld`/`fstp`
   (64/77); int-bitcast, post-inc, and SetSlope do-while keep the ecx/edx
   swap. Best remains 65/77. Trace / ClipPlane not touched.
-- **Span_ClipPlane** (WIP): 179i, ESCAPES. Need the original's 0x2c frame,
-  `in++` cursor in the latch, and the three-way sign classify
-  (`(prev_sign>>1)|next_sign` against 0x80000000 / 0xC0000000 / 0x40000000).
+- **Span_ClipPlane** (WIP): 179i, ESCAPES, frame 0x24 vs 0x2c. Reconstruct
+  notes (2026-09-08): trailing early-out after `in[n]=in[0]`; `in++` then
+  `left=n` with latch `in+=4; dec left; jne`; signed classify
+  `sar1/and 0x40000000/or` vs 0x80000000 / 0xC0000000 / 0x40000000; divide
+  is `fld` of bit-abs (`and 0x7fffffff`), not fild/abs. Prologue must load
+  cursor, then **ebx=n**, then `*cursor`→edx — deref-first steals ebx and
+  blocks 0x2c homes. Frame-grow / in++ / fld variants alone stayed 2/179.
+  Next: colour `ebx=n` before deref. Mass/Trace not touched this pass.
