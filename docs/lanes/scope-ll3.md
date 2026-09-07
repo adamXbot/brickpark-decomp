@@ -177,7 +177,19 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   `i` then `float m=*mass` uses `fld`/`fstp` for the ring store (64/77).
   FindFreeSeat's `lea edi,[eax+0x70]` has a dead eax after the lea;
   this body's eax must stay live for `[eax+0x24]` / `g_route_eval=eax`,
-  which is exactly the dest-coalesce shape. Trace / ClipPlane not touched.
+  which is exactly the dest-coalesce shape.
+  **Live-eax sibling is SetTrainAt / PositionRouteCars, not FindFreeSeat.**
+  Both already exact in this file / schoolcar.c: `mov ebx,[eax+0x158]`
+  (`n = rt->head.next`) then `lea ebp,[eax+0x70]` / `mov [eax+0x24],ecx`.
+  Mini-morphs emit the wanted `lea ebx,[eax+0x70]` while eax stays p only
+  when n is *used before* Span_EvalRange (extra PlaceAndBind) or when a
+  simple body keeps nxt live in a callee-saved. On this 77i body the same
+  decls dest-coalesce again, or spill nxt (frame 0x70, 51/80). Pipelined
+  `n=nxt; nxt=n->next` loads `[eax+0x158]` into ebp but still
+  `mov ebx,eax / add ebx,0x70` (59/80); mass moves to edi. Immediate-use
+  is the real lea lever; Mass has no original call/push of n before
+  `mov eax,[f24]`. q-before-`add esp,4` still only with extra volatiles
+  or a pre-call q (ebp, 61/78). Trace / ClipPlane not touched.
 - **Span_ClipPlane** (WIP): 179i, ESCAPES. Need the original's 0x2c frame,
   `in++` cursor in the latch, and the three-way sign classify
   (`(prev_sign>>1)|next_sign` against 0x80000000 / 0xC0000000 / 0x40000000).

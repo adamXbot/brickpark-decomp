@@ -642,9 +642,13 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
  * in the dead power slot (`fstp [esp+0x88]`). Volatile reload into q
  * stops p/rt coalescing (mass stays ebp). Still `mov ebx,eax / add
  * ebx,0x70` vs `lea ebx,[eax+0x70]`, q load after `add esp,4` not
- * before, eax vs edx for the reload, hist ecx/edx swap. Typed p+1,
- * decl-init n, Mass_Head RTL, register n, and n-after-eval do not
- * emit `lea ebx,[eax+0x70]` while eax stays live for [eax+0x24]. */ 
+ * before, eax vs edx for the reload, hist ecx/edx swap.
+ * SetTrainAt/PositionRouteCars is the live-eax sibling (not FindFreeSeat):
+ * `lea ebp,[eax+0x70]` then `mov [eax+0x24],ecx` because `n=rt->head.next`
+ * occupies ebx first and `head` is pushed immediately. Mini-morphs emit
+ * `lea ebx,[eax+0x70]` only with an early use of n (extra PlaceAndBind)
+ * or a simple-body live nxt; on this body both spill or keep dest-coalesce
+ * (59–63%). FindFreeSeat's lea still has dead eax after the lea. */ 
 // WIP-FUNCTION: LEGOLAND 0x0041db90  (84%, lea ebx vs mov/add, q reload)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
