@@ -466,41 +466,60 @@ void Raster_BlitTextureShaded(int x, int y, int index, int shade)
 extern void* HeapAlloc_w(unsigned int size);                    /* 0x0049e4ff */
 extern void  HeapFree_w(void* p);                               /* 0x0049e4d0 */
 
-/* RESIDUAL (495 of 517 aligned; audit 521i/1609B vs 521i/1613B -- the
- * instruction COUNT already matches, and the strict mismatch of 391 is the
- * four-byte shortfall re-indexing everything after it).
+/* RESIDUAL (515 of 521 aligned; audit 521i/1613B vs 521i/1613B -- instruction
+ * and byte counts both exact).  Six mismatches, all the same one byte: the six
+ * `out->tris[n][k]` stores of the triangle-compaction loop (both arms of each
+ * component, original indices 455/459/469/473/483/487) address the row as
+ * `[edi + ecx]` -- the reloaded `out->tris` as SIB BASE and the stride-12
+ * induction variable `n*12` as INDEX -- where this build emits `[ecx + edi]`,
+ * the same two registers with the roles swapped.  Same length, same registers,
+ * same schedule; the SIB byte differs.
  *
- * FIRST DIVERGENCE at index 123, and 27 of the 29 real mismatches are the ONE
- * block that computes the cross product.  The original loads all FOUR integer
- * deltas onto the x87 stack in DEFINITION order and only then multiplies
- * across it -- `fild dx1 / fild dy1 / fild dx2 / fild dy2 / fmul st(3) /
- * fxch st(1) / fmul st(2) / fsubp st(1)` -- and pops the two survivors with a
- * bare `fstp st(0)` pair, which is the signature of four x87-resident values
- * whose live range ends there.  Our body evaluates the expression tree instead
- * (`fild dy2 / fild dx1 / fmulp / fild dy1 / fild dx2 / fmulp / fsubp`), which
- * is four instructions shorter, reads v[2] two instructions early, and folds
- * the sign test into `test dword ptr [mem], 0x80000000` where the original
- * loads it into eax first.
+ * THE CROSS-PRODUCT BLOCK IS CLOSED, and the lever is a BLOCK BOUNDARY, not a
+ * spelling of the expression.  The original's `fild dx1 / fild dy1 / fild dx2
+ * / fild dy2 / fmul st(3) / fxch st(1) / fmul st(2) / fsubp st(1)` plus the
+ * two dead `fstp st(0)` pops is the signature of four x87-ENREGISTERED float
+ * locals (exactly Raster_DrawLine's x/y/sx/sy above, whose four dead pops sit
+ * after its loop): VC6 forward-substitutes a single-use float local into its
+ * consumer ONLY within one basic block, and with the definitions and the
+ * product in different blocks it materialises each `fild` at the definition
+ * site, in declaration order, multiplies across the stack and kills the two
+ * values it cannot pop (they are not on top) at the end of the block -- which
+ * is why the pops land just before the `je`.  An empty `if (k) ;` between
+ * `dy2 = ...` and `area = ...` is the cheapest source of that boundary
+ * (docs/LEVERS.md SA07, the DrawPopUpMock empty test: an empty integer test
+ * is a block-split handle that costs no instructions); `if (i) ;`,
+ * `if (v[2]) ;`, `if (deadtris) ;` and
+ * `if (trimark[i]) ;` are byte-identical to it.  The boundary must sit AFTER
+ * all four deltas: after dy1 it is 505/520, after dx2 504/521, before dx1
+ * inert (491).  With the block split in place `float` deltas are required
+ * (the earlier `double` was a proxy that only bought scheduling), and `c`
+ * must be materialised AFTER dy1 -- either `c = &m->verts[v[2]]` assigned
+ * between dy1 and dx2 (this body) or `m->verts[v[2]].x - a->x` spelled inline
+ * (identical); `c` assigned with a and b before dx1 is 512/520.  The sign
+ * test's `mov eax,[area] / test eax,0x80000000` falls out of the same split.
+ * The forty-odd consumer-side spellings the previous note listed (types,
+ * operand orders, accumulators, named products, an inline four-float helper,
+ * `register`, a `Delta()` inline helper, an unreferenced label) are all
+ * inert because none of them creates a block boundary; do not re-run them.
  *
- * RULED OUT by measurement (score out of 517 in brackets): float deltas [490]
- * vs double [494] vs long double [494]; all six operand orders of the two
- * products, with and without parentheses [490-494 -- VC6 canonicalises them];
- * the four deltas as separate statements, as declaration initialisers, in an
- * inner scope, at function scope [466], or as int locals converted at the use
- * site [461]; two named product temporaries [486]; the accumulator spellings
- * `dy2 *= dx1; dy2 -= dx2*dy1` [496, but a contrived source] and
- * `dx1 *= dy2; dy1 *= dx2` [490]; a `static __inline float Cross2(...)` taking
- * the four as float parameters [487, and it folds the products to `fimul`];
- * the sign test as `*(int*)&area`, `*(unsigned*)&area`, a named int local, or
- * a float/int union [489-490].  Naming the three vertex POINTERS is worth +24
- * and, importantly, restores the whole body's ebx/esi/edi phase, so it stays.
- *
- * The remaining two mismatches are at index 374/376: the original computes the
- * vertex copy's destination as `dst_offset += out->verts` (offset in edi, base
- * in ecx) and ours as `out->verts += dst_offset`.  Both end in `add edi,ecx`
- * with the two roles swapped.
+ * THE SIX SIB BYTES are a store-address operand-rank difference this build
+ * did not reach.  Diagnostics: every LOAD through a 12-stride IV in this
+ * function (`m->tris[j][k]` in pass 2, `m->tris[i][k]` here) already emits
+ * `[ptr + iv]` and matches; every STORE this build emits puts the IV first,
+ * whichever IV it is (a diagnostic `out->tris[i]` on the primary counter,
+ * and `m->tris[n]` through the parameter, both keep the IV as base).  Inert,
+ * all 515: the counter as `n`, `j`, `k`, a block-scope `int t`, `unsigned t`;
+ * `for (i = 0, n = 0; ...)`; a `while` form; `((int*)out->tris)[n*3+k]`;
+ * `*(int*)((char*)out->tris + n*12 + 4k)`; a `TriIdx {a,b,c}` struct view;
+ * `*(out->tris[n] + k)`; `(*(out->tris + n))[k]`; declaration order of `n`
+ * and of `out`.  A user-level byte offset (`off += 12`) keeps the swap and
+ * costs 3 elsewhere (512).  A single store after the if/else join (value in
+ * `e`, or a ternary) is far worse (427/515) -- VC6 keeps ONE store with a
+ * join, so the original's per-arm stores with the value in eax in one arm
+ * and edi in the other are the source shape, as written here.
  */
-// WIP-FUNCTION: LEGOLAND 0x004227c0  (95.7%, 27 instructions in the cross-product block plus 2 in the vertex copy; first divergence at index 123)
+// WIP-FUNCTION: LEGOLAND 0x004227c0  (98.8%, 521/521 instructions and 1613/1613 bytes; six SIB base/index swaps on the triangle-compaction stores, indices 455-487)
 MeshDesc* Mesh_DropBackFaces(MeshDesc* m)
 {
     MeshDesc* out = 0;
@@ -536,7 +555,7 @@ MeshDesc* Mesh_DropBackFaces(MeshDesc* m)
             memset(vertmark, 0, nverts * 4);
             for (i = 0; i < m->ntris; i++) {
                 int        v[3];
-                double     dx1, dy1, dx2, dy2;
+                float      dx1, dy1, dx2, dy2;
                 float      area;
                 TrackVtx*  a; TrackVtx* b; TrackVtx* c;
 
@@ -550,12 +569,13 @@ MeshDesc* Mesh_DropBackFaces(MeshDesc* m)
                 }
                 a = &m->verts[v[0]];
                 b = &m->verts[v[1]];
+                dx1 = (float)(b->x - a->x);
+                dy1 = (float)(b->y - a->y);
                 c = &m->verts[v[2]];
-                dx1 = (double)(b->x - a->x);
-                dy1 = (double)(b->y - a->y);
-                dx2 = (double)(c->x - a->x);
-                dy2 = (double)(c->y - a->y);
-                area = (float)(dy2 * dx1 - dx2 * dy1);
+                dx2 = (float)(c->x - a->x);
+                dy2 = (float)(c->y - a->y);
+                if (k) ;                      /* block split: see RESIDUAL note */
+                area = dy2 * dx1 - dx2 * dy1;
                 if (*(int*)&area & 0x80000000) {
                     trimark[i] = 1;
                     deadtris++;

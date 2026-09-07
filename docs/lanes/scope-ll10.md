@@ -20,7 +20,7 @@ mesh back-face stripper — kept because the game was built without `/OPT:REF`.
 | 0x004225e0 | `CoasterModel_GetTextureName` | 8 | 100 | [OK] | FUNCTION |
 | 0x00422650 | `CoasterModel_SaveImages` | 31 | 100 | [OK] | FUNCTION |
 | 0x004227a0 | `CoasterModel_FreeImages` | 8 | 100 | [OK] | FUNCTION |
-| 0x004227c0 | `Mesh_DropBackFaces` | 521 | 95.7 | [WIP] | WIP-FUNCTION |
+| 0x004227c0 | `Mesh_DropBackFaces` | 521 | 98.8 | [WIP] | WIP-FUNCTION |
 | 0x00423060 | `CoasterShades_Free` | 7 | 100 | [OK] | FUNCTION |
 | 0x00423080 | `Raster_BlitTextureShaded` | 64 | 100 | [OK] | FUNCTION |
 | 0x00423750 | `Unref_00423750` | 1 | 100 | [OK] | FUNCTION |
@@ -224,35 +224,54 @@ divergence is recorded here and `unref2.c` names the field `npairs`.
   cross-product block's simultaneous demand, which lets the loop counter keep
   ebx (coalesced with the returned pointer) instead of being pushed out to
   esi, and that rotation was visible over ~80 instructions.
-* **Measured negative: VC6 will not be talked into loading four x87 leaves
-  before multiplying.** 0x004227c0's cross product emits `fild dx1 / fild dy1
-  / fild dx2 / fild dy2 / fmul st(3) / fxch st(1) / fmul st(2) / fsubp st(1)`
-  plus a dead `fstp st(0)` pair — four x87-resident values in DEFINITION
-  order, multiplied across the stack. Thirty-five spellings (float / double /
-  long double locals; all six operand orders of the two products with and
-  without parentheses; separate statements, declaration initialisers, an inner
-  scope, function scope, int locals converted at the use site; two named
-  product temporaries; three accumulator forms; a `static __inline` four-float
-  helper; four spellings of the sign test) all produce the expression-order
-  form `fild dy2 / fild dx1 / fmulp / fild dy1 / fild dx2 / fmulp / fsubp`,
-  four instructions shorter. `double` deltas beat `float` by 4 and the vertex
-  pointers by 24; the last 27 are unreached. See the note above the marker for
-  the full list.
+* **An empty `if` between four float definitions and their consumer pins the
+  `fild`s at the definition sites -- VC6 forward-substitutes a single-use
+  float local only within one basic block.** 0x004227c0's cross product emits
+  `fild dx1 / fild dy1 / fild dx2 / fild dy2 / fmul st(3) / fxch st(1) / fmul
+  st(2) / fsubp st(1)` plus a dead `fstp st(0)` pair -- the signature of four
+  x87-ENREGISTERED float locals, the same shape as Raster_DrawLine's
+  `x/y/sx/sy` (four dead pops after its loop). Forty-odd consumer-side
+  spellings (float / double / long double; all six operand orders with and
+  without parentheses; separate statements, initialisers, inner and function
+  scope; int locals converted at the use site; named products; three
+  accumulator forms; a `static __inline` four-float helper; a `Delta()` inline
+  helper; `register`; four spellings of the sign test; an unreferenced label)
+  all give the expression-order `fild / fild / fmulp / fild / fild / fmulp /
+  fsubp`, four instructions shorter, because none of them splits the block.
+  `if (k) ;` after the fourth delta (LEVERS SA07's zero-cost empty integer
+  test) closes the whole block, 495 -> 515 of 521, and makes the instruction
+  and byte counts exact; `if (i)`, `if (v[2])`, `if (deadtris)` and
+  `if (trimark[i])` are byte-identical to it. The boundary must follow ALL
+  four deltas (after dy1: 505; after dx2: 504; before dx1: inert), `float` is
+  then the right type (`double` was a scheduling proxy), and the third vertex
+  pointer must be materialised after dy1 (assigned between dy1 and dx2, or the
+  index spelled inline -- identical; assigned with a and b before dx1 costs 3).
+  The `mov eax,[area] / test eax,0x80000000` sign test falls out of the same
+  split.
+* **Measured negative: a STORE's SIB base/index order is not reachable from the
+  counter's spelling.** The last six mismatches of 0x004227c0 are the six
+  `out->tris[n][k]` stores addressed `[edi + ecx]` (reloaded `out->tris` as
+  base, stride-12 IV as index) where this build emits `[ecx + edi]`; same
+  length, registers and schedule. Every LOAD through a 12-stride IV in the
+  function already emits `[ptr + iv]` and matches; every store this build emits
+  puts the IV first whichever IV or pointer it is (diagnostics: the primary
+  counter `out->tris[i]`, the parameter `m->tris[n]`). Inert at 515: the
+  counter's name, scope (block `int t`) and signedness; `for (i = 0, n = 0;)`;
+  a `while` form; `((int*)out->tris)[n*3+k]`; `*(int*)((char*)out->tris +
+  n*12 + 4k)`; a three-int struct view; two pointer-arithmetic spellings;
+  declaration order of `n` and `out`. A user byte offset (`off += 12`) keeps
+  the swap and costs 3. A single store after the if/else join (value in `e`,
+  or a ternary) is 427/515: VC6 keeps one store with a join, so the original's
+  per-arm stores (value in eax in one arm, edi in the other) are the source
+  shape.
 
 ## What a stronger model could still move
 
-`Mesh_DropBackFaces` 0x004227c0 is at 495/517 aligned with the instruction
-count already equal (521) and four bytes short. Two leads:
-
-1. The cross-product block. The four deltas behave like values with a
-   definition point VC6 may not sink — the two dead `fstp st(0)`s say their
-   live range ends there rather than being consumed by the multiplies. A
-   source construct that pins an FP definition without storing it (something
-   about how the four temporaries are produced, not about the expression that
-   consumes them) is the missing piece; every consumer-side rewrite has been
-   measured and is listed above.
-2. Two instructions at index 374/376: the original builds the vertex copy's
-   destination as `dst_offset += out->verts` and ours as
-   `out->verts += dst_offset`. Both end in `add edi,ecx` with the roles
-   swapped; a different spelling of `out->verts[n] = m->verts[i]` should flip
-   it.
+`Mesh_DropBackFaces` 0x004227c0 is at 515/521 aligned with the instruction
+count (521) and byte count (1613) both exact. The residual is six SIB bytes:
+the triangle-compaction stores take the reloaded `out->tris` as base and the
+stride-12 IV as index, this build the reverse. It is an operand-rank decision
+inside VC6's store-address formation (loads through the same IV shape already
+match), and the spellings listed above under "measured negative" did not move
+it. The cross-product block that was this function's headline residual is
+closed by the block-split lever and should not be reopened.
