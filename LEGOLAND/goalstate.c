@@ -45,9 +45,11 @@ typedef struct Bloke {
     unsigned short step;           /* +0x10 */
     char           pad12[0x14 - 0x12];
     void*          current_item;   /* +0x14 */
-    char           pad18[0x24 - 0x18];
+    void*          last_elem;      /* +0x18  last attraction Elem* */
+    char           pad1c[0x24 - 0x1c];
     Pos            target;         /* +0x24 */
-    char           pad2c[0x35 - 0x2c];
+    Pos            saved;          /* +0x2c  ride-route destination */
+    char           pad34[0x35 - 0x34];
     unsigned char  b35;            /* +0x35 */
     char           pad36[0x58 - 0x36];
     int            seat_arg;       /* +0x58  third JoinSeatList arg */
@@ -63,7 +65,8 @@ typedef struct Bloke {
     unsigned char  f73;            /* +0x73  LeavePark raw angle scratch */
     char           pad74[0x7a - 0x74];
     short          mood;           /* +0x7a */
-    char           pad7c[0x82 - 0x7c];
+    char           pad7c[0x81 - 0x7c];
+    unsigned char  name_letter;    /* +0x81  published to g_cur_bloke_f81 */
     unsigned char  stuck;          /* +0x82  SuggestNextMove fail streak */
     char           pad83[0x98 - 0x83];
     unsigned char  path[0x14];     /* +0x98  CalcMoveLine scratch */
@@ -84,7 +87,9 @@ typedef struct SeatOwner {
     int       base_y;              /* +0x10 */
     char      pad14[0x2e - 0x14];
     short     rider_capacity;      /* +0x2e */
-    char      pad30[0x40 - 0x30];
+    char      pad30[0x3a - 0x30];
+    short     mood_scale;          /* +0x3a  AdjustMood scale */
+    char      pad3c[0x40 - 0x3c];
     int       exit_oy;             /* +0x40  leave-walk y offset */
     int       off_x;               /* +0x44  entrance approach offset */
     int       off_y;               /* +0x48 */
@@ -118,8 +123,20 @@ typedef struct MapHdr {
 
 typedef struct Elem {
     char  pad00[0x0c];
-    void* data;                    /* +0x0c  ObjDef* */
+    void* data;                    /* +0x0c  ObjDef* / SeatOwner* */
+    char  pad10[0x1c - 0x10];
+    int   flags;                   /* +0x1c  bit 0x100000 = queue-join style */
 } Elem;
+
+typedef struct BytePos {
+    unsigned char x;
+    unsigned char y;
+} BytePos;
+
+typedef struct InstFlags {
+    char           pad00[0x0c];
+    unsigned short flags;          /* +0x0c */
+} InstFlags;
 
 extern char* g_bloke_msg_slot[8];          /* 0x004b8348 */
 extern char  g_bloke_msg_bank[];           /* 0x006661cc  8 x 100-byte rows */
@@ -158,6 +175,28 @@ extern int  g_visitor_count;                                         /* 0x006661
 extern const char g_fmt_stuck_ptp[];                                 /* 0x004b8434 */
 extern const char g_fmt_wandering[];                                 /* 0x004b8424 */
 extern const char g_fmt_kill_minifig[];                              /* 0x004b840c */
+
+extern void BuildObjInfoList(void);                                  /* 0x00481200 */
+extern void CalculateRideCodes(Bloke* b);                            /* 0x004815e0 */
+extern void ResetBestPtr(void);                                      /* 0x00481690 */
+extern int  ShuffleObjKeys(Pos* out_pos, void** out_obj);            /* 0x00481610 */
+extern int  Calc_Item_Attractiveness(SeatOwner* item, Bloke* b, int viewing); /* 0x004814c0 */
+extern int  GetBlokeNum(Bloke* b);                                   /* 0x00482fb0 */
+extern int  GetBlokeCounter(SeatOwner* item, int idx);               /* 0x00480ee0 */
+extern void IncrementBlokeCounter(SeatOwner* item, int idx);         /* 0x00480ec0 */
+extern MapCell* GetNextObjectMatching(MapCell* c, void* obj);        /* 0x0045a940 */
+extern int  IsObjectRunning(SeatOwner* cls, BytePos* at);            /* 0x0044f360 */
+extern InstFlags* GetInstanceOfClass(void* cls, BytePos* key);       /* 0x0048a0c0 */
+extern int  AdjustMood(Bloke* b, int event, int scale);              /* 0x00482df0 */
+extern int  rand(void);                                              /* 0x0049e4b2 */
+extern const char g_fmt_just_been[];                                 /* 0x004b858c */
+extern const char g_fmt_not_worth[];                                 /* 0x004b856c */
+extern const char g_fmt_ill_go[];                                    /* 0x004b8554 */
+extern const char g_fmt_go_home[];                                   /* 0x004b8524 */
+extern const char g_fmt_ride_full[];                                 /* 0x004b8500 */
+extern const char g_fmt_not_working[];                               /* 0x004b84d4 */
+extern const char g_fmt_going_on[];                                  /* 0x004b84bc */
+extern const char g_fmt_cant_get_on[];                               /* 0x004b84a0 */
 
 int JoinSeatList(Bloke* bloke, SeatOwner* owner, int seat_arg);
 
@@ -604,5 +643,255 @@ void BlokeAction_EnterPark(Bloke* b)
         b->flags &= ~8;
         NewLongTermAction(b, 6);
         break;
+    }
+}
+
+/* Long-term action table slot 0x06: pick a ride, walk to it, join seat list.
+ * Frame 0x78: {obj, uid, pad, next, msg[100]}. ebx=&saved/&world, edi=more,
+ * ebp from case-1 def. Residuals: and edx,0xf6/0xfc vs and dl (same family as
+ * LeavePark); case-10 post-SeatListFull counter/mood tail sharing. */
+// WIP-FUNCTION: LEGOLAND 0x0044f610
+void BlokeAction_PickRide(Bloke* b)
+{
+    struct {
+        void*          obj;
+        unsigned short uid;
+        unsigned short _u;
+        int            _pad;
+        Pos            next;
+        char           msg[100];
+    } fr;
+    Pos* dest;
+    int more;
+
+    g_cur_bloke_f81 = b->name_letter;
+
+    switch (b->action) {
+    case 0:
+        BuildObjInfoList();
+        CalculateRideCodes(b);
+        ResetBestPtr();
+        dest = &b->saved;
+        if (ShuffleObjKeys(dest, &fr.obj) == 0)
+            goto set_action_2;
+        more = 1;
+        do {
+            if (b->last_elem == ((SeatOwner*)fr.obj)->elem) {
+                sprintf(fr.msg, g_fmt_just_been, ((SeatOwner*)fr.obj)->name);
+                FormatBlokeMessage(fr.msg);
+            } else if (Calc_Item_Attractiveness((SeatOwner*)fr.obj, b, 0) > 10) {
+                sprintf(fr.msg, g_fmt_ill_go,
+                        Calc_Item_Attractiveness((SeatOwner*)fr.obj, b, 0),
+                        ((SeatOwner*)fr.obj)->name);
+                FormatBlokeMessage(
+                    (b->current_item = ((SeatOwner*)fr.obj)->elem, fr.msg));
+                b->action = 1;
+                b->stuck = 0;
+                if (more)
+                    return;
+                break;
+            } else {
+                sprintf(fr.msg, g_fmt_not_worth, ((SeatOwner*)fr.obj)->name);
+                FormatBlokeMessage(fr.msg);
+                if (!GetBlokeCounter((SeatOwner*)fr.obj, GetBlokeNum(b)))
+                    IncrementBlokeCounter((SeatOwner*)fr.obj, GetBlokeNum(b));
+            }
+            more = ShuffleObjKeys(dest, &fr.obj);
+        } while (more);
+        sprintf(fr.msg, g_fmt_go_home);
+        FormatBlokeMessage(fr.msg);
+        NewLongTermAction(b, 3);
+        return;
+
+    case 1:
+        dest = &b->saved;
+        switch (SuggestNextMove(&b->world, dest, &fr.next) + 3) {
+        case 1:
+            b->state = 0xa;
+            return;
+        case 0:
+        case 2:
+        case 3:
+            if (PosOnObjectFootprint(dest, (SeatOwner*)((Elem*)b->current_item)->data) == 0)
+                goto state4;
+            more = (b->saved.x >> 8) - ((SeatOwner*)((Elem*)b->current_item)->data)->base_x;
+            {
+                int y = (b->saved.y >> 8) - ((SeatOwner*)((Elem*)b->current_item)->data)->base_y;
+                MapCell* cell;
+                SeatOwner* def = (SeatOwner*)((Elem*)b->current_item)->data;
+                if (more >= 0 && more < (int)g_map->width
+                    && y >= 0 && y < (int)g_map->height)
+                    cell = &g_map_rows[y][more];
+                else
+                    cell = 0;
+                cell = GetNextObjectMatching(cell, b->current_item);
+                if (!cell)
+                    cell = GetFirstObjectMatching(b->current_item);
+                if (!cell) {
+                    sprintf(fr.msg, g_fmt_wandering);
+                    FormatBlokeMessage(fr.msg);
+                    b->state = 4;
+                    b->action = (unsigned char)(b->action + 1);
+                    return;
+                }
+                {
+                    int cx, cy;
+                    cx = (unsigned char)cell->x;
+                    cy = (unsigned char)cell->y;
+                    if (cx != more || cy != y) {
+                        b->saved.x = ((def->base_x + cx) << 8) + 0x80;
+                        b->saved.y = ((def->base_y + cy) << 8) + 0x80;
+                        return;
+                    }
+                }
+            }
+        state4:
+            b->state = 4;
+            return;
+        case 5:
+            b->target.x = fr.next.x;
+            b->target.y = fr.next.y;
+            b->f73 = (unsigned char)(CalcMoveLine(b->world, fr.next, b->path) + 0x10);
+            b->state = 6;
+            NewDirForAction(b, (unsigned char)((b->f73 >> 5) + 3));
+            {
+                unsigned char a = b->f64;
+                a = (unsigned char)(a ? 0xf6 : 0);
+                b->action = (unsigned char)(0xa + a);
+            }
+            return;
+        case 4:
+            b->target.x = fr.next.x;
+            b->target.y = fr.next.y;
+            b->f73 = (unsigned char)(CalcMoveLine(b->world, fr.next, b->path) + 0x10);
+            b->state = 6;
+            NewDirForAction(b, (unsigned char)((b->f73 >> 5) + 3));
+            b->action = (unsigned char)(b->f64 == 0);
+            return;
+        }
+        return;
+
+    case 2:
+    case 3:
+        sprintf(fr.msg, g_fmt_wandering);
+        FormatBlokeMessage(fr.msg);
+        b->state = 4;
+        b->action = (unsigned char)(b->action + 1);
+        return;
+
+    case 4:
+        b->action = 0;
+        return;
+
+    case 5:
+        sprintf(fr.msg, g_fmt_stuck_ptp);
+        FormatBlokeMessage(fr.msg);
+        dest = &b->saved;
+        switch (PTPSuggestNextMove(&b->world, dest, &fr.next)) {
+        case 2:
+            b->target.x = fr.next.x;
+            b->target.y = fr.next.y;
+            b->f73 = (unsigned char)(CalcMoveLine(b->world, fr.next, b->path) + 0x10);
+            b->state = 0xb;
+            NewDirForAction(b, (unsigned char)((b->f73 >> 5) + 3));
+            b->action = (unsigned char)(0xa + ((b->f64 & 1) ? -4 : 0));
+            return;
+        case 1:
+            b->target.x = fr.next.x;
+            b->target.y = fr.next.y;
+            b->f73 = (unsigned char)(CalcMoveLine(b->world, fr.next, b->path) + 0x10);
+            b->state = 0xb;
+            NewDirForAction(b, (unsigned char)((b->f73 >> 5) + 3));
+            if (b->f64 & 1)
+                b->action = 6;
+            return;
+        case 0:
+            b->state = 4;
+            b->action = 6;
+            return;
+        }
+        return;
+
+    case 6:
+        sprintf(fr.msg, g_fmt_wandering);
+        FormatBlokeMessage(fr.msg);
+        b->state = 4;
+        b->action = 5;
+        return;
+
+    case 10:
+        dest = &b->world;
+        if (PosOnObjectFootprint(dest, (SeatOwner*)((Elem*)b->current_item)->data) == 0)
+            goto set_action_2;
+        fr.uid = GetObjectUID(dest, (SeatOwner*)((Elem*)b->current_item)->data);
+        if (SeatListFull((SeatOwner*)((Elem*)b->current_item)->data, &fr.uid)) {
+            sprintf(fr.msg, g_fmt_ride_full);
+            FormatBlokeMessage(fr.msg);
+            AdjustMood(b, 0, ((SeatOwner*)((Elem*)b->current_item)->data)->mood_scale);
+            if (!GetBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b)))
+                IncrementBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b));
+            goto set_action_2;
+        }
+        if (IsObjectRunning((SeatOwner*)((Elem*)b->current_item)->data, (BytePos*)&fr.uid) == 0) {
+            sprintf(fr.msg, g_fmt_not_working);
+            FormatBlokeMessage(fr.msg);
+            AdjustMood(b, 1, ((SeatOwner*)((Elem*)b->current_item)->data)->mood_scale);
+            if (!GetBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b)))
+                IncrementBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b));
+            goto set_action_2;
+        }
+        more = ((unsigned char*)&fr.uid)[0];
+        fr.next.y = ((unsigned char*)&fr.uid)[1];
+        if (more >= 0 && more < (int)g_map->width
+            && fr.next.y >= 0 && fr.next.y < (int)g_map->height)
+            fr.obj = &g_map_rows[fr.next.y][more];
+        else
+            fr.obj = 0;
+        if (GetInstanceOfClass(((MapObj*)((MapCell*)fr.obj)->obj)->cls,
+                               (BytePos*)&fr.uid)->flags & 2)
+            goto cant_get_on;
+        sprintf(fr.msg, g_fmt_going_on);
+        FormatBlokeMessage(fr.msg);
+        NewLongTermAction(b, 5);
+        if (((Elem*)b->current_item)->flags & 0x100000) {
+            if (!JoinSeatList(b, (SeatOwner*)((Elem*)b->current_item)->data, 0))
+                goto cant_get_on;
+            if (!SeatListFull((SeatOwner*)((Elem*)b->current_item)->data, &fr.uid))
+                return;
+            more = ((unsigned char*)&fr.uid)[0];
+            fr.next.y = ((unsigned char*)&fr.uid)[1];
+            if (more >= 0 && more < (int)g_map->width
+                && fr.next.y >= 0 && fr.next.y < (int)g_map->height)
+                fr.obj = &g_map_rows[fr.next.y][more];
+            else
+                fr.obj = 0;
+            GetInstanceOfClass(((MapObj*)((MapCell*)fr.obj)->obj)->cls,
+                               (BytePos*)&fr.uid)->flags |= 2;
+            return;
+        }
+        more = ((unsigned char*)&fr.uid)[0];
+        fr.next.y = ((unsigned char*)&fr.uid)[1];
+        if (more >= 0 && more < (int)g_map->width
+            && fr.next.y >= 0 && fr.next.y < (int)g_map->height)
+            fr.obj = &g_map_rows[fr.next.y][more];
+        else
+            fr.obj = 0;
+        GetInstanceOfClass(((MapObj*)((MapCell*)fr.obj)->obj)->cls,
+                           (BytePos*)&fr.uid);
+        if (JoinSeatList(b, (SeatOwner*)((Elem*)b->current_item)->data,
+                         (rand() & 0x1ff) + 0xc8))
+            return;
+    cant_get_on:
+        sprintf(fr.msg, g_fmt_cant_get_on);
+        FormatBlokeMessage(fr.msg);
+        AdjustMood(b, 0, ((SeatOwner*)((Elem*)b->current_item)->data)->mood_scale);
+        if (!GetBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b)))
+            IncrementBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b));
+        b->action = 2;
+        return;
+
+    set_action_2:
+        b->action = 2;
+        return;
     }
 }

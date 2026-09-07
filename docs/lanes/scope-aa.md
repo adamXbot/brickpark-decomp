@@ -19,10 +19,10 @@ Branch `scope/AA`. File `LEGOLAND/goalstate.c`. Object prefix `/tmp/saa_`.
 | 0x0044f3d0 | CountBlokesAtRideID | 15 | 100 | [OK] | FUNCTION |
 | 0x0044f400 | SeatListFull | 14 | 100 | [OK] | FUNCTION |
 | 0x0044f4a0 | JoinSeatList | 121 | 100 | [OK] | FUNCTION |
-| 0x0044f610 | — | 699 | — | — | not started |
+| 0x0044f610 | BlokeAction_PickRide | 699 | ~70 | REJECT | WIP-FUNCTION |
 
-**12 / 14 exact.** LeavePark ~89% WIP (honest residual below). Largest LT
-handler 0x0044f610 still not started.
+**12 / 14 exact.** LeavePark ~89% WIP; PickRide ~70% WIP (honest residuals
+below). Both large LT handlers remain WIP-FUNCTION so audit still PASSes.
 
 ## Mechanics
 
@@ -42,6 +42,9 @@ handler 0x0044f610 still not started.
   (unguarded null-or bug), PutBlokeInList, dirty 0x20.
 - **PosOnObjectFootprint**: four flat neighbour footprint probes; coords as
   `pos->x>>8` expressions; `FootCell(y,x)` order; Pos-local hit sums.
+- **BlokeAction_PickRide** (WIP): LT table 0x06; JT on action 0..0xa at
+  `0x44fdcc`; sets `g_cur_bloke_f81` from `b->name_letter`; shuffle/attract
+  pick, SuggestNextMove walk, PTP stuck, PosOnObjectFootprint / seat join.
 
 ## Levers
 
@@ -56,12 +59,22 @@ handler 0x0044f610 still not started.
 - **PosOnObjectFootprint**: flat four probes (not GetObjectUID nested);
   `FootCell(int y, int x)` for x-first `sar`; FootHit via Pos local so both
   sums before either `cmp`; no int x/y locals — use `pos->x>>8` at each use.
-- **LeavePark CalcMoveLine arms**: mirror `Garderner_Repair` — 
+- **LeavePark CalcMoveLine arms**: mirror `Garderner_Repair` —
   `target.x/y = out; CalcMoveLine(b->world, out, path)` keeps `edi` as
   `&b->world` from SuggestNextMove and interleaves the target.y store into
   the by-value pushes. PTP case order `2,1,0` for sub/dec/dec dispatch.
   Duplicate case 11/12 tails so deferred `add esp,0x20` survives (pending
   GetFirstObjectMatching / RateBlokeOnLeaving both +4).
+- **PickRide frame / regs**: sole local `fr` of 0x78; `Pos* dest` + `int more`
+  stay in ebx/edi; `push ebp` from case-1 def live range. Case 0: shared
+  `set_action_2` gives `je` into common epilogue; `more=1` then
+  `more=Shuffle…`; high-attract
+  `FormatBlokeMessage((b->current_item = elem, fr.msg))` interleaves the
+  store between Format's push and call; name-before-`jg` comes from the
+  `>10` / not-worth split after one attractiveness call. Case 1 arrive:
+  `PosOn==0` → `goto state4` for `je`; cell x/y as int locals then reuse in
+  retarget stores. f64 action mask:
+  `a = (a ? 0xf6 : 0); action = 0xa + a` (and-width residual below).
 
 ## Remaining / blocked
 
@@ -89,18 +102,33 @@ bigsim-style CalcMoveLine rewrite:
 Stop grinding without a new lever for (1)–(3). WIP body retained for the next
 pass.
 
-### 0x0044f610 (699) — not started
+### 0x0044f610 BlokeAction_PickRide (~70%, §6B)
 
-Jump-table on `action` 0..0xa at `0x44fdcc`. Publishes `g_cur_bloke_f81` from
-`b[+0x81]` first. Callees include BuildObjInfoList / CalculateRideCodes /
-ShuffleObjKeys / Calc_Item_Attractiveness / FormatBlokeMessage /
-PosOnObjectFootprint / SuggestNextMove / PTPSuggestNextMove / JoinSeatList /
-SeatListFull / GetObjectUID / AdjustMood / etc. Do after LeavePark or as its
-own focused pass.
+Cases 0–6 match through the walk/PTP arms (~430/699) aside from two and-width
+residuals. Case 10 matches through SeatListFull fail setup then diverges on
+counter/mood tail layout and instance/map-cell join arms.
+
+1. **f64 masks `and edx,0xf6` / `and edx,0xfc` vs `and dl`** — same family as
+   LeavePark residual (2). Ternary `a ? 0xf6 : 0` / `(f64&1)?-4:0` get
+   `neg/sbb` but widen the `and`. No spelling yields both `sbb dl,dl` and
+   `and dl`.
+2. **Case 10 IncrementBlokeCounter / not-working share** — original seat-full
+   inlines GetBlokeNum→Counter→Increment then falls into `action=2`;
+   not-working `push 1 / jmp` into the seat-full AdjustMood arg setup.
+   Separate C copies emit an extra `jmp` and misalign from the first
+   Increment. Shared `mood_tail` with `more` as the event regenerates the
+   early `mov ebx,2` hoist when `more=2` is also used for the flags test.
+3. **Case 10 join / GetInstanceOfClass map-cell** — original inlines uid-byte
+   map lookup three times (flags test, flag-set, rand-join) with `mov ebx,2`
+   only on the flags path so cant_get_on can `mov [action],bl`. Still open.
+
+Stop grinding (2)/(3) without a lever that shares the mood tail without
+hoisting `ebx=2` into the prologue. WIP body retained.
 
 ## Names
 
 - `GetSim832b9c`, `AppraisalDueTick`, `FormatBlokeMessage`,
   `BlokeAction_SetState4`, `BlokeAction_EnterPark`, `BlokeAction_LeavePark`,
-  `CountBlokesAtRideID`, `SeatListFull`, `JoinSeatList`,
-  `PosOnObjectFootprint`, `BumpSlotCounter` (0x00489f90), `RunAppraisalScreen`.
+  `BlokeAction_PickRide`, `CountBlokesAtRideID`, `SeatListFull`,
+  `JoinSeatList`, `PosOnObjectFootprint`, `BumpSlotCounter` (0x00489f90),
+  `RunAppraisalScreen`.
