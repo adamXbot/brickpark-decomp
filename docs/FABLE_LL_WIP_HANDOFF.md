@@ -42,7 +42,7 @@ tails at once.
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `c0317e2b` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `8f7b13ca` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — FLOOR notes.
 
@@ -53,7 +53,7 @@ Need / have:
 
 `eax` stays live for `[eax+0x24]` after `mov ebx,eax` — sink-vs-fuse, not missing live use. LL2 `Fst` RTL does **not** transfer (that closes 3-scratch SIB lea, not `reg+disp8` dest-coalesce onto callee-saved `p`). Transparent helpers / two-web `t`/`n` / `Mass_End` fold to 65/77. Volatile `head` spills frame; `fr.f24` makes mov/add adjacent but not `lea`.
 
-**2026-09-08 probes (still 65/77):** `lea ebx,[eax+0x70]` is the **only** such encoding in `.text`. Early n-use (store into `fr.sample` / frame hold) emits adjacent `mov ebx,eax / add ebx,0x70`, never lea. `n=&rt->head` + plain `q=rt` yields `lea ebx,[ebp+0x70]` (lea possible, p in ebp — wrong base). Minimal harness: `use2(p,n)` → `lea ecx,[eax+0x70]`; long-lived n in ebx prefers dest-coalesce. Comma `(src=&rt->pos, &rt->head)`, Mass_HeadPos/FstHead/HeadF24 RTL, `register`, memcpy, g_route_eval-first, hist locals, q-comma-into-acc — all ≤84.4%. Flag variants `/Oy-` `/O1` `/G5` `/Ob1` inert or worse. Need a spelling that keeps **p in eax** and selects lea into callee-saved ebx (orig hoists n with no early use before GetAcceleration).
+**2026-09-08 probes (still 65/77):** `lea ebx,[eax+0x70]` is the **only** such encoding in `.text`. Early n-use (store into `fr.sample` / frame hold) emits adjacent `mov ebx,eax / add ebx,0x70`, never lea. `n=&rt->head` + plain `q=rt` yields `lea ebx,[ebp+0x70]` (lea possible, p in ebp — wrong base). Minimal harness: `use2(p,n)` → `lea ecx,[eax+0x70]`; long-lived n in ebx prefers dest-coalesce. `FindFreeSeat` can emit `lea edi,[eax+0x70]` when eax **dies**; Mass keeps eax live for `[eax+0x24]` / `g_route_eval=eax`, so the same slot stays `mov ebx,eax`. Decl-init / typed `p+1` / `Mass_Head` RTL / hist `float m` / assign n after EvalRange — ≤84.4% or worse. Flag variants `/Oy-` `/O1` `/G5` `/Ob1` inert or worse. Need lea into callee-saved ebx with **p still in eax**.
 
 (`Raster_ClipPoly` closed via `if (1) { switch (flags) … } return count`.)
 Trace NG22 / ClipPlane ESCAPES unchanged.
@@ -175,7 +175,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `c0317e2b` | `coaster11.c` |
+| LL3 | 16/19 | `8f7b13ca` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
