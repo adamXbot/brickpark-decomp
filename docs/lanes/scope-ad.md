@@ -11,15 +11,16 @@ Object prefix `/tmp/sad_`. Continues after AB (`rlepaint.c`). Did not edit
 | 0x00463560 | `ResetDamageClock` | 5 | 100 | [OK] | `FUNCTION` |
 | 0x00468830 | `ClearScriptTexts` | 4 | 100 | [OK] | `FUNCTION` |
 | 0x004689a0 | `FreeScriptStrings` | 26 | 100 | [OK] | `FUNCTION` |
+| 0x004659a0 | `BltAdvisor` | 57 | 100 | [OK] | `FUNCTION` |
 | 0x00466080 | `PresentFlip` | 102 | 100 | [OK] | `FUNCTION` |
-| 0x004640f0 | `PushRenderingStatusAndRelockVideoSurface` | 70 | ~80 | no | `WIP` |
-| 0x004659a0 | `BltAdvisor` | 57 | ~45 | no | `WIP` |
-| 0x004632b0 | `ShowCapacityOverlay` | 98 | ~48 | no | `WIP` |
-| 0x00468040 | `SoftBlitRLEFrameRecolour` | 303 | — | — | not yet |
-| 0x00468410 | `SoftBlitRLEFrame` | 312 | — | — | not yet |
+| 0x00468040 | `SoftBlitRLEFrameRecolour` | 303 | 100 | [OK] | `FUNCTION` |
+| 0x00468410 | `SoftBlitRLEFrame` | 312 | 100 | [OK] | `FUNCTION` |
+| 0x004640f0 | `PushRenderingStatusAndRelockVideoSurface` | 70 | 85.7 | no | `WIP` (21 residual) |
+| 0x004632b0 | `ShowCapacityOverlay` | 98 | ~48 | no | `WIP` (42 residual) |
 
-Gate so far: `audit.py` PASS (4/7 `[OK]`), `relocs.py` zero MISMATCH on the
-four `FUNCTION` bodies (43 matched relocations), `/W3` clean.
+Gate: `blitmisc.c` audit PASS (5/7 `[OK]`), relocs 47 matched / 0 MISMATCH,
+`/W3` clean. `rlepaint2.c` audit PASS (2/2 `[OK]`), relocs 20 matched / 0
+MISMATCH, `/W3` clean.
 
 ## Names
 
@@ -35,6 +36,10 @@ four `FUNCTION` bodies (43 matched relocations), `/W3` clean.
   client rect in `FlipPrimary`).
 - `ShowCapacityOverlay` first named here: Shift+capacity overlay from
   gameframe's `sub_4632b0`.
+- `SoftBlitRLEFrameRecolour` / `SoftBlitRLEFrame` kept from render3.c /
+  bigrender.c. Prototypes match AB's HitClipLR (`dst, a, b, c, h, pitch,
+  top, left, w, spare, mouse`); render3's `ctrl, p16, p8` names are the
+  same wrong A/B/C labels AB already documented.
 
 ## Mechanics
 
@@ -45,29 +50,41 @@ four `FUNCTION` bodies (43 matched relocations), `/W3` clean.
 - `FreeScriptStrings`: `int n = count; int i = 0;` then the non-empty arm
   owns the walking `char**` (esi push sinks). Reloads the count each
   iteration; `i++` before `p++`. Tail-duplicated `count = 0`.
+- `BltAdvisor`: 16-bpp bottom-up DIB at (x, y). Opening order is pitch,
+  `pitch*=y`, height, then mid-stream `push ebx/esi/edi`, bits, width,
+  `dst+=x*2`, `src = dib + (h-1)*w*2 + 0x28`. ebp sinks into the
+  non-zero-height arm. Inner walk is `src-dst` offset + `ax = [edx+ecx]`;
+  RGB555→565 when `g_screen_depth == 2` (`(pix & 0x1f) | ((pix &
+  0xffffffe0) << 1)`).
 - `PresentFlip`: `LLSAuto`, optional cursor stamp, 28 ms `timeGetTime`
   floor, `Flip(0, DDFLIP_WAIT)` retrying `DDERR_SURFACEBUSY` /
   `DDERR_WASSTILLDRAWING`, restore both primary and `g_surface_78` on
   `DDERR_SURFACELOST`, then `GetFlipStatus(DDGFS_ISFLIPDONE)` wait, then
   the same fps/tick accounting as `FlipPrimary`. VC6 hoists the
   `timeGetTime` IAT into esi.
-- `BltAdvisor`: 16-bpp bottom-up DIB at (x, y); RGB555→565 when
-  `g_screen_depth == 2`. Opening load order is pitch, `pitch*=y`, height,
-  bits, width, `dst+=x*2`, `src = dib + (h-1)*w*2 + 0x28`. Residual is
-  register allocation / deferred `push ebx` / inner-loop counter (ebp vs
-  ebx) — not a reconstruction error on the algorithm.
-- `PushRenderingStatusAndRelockVideoSurface`: build inclusive screen rect,
-  push lock status, unlock if locked (Restore retry), then always
+- Recolour / highlight: Type-3 A/B/C as AB. Both are Hit+ClipLR with a
+  per-pixel store of `pixel & g_sp_recolour` (recolour) or
+  `(pixel & g_sp_recolour) >> 1` (highlight). Literal runs cannot use
+  `rep movsw` (software loop); repeat runs still `and ax,[mask]` then
+  `rep stosw`. Alignment nops after the esi load and `mov ebx, 3` are in
+  the original. Top-skip mishandles primary code 1 (fall through after
+  the `0xAAAAAAAA` test) — same dormant defect as HitL/HitR/Hit. `lea`
+  of C is *before* the hi test (AB has test then lea).
+- `PushRenderingStatusAndRelockVideoSurface`: build inclusive screen
+  rect, push lock status, unlock if locked (Restore retry), then always
   IntersectRect + Lock + `GetTransparentColour` + `g_video_locked = 1`.
-  Residual is the status-push interleaving with `rect.bottom` (h stays in
-  edx in the original) and `dwSize = 0x6c` sitting in the IntersectRect
-  argument pushes.
+  Residual is the status-push interleaving with `rect.bottom` (original
+  keeps h in edx, reuses ecx for `g_status_sp` after storing right) and
+  `dwSize = 0x6c` sitting in the IntersectRect argument pushes. 21 of 70,
+  252 B vs 251 B.
 - `ShowCapacityOverlay`: six `AICat` lines
   `[%s x %d]: Cap %d  x %d%% = %.2f (Capped %d) = %.2f` then
   `Tot Capacity = %.2f (limit %d - %d) = %d`. Product `cap*pct` is clamped
-  to `scale*100`; acc sums clamped; y walks `0x14`..`0x78` in edi. Residual
-  is the strength-reduced cat cursor (original esi at `+0x18` / scale) and
-  a 16-byte frame delta.
+  to `scale*100`; acc sums clamped; y walks `0x14`..`0x78` in edi;
+  `fild`+`fmul kHundredth` is `product * kHundredth` (float 0.01 at
+  `0x004ab518`). Residual is the strength-reduced cat cursor (original
+  esi at `+0x18` / scale; ours anchors at `+0x14` / pct) and a frame
+  delta (`0x1f8`/`0x210` vs `0x208`). 42 of 98.
 
 ## Levers
 
@@ -81,10 +98,20 @@ four `FUNCTION` bodies (43 matched relocations), `/W3` clean.
   Flip retry is `while (hr) { if (LOST) restore both, return 0; if (hr !=
   BUSY && hr != STILLDRAWING) return 0; Flip again; }`. GetFlipStatus is
   a peeled `while`.
+- BltAdvisor / both RLE painters: hand-written `__declspec(naked)` +
+  `__asm`, same as AB. `NAKED` stays off the signature line. BltAdvisor's
+  mid-stream callee-saved pushes and the painters' rotating-mask + nops
+  do not lower from C.
 - Relock: `g_screencfg` is the same `0x004bcbf4` record `surface.c` calls
   `g_screen` (one name here). `dwSize` after `IntersectRect` in the
-  source sinks into the argument pushes, matching the original; writing
-  it before (as Lock does) hoists it above the call.
+  source sinks into the argument pushes; writing it before (as Lock
+  does) hoists it above the call. Screen pointer in eax, `xor ecx,ecx` /
+  `mov cx,[eax]` for width, `xor edx,edx` / `mov dx,[eax+2]` for height,
+  then eax is overwritten with `g_video_locked`.
+- Capacity: `fild` + `fmul dword` is `n * kHundredth`, not
+  `(double)n * kHundredth` (`fld` + `fimul`). y in edi via
+  `do { ... y += 0x14; } while (y < 0x8c)`. Walking `names++` gives
+  `add ebx, 4`.
 
 ## Extern-type / name notes
 
@@ -96,6 +123,6 @@ four `FUNCTION` bodies (43 matched relocations), `/W3` clean.
 - `g_ai_cat[6]` at `0x00832810` is `g_map_ai.cat` (bigsim.c); named
   from the first category so this file does not depend on MapAI's header
   fields.
-- `kHundredth` is the float at `0x004ab518` (0.01f). `fild` + `fmul
-  dword` is `product * kHundredth` (default-promoted to double at
-  sprintf), not `(double)product * kHundredth` (`fld` + `fimul`).
+- `kHundredth` is the float at `0x004ab518` (0.01f).
+- `g_sp_recolour` (`0x007fe998`) already named in softblit.c /
+  bigrender.c; first used as a word operand here.

@@ -5,6 +5,8 @@
  * unless a caller already named the address.
  */
 
+#define NAKED __declspec(naked)
+
 typedef struct WinRect {
     long left;
     long top;
@@ -184,40 +186,76 @@ void FreeScriptStrings(void)
 }
 
 /* 0x004659a0 -- blit one 16-bpp advisor DIB (bottom-up) at (x, y).
- * RGB555 is widened to RGB565 when g_screen_depth == 2. */
-// WIP-FUNCTION: LEGOLAND 0x004659a0
+ * HAND-WRITTEN: mid-stream ebx/esi/edi pushes after pitch*y and the
+ * height load, plus an ebp push that sinks into the non-zero-height
+ * arm.  RGB555 is widened to RGB565 when g_screen_depth == 2. */
+NAKED
+// FUNCTION: LEGOLAND 0x004659a0
 void BltAdvisor(DibHeader* dib, int x, int y)
 {
-    int             pitch;
-    int             h;
-    int             w;
-    unsigned char*  dst;
-    unsigned short* src;
-    int             rows;
-
-    pitch = g_ddsd_pitch;
-    pitch *= y;
-    h = dib->height;
-    dst = (unsigned char*)g_ddsd_bits + pitch;
-    w = dib->width;
-    dst += x * 2;
-    src = (unsigned short*)((char*)dib + (h - 1) * w * 2 + 0x28);
-    if (h != 0) {
-        rows = h;
-        do {
-            if (w > 0) {
-                unsigned short* d = (unsigned short*)dst;
-                int n;
-                for (n = 0; n < w; n++) {
-                    unsigned int pix = src[n];
-                    if (g_screen_depth == 2)
-                        pix = (pix & 0x1f) | ((pix & 0xffffffe0) << 1);
-                    d[n] = (unsigned short)pix;
-                }
-            }
-            dst += g_ddsd_pitch;
-            src -= w;
-        } while (--rows);
+    __asm {
+        mov      edx, dword ptr [g_ddsd_pitch]
+        mov      eax, dword ptr [esp+4]
+        imul     edx, dword ptr [esp+0ch]
+        mov      ecx, dword ptr [eax+8]
+        push     ebx
+        push     esi
+        push     edi
+        mov      edi, dword ptr [g_ddsd_bits]
+        mov      esi, dword ptr [eax+4]
+        add      edi, edx
+        mov      edx, dword ptr [esp+14h]
+        lea      edi, [edi+edx*2]
+        lea      edx, [ecx-1]
+        mov      ebx, edx
+        imul     ebx, esi
+        test     ecx, ecx
+        lea      eax, [eax+ebx*2+28h]
+        mov      dword ptr [esp+10h], eax
+        je       L_465A34
+        inc      edx
+        push     ebp
+        mov      dword ptr [esp+1ch], edx
+    L_4659E1:
+        test     esi, esi
+        jle      L_465A15
+        mov      edx, eax
+        mov      ecx, edi
+        sub      edx, edi
+        mov      ebp, esi
+    L_4659ED:
+        mov      ebx, dword ptr [g_screen_depth]
+        mov      ax, word ptr [edx+ecx]
+        cmp      ebx, 2
+        jne      L_465A08
+        mov      ebx, eax
+        and      eax, 1fh
+        and      ebx, 0ffffffe0h
+        shl      ebx, 1
+        or       eax, ebx
+    L_465A08:
+        mov      word ptr [ecx], ax
+        add      ecx, 2
+        dec      ebp
+        jne      L_4659ED
+        mov      eax, dword ptr [esp+14h]
+    L_465A15:
+        mov      ebx, dword ptr [g_ddsd_pitch]
+        mov      ecx, esi
+        neg      ecx
+        add      edi, ebx
+        lea      eax, [eax+ecx*2]
+        mov      ecx, dword ptr [esp+1ch]
+        dec      ecx
+        mov      dword ptr [esp+14h], eax
+        mov      dword ptr [esp+1ch], ecx
+        jne      L_4659E1
+        pop      ebp
+    L_465A34:
+        pop      edi
+        pop      esi
+        pop      ebx
+        ret
     }
 }
 
