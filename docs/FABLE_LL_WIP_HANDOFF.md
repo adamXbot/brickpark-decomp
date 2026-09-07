@@ -132,10 +132,15 @@ Landed through pitch-volatile pin: `last`/ShadeSetup/`y` split; eax
 volatile zrow so zrow cannot hoist past the product — `shl` + both `add`s.
 
 **Residual:** original window is `imul` → `edx=[crow]` → `ecx=[zrow]` → `shl`
-→ both `add`s → store crow → **nshade in edx** → `test` → store zrow. Ours
-still has crow/zrow loads swapped and nshade in eax before the crow store.
-Ordinary `c`/`z` parks crow in edi; comma-nshade on crow store swaps the add
-regs (66.9%); volatile crow delays `push edi`.
+→ both `add`s → store crow → **nshade in edx** → `test` → store zrow. Address-take
+`yp=(short*)&s.zrow; z=*(short**)yp` after `c=s.crow` plus dst-first/`grad[0]` lands
+that load order and (with volatile nshade *after both stores*) the crow store
+(firstX 86→92) at same 69.3%/765B — but nshade stays in **eax**. Any nshade
+*between* the two stores (comma, reuse `c`, volatile) swaps the add regs and
+moves `g_zb_polys++` into ebx (66.9/66.1%, firstX=67). Also ruled out: ordinary
+`c`/`z` (crow in edi / frame 0x74); py-live/`&0` folds; for-latch does not
+recolor nshade; `y++` breaks the imul pin. The 6-byte gap is later
+(`inc [y]` / `lea [ecx+ecx]` vs `shl` tail), not this window.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
