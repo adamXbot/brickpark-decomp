@@ -120,9 +120,10 @@ extern unsigned char g_right_ctrl;     /* 0x007fde3d  = key[DIK_RCONTROL] */
 
 /* --------------------------------------------------------------- callees -- */
 
+void* memset(void*, int, unsigned int);
 unsigned int strlen(const char*);
 char* strcpy(char*, const char*);
-#pragma intrinsic(strlen, strcpy)
+#pragma intrinsic(strlen, strcpy, memset)
 
 extern Icon* InsertIcon(short x, short y, unsigned short group, SpriteRec* s); /* 0x0046d6c0 */
 extern Icon* FindIcon(unsigned short group);                    /* 0x0046d630 */
@@ -314,4 +315,77 @@ Icon* AddClippedClassIcon(void* owner, ObjDef* d, int x, int y, int group,
     Icon* p = AddGBarClassIcon(owner, d, x, y, group, f16);
     p->render = RenderClippedClassIcon;
     return p;
+}
+
+/* ------------------------------------------------- the second message bar -- */
+
+/* Open the message bar: keep its own copy of the caption, remember where it
+ * goes, build the two control-bar gadgets with the caller's handlers and
+ * arm the renderer below. */
+// FUNCTION: LEGOLAND 0x00473680
+void OpenMessageBar(int x, int y, const char* text, IconInputFn ok_fn,
+                    IconInputFn close_fn)
+{
+    strcpy(g_msgbar_text, text);
+    g_msgbar_x = x;
+    g_msgbar_y = y;
+    InitPopUpTools(ok_fn, close_fn);
+    g_msgbar_active = 1;
+}
+
+// FUNCTION: LEGOLAND 0x004736e0
+void CloseMessageBar(void)
+{
+    UnloadPopUpTools();
+    g_msgbar_active = 0;
+}
+
+/* Paint the message bar. Same three-slice strip, the same two gadgets and
+ * the same leave-the-strip hit test as popup2.c's DrawPopUpExtra, but with
+ * its own placement globals and its own caption buffer -- and no
+ * DisablePopUpInputs at the end. */
+// FUNCTION: LEGOLAND 0x004736f0
+void DrawMessageBar(void)
+{
+    BlitCtx ctx;
+    int     x, y, i;
+    struct { int left, top, right, bottom; } box;
+
+    if (!g_msgbar_active)
+        return;
+
+    ctx.kind = 1;
+    memset(&ctx.owner, 0, sizeof(ctx.owner));
+    y = g_msgbar_y;
+    x = g_msgbar_x;
+    PrintSprite(g_cb_bg[0], x, y, 0, &ctx);
+    x += 0x7a;
+    for (i = 0; i < g_msgbar_cells; i++) {
+        PrintSprite(g_cb_bg[1], x, y, 0, &ctx);
+        x += 0x20;
+    }
+    PrintSprite(g_cb_bg[2], x, y, 0, &ctx);
+    x += 0x4e;
+
+    g_cb_icon_ok->flags &= 0xfffffbff;
+    g_cb_icon_ok->x = (short)(x - 0x4b);
+    g_cb_icon_ok->y = (short)(g_msgbar_y + 3);
+    g_cb_icon_close->flags &= 0xfffffbff;
+    g_cb_icon_close->x = (short)(x - 0x27);
+    g_cb_icon_close->y = (short)(g_msgbar_y + 3);
+
+    box.left = g_msgbar_x + 0xc;
+    box.top = g_msgbar_y + 6;
+    box.right = box.left + g_msgbar_cells * 20 + 0x7a;
+    box.bottom = box.top + 0x1b;
+    PrintCachedText(g_msgbar_text, box.left, box.top, box.right - box.left,
+                    box.bottom - box.top, 1, 5, 0xff0000, 0xffffff);
+
+    box.bottom = y + 0x1b;
+    box.left = g_cb_icon_ok->x;
+    box.right = g_cb_icon_close->x + 0x24;
+    if (box.right < g_input_point.x || g_input_point.x < box.left)
+        ResetToolIcons();
+    if (box.bottom < g_input_point.y || g_input_point.y < y)
+        ResetToolIcons();
 }
