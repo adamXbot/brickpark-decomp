@@ -64,14 +64,16 @@ extern void Mat3_BuildBasis(Mat3* forward, Mat3* out);           /* 0x00429af0 *
 extern int ModelRecord_GetName(ModelImage*, char*, int);     /* 0x00422390 */
 extern int _stricmp(const char*, const char*);               /* 0x004aab90 */
 extern void TrackCurve_EvaluateTangent(RoutePos*, int mode, int t, Vec3f*); /* 0x00429ac0 */
-extern void FiniteDifference(void (*fn)(void), void* ctx, int t, float h, void* out); /* 0x0041f4e0 */
-extern void TrackCurve_DerivSample(void);                    /* 0x00429c10 */
+typedef struct PhysVec { int n; float v[20]; } PhysVec;      /* pool slot, 0x54 (coaster8.c) */
+extern void FiniteDifference(void (*fn)(int t, PhysVec* out), void* ops, int t, float h, PhysVec* out); /* 0x0041f4e0 */
+extern void TrackCurve_DerivSample(int t, PhysVec* out);     /* 0x00429c10 */
 extern double sqrt(double);
 
+/* Finite-difference sample context read by TrackCurve_DerivSample. */
 extern RoutePos* g_deriv_at;                       /* 0x00615f84 */
 extern int g_deriv_mode;                           /* 0x00615f90 */
-extern int g_deriv_t;                              /* 0x00615f98 */
-extern Vec3f* g_deriv_out;                         /* 0x00615fd4 */
+extern float g_deriv_offset;                       /* 0x00615fd4; EvaluateOffset's `offset` */
+extern int g_deriv_physvec_ops;                    /* 0x00615f98; PhysVec_InitOps(&, 3) pool (schoolcar.c: g_615f98) */
 
 
 typedef struct ScreenVtx { int x, y, z, clip; } ScreenVtx; /* 0x10 */
@@ -207,30 +209,27 @@ float Route_GetSpeed(CoasterRoute* route)
 
 
 /* Transform `count` vectors by Mat4 (row-major, translation in m[3/7/11]).
- * Live `float* d` advances by +4 and avoids the d+=12 stack spill (ESCAPES).
- * Residual: s lands in ebx and col-count in ebp; original wants ebp=s /
- * ebx=3 (78.6%). Vec3f* d restores ebp=s but reintroduces the spill. */
-// WIP-FUNCTION: LEGOLAND 0x004261c0
-void TransformVec3(const Vec3f* s, float* d, const Mat4* m, int count)
+ * MatMul house style (coastermath.c): BOTH operands are direct subscripts
+ * with the row index folded in (`m->m[k*4+j] * ((float*)s)[j]`) and the
+ * output is `((float*)d)[k]` with `d++` after the k loop. That is what
+ * yields ebp=s / ebx=k-count, the sp-then-rp preheader order and
+ * `fld [rp]` first; every walked-pointer spelling (`*rp++`, `*sp++`, a
+ * `float* d` cursor) permutes one of the three. */
+// FUNCTION: LEGOLAND 0x004261c0
+void TransformVec3(const Vec3f* s, Vec3f* d, const Mat4* m, int count)
 {
     int j, k;
-    int keep = 0;
     while (count-- > 0) {
-        const float* row = m->m;
         for (k = 0; k < 3; k++) {
             float acc = 0.0f;
-            const float* sp = (const float*)s;
-            const float* rp = row;
             for (j = 0; j < 3; j++)
-                acc += *rp++ * sp[j];
-            acc += row[3];
-            *d++ = acc;
-            row += 4;
-            keep++;
+                acc += m->m[k * 4 + j] * ((const float*)s)[j];
+            acc += m->m[k * 4 + 3];
+            ((float*)d)[k] = acc;
         }
-        s = (const Vec3f*)((const char*)s + 12);
+        s++;
+        d++;
     }
-    (void)keep;
 }
 
 // FUNCTION: LEGOLAND 0x00422400
@@ -281,26 +280,24 @@ void RouteNode_LinkPending(RouteNode* node)
 }
 
 /* h == 0: direct tangent via method table[mode*8+4].
- * h != 0: finite-difference of EvaluateOffset through 0x0041f4e0.
- * Lever: `(g_deriv_out = out, TrackCurve_DerivSample)` as fn arg places the
- * g_deriv_out store immediately before call (RTL). Residual: early
- * mov edx,out / lea schedule and PhysVec copy via fstp+[eax] (~33%). */
-// WIP-FUNCTION: LEGOLAND 0x00429c60
+ * h != 0: numerical derivative of EvaluateOffset(at, mode, t, h) through
+ * FiniteDifference(0x0041f4e0) on the 3-dim PhysVec pool, step 0.01.
+ * 0x615fd4 is the float `offset` handed to DerivSample (a `mov` of h's raw
+ * bits), not an out pointer; the out vector is re-read from its home after
+ * the call, and the three-float copy uses fld/fstp for v[0] because eax
+ * holds `out` and only ecx/edx remain for v[1]/v[2]. */
+// FUNCTION: LEGOLAND 0x00429c60
 void TrackCurve_EvaluateDerivative(RoutePos* at, int mode, int t, float h, Vec3f* out)
 {
-    char scratch[0x54];
+    PhysVec scratch;
     if (h != 0.0f) {
         g_deriv_at = at;
         g_deriv_mode = mode;
-        FiniteDifference(
-            (g_deriv_out = out, TrackCurve_DerivSample),
-            (void*)0x00615f98,
-            t,
-            0.01f,
-            scratch);
-        out->x = ((float*)scratch)[1];
-        out->y = ((float*)scratch)[2];
-        out->z = ((float*)scratch)[3];
+        g_deriv_offset = h;
+        FiniteDifference(TrackCurve_DerivSample, &g_deriv_physvec_ops, t, 0.01f, &scratch);
+        out->x = scratch.v[0];
+        out->y = scratch.v[1];
+        out->z = scratch.v[2];
     } else {
         TrackCurve_EvaluateTangent(at, mode, t, out);
     }
