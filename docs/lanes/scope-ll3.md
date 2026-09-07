@@ -167,7 +167,17 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   GetAcceleration (61/78). q-in-edx + hist-ecx still only with extra
   volatiles (80i). LL2's helper closes a 3-scratch `lea edx,[eax+ecx]`;
   this residual is dest-coalesce of `reg+disp8` plus a post-call
-  edx/eax coloring, not a last-def SIB. Trace / ClipPlane not touched.
+  edx/eax coloring, not a last-def SIB.
+  Further negatives (still 65/77 unless noted): decl-init `n=&rt->head`
+  without a `p` copy; named `&p->pos` plus comma `(src=&pos, &head)`;
+  typed `sizeof==0x70` prefix increment `(MassOff*)p+1`; `Mass_Head`
+  helper that `return &r->head` after a cdecl `&pos` second arg;
+  `register RouteNode* n`. `n=&rt->head` *after* `Span_EvalRange` keeps
+  rt in ebx from the first load (56/76). Named `end` plus hist
+  `i` then `float m=*mass` uses `fld`/`fstp` for the ring store (64/77).
+  FindFreeSeat's `lea edi,[eax+0x70]` has a dead eax after the lea;
+  this body's eax must stay live for `[eax+0x24]` / `g_route_eval=eax`,
+  which is exactly the dest-coalesce shape. Trace / ClipPlane not touched.
 - **Span_ClipPlane** (WIP): 179i, ESCAPES. Need the original's 0x2c frame,
   `in++` cursor in the latch, and the three-way sign classify
   (`(prev_sign>>1)|next_sign` against 0x80000000 / 0xC0000000 / 0x40000000).

@@ -642,7 +642,9 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
  * in the dead power slot (`fstp [esp+0x88]`). Volatile reload into q
  * stops p/rt coalescing (mass stays ebp). Still `mov ebx,eax / add
  * ebx,0x70` vs `lea ebx,[eax+0x70]`, q load after `add esp,4` not
- * before, eax vs edx for the reload, hist ecx/edx swap. */ 
+ * before, eax vs edx for the reload, hist ecx/edx swap. Typed p+1,
+ * decl-init n, Mass_Head RTL, register n, and n-after-eval do not
+ * emit `lea ebx,[eax+0x70]` while eax stays live for [eax+0x24]. */ 
 // WIP-FUNCTION: LEGOLAND 0x0041db90  (84%, lea ebx vs mov/add, q reload)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
