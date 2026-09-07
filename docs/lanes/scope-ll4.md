@@ -131,3 +131,21 @@ Globals first named here: `g_one_sixth` (0x004b5610), `g_span_ramp`
   in the Og-off caller (still `add esp,4` then `fstp`). `float t` for
   the `h` chain grows the frame (0x34). `#pragma optimize("p", on)`
   → 58.6%. Non-volatile struct + Og-off → 94.0%.
+  fstp-before-add on `fn(a)` is a codegen-template split, not a spelling
+  one: Og-off / Od glue `add esp,4` to the call before `fstp fa` for
+  every store form tried (`*(float*)&`, temps, comma, `+fn(a)`, casts,
+  non-volatile `fa` field, pointer dest, mid-function `#pragma`
+  — the last is a compile error). Og-on / default `/O2` emits `call;
+  fstp fa` then merges the two 4-byte cleanups to `add esp,8` and
+  drops to 69.4% (lost `fsubr`, global-first fmuls, integer `push x`,
+  jmp-to-test `jg`). Empty `__asm {}` is inert for that merge; any
+  non-empty `__asm` (nop, `_emit` hidden `call [ebp+8]`, real `call`)
+  saves ebx/esi/edi → 75.9%. Og-on `__inline` / `#pragma inline_depth`
+  helpers are re-optimized in the Og-off caller. Moving `fn(b)`+loop
+  into an Og-off helper inlines back to `add esp,8` (78.3%) or, if
+  non-inline, adds a call (41%). `#pragma loop_opt`, goto/while/for
+  rewrite, and CC02 joins (goto-next, `do{}while(0)`, `if(1)`) are
+  eliminated and still `add esp,8`; a live `if/else` flushes cleanup
+  *before* `fstp` (56.5%). `#pragma optimize("gt", off)` uses
+  `pop ecx` then `fstp` (64.7%). Body is otherwise byte-identical
+  (258/258). Ceiling remains 80/81.
