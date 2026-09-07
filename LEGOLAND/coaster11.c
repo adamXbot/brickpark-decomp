@@ -775,7 +775,7 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
  * jne). ebx=n via byte-n. Frame 0x2c via dest copy + plane writeback (pad
  * lives). Sign is ebp, not esi; loop abs is still and edx (dest copy took
  * ebx after left=). Do not extend n across ftol. */
-// WIP-FUNCTION: LEGOLAND 0x0041f050  (17%, latch jne, ebx=n, frame 0x2c)
+// WIP-FUNCTION: LEGOLAND 0x0041f050  (25%, latch jne, ebx=n, and ebx abs, frame 0x2c)
 int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
 {
     void** in = (void**)in_v;
@@ -783,60 +783,65 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
     int out_n = 0;
     int prev_sign;
     int cls;
+    int abs_r;
     void* prev;
     void* nxt;
     union { float f; int i; } bits;
     struct { int i; int pad; } prev_abs;
     int left;
-    int next_bits;
 
-    /* dest off ebx. Byte-n wins ebx over cursor. */
-    *(void* volatile*)&dst = *cursor;
+    /* n first (in[n]) so ebx=n; dest assigned after so it can be edx. */
     in[n] = in[0];
+    dst = *cursor;
+    nxt = in[0];
     {
-        /* Block-local v0 so in stays a scratch (edx) and n keeps ebx.
-         * Sign is assigned before nxt so cls is already a callee-save
-         * (not a post-left= mov into ebx). */
-        void* v0 = in[0];
         ClipPlane* plane = *(ClipPlane* volatile*)&plane_v;
-        bits.f = plane->d - ((float)((int*)v0)[2] * plane->nx
-                             + (float)((int*)v0)[1] * plane->ny);
-        prev_sign = bits.i;
-        bits.i &= 0x7fffffff;
-        prev_sign &= 0x80000000;
-        nxt = v0;
+        int* p = (int*)nxt;
+        bits.f = (float)p[2] * plane->nx;
+        bits.f += (float)p[1] * plane->ny;
+        bits.f = plane->d - bits.f;
     }
+    /* abs primary, sign is the copy (orig mov ebp / mov esi,ebp). */
+    abs_r = bits.i;
+    prev_sign = abs_r;
+    abs_r &= 0x7fffffff;
+    prev_sign &= 0x80000000;
+    bits.i = abs_r;
     if (n >= 1) {
+        cls = prev_sign;
         in++;
         *(volatile unsigned char*)&left = (unsigned char)n;
         left = n;
-        /* Seed the continue-header so the first iter can fall through the
-         * reload (orig jumps over it). Latch is then jne-to-header. */
-        cls = prev_sign;
         do {
             prev_sign = cls;
             prev = nxt;
-            *(volatile int*)&prev_abs.i = bits.i;
+            *(volatile int*)&prev_abs.i = abs_r;
             nxt = *in;
             {
                 union { float f; int i; } pa, na;
                 int next_sign;
                 ClipPlane* plane = *(ClipPlane* volatile*)&plane_v;
-                void* d = dst;
+                int* p = (int*)nxt;
+                int destrel;
 
-                bits.f = plane->d - ((float)((int*)nxt)[2] * plane->nx
-                                     + (float)((int*)nxt)[1] * plane->ny);
-                next_bits = bits.i;
-                next_sign = next_bits;
-                next_bits &= 0x7fffffff;
-                next_sign &= 0x80000000;
-                bits.i = next_bits;
-                /* Plane writeback keeps ecx; dest copy keeps edx. */
+                cls = (prev_sign >> 1) & 0x40000000;
+                /* destrel + pad store before the fild occupies dest/ecx
+                 * through fstp so the abs copy is leftover ebx. */
+                destrel = (char*)dst - (char*)nxt;
+                *(volatile int*)&prev_abs.pad = destrel;
+                bits.f = (float)p[2] * plane->nx;
+                bits.f += (float)p[1] * plane->ny;
+                bits.f = plane->d - bits.f;
                 *(ClipPlane* volatile*)&plane_v = plane;
-                *(void* volatile*)&dst = d;
-                cls = (prev_sign >> 1) & 0x40000000 | next_sign;
+                n = bits.i;
+                next_sign = n;
+                n &= 0x7fffffff;
+                next_sign &= 0x80000000;
+                bits.i = n;
+                abs_r = n;
+                cls |= next_sign;
                 pa.i = *(volatile int*)&prev_abs.i;
-                na.i = next_bits;
+                na.i = n;
                 if (cls == (int)0x80000000) {
                     float t = na.f / (pa.f + na.f);
                     {
@@ -844,7 +849,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                         if ((int)g_span_vtx >= 0) {
                             int* src = (int*)nxt;
                             int delta = (char*)prev - (char*)nxt;
-                            int dest = (char*)dst - (char*)nxt;
+                            int dest = destrel;
                             do {
                                 int dword = src[0];
                                 {
