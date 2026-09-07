@@ -143,9 +143,9 @@ extern void AddPTPRouteNode(int x, int y);            /* 0x00482300 */
 /* 0, 1 or 2: how many of b, c, d the walker may step past in one go. */
 extern int  PTPShortcutSteps(PTPNode* a, PTPNode* b, PTPNode* c, PTPNode* d); /* 0x00482330 */
 
-/* Note on the shape: `c` is declared before `b` because that is the order the
- * original zeroes the two registers in (the three `xor`s follow declaration
- * order; the register CHOICE does not).
+/* Note on the shape: the three zero initialisations are written b, c, d
+ * because that is the order the original zeroes the registers in (the three
+ * `xor`s follow INITIALISATION order; the register CHOICE does not).
  *
  * RESIDUAL, 10 of 76 (76/76 instructions, every instruction right): `b` and
  * `c` have each other's callee-saved register -- the original puts b (the
@@ -168,12 +168,27 @@ extern int  PTPShortcutSteps(PTPNode* a, PTPNode* b, PTPNode* c, PTPNode* d); /*
  * order negatives without adding a guard or a non-original reference.
  * Full measurements: docs/lanes/scope-i.md.
  */
-// WIP-FUNCTION: LEGOLAND 0x00482430  (86.8%, 10/76 strict; allocation floor; first 16)
+/* Scope LL17 (2026-09-08): closed, 76/76.  The b/c register swap was NOT a
+ * reference-count tie after all: it was the three SOURCE `return d == 0;`
+ * sites.  Written as one `return d == 0;` after the switch, with every
+ * case ending in `break`, the b/c allocation flips to the original's on
+ * its own (75/76) and the original's three return copies still appear --
+ * they are late tail duplication of the ONE source return (LP05 / BL14:
+ * small ret-ending blocks clone after allocation, same registers in each
+ * copy).  Three source returns instead create three pre-allocation blocks
+ * and change the ranking between b and c.  The last instruction was the
+ * xor order, which follows the INITIALISATION order (declaration order and
+ * copy/constant init chains such as `d = c` were measured inert for the
+ * register choice, moving only the xors): b, c, d gives esi, edi, ebx.
+ * Measured on the way: named pointer copies (`n = b`) and zero chains are
+ * propagated before ranking and never change a count; the guard as `break`
+ * or as a load-carrying temporary stays 10. */
+// FUNCTION: LEGOLAND 0x00482430
 int BuildPTPRoute(void)
 {
     PTPNode* a = g_ptp_found;
-    PTPNode* c = 0;
     PTPNode* b = 0;
+    PTPNode* c = 0;
     PTPNode* d = 0;
 
     if (!a)
@@ -191,10 +206,10 @@ int BuildPTPRoute(void)
         break;
     case 1:
         AddPTPRouteNode(c->x, c->y);
-        return d == 0;
+        break;
     case 2:
         AddPTPRouteNode(d->x, d->y);
-        return d == 0;
+        break;
     }
     return d == 0;
 }
