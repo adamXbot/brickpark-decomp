@@ -33,22 +33,68 @@ extern int  sprintf(char* buf, const char* fmt, ...);      /* 0x0049e573 */
 extern void DBPrintf(const char* fmt, ...);                /* 0x00453a20 */
 
 typedef struct Bloke {
-    char           pad00[0x0e];
+    char           pad00[0x04];
+    void*          person;         /* +0x04 */
+    char           pad08[0x0e - 0x08];
     unsigned short state;          /* +0x0e  low-level AI state */
+    unsigned short step;           /* +0x10 */
+    char           pad12[0x35 - 0x12];
+    unsigned char  b35;            /* +0x35 */
+    char           pad36[0x58 - 0x36];
+    int            seat_arg;       /* +0x58  third JoinSeatList arg */
+    char           pad5c[0x60 - 0x5c];
+    unsigned char  action;         /* +0x60  short-term action */
+    char           pad61;
+    unsigned short flags;          /* +0x62 */
+    char           pad64[0x68 - 0x64];
+    int            x;              /* +0x68  world x (24.8) */
+    int            y;              /* +0x6c */
 } Bloke;
+
+typedef struct Pos {
+    int x;
+    int y;
+} Pos;
 
 typedef struct SeatSlot {
     struct SeatSlot* next;         /* +0x00 */
-    char             pad04[8];
+    struct SeatSlot* prev;         /* +0x04 */
+    Bloke*           bloke;        /* +0x08 */
     unsigned short   seat;         /* +0x0c */
+    unsigned short   pad0e;
+    void*            person;       /* +0x10 */
 } SeatSlot;
 
 typedef struct SeatOwner {
     char      pad00[0x2e];
     short     rider_capacity;      /* +0x2e */
-    char      pad30[0xcc - 0x30];
+    char      pad30[0x78 - 0x30];
+    const char* name;              /* +0x78 */
+    char      pad7c[0xc4 - 0x7c];
+    void*     elem;                /* +0xc4 */
+    char      padc8[0xcc - 0xc8];
     SeatSlot* head;                /* +0xcc */
 } SeatOwner;
+
+typedef struct MapCell {
+    void*          obj;            /* +0x00 */
+    unsigned char  x;              /* +0x04 */
+    unsigned char  y;              /* +0x05 */
+    char           pad06[0x0c - 0x06];
+    unsigned short flags;          /* +0x0c  byte-or'd at bit 2 by JoinSeatList */
+    char           pad0e[0x14 - 0x0e];
+} MapCell;                         /* 0x14 */
+
+typedef struct MapHdr {
+    char           pad00[0x14];
+    unsigned short width;          /* +0x14 */
+    unsigned short height;         /* +0x16 */
+} MapHdr;
+
+typedef struct Elem {
+    char  pad00[0x0c];
+    void* data;                    /* +0x0c  ObjDef* */
+} Elem;
 
 extern char* g_bloke_msg_slot[8];          /* 0x004b8348 */
 extern char  g_bloke_msg_bank[];           /* 0x006661cc  8 x 100-byte rows */
@@ -56,6 +102,20 @@ extern int   g_bloke_msg_rot;              /* 0x006664ec */
 extern int   g_cur_bloke_f81;              /* 0x00813b08 */
 extern const char g_fmt_bloke_msg[];       /* 0x004b8404 "%c:%s" */
 extern const char g_fmt_bloke_log[];       /* 0x004b83f0 "[Bloke %c] - %s\n" */
+extern const char g_fmt_no_alloc[];        /* 0x004b8458 */
+extern const char g_fmt_no_instance[];     /* 0x004b8480 */
+extern Elem*      g_entrance_elem;         /* 0x006661c4 */
+extern MapCell**  g_map_rows;              /* 0x00801400 */
+extern MapHdr*    g_map;                   /* 0x004bcbf4 */
+extern int        g_map_dirty;             /* 0x00668610 */
+
+extern void* HeapAlloc_w(unsigned int size);                         /* 0x0049e4ff */
+extern MapCell* GetFirstObjectMatching(void* obj);                   /* 0x0045a910 */
+extern int  BumpSlotCounter(int* xy);                                /* 0x00489f90 */
+extern unsigned short GetObjectUID(Pos* wpos, SeatOwner* def);       /* 0x0048a3e0 */
+extern void PutBlokeInList(SeatOwner* owner, SeatSlot* slot);        /* 0x0044f430 */
+extern void* memset(void*, int, unsigned);                          /* 0x004a0320 */
+#pragma intrinsic(memset)
 
 /* movie3.c ResetLevelGlobals zeroes the sim counter at 0x00832b9c. */
 // FUNCTION: LEGOLAND 0x0044db20
@@ -193,4 +253,64 @@ int CountBlokesAtRideID(SeatOwner* owner, unsigned short* ride_id)
 int SeatListFull(SeatOwner* owner, unsigned short* ride_id)
 {
     return CountBlokesAtRideID(owner, ride_id) >= owner->rider_capacity;
+}
+
+/* blokelist's seat-list join: malloc a 20-byte slot, bind the bloke to the
+ * ride, stamp a ride_id (entrance cell or GetObjectUID), mark the map cell,
+ * and link via PutBlokeInList. */
+// FUNCTION: LEGOLAND 0x0044f4a0
+int JoinSeatList(Bloke* bloke, SeatOwner* owner, int seat_arg)
+{
+    SeatSlot* slot;
+    MapCell* cell;
+    int xy[2];
+    int x;
+    int y;
+
+    slot = (SeatSlot*)HeapAlloc_w(0x14);
+    if (slot) {
+        cell = GetFirstObjectMatching(owner->elem);
+        if (cell) {
+            xy[0] = cell->x;
+            xy[1] = cell->y;
+            BumpSlotCounter(xy);
+
+            memset(slot, 0, 0x14);
+
+            slot->bloke = bloke;
+            bloke->seat_arg = seat_arg;
+            slot->person = bloke->person;
+            bloke->flags |= 0x20;
+            bloke->state = 0;
+            bloke->step = 0;
+            bloke->b35 = 0;
+
+            if (owner == (SeatOwner*)g_entrance_elem->data) {
+                cell = GetFirstObjectMatching(g_entrance_elem);
+                *(unsigned char*)&slot->seat = cell->x;
+                *((unsigned char*)&slot->seat + 1) = cell->y;
+            } else {
+                slot->seat = GetObjectUID((Pos*)&bloke->x, owner);
+            }
+
+            x = *(unsigned char*)&slot->seat;
+            y = *((unsigned char*)&slot->seat + 1);
+            xy[0] = x;
+            xy[1] = y;
+            if (x < 0 || x >= g_map->width || y < 0 || y >= g_map->height)
+                cell = 0;
+            else
+                cell = &g_map_rows[y][x];
+            /* Original bug: the flag write is unguarded, so an OOB ride_id ors [0xc]. */
+            cell->flags |= 4;
+
+            PutBlokeInList(owner, slot);
+            g_map_dirty |= 0x20;
+            return 1;
+        }
+        DBPrintf(g_fmt_no_instance, owner->name);
+        return 0;
+    }
+    DBPrintf(g_fmt_no_alloc, owner->name);
+    return 0;
 }
