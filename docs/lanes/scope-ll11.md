@@ -6,7 +6,7 @@ Object prefix `/tmp/sll11_`. Brief:
 
 ## Status
 
-**16 / 16 exact, 658 / 658 instructions, 2153 / 2153 bytes.** `audit.py` ends
+**16 / 16 exact, 658 / 658 instructions, 1899 / 1899 bytes.** `audit.py` ends
 PASS with sixteen `[OK]` lines; `relocs.py` zero MISMATCH (two UNRESOLVED,
 both literals: the `"Track %2x, ..."` string and the pooled `1/30`); `/W3`
 clean.
