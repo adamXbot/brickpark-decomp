@@ -827,3 +827,89 @@ Scratch for this pass is `/tmp/svclear3_*` (`svclear3_probe.py` scorer,
 `svclear3_harness.py`, `svclear3_gen[1-6].py`, `svclear3_probe[2-6].c`,
 `svclear3_dump.py`). No binaries, assets or extracted disassembly are
 committed.
+
+## Fourth pass — the colouring model, 2026-09-07 (integrator session)
+
+Scratch `/tmp/svclear4_*` (`svclear4_probe.c`, `svclear4_variants.py`,
+scored with the third pass's `svclear3_probe.py`). CLEAR is unchanged at 24
+strict; this pass measured the ALLOCATION rather than the byte reload, and it
+turns the residual into one precise question.
+
+**The four colourings of the coordinates are decided by register byte needs
+alone**, measured on the real function with the footprint block otherwise
+identical:
+
+| register byte need at allocation | x | y | `next` | first difference |
+| --- | --- | --- | --- | ---: |
+| neither (both bytes from `volatile` memory, or no byte stores at all) | edx | ecx → ebp | ebx | 79 |
+| x only (`(unsigned char)bx`, y from a `volatile` read) | edx | ecx → ebp | ebx | 79 |
+| **y only** (retained body: `volatile` on `sq.x`, `(unsigned char)by`) | **ebp** | **edx** | **ebx** | 110 |
+| both (the plain HandleMapClick idiom) | edx | ebx | ebp | 19 |
+
+The original is the third row: x moved to ebp at 0x00469d5f, y kept in edx.
+So at allocation time y had a register byte need and x did not — yet the
+emitted group serves x's byte from a copy (`mov ecx, ebp`) and y's from a
+byte load of `sq.y`'s slot. Both byte sources are therefore resolved AFTER
+the colouring is fixed, and any exact spelling must (1) give y a byte need
+the allocator sees and (2) still emit y's byte as a load. `volatile` on
+`sq.y` fails (1): its temp is not merged with `by`, so the colouring flips
+to row two — that is the 176-instruction body `vy_c`, register-blind 2 and
+offset-blind 2 against the original, the closest structure found so far:
+
+```c
+saved_def = g_sel_def;
+sq.y = by;
+saved = g_destroy_cursor;
+g_destroy_cursor.origin.y = by;
+py = *(volatile unsigned char*)&sq.y;
+sq.x = bx;
+g_destroy_cursor.origin.x = bx;
+g_sel_bpos.b.x = (unsigned char)bx;
+g_sel_def = d;
+g_sel_bpos.b.y = py;
+```
+
+Measured negatives for the copy and the colouring (all compile to one of the
+two families above unless noted):
+
+- **`unsigned char` coordinates** (the cell fields ARE bytes, loaded with
+  `xor edx,edx / mov dl`): VC6 gives byte locals stack homes and reloads
+  them with `and edx, 0xff` — 88 strict, frame 0x185c. `short` / `unsigned
+  short` likewise (160+). `unsigned`, `long`, `unsigned long` are identical
+  to `int`. The coordinates are `int` locals assigned from byte fields, as in
+  `HandleMapClick`.
+- **`sq.x = (unsigned char)bx`** emits `and edx, 0xff`: VC6 does not track
+  the zero-extension of a byte load, so no conversion yields a bare copy.
+- **Every separate temp for x coalesces back onto `bx`** — a second `int`,
+  a byte local, a `BPos` local filled field-wise or assigned whole, a
+  double-defined temp, a temp re-read from `sq.x`, redefining `bx` after the
+  store, chained `origin.x = sq.x = bx` and its triple, and the FGH
+  identical-arm join `if (c) x2 = bx; else x2 = bx;` on six different
+  conditions (the join folds when the arms are a plain copy; FGH's arms held
+  a computation). None produces an un-coalesced `mov ecx, ebp`.
+- **Reads through an `__inline` helper's `Pos*` parameter** (four bodies,
+  four call placements) are forwarded exactly like direct field reads:
+  inlining precedes forwarding.
+- **No `bx`/`by` at all** — `sq` filled from the cell up front and used for
+  the footprint sums — is the same family: VC6 keeps the address-taken
+  aggregate in registers until `&sq` escapes at the call, so the stores land
+  where they do in the original anyway.
+- **`memcpy` for the save AND the restore**, with and without `#pragma
+  intrinsic`, is byte-identical to struct assignment: the intrinsic is
+  expanded before allocation, so it is not a call boundary that would spill
+  `by`.
+- **Priority nudges** (a duplicate `sq.y` store, `origin.y` moved last or
+  after the x stores, `origin.y = sq.y`, y loaded first, x's stores via the
+  aggregate origin) do not move y ahead of x for edx.
+- **Scratch probes**: a sibling-field store between the `sq.y` store and its
+  byte read, `saved_def` and `sq` as one aggregate, a union byte member, a
+  `((unsigned char*)&sq)[4]` view, an `((int*)&sq)[1]` view, a store through
+  `unsigned int*`, and a loop-carried `&sq` escape all forward
+  (`/tmp/svclear4_probe.c`). A `volatile int` read of `sq.y` is narrowed by
+  VC6 to the same byte load as a `volatile unsigned char` read.
+
+The open question, stated so it can be searched: **what source construct
+gives `by` a register byte need that the allocator honours, while emitting
+that byte as a load from `sq.y`'s home?** Equivalently, a byte use of `by`
+that VC6 rematerialises from memory after `by`'s last dword use even though
+edx is free. Nothing in the statement space of one basic block does it.
