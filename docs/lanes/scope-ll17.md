@@ -13,7 +13,7 @@ count). Object prefix `/tmp/sll17_`. Brief:
 | --- | --- | --- | --- | --- | --- | --- |
 | 0x0046d850 | ScrollIconPanel | fpui4.c | 35/121 | 35/121 | PASS, 6 OK | WIP (floor, note extended) |
 | 0x00482430 | BuildPTPRoute | workorder3.c | 10/76 | **0/76** | PASS, 2 OK | **FUNCTION** |
-| 0x0045e960 | FindObjDoorTile | mapbuild2.c | | | | |
+| 0x0045e960 | FindObjDoorTile | mapbuild2.c | 6/89 | **0/89** | PASS, 3 OK | **FUNCTION** |
 | 0x0048f0f0 | InitExitCheckBox | screens2.c | | | | |
 | 0x0048a3e0 | GetObjectUID | objmap2.c | | | | |
 | 0x00459970 | TallyBuildFootprints | mapbuild2.c | | | | |
@@ -78,3 +78,22 @@ returns builds three pre-allocation blocks, and that graph — not any
 reference count — ranks `b` above `c`. This is a new negative for the
 appearance-count model: a pure register swap between two equally-shaped
 webs was a block-graph effect, and every count-moving spelling was inert.
+
+### 0x0045e960 FindObjDoorTile — CLOSED 89/89 (reconstruction error, 8 spellings)
+
+The original loads the door offset into a callee-saved register in both
+blocks (`d.y` ebx in the entrance block; `d.x`/`d.y` ebx/edi in the exit
+block); ours took the free scratch (edx; ecx/esi). Not a count problem:
+
+| spelling | result |
+| --- | --- |
+| baseline `Pos d = cls->door; x = pos->x + d.x` | 83/89 |
+| two separate `Pos d1`, `Pos d2` | 83/89 |
+| block-scope `int dx, dy` | 84/89 |
+| `Pos* dp = &cls->door` | 80/89 |
+| `y` computed before `x` | 73/87 |
+| **direct `x = pos->x + cls->door.x; y = pos->y + cls->door.y;`** (either operand order, both blocks) | **89/89** |
+
+RA02 in its plainest form: a named aggregate copy and a direct field
+expression are different webs, and only the direct expression gets the
+original's registers. The appearance-count model has nothing to say here.

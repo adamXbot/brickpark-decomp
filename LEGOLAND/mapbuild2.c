@@ -121,19 +121,24 @@ static __inline Cell* MapCellAt(int x, int y)
  * block and d.x/d.y into ebx/edi in the exit block (pos's edi freed by its
  * last read); ours uses edx and ecx/esi. rb == 0 by inspection. Spellings
  * measured: separate `dx`/`dy` temporaries (79), a Pos copy in the entrance
- * block only (69), Pos copies in both (82), then nesting (83). */
-// WIP-FUNCTION: LEGOLAND 0x0045e960  (93.3%, callee-saved register choice for the two door-offset copies; rb 0)
+ * block only (69), Pos copies in both (82), then nesting (83).
+ * Scope LL17 (2026-09-08): closed, 89/89.  The residual was the `Pos d`
+ * copy itself: reading `cls->door.x` / `cls->door.y` directly in the sums
+ * (no local aggregate, no scalars, no pointer to the door) gives the
+ * original's callee-saved choices in both blocks (RA02 -- a named copy and
+ * a direct field expression are different webs).  Either operand order of
+ * the sums is exact; `Pos* dp = &cls->door` is 80, block-scope dx/dy
+ * scalars 84, two separate Pos copies 83, y before x 73. */
+// FUNCTION: LEGOLAND 0x0045e960
 int FindObjDoorTile(MapInst* inst, Pos* pos)
 {
     ObjDef* cls = inst->cls;
     int   x, y, r;
-    Pos   d;
     Cell* cell;
 
     if (ObjHasEntrance(cls)) {
-        d = cls->door;
-        x = pos->x + d.x;
-        y = pos->y + d.y;
+        x = pos->x + cls->door.x;
+        y = pos->y + cls->door.y;
         cell = MapCellAt(x, y);
         if (cell) {
             r = DoorTileStep(cell);
@@ -141,9 +146,8 @@ int FindObjDoorTile(MapInst* inst, Pos* pos)
                 return r;
         }
         if (ObjHasExit(cls)) {
-            d = cls->door;
-            x = d.x + pos->x;
-            y = d.y + pos->y;
+            x = pos->x + cls->door.x;
+            y = pos->y + cls->door.y;
             cell = MapCellAt(x, y);
             if (cell) {
                 r = DoorTileStep(cell);
