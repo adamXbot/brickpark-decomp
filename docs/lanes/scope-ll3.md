@@ -189,7 +189,9 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   `mov ebx,eax / add ebx,0x70` (59/80); mass moves to edi. Immediate-use
   is the real lea lever; Mass has no original call/push of n before
   `mov eax,[f24]`. q-before-`add esp,4` still only with extra volatiles
-  or a pre-call q (ebp, 61/78). Trace / ClipPlane not touched.
+  or a pre-call q (ebp, 61/78). CollectCarSample's no-use lea cannot host
+  `lea ebx,[eax+0x70]` here: Mass kills eax for f24 before the call.
+  Trace / ClipPlane not touched.
 - **Span_ClipPlane** (WIP): 179i, ESCAPES. Need the original's 0x2c frame,
   `in++` cursor in the latch, and the three-way sign classify
   (`(prev_sign>>1)|next_sign` against 0x80000000 / 0xC0000000 / 0x40000000).

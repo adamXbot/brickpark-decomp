@@ -648,7 +648,11 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
  * occupies ebx first and `head` is pushed immediately. Mini-morphs emit
  * `lea ebx,[eax+0x70]` only with an early use of n (extra PlaceAndBind)
  * or a simple-body live nxt; on this body both spill or keep dest-coalesce
- * (59–63%). FindFreeSeat's lea still has dead eax after the lea. */ 
+ * (59–63%). FindFreeSeat's lea still has dead eax after the lea.
+ * CollectCarSample's no-use lea (`mov ebp,1 / lea esi,[eax+0x70]`) cannot
+ * host `lea ebx,[eax+0x70]` here: Mass already has `lea edx,[eax+0xc]`
+ * in-slot and kills eax for f24 before the call (named src + delayed n is
+ * `add eax,0xc` / dest-coalesce from edx, 58/78). */ 
 // WIP-FUNCTION: LEGOLAND 0x0041db90  (84%, lea ebx vs mov/add, q reload)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
