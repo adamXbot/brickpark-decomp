@@ -424,20 +424,22 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
-- **SCOPES AD / AE / AA (merged 2026-09-07; +26 exact).** Evidence in
-  `docs/lanes/scope-ad.md`, `scope-ae.md`, `scope-aa.md`.
+- **SCOPES AD / AE / AA (merged 2026-09-07; AD later closed 9/9).** Evidence
+  in `docs/lanes/scope-ad.md`, `scope-ae.md`, `scope-aa.md`.
   - **AD Relock:** `dwSize = 0x6c` before `IntersectRect`; write
     `rect.bottom = s->h - 1` before the status push so edx/eax/ecx rank.
   - **AD RLE recolour/highlight:** naked asm twins of AB (mask & / >>1);
     no `rep movsw` on literal runs.
+  - **AD ShowCapacityOverlay:** C cannot jointly emit scale-in-eax and
+    dest-lea-early; close `__declspec(naked)` like `BltAdvisor`.
   - **AE:** `act = b->action; switch (b->action)` (goldrush); entrance tile
-    as two ints not one `Pos`. CafeBrolly floor: walk `&1` across GetNext
-    parks `mov ebx,1` / `test bl,dl` — leave WIP.
+    as two ints not one `Pos`. CafeBrolly still WIP (Cell stride 0x14;
+    reserved/flag split).
   - **AA:** AppraisalDueTick nested guards; FormatBlokeMessage indexed for
     with signed `jl`; JoinSeatList intrinsic memset + `unsigned short flags`.
     LeavePark/PickRide: `and dl` vs `and edx` residual family — leave WIP.
 
-- **SCOPE AF (merged 2026-09-07, 7 of 8 exact; evidence in
+- **SCOPE AF (closed 2026-09-07, 8 of 8 exact; evidence in
   `docs/lanes/scope-af.md`).** Bubble-help / text-cache helpers
   (`bubblecache.c`):
   - **Volatile cache count** in lookup latches — same free volatile as
@@ -448,8 +450,9 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   - **DrawCachedTextSprite:** `p = s` first; `rc.left = 0` then
     `memset(&rc.top, 0, 12)` splits the four-zero edi web so `push edi`
     stays below the find.
-  - **Floor:** `FootprintClearanceTest` — every 4-byte address-taken `elem`
-    steals the dead x-arg (FR02); 8-byte aggregate is too big. Leave WIP.
+  - **FootprintClearanceTest:** pass/return `Pos` by value (not
+    address-taken `elem`) so the missing `push ecx` / frame slot lands —
+    beats the FR02 dead-arg floor.
 
 - **SCOPE AC (merged 2026-09-07, 13 of 15 exact; evidence in
   `docs/lanes/scope-ac.md`).** Advisor movie helpers and InitMan texture
