@@ -424,6 +424,16 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **SCOPE AK (closed 2026-09-07, 20 of 20 exact; evidence in
+  `docs/lanes/scope-ak.md`).** Narration / sample / LoadStrings
+  (`narration2.c`):
+  - **LoadStrings / NarrRingA_Available:** equal-weight register webs —
+    declare the winning locals (`buf`/`size`/`pos`, or `cur` before
+    `avail`) *before* the arrays so edi/slot ranking matches. Frame-slot
+    declaration order stays irrelevant; this is a web tie-break.
+  - **LoadStrings quotes:** `if (c == '"') c = '"'; else quotes++;` —
+    dead re-assignment folds away but keeps the `c = 0` arm inline.
+
 - **SCOPE AJ (closed 2026-09-07, 27 of 27 exact; evidence in
   `docs/lanes/scope-aj.md`).** RES volume + frontend save/UI
   (`resaudio2.c`, `frontend2.c`):
