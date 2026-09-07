@@ -5,9 +5,9 @@
  * any of these; the linker kept them because the game was built without
  * /OPT:REF.  They are ordinary C from the same translation units as their
  * matched neighbours (coaster9.c, schoolcar4.c, schoolcar5.c, schoolcar8.c,
- * coastertiny.c), and read as the module's developer tooling: a wireframe
- * debug painter, a box-model builder, a "dump the two model images back to
- * disk" pair and a shaded sprite blitter.
+ * coastertiny.c, schoolcar3.c), and read as the module's developer tooling: a
+ * wireframe debug painter, a debug box builder, a "dump the two model images
+ * back to disk" pair, a shaded texture blitter and a mesh back-face stripper.
  *
  * Reconstructed for VC6 SP3 /O2 /Gy /Gd.  Struct field OFFSETS, record sizes
  * and global addresses are load-bearing; the names are ours.  Types are
