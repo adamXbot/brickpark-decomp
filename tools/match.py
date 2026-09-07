@@ -126,14 +126,20 @@ def obj_function_code(obj_path, func):
                 else:
                     struct.pack_into("<I", code, va, 0x00990099)  # 6-hex sentinel
         return code
-    # find the symbol for func (VC6 prepends '_' to cdecl C names)
+    # find the symbol for func: VC6 prepends '_' to cdecl C names and
+    # decorates __stdcall ones as '_func@N' (N = argument bytes). Without the
+    # decorated form a __stdcall body could only be gated when it was the
+    # first function in its file (the .text fallback below found it by
+    # accident); input2.c and unref5.c both had to be laid out around that.
     targets = {func, "_" + func}
+    stdcall = "_" + func + "@"
     for i in range(nsym):
         o = symptr + i * 18
         rec = d[o:o + 18]
         name = symname(rec)
         value, secnum, typ, sclass = struct.unpack_from("<IhHB", rec, 8)
-        if name in targets and secnum > 0:
+        if (name in targets
+                or (name.startswith(stdcall) and name[len(stdcall):].isdigit())) and secnum > 0:
             code = patched_section(secnum - 1)
             return bytes(code[value:])           # to end of (per-func) COMDAT section
     # fallback: first .text section as a whole
