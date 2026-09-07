@@ -150,3 +150,47 @@ int FindAltNameIndex(char* list, char* name)
     }
     return idx;
 }
+
+/* Place one 3D rider: clamp frame, sample the seat track into person->matrix
+ * (column-major 3x3 via the four channel tables), then SetPersonPosition.
+ *
+ * WIP: 81i/221B exact size, ~34 normalized mismatches. Prologue through the
+ * RiderTrackToScreen call matches except track lands in ESI not EDI; that
+ * register choice cascades through the nested loops (si/base_i/col). Counted
+ * for-i outer matches size; pointer-walk outer SRs dest against chan. */
+// WIP-FUNCTION: LEGOLAND 0x00441980  (58%, 81i/221B; track in ESI not EDI)
+void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
+                         PersonXY* person, int screen_x, int screen_y)
+{
+    if (frame < 0)
+        frame = 0;
+    if (frame >= anim->frame_count)
+        frame = anim->frame_count - 1;
+    {
+        float* track;
+        Pos    out;
+        Pos    base;
+        int    i;
+
+        track = (float*)((char*)anim->seat_tracks[index] + frame * 48);
+        RiderTrackToScreen(anim, (Vec2f*)track, &base);
+        out.x = base.x + screen_x;
+        out.y = base.y + screen_y;
+        *(float*)&screen_y = 65536.0f;
+        for (i = 0; i < 3; i++) {
+            int  si = g_ride_mtx_chan[i];
+            int* dest = &person->matrix[i];
+            int  j;
+            for (j = 0; j < 3; j++) {
+                *(float*)&frame = track[g_ride_mtx_row[j] + si * 3 + 3];
+                __asm {
+                    fld   dword ptr frame
+                    fmul  dword ptr screen_y
+                    fistp dword ptr frame
+                }
+                dest[j * 3] = g_ride_mtx_sign_a[j] * g_ride_mtx_sign_b[si] * frame;
+            }
+        }
+        SetPersonPosition(person, out.x, out.y);
+    }
+}
