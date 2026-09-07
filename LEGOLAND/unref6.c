@@ -128,6 +128,8 @@ extern Icon* InsertIcon(short x, short y, unsigned short group, SpriteRec* s); /
 extern Icon* FindIcon(unsigned short group);                    /* 0x0046d630 */
 extern void  MoveIcons(int mask, short group, short dx, short dy); /* 0x0046dcd0 */
 extern void  ReferenceSprite(SpriteRec* s);                     /* 0x00497bb0 */
+extern Icon* AddGBarClassIcon(void* owner, ObjDef* d, int x, int y, int group,
+                              short f16);                       /* 0x0046f690 */
 extern int   PrintSprite(SpriteRec* s, int x, int y, int mode, BlitCtx* ctx); /* 0x004853a0 */
 extern void  PrintCent(int x, int y, int w, const char* text, int font); /* 0x00454e60 */
 extern char* GetString(int id);                                 /* 0x00498f50 */
@@ -237,4 +239,79 @@ void MoveIconGroupWithClip(int group, int dx, int dy)
         p->clip_x -= (short)dx;
         p->clip_y -= (short)dy;
     }
+}
+
+/* ------------------------------------------- the clipped class-icon pair -- */
+
+/* The render callback 0x0046f860 installs over AddGBarClassIcon's: draw the
+ * icon's sprite only when the icon's box still meets the owning widget's
+ * rectangle (the 16-byte WinRect at widget +0x1c). Note the sprite test is
+ * the SECOND half of the guard, so a null sprite still costs the intersect.
+ * The bounds are built exactly as uimisc.c's GetIconBounds builds them. */
+// FUNCTION: LEGOLAND 0x0046ea10
+int RenderClippedClassIcon(Icon* g)
+{
+    BlitCtx ctx;
+    WinRect box;
+    WinRect out;
+
+    ctx.kind = 2;
+    ctx.owner.p = g;
+    ctx.owner.n = 0;
+    box.left = g->x;
+    box.top = g->y;
+    box.right = g->w + g->x;
+    box.bottom = g->h + g->y;
+    if (IntersectRect(&out, &box, (WinRect*)((char*)g->widget + 0x1c))
+        && g->sprite)
+        PrintSprite(g->sprite, g->x, g->y, 0, &ctx);
+    return 0;
+}
+
+/* An icon for a build class, captioned with the class's name and centred
+ * under the class's own icon sprite (w/2 across, h+2 down). The sprite is
+ * referenced BEFORE the builder takes its own reference, so the class's
+ * sprite outlives the icon. */
+// FUNCTION: LEGOLAND 0x0046f5e0
+Icon* AddLabelledClassIcon(ObjDef* d, int x, int y, int group, short f16)
+{
+    Icon* p;
+    short w;
+    short h;
+
+    ReferenceSprite(d->icon);
+    w = d->icon->w;
+    h = d->icon->h;
+    p = AddLabelledIcon(d->icon, x, y, w / 2, h + 2, group, d->name);
+    if (p) {
+        p->flags |= 0x1000;
+        p->data = d;
+        p->f16 = f16;
+        if (g_group_cb0) {
+            p->f24 = g_group_cb0;
+            p->flags |= 4;
+        }
+        if (g_group_cb1) {
+            p->render = (int (*)(Icon*))g_group_cb1;
+            p->flags |= 8;
+        }
+        if (g_group_cb2) {
+            p->input = (IconInputFn)g_group_cb2;
+            p->flags |= 2;
+        }
+    }
+    return p;
+}
+
+/* A class icon that clips itself to its owning widget: AddGBarClassIcon with
+ * its render callback swapped. ORIGINAL BUG: the returned icon is stored
+ * through without a null check, so an allocation failure faults here (every
+ * other builder in this family guards). Reproduced. */
+// FUNCTION: LEGOLAND 0x0046f860
+Icon* AddClippedClassIcon(void* owner, ObjDef* d, int x, int y, int group,
+                          int f16)
+{
+    Icon* p = AddGBarClassIcon(owner, d, x, y, group, f16);
+    p->render = RenderClippedClassIcon;
+    return p;
 }
