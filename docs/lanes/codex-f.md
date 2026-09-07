@@ -148,10 +148,61 @@ Measured on this body (all inert unless noted):
   and dead arithmetic are inert. The original's source has one more
   surviving IR expression before the cross product than this body.
 
-Next: look for a value the original keeps in memory or an expression that
-survives to value numbering but folds before emission (e.g. a helper that
-reads `m` back, a `frame` temporary the loop re-derives, or the lift
-computed through a struct field the front end does not flatten).
+Second sweep (same body, ~400 more variants; nothing moved the tie without
+also changing code):
+
+- FP phase is a period-4 counter of dead-loop expressions: k distinct
+  `while (0) { v++; }` bodies give the ORIGINAL's full FP block (all six
+  products, 90/168) for k = 1 and 5 only; k = 2,3,4,6 and `while (0) {
+  mode++; anim++; }` are back at 00. Dead assignments (`oa = 0`, `i = j =
+  0`, `f = 0.0f`, `m = 0`, `anim = anim`, `mode = mode + 0`, `kf = kf1`,
+  declaration initialisers) are killed before that counter and are inert.
+  All 64 operand orders of the six products and all 64 parenthesisations
+  `(a*b) - (c*d)` fail: parens on a product re-order only the LATER products
+  (never product 2), operand order in source never changes the emitted
+  order. Parens/casts anywhere in the pre-FP statements are inert.
+- Allocation is invariant under every natural loop-body spelling: 100 random
+  combinations of index expression (`(oa + frame*4 + 1)*3 + ord_b[j]` in six
+  associations, `frame`/`idx`/`slot` temporaries), product order, `m[j*3]`
+  / `m[3*j]` / `*(m + j*3)`, `*(int*)&f` vs an `int fi` copy, for/do-while/
+  `!=`/`++j`, `for (...; i++, m++)` all give 86/168 or 83/168 (the latter is
+  the `i++, m++` form). goto loops, `for (;;)` with `break`, `while (1)`,
+  `3 > i`, `i = i + 1`, `sizeof` bounds, trailing `continue;` — identical.
+  `unsigned`/`long` counters — identical. Block-scoped `oa`/`j`/`scale`/`f`,
+  `const float scale`, `static float k` — identical. Wrapping the loop nest
+  (or the inner loop) in `do { } while (0)` / `for (;;) { ... break; }` to
+  fake a deeper nesting level — identical.
+- Register preference is esi, edi, ebx (micro-probes). Original picture is
+  chain (layer/sprite/person/oa) = esi, seat = edi + [ebp+8] home, anim =
+  ebx, loop temps = edi, j = ecx; ours is seat = esi, anim = edi, chain +
+  temps = ebx, j = eax — the ORDER of all four decisions is inverted (the
+  original favours the short live ranges), not one tie.
+- Everything that does flip it emits code: `m[j*3+1] = 0` (113/174); no
+  `ofs.ox` store (`pos.ox = ... + (sprite->dim >> 1)`, 92/171, +3 instr);
+  `<= 2` bounds (94/173, jle); `char`/`short` j (96/178); a second exit
+  `if (i > 2) break;` (109/175); an extra `person` or `anim` reference
+  pre-loop; two `rider->person` loads. So the tie is broken by loop
+  weight / live-range length, and the original's loops are classified
+  differently (e.g. not a counted loop) with no visible trace.
+- `person->matrix[j*3 + i]` (typed `Person3D*`, no `m` variable) is the
+  right cursor form: it puts `lea edx,[esi+0x58]` in the loop preheader
+  exactly like the original (best1 hoists it above the FP block) and with
+  the ofs.ox flipper reaches 98/171 with the whole loop exact except j in
+  eax (original ecx) and the preheader `mov [ebp-4],eax` one slot early.
+  On its own it is 83/168 because ip takes [ebp+8] and m [ebp-4].
+- `static __inline int FScaleI(float x, float k)` with the asm inside IS
+  inlined by VC6 (76/168), but the 65536 store then lands in the loop
+  preheader; the original's store sits right after `add esp,0x28`, so the
+  constant is a user local written before the cross product.
+- SEAT as a macro (`&rec->seat[index]` at every use) recomputes after the
+  call (66/169). `index = 0xeb` reusing the parameter as mode: 44/172.
+
+Next: the two invisible differences are (1) loop classification/weight and
+(2) one dead expression surviving to VN. A helper macro that expands to
+`while (0) {...}` or an inline function VC6 inlines and then deletes could
+supply both; so could the original loops being driven by a table length
+VC6 cannot fold (e.g. `extern const int` bound, `for (ip = ord_a; *ip >= 0;
+ip++)` sentinel — untested because the emitted compares are constants).
 
 ## Remaining
 
