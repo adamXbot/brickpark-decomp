@@ -540,7 +540,8 @@ void TrackCursorPair_Draw(TrackCursorPair* p)
  * (y, last-idx, two shifts, ylast, pitch, zrow, crow). y is a bare local so
  * a late volatile increment can address-take it without growing the frame;
  * the other seven sit in a reversed-layout struct (crow at [ebp-0x20]).
- * `last` is &keys[n-1].idx (lea -4). */
+ * `last` is &keys[n-1].idx (lea -4). yp=&s.zrow after c=s.crow lands
+ * crow→zrow loads; volatile nshade after both stores keeps nshade in eax. */
 typedef struct ShadeInterp {
     int x;
     int rest[4];
@@ -556,7 +557,7 @@ typedef struct ShadeSetup {
     int*   last;                /* [ebp-0x08] = &keys[n-1].idx */
 } ShadeSetup;                   /* 0x1c; y is the bare [ebp-4] */
 
-// WIP-FUNCTION: LEGOLAND 0x00428860  (254/254i, 765/771B, 176/254=69.3%, 0x70; zrow-before-crow + nshade-eax)
+// WIP-FUNCTION: LEGOLAND 0x00428860  (254/254i, 765/771B, 176/254=69.3%, 0x70; crow store exact, nshade-eax after zrow)
 void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge* edges)
 {
     ShadeInterp ed[4];
@@ -596,21 +597,21 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
     g_span_tmask = (1 << (bit0 + bit1)) - 1;
     g_zb_polys++;
     keys[*(int volatile*)&nkeys].y = edges[*s.last].y1;
-    /* Volatile pitch pins imul so volatile zrow cannot hoist past it. */
+    /* Address-take zrow so crow loads first (edx), then zrow (ecx). */
+    yp = (short*)&s.zrow;
     py = *(int volatile*)&s.pitch * y;
     c = s.crow;
-    z = *(short* volatile*)&s.zrow;
+    z = *(short**)yp;
     py <<= 1;
     s.crow = (short*)((char*)c + py);
     s.zrow = (short*)((char*)z + py);
-    nshade = g_shade_count;
+    nshade = *(int volatile*)&g_shade_count;
     if (nshade > 0) {
-        void** src = g_shade_tab;
         short* dst = g_span_lut;
-        int    idx = grad[0];
+        void** src = g_shade_tab;
 
         do {
-            *dst++ = ((short*)*src++)[idx];
+            *dst++ = ((short*)*src++)[grad[0]];
         } while (--nshade);
     }
     lut = (char*)g_span_lut;
