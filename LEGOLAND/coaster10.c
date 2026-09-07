@@ -73,6 +73,53 @@ extern int g_deriv_mode;                           /* 0x00615f90 */
 extern int g_deriv_t;                              /* 0x00615f98 */
 extern Vec3f* g_deriv_out;                         /* 0x00615fd4 */
 
+
+typedef struct ScreenVtx { int x, y, z, clip; } ScreenVtx; /* 0x10 */
+typedef struct ModelFace {
+    short mat;          /* +0x00 */
+    short normal;       /* +0x02  face normal (pass1/3) */
+    short v0, v1, v2;   /* +0x04 / +0x06 / +0x08 */
+    short n0, n1, n2;   /* +0x0a / +0x0c / +0x0e  per-vertex normals (pass2) */
+} ModelFace; /* 0x10 */
+typedef struct CoasterMesh {
+    int count;
+    char pad04[0xc];
+    Vec3f* normals;                 /* +0x10 */
+    Vec3f* normals2;                /* +0x14 */
+    ModelFace* faces1;              /* +0x18 */
+    int nfaces1;                    /* +0x1c */
+    ModelFace* faces2;              /* +0x20 */
+    int nfaces2;                    /* +0x24 */
+    ModelFace* faces3;              /* +0x28 */
+    int nfaces3;                    /* +0x2c */
+} CoasterMesh;
+typedef struct PolyVtx {
+    int f00;
+    int sy;
+    int sx;
+    int shade;
+    int sz;
+    int f14;
+    int f18;
+} PolyVtx; /* 0x1c */
+typedef struct PolyJob {
+    int kind;
+    int tag;
+    int and_flags;
+    int or_flags;
+    int shade;
+    float dx1, dx2, dy1, dy2, area;
+    PolyVtx* v[3];
+    int f34;
+    void* shader;
+} PolyJob; /* 0x3c */
+
+extern ScreenVtx g_model_vertices[];           /* 0x004d8bb8 */
+extern Vec3f g_model_light;                    /* 0x004dcbb8 */
+extern float g_view_half_hi;                   /* 0x00829a60 */
+extern int g_stat_c_4dcbc8;                    /* 0x004dcbc8 */
+extern void Raster_SubmitPoly(int nverts, PolyJob* job); /* 0x0042a2f0 */
+
 /* ------------------------------------------------------------------------- */
 // FUNCTION: LEGOLAND 0x0041e640
 void RouteNode_SetPending(RouteNode* node, int pending)
@@ -257,4 +304,259 @@ void TrackCurve_EvaluateDerivative(RoutePos* at, int mode, int t, float h, Vec3f
     } else {
         TrackCurve_EvaluateTangent(at, mode, t, out);
     }
+}
+
+/* Pass 1: faces +0x18/+0x1c, filler 0x4b5648, SubmitPoly attr count 2. */
+// FUNCTION: LEGOLAND 0x00420810
+void CoasterModel_DrawPass1(CoasterMesh* model, void* texture, int mode)
+{
+    unsigned int cycles;
+    int i;
+    int k;
+    int tri[4];
+    PolyVtx v[4];
+    PolyJob job;
+
+    __asm {
+        push eax
+        push edx
+        rdtsc
+        mov cycles, eax
+        pop edx
+        pop eax
+    }
+    job.kind = (mode != 0);
+    job.v[0] = &v[0];
+    job.v[1] = &v[1];
+    job.v[2] = &v[2];
+    job.shader = (void*)0x004b5648;
+    for (i = 0; i < model->nfaces1; i++) {
+        const ModelFace* face = &model->faces1[i];
+        const Vec3f* n;
+        float lit;
+
+        tri[0] = face->v0;
+        tri[1] = face->v1;
+        tri[2] = face->v2;
+        tri[3] = tri[0];
+        job.dx1 = (float)(g_model_vertices[tri[1]].x - g_model_vertices[tri[0]].x);
+        job.dy1 = (float)(g_model_vertices[tri[1]].y - g_model_vertices[tri[0]].y);
+        job.dx2 = (float)(g_model_vertices[tri[2]].x - g_model_vertices[tri[0]].x);
+        job.dy2 = (float)(g_model_vertices[tri[2]].y - g_model_vertices[tri[0]].y);
+        job.area = job.dy2 * job.dx1 - job.dx2 * job.dy1;
+        if (job.area > 0.0f) {
+            job.and_flags = 0xff;
+            job.or_flags = 0;
+            job.or_flags |= g_model_vertices[tri[0]].clip;
+            job.and_flags &= g_model_vertices[tri[0]].clip;
+            job.or_flags |= g_model_vertices[tri[1]].clip;
+            job.and_flags &= g_model_vertices[tri[1]].clip;
+            job.or_flags |= g_model_vertices[tri[2]].clip;
+            job.and_flags &= g_model_vertices[tri[2]].clip;
+            if ((job.or_flags & 0xf) == 0xf) {
+                n = &model->normals[face->normal];
+                lit = g_model_light.z * n->z;
+                lit = lit + g_model_light.y * n->y;
+                lit = lit + g_model_light.x * n->x;
+                lit = lit + g_view_half_hi;
+                {
+                    int shade;
+                    __asm {
+                        fld lit
+                        fistp shade
+                    }
+                    job.shade = shade;
+                }
+                job.tag = ((int*)texture)[face->mat * 3];
+                for (k = 0; k < 3; k++) {
+                    v[k].sy = g_model_vertices[tri[k]].y;
+                    v[k].sx = g_model_vertices[tri[k]].x;
+                    v[k].shade = g_model_vertices[tri[k]].z;
+                }
+                Raster_SubmitPoly(2, &job);
+            }
+        }
+    }
+    __asm {
+        push eax
+        push edx
+        rdtsc
+        sub eax, cycles
+        mov cycles, eax
+        pop edx
+        pop eax
+    }
+    g_stat_c_4dcbc8 += cycles;
+}
+
+/* Pass 2: faces +0x20/+0x24, normals2 at +0x14, per-vertex normals at
+ * face+0x0a, filler 0x4b5658, SubmitPoly attr count 3 (y/x/shade/z).
+ * Residual: lea esi/edi/ecx order (1 insn) — 99.4%. */
+// WIP-FUNCTION: LEGOLAND 0x00420a20
+void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
+{
+    unsigned int cycles;
+    int i;
+    int k;
+    int tri[4];
+    PolyVtx v[4];
+    PolyJob job;
+
+    __asm {
+        push eax
+        push edx
+        rdtsc
+        mov cycles, eax
+        pop edx
+        pop eax
+    }
+    job.kind = (mode != 0);
+    job.v[0] = &v[0];
+    job.v[1] = &v[1];
+    job.v[2] = &v[2];
+    job.shader = (void*)0x004b5658;
+    for (i = 0; i < model->nfaces2; i++) {
+        const ModelFace* face = &model->faces2[i];
+
+        tri[0] = face->v0;
+        tri[1] = face->v1;
+        tri[2] = face->v2;
+        tri[3] = tri[0];
+        job.dx1 = (float)(g_model_vertices[tri[1]].x - g_model_vertices[tri[0]].x);
+        job.dy1 = (float)(g_model_vertices[tri[1]].y - g_model_vertices[tri[0]].y);
+        job.dx2 = (float)(g_model_vertices[tri[2]].x - g_model_vertices[tri[0]].x);
+        job.dy2 = (float)(g_model_vertices[tri[2]].y - g_model_vertices[tri[0]].y);
+        job.area = job.dy2 * job.dx1 - job.dx2 * job.dy1;
+        if (job.area > 0.0f) {
+            job.and_flags = 0xff;
+            job.or_flags = 0;
+            job.or_flags |= g_model_vertices[tri[0]].clip;
+            job.and_flags &= g_model_vertices[tri[0]].clip;
+            job.or_flags |= g_model_vertices[tri[1]].clip;
+            job.and_flags &= g_model_vertices[tri[1]].clip;
+            job.or_flags |= g_model_vertices[tri[2]].clip;
+            job.and_flags &= g_model_vertices[tri[2]].clip;
+            if ((job.or_flags & 0xf) == 0xf) {
+                const short* nidx = &face->n0;
+                for (k = 0; k < 3; k++) {
+                    const Vec3f* n = &model->normals2[nidx[k]];
+                    float lit;
+                    int shade;
+                    lit = g_model_light.z * n->z;
+                    lit = lit + g_model_light.y * n->y;
+                    lit = lit + g_model_light.x * n->x;
+                    lit = lit + g_view_half_hi;
+                    __asm {
+                        fld lit
+                        fistp shade
+                    }
+                    v[k].sy = g_model_vertices[tri[k]].y;
+                    v[k].sx = g_model_vertices[tri[k]].x;
+                    v[k].shade = shade;
+                    v[k].sz = g_model_vertices[tri[k]].z;
+                }
+                job.tag = ((int*)texture)[face->mat * 3];
+                Raster_SubmitPoly(3, &job);
+            }
+        }
+    }
+    __asm {
+        push eax
+        push edx
+        rdtsc
+        sub eax, cycles
+        mov cycles, eax
+        pop edx
+        pop eax
+    }
+    g_stat_c_4dcbc8 += cycles;
+}
+
+/* Pass 3: faces +0x28/+0x2c, filler 0x4b5f50, attr count 4 with UV bytes.
+ * Residual: UV emit schedule / frame locals. */
+// WIP-FUNCTION: LEGOLAND 0x00420c40
+void CoasterModel_DrawPass3(CoasterMesh* model, void* texture, int mode)
+{
+    unsigned int cycles;
+    int i;
+    int k;
+    int tri[4];
+    PolyVtx v[4];
+    PolyJob job;
+    unsigned char* tex = (unsigned char*)texture;
+
+    __asm {
+        push eax
+        push edx
+        rdtsc
+        mov cycles, eax
+        pop edx
+        pop eax
+    }
+    job.kind = (mode != 0);
+    job.v[0] = &v[0];
+    job.v[1] = &v[1];
+    job.v[2] = &v[2];
+    job.shader = (void*)0x004b5f50;
+    for (i = 0; i < model->nfaces3; i++) {
+        const ModelFace* face = &model->faces3[i];
+        const Vec3f* n;
+        float lit;
+
+        tri[0] = face->v0;
+        tri[1] = face->v1;
+        tri[2] = face->v2;
+        tri[3] = tri[0];
+        job.dx1 = (float)(g_model_vertices[tri[1]].x - g_model_vertices[tri[0]].x);
+        job.dy1 = (float)(g_model_vertices[tri[1]].y - g_model_vertices[tri[0]].y);
+        job.dx2 = (float)(g_model_vertices[tri[2]].x - g_model_vertices[tri[0]].x);
+        job.dy2 = (float)(g_model_vertices[tri[2]].y - g_model_vertices[tri[0]].y);
+        job.area = job.dy2 * job.dx1 - job.dx2 * job.dy1;
+        if (job.area > 0.0f) {
+            job.and_flags = 0xff;
+            job.or_flags = 0;
+            job.or_flags |= g_model_vertices[tri[0]].clip;
+            job.and_flags &= g_model_vertices[tri[0]].clip;
+            job.or_flags |= g_model_vertices[tri[1]].clip;
+            job.and_flags &= g_model_vertices[tri[1]].clip;
+            job.or_flags |= g_model_vertices[tri[2]].clip;
+            job.and_flags &= g_model_vertices[tri[2]].clip;
+            if ((job.or_flags & 0xf) == 0xf) {
+                n = &model->normals[face->normal];
+                lit = g_model_light.z * n->z;
+                lit = lit + g_model_light.y * n->y;
+                lit = lit + g_model_light.x * n->x;
+                lit = lit + g_view_half_hi;
+                {
+                    int shade;
+                    __asm {
+                        fld lit
+                        fistp shade
+                    }
+                    job.shade = shade;
+                }
+                job.tag = ((int*)texture)[face->mat * 3];
+                for (k = 0; k <= 2; k++) {
+                    int m = face->mat;
+                    int off = (m * 6 + k) * 2;
+                    v[k].sy = g_model_vertices[tri[k]].y;
+                    v[k].sx = g_model_vertices[tri[k]].x;
+                    v[k].shade = tex[off + 4];
+                    v[k].sz = tex[off + 5];
+                    v[k].f14 = g_model_vertices[tri[k]].z;
+                }
+                Raster_SubmitPoly(4, &job);
+            }
+        }
+    }
+    __asm {
+        push eax
+        push edx
+        rdtsc
+        sub eax, cycles
+        mov cycles, eax
+        pop edx
+        pop eax
+    }
+    g_stat_c_4dcbc8 += cycles;
 }

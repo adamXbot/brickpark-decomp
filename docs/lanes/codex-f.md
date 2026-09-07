@@ -11,13 +11,12 @@ Object prefix: `/tmp/cf_`.
 | File | Exact | WIP | Total |
 | --- | ---: | ---: | ---: |
 | `uistubs2.c` | 5 | 0 | 5 |
-| `coaster10.c` | 11 | 2 | 13 of 16 |
+| `coaster10.c` | 12 | 4 | 16 of 16 started |
 | `ridemachine2.c` | 2 | 1 | 3 of 5 |
-| **lane** | **18** | **3** | **21 of 26** |
+| **lane** | **19** | **5** | **24 of 26** |
 
-Draw passes (3) and the two large rider updates not started.
-`/W3` clean on all three files. Relocs: zero MISMATCH on exact bodies
-(UNRESOLVED float literals only).
+`/W3` clean. Relocs: zero MISMATCH on exact bodies (UNRESOLVED float
+literals only). Rider updates still not started.
 
 ## `uistubs2.c` — 5 exact, 26 instructions
 
@@ -31,19 +30,13 @@ All rows: **100%, audit `[OK]`, `// FUNCTION:`**.
 | `0x00489ee0` | `ClearMarkedTiles` | 6 | former `sub_489ee0` |
 | `0x00499410` | `ResetGameClock` | 7 | freezes main + aux clock bases |
 
-### Naming
-
-- **0x00457870 → `SetBrickLimit`**: stores `(limited == 0)` at `g_brick_lock`.
-- **0x00489ee0 → `ClearMarkedTiles`**: writes u16 `0xffff` into each
-  `g_marked_tiles[i].key`.
-
 ### Levers
 
 - **Signed end-pointer compare for `ClearMarkedTiles`.** Typed `MarkedTile*`
   walk emits `jb`; original latch is `jl`. Casting cursor/end to `int` with
-  `p += 4` recovers `jl`. Evidence: first residual was `jl` vs `jb`.
+  `p += 4` recovers `jl`.
 
-## `coaster10.c` — 11 exact, 2 WIP
+## `coaster10.c` — 12 exact, 4 WIP
 
 | Address | Function | Insns | Audit | Marker |
 | --- | --- | ---: | --- | --- |
@@ -60,44 +53,45 @@ All rows: **100%, audit `[OK]`, `// FUNCTION:`**.
 | `0x00429c60` | `TrackCurve_EvaluateDerivative` | 42 | WIP | 55%, FD schedule |
 | `0x00422400` | `ModelImage_FindName` | 43 | OK | FUNCTION |
 | `0x0041e9e0` | `RouteNode_GetTransform` | 45 | OK | FUNCTION |
-| DrawPass1/2/3 | — | 161/165/182 | not started | — |
+| `0x00420810` | `CoasterModel_DrawPass1` | 161 | OK | FUNCTION |
+| `0x00420a20` | `CoasterModel_DrawPass2` | 165 | WIP | 99.4%, lea order |
+| `0x00420c40` | `CoasterModel_DrawPass3` | 182 | WIP | ~67%, UV emit |
+
+### DrawPass family (recovered)
+
+Shared shape: RDTSC bracket → `job.kind = (mode != 0)` → three `job.v[]`
+→ shader immediate → face loop (0x10 records) → edge deltas via
+subscripted `g_model_vertices[tri[i]]` → area `> 0` → clip AND/OR →
+light/tag/emit → `Raster_SubmitPoly` → add cycles into `g_stat_c_4dcbc8`.
+
+| Pass | Faces | Normals | Light | Emit | Submit n |
+| --- | --- | --- | --- | --- | ---: |
+| 1 | +0x18/+0x1c | +0x10, face+2 | once → `job.shade` | y,x,z | 2 |
+| 2 | +0x20/+0x24 | +0x14, face+0xa/c/e per vtx | per vertex → `v.shade` | y,x,shade,z | 3 |
+| 3 | +0x28/+0x2c | +0x10, face+2 | once → `job.shade` | y,x,u,v,z | 4 |
+
+Shader immediates `0x4b5648` / `0x4b5658` / `0x4b5f50` (not extern loads).
+Face is 0x10 with `mat, normal, v0..v2, n0..n2`. Texture records are
+12 bytes; tag is first dword at `mat*3`.
 
 ### Levers
 
-- **`ClipRect_SetBounds` aggregate assign.** Field-wise copies miss the
-  `mov ecx,esi` dest alias; `*(SpanRect*)&clip->left = *bounds` matches.
-- **`ModelImage_FindName` uses `_stricmp` (0x004aab90), not strcmp.** A
-  `while (GetName(...)) { if (_stricmp(name,buf)==0) return i; i++; }`
-  matches; peeled/do-while forms do not. strcmp intrinsic expands inline.
-- **`Route_GetSpeed`**: `2.0f * x` → `fadd st,st`; bare `(float)sqrt` →
-  `fsqrt`; power out-param computed but unused.
-- **`RouteNode_GetTransform` float add order**: `(a.x + b.x)` not `(b+a)` —
-  source order is reverse of `fld` order.
-- **`TransformVec3` WIP**: best form clones `TransformVerts` inner loops
-  with `acc += *rp++ * sp[j]`. Residual is `d += 12` spilling the out slot;
-  original keeps `edi` live without writeback (ESCAPES, +8 bytes).
-- **`TrackCurve_EvaluateDerivative` WIP**: nonzero arm must fall through
-  (`h != 0`); FD call interleaves `g_deriv_out` store with pushes; result
-  copies PhysVec slots `[1..3]` into the Vec3f.
-
-### Mechanics recovered
-
-- Geom method table at geom+0x4c: position at `mode*8`, up at `+0x1c`,
-  tangent at `mode*8+4`.
-- `Route_GetSpeed` is energy conservation `sqrt(2*(E-PE)/m)`, clamped at 0.
-- `LinkPending`: SetCarClipDepth → resolve both cursors → GetTransform →
-  DrawModel(kind) → both seat apply hooks; one batched `add esp,0x34`.
-- `CanAdd` tests cursor0.ref then cursor1.ref at +0xc / +0x44.
-- `GetTransform`: midpoint of mode-2 cursor positions; first rot row is
-  `a - b`; `Mat3_BuildBasis(&rot,&rot)`.
-
-### Extern-type notes
-
-- `TrackCurve_EvaluateDerivative` 4th arg is `float h` here; coaster9
-  declares `int` (caller passes 0).
-- Named `Mat4_Transpose` (0x00426190), `ClipRect_ComputeMask` (0x004265d0),
-  `ModelClip_Project` (0x00426750), `Mat3_BuildBasis` (0x00429af0),
-  `TrackCursor_Resolve` (0x0042a680), `TrackCurve_EvaluateTangent` (0x00429ac0).
+- **`ClipRect_SetBounds` aggregate assign.** `*(SpanRect*)&clip->left = *bounds`.
+- **`ModelImage_FindName` uses `_stricmp` (0x004aab90).**
+- **`Route_GetSpeed`**: `2.0f * x` → `fadd st,st`; bare `(float)sqrt` → `fsqrt`.
+- **`DrawPass1`**: literal shader; `tri[3]=tri[0]` early; light as
+  `z*z + y*y + x*x + half`; `and_flags=0xff` then `&= clip`.
+- **`DrawPass2` WIP**: per-vertex normals from `face->n0..n2` via
+  `normals2`. Residual is `lea esi,[face+0xa]` before vs after the
+  `lea edi/ecx` pair (1 insn order).
+- **`TransformVec3` WIP**: dual modified `s`/`d` params give correct
+  ebp/mul but spill `d+=12` (ESCAPES). Locals kill spill but flip mul
+  order / prologue. Floor ~86.7%.
+- **`TrackCurve_EvaluateDerivative` WIP**: FD arg/`g_deriv_out`
+  interleave + PhysVec `[1..3]` copy not recovered (~55%).
+- **`Copters_StopRide` WIP**: VC6 always loads higher seat offset into
+  edx when pairing flag clears; original wants lower in edx. Floor
+  85.9% after many register-order attempts.
 
 ## `ridemachine2.c` — 2 exact, 1 WIP
 
@@ -111,21 +105,11 @@ All rows: **100%, audit `[OK]`, `// FUNCTION:`**.
 
 ### Levers
 
-- **`SpaceTower_StepCar`**: `switch (state)` with **case 2 before case 1**
-  emits the `dec/je/dec/jne` chain; `if (state==1)`/`==2` uses `cmp`.
-- **`Copters_StopRide` WIP**: flag clears need original edx/ebx pairing
-  (seat0 then seat1); naive `&=` swaps the pair. Frame/rider order is
-  1,0,2,3,4.
+- **`SpaceTower_StepCar`**: `switch` with **case 2 before case 1**.
+- **`Copters_StopRide`**: see floor note above; frame/rider order 1,0,2,3,4.
 
-### Mechanics recovered
+## Remaining
 
-- Copter car: while flying, bump frame; at frames wrap, reset frame and
-  dec stage; stage underflow clears flying bit.
-- Tower car state 1: arm f10 to -1 then advance to 2. State 2: ascend by
-  `revs` to 200 then descend by 2 to 0 and clear state.
-
-## Not started / blocked
-
-- Three `CoasterModel_DrawPass*` (~508 insns) — family, do last.
+- Close or leave floored: TransformVec3, EvaluateDerivative, Copters_StopRide.
+- Finish DrawPass2 (lea order) and DrawPass3 (UV emit).
 - `SpaceTower_UpdateRiders`, `Copters_UpdateCarRider`.
-- Open residuals on TransformVec3, EvaluateDerivative, Copters_StopRide.
