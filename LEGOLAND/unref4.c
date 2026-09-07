@@ -342,3 +342,46 @@ int RunTextEntryDialog(void* backdrop, IRect* r, const char* title,
     }
     return len;
 }
+
+/* =========================================================================
+ * A debug/tuning VERTICAL SLIDER widget and the panel that drives it
+ * (mechrides.c neighbourhood).  Also dead.
+ * ========================================================================= */
+
+extern int g_mouse_ev2;                 /* 0x00813ac4  bit 2 = button held */
+extern Pos g_gfx_point;                 /* 0x00813a44  the mouse point */
+/* Set while the pointer grabbed a slider; one flag shared by every slider,
+ * so only one may be dragged at a time. */
+extern int g_slider_grabbed;            /* 0x0062fea4 */
+
+/* Draws the slider track and its red 3-pixel marker, then returns the value
+ * the pointer is asking for: `value` unless the slider is grabbed. */
+// FUNCTION: LEGOLAND 0x0043e930
+int Slider_Track(Box* r, int lo, int hi, int value)
+{
+    int h = r->bottom - r->top;
+    int pos = h * value / (hi - lo);
+    int held;
+    int my;
+
+    RenderThickBox(r->left, r->top, r->right - r->left, r->bottom - r->top, 2, 0);
+    RenderBlock(r->left, r->top + pos - 1, r->right - r->left, 3,
+                GetNearestColour(0xff, 0, 0));
+    held = g_mouse_ev2 & 4;
+    if (held && g_gfx_point.x >= r->left && g_gfx_point.x <= r->right
+        && g_gfx_point.y >= r->top && g_gfx_point.y <= r->bottom) {
+        g_slider_grabbed = 1;
+    } else if (g_slider_grabbed == 0) {
+        return value;
+    }
+    if (held != 0) {
+        my = g_gfx_point.y;
+        if (my < r->top)
+            my = r->top;
+        else if (my > r->bottom)
+            my = r->bottom;
+        return (my - r->top) * (hi - lo) / (r->bottom - r->top);
+    }
+    g_slider_grabbed = 0;
+    return value;
+}
