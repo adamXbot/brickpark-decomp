@@ -36,6 +36,13 @@ Contract: `docs/PARALLEL_CONTRACT.md`. Index: `docs/SCOPE_LL_WAVE.md`.
 **EDX**. Volatile shims / `return count++` / LL2 `Fst` could not hold both
 tails at once.
 
+### LL7 — `Track_StepAlong` `0x00429f30` (exact on `scope/LL7`, tip `aec6ec9f`; scope **15/17**)
+
+Named `float step2 = step * step` was the wall (CSE kept step² live → batched
+`push esi` with tol). Write the square only at the store after t0:
+`t0 = cur.geom->t0; g_step_len2 = step * step;` — early `push esi` + correct FP.
+Still open on LL7: `TrackRunSetSlope` (7 eax↔edx), `TrackShade_FillPoly` (ZBuffer).
+
 ---
 
 ## Priority A — size-exact / high % with clear next lever
@@ -57,28 +64,6 @@ Need / have:
 
 (`Raster_ClipPoly` closed via `if (1) { switch (flags) … } return count`.)
 Trace NG22 / ClipPlane ESCAPES unchanged.
-
-### LL7 — `Track_StepAlong` `0x00429f30` (14/17 scope)
-
-| | |
-| --- | --- |
-| Branch / file | `scope/LL7` · `LEGOLAND/coaster13.c` |
-| Tip | `7c7640a4` |
-| Notes | `docs/lanes/scope-ll7.md` |
-| Score | 70i, **232/232B**, audit **11** mism |
-
-Live-across `org = origin` + early `t0` closed the 6-byte gap. Loop exact.
-Original order after `rep movsd`:
-`geom, esi=out_t, push esi, t0, eax=step, fstp len2, fld/fadd, …, push tol, g_step_len, fld/fmul`
-
-Two attractors — no tested spelling emits that order:
-
-- **A (kept, 11 mism):** `t0` before `len2` — correct FP; `push esi` 7 late, `g_step_len` 2 late.
-- **B (21 mism, ~90%):** `g`; `len2`; `t0` — early push + correct len; `fstp`/`fadd` hoist.
-
-Also ruled out: finished pre-call `t0` (batches push with tol), helper/comma hi,
-empty `__asm` (EBP), Joust `H(&ot,out_t)`, union/`unsigned` t0bits (71i),
-`g->t0` as call arg, `sol = g_track_solver`. Sticky schedule split; not formally floored. Ideas 1–6 (g+comma-lo, held-off step2, volatile out_tp, split lo/hi2, home reorder, MeasureDistance/Bisect copy) stayed on A or worse; homes not swapped. Last-arg/hi-comma / PinOt / Joust / volatile-g also A or wreck prologue `fmul`; union-C puts `push esi` one slot late (+insn). Coupling: finished `t0` batches out_t push with `push tol`; call-before-t0 needs len2/fadd spilled first. LL2 `Fst(a,b)` RTL pins out_t before t0 but inlined helper args become temps — no missing `push esi`. Best non-A ~81% still batches both pushes after `fadd`.
 
 ### LL6 — `GetTrackSegment` `0x00424050` (22/24 scope)
 
@@ -159,10 +144,10 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 ## Suggested Fable attack order
 
 1. **LL3 MassAndPower** — size-exact 42 mism; dest-coalesce sink; LL2 RTL Fst inert.
-2. **LL7 StepAlong** — size-exact 11 mism; RTL Fst pins out_t but does not emit `push esi`.
-3. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
-4. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
-5. **LL4 Span family / LL7 Slope+ShadeFill** — last.
+2. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
+3. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
+4. **LL7 SetSlope / ShadeFill** — eax↔edx / ZBuffer floors (StepAlong closed on branch).
+5. **LL4 Span family** — last.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
 Do **not** merge partial scopes yourself.
@@ -179,10 +164,10 @@ Do **not** merge partial scopes yourself.
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
-| LL7 | 14/17 | `7c7640a4` | `coaster13.c` |
+| LL7 | 15/17 | `aec6ec9f` | `coaster13.c` |
 | LL8 | **13/13** | merged `main` | `gameframe2.c` |
 
-**WIP count in this wave:** 0+0+3+5+0+2+3+0 = **13 bodies**.
+**WIP count in this wave:** 0+0+3+5+0+2+2+0 = **12 bodies**.
 
 ---
 
