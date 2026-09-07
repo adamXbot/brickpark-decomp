@@ -1,7 +1,7 @@
 # Handoff — LEGOLAND matching decompilation
 
-**Integration checkpoint: 2026-09-07 — Z, Y, AB, AC, AF, AD, AE, AA closed
-exact.** Written for the next session to pick up cold. Earlier dated
+**Integration checkpoint: 2026-09-07 — Z, Y, AB, AC, AF, AD, AE, AA, AH
+closed exact.** Written for the next session to pick up cold. Earlier dated
 environment and wave notes are retained below; use §1 for current scope
 ownership and progress.
 
@@ -92,18 +92,20 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **68.8% exact, 80.1% with partials** |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2810 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **69.1% exact, 80.5% with partials** |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2822 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F own part of this list; use `tools/inventory.py` for game-code targets. |
 | partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 79 |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
 
-**Scope AA closed exact (2026-09-07): 14 of 14; coverage 68.4% -> 68.8% exact
-(80.1% with partials).** Exact count **2810**; **79** WIPs.
-LeavePark (break-hosted case 11/12 CML) and PickRide (late-folded default
-arm) promoted. Relocs 0 MISMATCH; `/W3` clean. Parallel still open: FGH, V,
-Codex-F, AG, AC remainders.
+**Scope AH closed exact (2026-09-07): 12 of 12; coverage 68.8% -> 69.1% exact
+(80.5% with partials).** Exact count **2822**; **79** WIPs.
+`popupmisc.c` (group 15). Relocs 0 MISMATCH; `/W3` clean. Parallel still
+open: AI, AJ, AK, FGH, V, Codex-F, AG, AC remainders.
+
+**Scope AA closed exact (2026-09-07): 14 of 14; coverage 68.4% -> 68.8% exact.**
+LeavePark / PickRide.
 
 **Scope AE closed exact (2026-09-07): 7 of 7; coverage 68.2% -> 68.4% exact.**
 CafeBrolly via Garderner_Repair leg spelling.

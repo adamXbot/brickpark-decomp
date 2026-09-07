@@ -424,6 +424,18 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **SCOPE AH (closed 2026-09-07, 12 of 12 exact; evidence in
+  `docs/lanes/scope-ah.md`).** Pop-up / help / icon-bar helpers
+  (`popupmisc.c`):
+  - **RenderIconsSkipGroup:** `memset(&ctx.owner, 0, 8)` under
+    `#pragma intrinsic(memset)` (not two `= 0` stores) for zero-reg +
+    downstream allocation.
+  - **SelectNextBuildObject:** biased `const char**` cursor at `.next`
+    (`e[-1]`/`e[0]`, `e += 2`); fail-arm store order
+    `g_edit_changed` / `g_release_swallow` / `g_input.flags &= ~0x1400`.
+  - **ShowCursorErrorMessage:** `int` wrapper returning `ShowMessage(...)`
+    (`void` emits `pop ecx` not `add esp,4`).
+
 - **SCOPES AD / AE / AA (merged 2026-09-07; AD later closed 9/9).** Evidence
   in `docs/lanes/scope-ad.md`, `scope-ae.md`, `scope-aa.md`.
   - **AD Relock:** `dwSize = 0x6c` before `IntersectRect`; write
