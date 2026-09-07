@@ -36,7 +36,7 @@ Contract: `docs/PARALLEL_CONTRACT.md`. Index: `docs/SCOPE_LL_WAVE.md`.
 **EDX**. Volatile shims / `return count++` / LL2 `Fst` could not hold both
 tails at once.
 
-### LL7 — `Track_StepAlong` `0x00429f30` + `TrackRunSetSlope` `0x00429560` (exact on `scope/LL7`; scope **16/17**, tip `7c7c6c86`)
+### LL7 — `Track_StepAlong` `0x00429f30` + `TrackRunSetSlope` `0x00429560` (exact on `scope/LL7`; scope **16/17**, tip `cef28f27`)
 
 **StepAlong:** Named `float step2 = step * step` was the wall. Write the square
 only at the store after t0: `t0 = cur.geom->t0; g_step_len2 = step * step;`
@@ -131,14 +131,22 @@ Landed through pitch-volatile pin: `last`/ShadeSetup/`y` split; eax
 `g_zb_polys++`; `imul [ebp-4]`; `py = *(int volatile*)&s.pitch * y` then
 volatile zrow so zrow cannot hoist past the product — `shl` + both `add`s.
 
-**Residual (firstX=92 through crow store; yp-pin committed):** ours does
-`store zrow; mov eax,[g_shade_count]; test eax` vs original
-`mov edx,[g_shade_count]; test edx; store zrow`. Killing crow’s edx at the
-store (crowp / StoreThenN / drop named `c`) does **not** free edx for nshade
-without the 66.1% between-stores wall (swapped adds + `g_zb_polys++` in ebx).
-Keeping `c` live across nshade only hoists the load before crow store (still
-eax). Need nshade born after crow’s edx dies, without being live during add /
-`g_zb_polys++` allocation.
+**FLOOR (source-level register web).** Tip `7c7c6c86`, firstX=92 through crow
+store. Residual: ours `store zrow; mov eax,[g_shade_count]; test eax` vs orig
+`mov edx,[g_shade_count]; test edx; store zrow`.
+
+Ruled out: crowp / StoreThenN / drop-`c` (still 66.1% if nshade sits between
+stores); late-birth naming of both add temps first (65.9%, ebx imul /
+`g_zb_polys++` in edi); if-fold / ternary (37–41%); `c_redef` / Fst-on-zrow
+(closest — paired adds exact, zrow in test/jle gap, but nshade hoists one slot
+*before* crow store into **eax** while edx+ecx still hold adds). Copy-prop
+kills same-var redef; volatile crow-store barrier unpaired adds (68.1%) or
+66.1%.
+
+Binding: any IR that keeps nshade off the add web hoists it into eax while
+edx is live; any IR that makes nshade live during the adds steals
+`g_zb_polys++` into ebx. Park until a new lever (not more C spellings of the
+same window).
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -159,8 +167,8 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 1. **LL3 MassAndPower** — size-exact 42 mism; dest-coalesce sink; LL2 RTL Fst inert.
 2. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
 3. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
-4. **LL7 ShadeFill** — ZBuffer floor (StepAlong + SetSlope closed on branch).
-5. **LL4 Span family** — last.
+4. **LL4 Span family** — ZBuffer-class Span_Fill*.
+5. **LL7 ShadeFill** — parked source-level nshade/edx web floor (16/17).
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
 Do **not** merge partial scopes yourself.
@@ -177,7 +185,7 @@ Do **not** merge partial scopes yourself.
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
-| LL7 | 16/17 | `7c7c6c86` | `coaster13.c` |
+| LL7 | 16/17 | `cef28f27` | `coaster13.c` |
 | LL8 | **13/13** | merged `main` | `gameframe2.c` |
 
 **WIP count in this wave:** 0+0+3+5+0+2+1+0 = **11 bodies**.
