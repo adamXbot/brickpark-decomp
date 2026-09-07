@@ -87,6 +87,9 @@ Globals first named here: `g_one_sixth` (0x004b5610), `g_span_ramp`
 ## Ruled out (do not rerun)
 
 - Span_FillFlat: sl-struct of {ylast,pitch,dead,row} → 313B / 87 mismatch
-  (worse). `n = color` with `__asm` using `n` → 36.7%.
+  (worse). `n = color` with `__asm` using `n` → 36.7%. Volatile
+  row/pitch/dead/ylast → 312B / 95. Capturing `count`/`ramp` then
+  `n = color` → 313B / 99 (still `sub esp,0x58`).
 - IntegrateSimpson: ESP frame without `__asm` → 5.6%. Volatile pfn → 78
-  mismatch. Separate `int i` plus `f.i = i` → 64 mismatch.
+  mismatch. Separate `int i` plus `f.i = i` → 64 mismatch. Block-scoped
+  `a0 = a` before `fn(a0)` → 65 mismatch, still `add esp,8`.
