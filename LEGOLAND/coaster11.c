@@ -774,8 +774,11 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
 /* Residual: next_abs and ebx via abs-n live across __ftol + byte store;
  * lerp dword is a separate temp so n is not overwritten. Frame 0x2c via
  * 8-byte prev_abs {i, pad} — pad is ebx-neutral (orig unused [esp+0x38]).
- * Byte-n prologue (mov ebx,n) kept. */
-// WIP-FUNCTION: LEGOLAND 0x0041f050  (10%, next_abs ebx, frame 0x2c)
+ * Byte-n prologue (mov ebx,n) kept. Trailing n>=1 so cmp ebx,1 / jl
+ * exiles the early-out past the fall-through ret. Both lerp arms count
+ * up (k=0; k++; k<=g_span_vtx); ENTER keeps k outside the vtx guard so
+ * it spills, LEAVE inits k inside the guard. */
+// WIP-FUNCTION: LEGOLAND 0x0041f050  (18%, next_abs ebx, frame 0x2c)
 int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
 {
     void** in = (void**)in_v;
@@ -800,85 +803,89 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
     prev_sign = bits.i & 0x80000000;
     bits.i &= 0x7fffffff;
     *(volatile int*)&prev_abs.i = bits.i;
-    if (n < 1) {
+    if (n >= 1) {
+        in++;
+        /* Byte use of n forces ebx (only byte-addressable callee-save). */
+        *(volatile unsigned char*)&left = (unsigned char)n;
+        left = n;
+        do {
+            void* nxt = *in;
+            union { float f; int i; } pa, na;
+            int next_sign;
+            int cls;
+            ClipPlane* plane = *(ClipPlane* volatile*)&plane_v;
+
+            bits.f = plane->d - ((float)((int*)nxt)[2] * plane->nx
+                                 + (float)((int*)nxt)[1] * plane->ny);
+            /* Reuse n for next_abs after left=. Live across __ftol (prev_abs
+             * stored after lerp) so abs is callee-save; byte store picks ebx. */
+            n = bits.i;
+            next_sign = n;
+            n &= 0x7fffffff;
+            next_sign &= 0x80000000;
+            *(volatile unsigned char*)&abs_b = (unsigned char)n;
+            cls = (prev_sign >> 1) & 0x40000000 | next_sign;
+            pa.i = *(volatile int*)&prev_abs.i;
+            na.i = n;
+            if (cls == (int)0x80000000) {
+                float t = na.f / (pa.f + na.f);
+                {
+                    int k = 0;
+                    if ((int)g_span_vtx >= 0) {
+                        int* src = (int*)nxt;
+                        int delta = (char*)prev - (char*)nxt;
+                        int dest = (char*)dst - (char*)nxt;
+                        do {
+                            int dword = src[0];
+                            {
+                                int dlt = *(int*)((char*)src + delta) - dword;
+                                *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
+                            }
+                            src++;
+                            k++;
+                        } while (k <= (int)g_span_vtx);
+                    }
+                }
+                *(void**)out_v = dst;
+                out_v = (char*)out_v + 4;
+                dst = (char*)dst + g_span_vtx_stride;
+                out_n++;
+            } else if (cls == (int)0xc0000000) {
+                *(void**)out_v = prev;
+                out_v = (char*)out_v + 4;
+                out_n++;
+            } else if (cls == 0x40000000) {
+                float t = pa.f / (pa.f + na.f);
+                *(void**)out_v = prev;
+                out_v = (char*)out_v + 4;
+                if ((int)g_span_vtx >= 0) {
+                    int* src = (int*)prev;
+                    int delta = (char*)nxt - (char*)prev;
+                    int dest = (char*)dst - (char*)prev;
+                    int k = 0;
+                    do {
+                        int dword = src[0];
+                        {
+                            int dlt = *(int*)((char*)src + delta) - dword;
+                            *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
+                        }
+                        src++;
+                        k++;
+                    } while (k <= (int)g_span_vtx);
+                }
+                *(void**)out_v = dst;
+                out_v = (char*)out_v + 4;
+                dst = (char*)dst + g_span_vtx_stride;
+                out_n += 2;
+            }
+            *(volatile int*)&prev_abs.i = n;
+            prev = nxt;
+            prev_sign = next_sign;
+            in++;
+        } while (--left);
         *cursor = dst;
         return out_n;
     }
-    in++;
-    /* Byte use of n forces ebx (only byte-addressable callee-save). */
-    *(volatile unsigned char*)&left = (unsigned char)n;
-    left = n;
-    do {
-        void* nxt = *in;
-        union { float f; int i; } pa, na;
-        int next_sign;
-        int cls;
-        ClipPlane* plane = *(ClipPlane* volatile*)&plane_v;
-
-        bits.f = plane->d - ((float)((int*)nxt)[2] * plane->nx
-                             + (float)((int*)nxt)[1] * plane->ny);
-        /* Reuse n for next_abs after left=. Live across __ftol (prev_abs
-         * stored after lerp) so abs is callee-save; byte store picks ebx. */
-        n = bits.i;
-        next_sign = n;
-        n &= 0x7fffffff;
-        next_sign &= 0x80000000;
-        *(volatile unsigned char*)&abs_b = (unsigned char)n;
-        cls = (prev_sign >> 1) & 0x40000000 | next_sign;
-        pa.i = *(volatile int*)&prev_abs.i;
-        na.i = n;
-        if (cls == (int)0x80000000) {
-            float t = na.f / (pa.f + na.f);
-            if ((int)g_span_vtx >= 0) {
-                int* src = (int*)nxt;
-                int delta = (char*)prev - (char*)nxt;
-                int dest = (char*)dst - (char*)nxt;
-                int k = (int)g_span_vtx;
-                do {
-                    int dword = src[0];
-                    {
-                        int dlt = *(int*)((char*)src + delta) - dword;
-                        *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
-                    }
-                    src++;
-                } while (k-- > 0);
-            }
-            *(void**)out_v = dst;
-            out_v = (char*)out_v + 4;
-            dst = (char*)dst + g_span_vtx_stride;
-            out_n++;
-        } else if (cls == (int)0xc0000000) {
-            *(void**)out_v = prev;
-            out_v = (char*)out_v + 4;
-            out_n++;
-        } else if (cls == 0x40000000) {
-            float t = pa.f / (pa.f + na.f);
-            *(void**)out_v = prev;
-            out_v = (char*)out_v + 4;
-            if ((int)g_span_vtx >= 0) {
-                int* src = (int*)prev;
-                int delta = (char*)nxt - (char*)prev;
-                int dest = (char*)dst - (char*)prev;
-                int k = (int)g_span_vtx;
-                do {
-                    int dword = src[0];
-                    {
-                        int dlt = *(int*)((char*)src + delta) - dword;
-                        *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
-                    }
-                    src++;
-                } while (k-- > 0);
-            }
-            *(void**)out_v = dst;
-            out_v = (char*)out_v + 4;
-            dst = (char*)dst + g_span_vtx_stride;
-            out_n += 2;
-        }
-        *(volatile int*)&prev_abs.i = n;
-        prev = nxt;
-        prev_sign = next_sign;
-        in++;
-    } while (--left);
     *cursor = dst;
     return out_n;
 }
