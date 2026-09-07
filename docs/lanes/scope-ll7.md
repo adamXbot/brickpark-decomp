@@ -25,7 +25,7 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 | 0x00429f30 | Track_StepAlong | 70 | 89 | 11 (232/232B) | WIP |
 | 0x00428860 | TrackShade_FillPoly | 254 | 38 | 243 **ZBuffer floor** | WIP |
 
-**14 / 17 exact.** SetSlope and FillPoly at their floors; StepAlong size-exact at 11 (not floored). `/W3` clean. `relocs.py` 0 MISMATCH on the 14 FUNCTION bodies.
+**14 / 17 exact.** SetSlope and FillPoly at their floors; StepAlong size-exact at 11 (two scheduler attractors; see levers). `/W3` clean. `relocs.py` 0 MISMATCH on the 14 FUNCTION bodies.
 
 ## Names
 
@@ -62,7 +62,11 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **Track_MeasureDistance**: extra `g_dist_at = &cur` before the loop integrate and the final `[t0, t]` integrate (equal path sets it to `from`). 0.01f is `0x3c23d70a`.
 - **TrackCursorPair_Draw**: interleave `s=sin; m[0]=s; c=cos; m[2]=c; m[8]=-c; m[10]=s` so the leftover sin is `fst` then later `fstp`. Computing both trigs first emitted `fld st(1)`. Mat slots are 0/2/8/10 (not 1/2/8/10). `#pragma intrinsic(sin, cos)`.
 - **Track_StepObjective**: `if ((dist2 = x*x+y*y+z*z) > hi2)` (assignment-in-condition) lands `fld st / fcomp hi2`. A named `dist2 = sum; if (dist2 > hi2)` emitted `fcom [home]`.
-- **Track_StepAlong**: size-exact **70i/232B**, matchfull 88.6%, audit **11**. `org = origin` live-across + late `g_step_origin = org` puts origin in edx during `rep movsd`. `hi = tol; … hi = t` + `t0 = cur.geom->t0` before `g_step_len2 = step2` lands `push tol` as the hi placeholder, dword `t0` into the dead `from` slot, and `fstp [esp]`. Loop is exact (`hi = cur.geom->t1`). Residual is one schedule split: `mov esi, out_t` matches, but `push esi` is 7 insns late (batched with `push tol` after t0/fstp/fadd); `g_step_len = step` is 2 insns late (after `fld st/fmul` instead of right after `push tol`). `g = cur.geom` then `g_step_len2` then `t0` got the early push (90% matchfull) but hoisted fstp/fadd and **21** audit. Comma/helper/volatile/dword-`t0bits`/`from`-pun: inert or worse. Not a floor — the 11 is that push/len-store pair.
+- **Track_StepAlong**: size-exact **70i/232B**, matchfull 88.6%, audit **11**. `org = origin` live-across + late `g_step_origin = org` puts origin in edx during `rep movsd`. `hi = tol; … hi = t` + `t0 = cur.geom->t0` before `g_step_len2 = step2` lands `push tol` as the hi placeholder, dword `t0` into the dead `from` slot, and `fstp [esp]`. Loop is exact (`hi = cur.geom->t1`). Residual is one scheduler permutation of two independent blocks after `rep movsd`: original is `[geom, esi=out_t, push esi, t0, eax=step, fstp len2, fld/fadd, store-from, push tol, g_step_len, fld/fmul]`. Two attractors, no tested spelling emits that order:
+  - **A (current, 11 mism)**: `t0` before `len2` (with or without named `g`). Correct fstp/fadd; `push esi` batched 7 late with `push tol`; `g_step_len` 2 late (after `fld st/fmul`).
+  - **B (21 mism, 90%)**: `g = cur.geom; g_step_len2 = step2; t0 = g->t0`. Early `push esi` + `g_step_len` right after `push tol`; fstp/fadd hoisted *before* geom/push/t0.
+  - **C (80%, 71i)**: union/`unsigned` t0bits then `t0 = u.f`. `push esi` lands *between* t0 and fstp (the wanted window) but adds an insn and breaks the later `push t0` into `fld/push/fstp`.
+  Coupling: making `t0` a finished pre-call statement (needed to hold fstp after the load) also batches the out_t push with `push tol`. Starting the call before `t0` (needed for early `push esi`) only happens once `len2`/`fadd` have already spilled. Comma-as-hi-arg and `__inline` helper-as-hi flatten or evaluate the complex hi arg *before* the simple `out_t` push (65% or worse) unless hi2 is also a prior statement, which hoists fadd to the prologue. Empty `__asm {}` forces an EBP frame (56%). Also inert/worse: Joust `H(&ot,out_t)`, `float* ot` two-def/volatile, `sol = g_track_solver`, `g->t0` as the call arg (kills CSE, 62%), `g_step_len` comma-into-hi2, hi2 via `g_step_len`, `plen = &g_step_len2`, `step2 + t0*0`, helper `put(t0,step2)` / `t0l()`. Not formally retired — still one permutation — but the un-batch vs sink-fstp space is two attractors.
 - **TrackShade_FillPoly**: **ZBuffer floor**, same class as schoolcar6.c `ZBuffer_FillPoly` (EBP frame, `xchg ebx,eax`, `add ebx,1`, mixed `__asm`). 254/254i, 748/771B, frame 0x6c vs 0x70. Not ground further.
 
 ## Extern-type divergences
