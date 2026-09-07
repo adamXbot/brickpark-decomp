@@ -283,8 +283,10 @@ void Visitor_WaveThenResume(Bloke* b)
 /* Plan 0x0d: find an unreserved CAFE BROLLY, walk there, reserve, wait, leave.
  * Cell is 0x14 bytes. for-latch GetNext plus ordinary `reserved = flag0 & 1`
  * emits the original walk. Case 2 splits obj vs flags so cafe stays in eax.
- * Residual: dest.y store sinks one slot too early (world.x before world.y). */
-// WIP-FUNCTION: LEGOLAND 0x0044fe80  (96.5%, walk exact; dest.y store-sink)
+ * Case 1 is the Garderner_Repair spelling: `&b->world, &b->dest, &leg` in the
+ * call and `leg` by value into CalcMoveLine -- pointer locals for world/out
+ * sank the target.y store one slot early. */
+// FUNCTION: LEGOLAND 0x0044fe80
 void Visitor_ReserveCafeBrolly(Bloke* b)
 {
     unsigned char act;
@@ -319,11 +321,8 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
         if (!cell)
             NewLongTermAction(b, 6);
         break;
-    case 1: {
-        Pos* world = &b->world;
-        Pos* dest = &b->dest;
-        Pos* out = &leg;
-        switch (SuggestNextMove(world, dest, out) + 3) {
+    case 1:
+        switch (SuggestNextMove(&b->world, &b->dest, &leg) + 3) {
         case 1:
             b->state = 0xa;
             break;
@@ -333,9 +332,9 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
             b->state = 4;
             break;
         case 5:
-            b->target.x = out->x;
-            b->target.y = out->y;
-            a = (unsigned char)(CalcMoveLine(*world, *out, b->path) + 0x10);
+            b->target.x = leg.x;
+            b->target.y = leg.y;
+            a = (unsigned char)(CalcMoveLine(b->world, leg, b->path) + 0x10);
             b->state = 6;
             b->new_dir = a;
             NewDirForAction(b, (unsigned char)((a >> 5) + 3));
@@ -345,9 +344,9 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
                 b->action = 2;
             break;
         case 4:
-            b->target.x = out->x;
-            b->target.y = out->y;
-            a = (unsigned char)(CalcMoveLine(*world, *out, b->path) + 0x10);
+            b->target.x = leg.x;
+            b->target.y = leg.y;
+            a = (unsigned char)(CalcMoveLine(b->world, leg, b->path) + 0x10);
             b->state = 6;
             b->new_dir = a;
             NewDirForAction(b, (unsigned char)((a >> 5) + 3));
@@ -358,7 +357,6 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
             break;
         }
         break;
-    }
     case 2: {
         unsigned short fl;
         cell = CellAt(b->owner.b.x, b->owner.b.y);

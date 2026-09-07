@@ -1,8 +1,7 @@
 # Scope AE — high-level AI table handlers
 
-NEW-FUNCTION `LEGOLAND/highlevelai.c`. Six of seven live group-13 handlers
-are `audit [OK]`; plan 0x0d is still WIP. DEAD 0x004511e0..0x00451550
-not touched.
+NEW-FUNCTION `LEGOLAND/highlevelai.c`. All seven live group-13 handlers
+are `audit [OK]` (7/7). DEAD 0x004511e0..0x00451550 not touched.
 
 ## Table
 
@@ -14,7 +13,7 @@ not touched.
 | 0x00450330 | `Worker_ResumeIdle` | 43 | [OK] | `FUNCTION` |
 | 0x004503a0 | `FaceClassRect` | 87 | [OK] | `FUNCTION` |
 | 0x00450450 | `Visitor_FaceAndMark` | 48 | [OK] | `FUNCTION` |
-| 0x0044fe80 | `Visitor_ReserveCafeBrolly` | 337 | no (96.5% matchfull; dest.y sink) | `WIP-FUNCTION` |
+| 0x0044fe80 | `Visitor_ReserveCafeBrolly` | 337 | [OK] | `FUNCTION` |
 
 Reached by: 0x004b83c4 plan 0x17, 0x004b839c plan 0x0d, 0x004b83a0 plan 0x0e,
 0x004b83b8 plan 0x14, 0x004b83a4 plan 0x0f; `FaceClassRect` is the 0x00450450
@@ -37,35 +36,30 @@ callee; `SelectBloke` is gameframe 0x00458ee0 (icon types 0x306..0x308).
   `(rand()&0x1f)+10`, increment that class's visit counter, plan 6.
 - `Visitor_ReserveCafeBrolly` — plan 0x0d: CAFE BROLLY at 0x006661c0.
 
-## `Visitor_ReserveCafeBrolly` residual
+## `Visitor_ReserveCafeBrolly` — closed (audit `[OK]`, 337i/928B)
 
-i17 and the empty-walk are closed (92.1% → 96.5%). The walk is
-byte-identical: obj, flags, `test dl,1`, cls, `je found`, GetNext,
-`jne again`, inline plan-6 + ret. GetFirst-null still `je 0x45020e`.
-337 insns / 928 bytes.
+The walk closed first (i17 / empty-walk, 92.1% → 96.5%): `for` latch
+on GetNext plus ordinary `reserved = flag0 & 1`, and case 2's obj
+compare split from the flags word so cafe is `mov eax,moffs32`.
 
-First diverge is now the two SuggestNextMove result arms. Original
-loads y then x (`mov ecx,[esp+0x10]` / `mov eax,[esp+0xc]`), stores
-target.x, pushes path and y, **pushes x**, loads world.y from `[edi+4]`,
-**then** stores target.y, then world.x. Ours has the y/x loads and
-target.x / path / y-push exact, but stores target.y one slot early
-and therefore loads world.x before world.y.
+The last residual was the two SuggestNextMove result arms: original
+loads y then x, stores target.x, pushes path/y/x, loads world.y
+(`[edi+4]`), **then** stores target.y, then loads world.x. With
+`Pos* world = &b->world; Pos* out = &leg;` pointer locals and
+`CalcMoveLine(*world, *out, b->path)` the target.y store sank one
+slot early (world.x loaded before world.y) — 96.5%, and no store-order
+or volatile spelling moved it (dual-volatile obj+flags 91.5%; `for` +
+vol flags 87.4%; vol cell pointer 84.2%; `Pos t = *out` 95.9%; dest.y
+after the call 91.7%; named-y delay 93.4%; volatile target.y 95.4%;
+`from.x/.y` locals 92.5%).
 
-`b->target.x = out->x; b->target.y = out->y; CalcMoveLine(*world,
-*out, b->path)` is the best dest spelling (96.5%). A `for` latch
-plus ordinary `reserved = flag0 & 1` (no volatile) closed the walk;
-splitting case 2's obj compare from the flags word put cafe in eax
-(`mov eax,moffs32`).
-
-Tried and rejected on this pass: dual-volatile obj+flags (cls before
-test, 91.5%); `for` + vol flags (cl/edx, 87.4%); `for` + dual vol
-(obj/flags right, cls before test, 92.5%); reserved&0 / *0 / xor0
-(fold); vol cell pointer (hoist + spill, 84.2%); `Pos t = *out`
-(x-then-y loads, 95.9%); dest.y after the call (91.7%); comma-from
-`target.y` (still 96.5%); named-y delay / ebx (93.4%); volatile
-target.y store (95.4%); `from.y`/`from.x` locals (92.5%). Helper
-`CafeMove(world, path, tgt, x, y)` matches the 96.5% field stores
-and is not needed.
+Fix: drop the pointer locals and mirror the exact `Garderner_Repair`
+(bigsim.c 0x0049ba10) spelling — `SuggestNextMove(&b->world, &b->dest,
+&leg)`, `b->target.x = leg.x; b->target.y = leg.y;
+CalcMoveLine(b->world, leg, b->path)`. That interleave is
+byte-identical to Garderner_Repair's two FindPathLeg arms. matchfull
+97.7% (the 8 remaining "X" lines are `.rdata` jump-table bytes past
+`ret`); `audit.py` mismatch=0.
 
 ## Levers
 
@@ -113,12 +107,22 @@ and is not needed.
 - **Case 2: compare obj, then load the flags word.** Combined
   `obj != cafe || !(fl & 0x80)` puts cafe in edi (6-byte) and hoists
   `mov ax,[ecx+0xc]` above the cmp. Split so cafe is `mov eax,moffs32`.
+- **Pointer locals into a by-value struct call sink a sibling store.**
+  `Pos* world = &b->world; Pos* out = &leg; b->target.y = out->y;
+  CalcMoveLine(*world, *out, path)` emits the target.y store BEFORE
+  the `world.y` load (world.x then loaded first). The direct spelling
+  `b->target.y = leg.y; CalcMoveLine(b->world, leg, path)` interleaves
+  `mov eax,[edi+4]; mov [esi+0x28],ecx; mov ecx,[edi]` — the shape of
+  every exact CalcMoveLine leg in bigsim.c / workers2.c. Naming the
+  pointer is an extra IR temporary that changes the schedule, not the
+  registers. Evidence: 96.5% → `[OK]`.
 
 ## Relocs / W3
 
-`/W3` clean. `relocs.py`: 0 MISMATCH on the six `FUNCTION` bodies.
-UNRESOLVED: WaveThenResume i7 jump table `$L418` (literal / local code
-symbol; fine). WIP 0x0044fe80 is not in that gate.
+`/W3` clean. `relocs.py`: 0 MISMATCH on all seven `FUNCTION` bodies
+(52 relocations, 49 matched). UNRESOLVED: WaveThenResume i7 and
+ReserveCafeBrolly i10 / i76 jump tables (`$L434`, `$L462`, `$L463` —
+local code symbols; fine).
 
 ## Extern-type notes
 
