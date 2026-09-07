@@ -772,9 +772,9 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
  * lerp every dword 0..g_span_vtx of the PolyVtx into *cursor and emit
  * that cursor pointer; both-inside emits the previous vertex. */
 /* Residual: continue-header latch held (jmp over reload; in+=4; dec left;
- * jne). ebx=n via byte-n. Frame 0x2c via dest copy + plane writeback (pad
- * lives). Sign is ebp, not esi; loop abs is still and edx (dest copy took
- * ebx after left=). Do not extend n across ftol. */
+ * jne). ebx=n via byte-n. Frame 0x2c via destrel-pad. Loop abs and ebx via
+ * destrel-before-fild. Plane writeback dropped (no colouring). Sign still
+ * ebp, not esi. Do not extend n across ftol. */
 // WIP-FUNCTION: LEGOLAND 0x0041f050  (25%, latch jne, ebx=n, and ebx abs, frame 0x2c)
 int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
 {
@@ -832,7 +832,6 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                 bits.f = (float)p[2] * plane->nx;
                 bits.f += (float)p[1] * plane->ny;
                 bits.f = plane->d - bits.f;
-                *(ClipPlane* volatile*)&plane_v = plane;
                 n = bits.i;
                 next_sign = n;
                 n &= 0x7fffffff;

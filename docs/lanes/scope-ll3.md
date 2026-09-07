@@ -25,7 +25,7 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041ef60 | Raster_ClipPoly | 80 | 100 | [OK] | FUNCTION |
 | 0x0041db90 | Route_GetMassAndPower | 77 | 84 | 42 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
-| 0x0041f050 | Span_ClipPlane | 179 | 25 | latch jne; ebx=n; and ebx abs; frame 0x2c | WIP |
+| 0x0041f050 | Span_ClipPlane | 179 | 25.3 | latch jne; ebx=n; and ebx abs; frame 0x2c; 609B | WIP |
 
 **16 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
@@ -210,7 +210,7 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Hist `edx=*mass; ecx=i&0x3f`: named `m`/`i`/`slot` become `fld`/`fstp`
   (64/77); int-bitcast, post-inc, and SetSlope do-while keep the ecx/edx
   swap. Best remains 65/77. Trace / ClipPlane not touched.
-- **Span_ClipPlane** (WIP): 48/191 (25.1%), latch jne-to-header, frame **0x2c**,
+- **Span_ClipPlane** (WIP): 48/190 (25.3%), latch jne-to-header, frame **0x2c**,
   ebx=n held, loop abs `and ebx,0x7fffffff`. Reconstruct
   notes (2026-09-08): trailing early-out after `in[n]=in[0]`; `in++` then
   `left=n` with latch `in+=4; dec left; jne`; signed classify
@@ -296,3 +296,8 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   for abs after `left=` but dies at `na.i` (not across `__ftol`). Latch
   still `jne` to the continue-header. Sign still ebp, not esi. Frame
   **0x2c**. 48/191 (25.1%), 629/593B. Mass/Trace not touched.
+  **2026-09-08 drop plane writeback.** `*(ClipPlane* volatile*)&plane_v = plane`
+  after the loop fild did not buy ecx=plane or dest/edx; destrel-pad already
+  holds frame 0x2c. Dropping it keeps ebx=n, `cmp ebx,1 / jl`, latch, and
+  `and ebx,0x7fffffff`. 48/190 (25.3%), 609/593B (audit window), still
+  ESCAPES. Sign still ebp (nxt is esi). Mass/Trace not touched.
