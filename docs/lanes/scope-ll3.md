@@ -227,3 +227,7 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Need n's live range to **die at the left home** before abs is computed,
   without a long-lived dest pointer competing for ebx. Still 18/195,
   frame 0x24. Mass/Trace not touched.
+  **Left-home wave:** left spill lands (`[esp+0x1c]` after cmp/in++); dest
+  off ebx still leaves ebx to plane → prev_abs → xor-zero, never n (esi).
+  Best transient 30/191; tip restored. Next: n/next_abs web that outranks
+  those three for ebx.
