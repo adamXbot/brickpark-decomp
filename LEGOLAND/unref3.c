@@ -418,3 +418,62 @@ void WireBox_Draw(const Vec3f* pos, const Mat3* rot, const WireBox* b)
         Coaster3D_DrawLine(&screen[b->edges[i * 2]],
                            &screen[b->edges[i * 2 + 1]], b->colour);
 }
+
+/* ---- the debug rail plot ----------------------------------------------
+ * A drawable's slot hooks, as coaster3d.c declares them: an array of
+ * {position, direction} pairs at +0x4c keyed by a rail slot.  This body only
+ * uses the POSITION halves, of slots 1, 0 and 2 -- the centre rail and the
+ * two side rails. */
+typedef struct DrawObj DrawObj;
+typedef struct PosHooks {
+    void (*get_pos)(DrawObj* o, float t, Vec3f* out);       /* +0x00 */
+    void (*get_dir)(DrawObj* o, float t, Vec3f* out);       /* +0x04 */
+} PosHooks;
+
+struct DrawObj {
+    unsigned char pad00[0x44];
+    float         t0;           /* +0x44 */
+    float         t1;           /* +0x48 */
+    PosHooks*     hooks;        /* +0x4c */
+};
+
+/* 30 parameter steps x 3 rails = 90 samples, and the 16-byte screen vertices
+ * they project to. */
+extern Vec3f    g_rail_pts[90];         /* 0x006122a0 */
+extern ScreenPt g_rail_screen[90];      /* 0x006159c8 */
+
+/* Stroke a piece's three rails as 90 white pixels: sample slot 1, slot 0 and
+ * slot 2 at each of 30 evenly spaced parameter values, offset every sample
+ * by the caller's origin, project the lot and plot them. */
+// FUNCTION: LEGOLAND 0x00428b80
+void Coaster3D_PlotPieceRails(DrawObj* o, const Vec3f* origin)
+{
+    float t;
+    float step;
+    int   i;
+    int   n;
+
+    step = (o->t1 - o->t0) * (1.0f / 30.0f);
+    t = o->t0;
+    n = 0;
+    for (i = 0; i < 30; i++) {
+        o->hooks[1].get_pos(o, t, &g_rail_pts[n]);
+        g_rail_pts[n].x += origin->x;
+        g_rail_pts[n].y += origin->y;
+        g_rail_pts[n].z += origin->z;
+        n++;
+        o->hooks[0].get_pos(o, t, &g_rail_pts[n]);
+        g_rail_pts[n].x += origin->x;
+        g_rail_pts[n].y += origin->y;
+        g_rail_pts[n].z += origin->z;
+        n++;
+        o->hooks[2].get_pos(o, t, &g_rail_pts[n]);
+        g_rail_pts[n].x += origin->x;
+        g_rail_pts[n].y += origin->y;
+        g_rail_pts[n].z += origin->z;
+        n++;
+        t += step;
+    }
+    Coaster3D_TransformPoints(g_rail_pts, g_rail_screen, 90);
+    Coaster3D_PlotPoints(g_rail_screen, 90, -1);
+}
