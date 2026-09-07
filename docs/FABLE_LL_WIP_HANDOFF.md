@@ -55,26 +55,29 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `781f84e0` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `2ed3aa5b` |
 
-**77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
+**77i / 260/259B**, matchfull **66/77 = 85.7%**, audit **52** mism.
 
-Need / have:
-- `lea ebx,[eax+0x70]` before first `rep movsd` / `mov ebx,eax` then `add` sunk before `Span_EvalRange`
-- `mov edx,[esp+0x84]` then `add esp,4` / reverse (`q` in eax)
-- hist `edx=*mass`, `ecx=i&0x3f` / swapped
+**Landed:** `lea ebx,[eax+0x70]` in the original pos-copy delay slot via
+ClipPlane-style **imm8 store** after the snapshot:
 
-Original delay slot is already `lea edi,[esp+0x14]` then wanted `lea ebx`;
-VC6 fills it with a callee-saved **copy of p** and sinks `+0x70`. Interleave
-wave (pos→head→f24, named src, two-step, MassSnap keep, dying next,
-`n` from `g_route_eval`, n-in-EvalRange comma, vol `fr.f24`) still **65/77**
-or worse (54–64%). q still after `add esp,4`; hist swap sticky.
+```c
+n = &p->head;
+fr.pos = p->pos;
+fr.f24 = p->f24;
+*(volatile unsigned char*)&p->head = 0;
+```
 
-Earlier ruled out: LL2 `Fst`; volatile head; SetTrainAt / CollectCarSample
-lea siblings do not transfer; named `&p->pos` + delayed `n` → **58/78**.
+Emits `lea edi,[esp+0x14] / lea ebx,[eax+0x70] / rep movsd / mov ecx,[eax+0x24]`.
+Byte **load** / `|=0` steals edx → dest-coalesce (57/77). Store must be imm8.
 
-(`Raster_ClipPoly` closed via `if (1) { switch (flags) … } return count`.)
-Trace NG22 / ClipPlane ESCAPES unchanged. Park Mass until a new fuse lever.
+**Residual:** extra `mov byte ptr [ebx],0` (not in orig); q after `add esp,4`;
+hist ecx/edx swap. Earlier interleave wave without the store stayed at
+dest-coalesce **65/77**.
+
+**Next:** keep `lea ebx` without emitting the imm8 store; q before `add esp,4`;
+hist `edx=*mass`. ClipPoly closed; Trace NG22 / ClipPlane parked 34%.
 
 ### LL6 — `GetTrackSegment` `0x00424050` (22/24 scope)
 
@@ -194,9 +197,9 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 MassAndPower** — try byte-store / callee-save force for `lea ebx,[eax+0x70]` (ClipPlane lever).
-2. **LL4 IntegrateSimpson** — parked 80/81 fstp/esp glue; only with new codegen lever.
-3. **LL3 Span_ClipPlane** — parked 34%; AT destrel / n-slot←in / bits@0x2c floors.
+1. **LL3 MassAndPower** — lea ebx landed; drop imm8 store; q before add esp; hist.
+2. **LL3 Span_ClipPlane** — parked 34%; AT destrel / n-slot←in / bits@0x2c floors.
+3. **LL4 IntegrateSimpson** — parked 80/81 fstp/esp glue.
 4. **LL4 Span_Fill*** / **LL6** / **LL7** / **Trace** — documented floors.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
@@ -210,7 +213,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `781f84e0` | `coaster11.c` |
+| LL3 | 16/19 | `2ed3aa5b` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
