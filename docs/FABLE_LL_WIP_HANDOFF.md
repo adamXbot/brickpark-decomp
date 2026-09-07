@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `43064ba2` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `57e06366` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
@@ -217,7 +217,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `30afb5ac` | `coaster11.c` |
+| LL3 | 16/19 | `57e06366` | `coaster11.c` |
 | LL4 | 3/8 | `39bc0fac` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
