@@ -204,6 +204,55 @@ supply both; so could the original loops being driven by a table length
 VC6 cannot fold (e.g. `extern const int` bound, `for (ip = ord_a; *ip >= 0;
 ip++)` sentinel — untested because the emitted compares are constants).
 
+Third sweep (2026-09-08, ~150 variants, measured with a register-picture
+extractor rather than the score alone; scratch scripts under the session
+scratchpad, not committed):
+
+- The whole residual is ONE global decision that many things flip. Every
+  flipper found so far emits code: `s = sign_a[j]*sign_b[oa]` or
+  `sb = sign_b[oa]` computed BEFORE the asm block (147/175 matchfull:
+  chain=esi, seat=edi+[ebp+8] home and per-iteration reload, anim=ebx,
+  oa=esi, ip/m at [ebp-4]/[ebp-8], scale at [ebp-0xc] -- the original's
+  entire picture except that the sign product is emitted pre-asm);
+  ord_b+sign_a declared as ONE `int tab[2][3]` (147/174: same picture, but
+  the inner IV becomes a pointer over the table, `cmp eax,&tab[2][3]`,
+  where the original keeps `ecx=j*4 / cmp ecx,0xc`, so the original's
+  tables are separate symbols); `person` taken from `g_copters_def`
+  instead of `seat->rider` (124/173); one extra pre-loop reference to
+  `anim` (swaps seat/anim between esi/edi; a reference-count tie).
+- The SAME lever closes the mantex.c sibling `PutOne3DBlokeOnRide`
+  0x00441980 to 78/81 (only the pre-asm product placement left), so it is
+  one mechanism shared by both originals, not a per-function accident.
+- In both originals the inner loop's expression temp takes EAX and the
+  j*4 IV takes ECX (cursor EDX); every build of ours gives the IV EAX and
+  the temp ECX/EBX. Whatever pushes `oa` into the callee-saved pool also
+  ranks that temp above the IV; j-before-oa statement orders, do/while,
+  comma inits and byte-offset loops are all normalised away (inert).
+- Measured inert on the typed `person->matrix[j*3+i]` base (which puts
+  the preheader `lea` right but scores 161 vs 146 audit mismatches, so the
+  committed body stays): all flag sets incl. /O1 /Ox /G5 /G6 /Oa /Ob0-2
+  /Oy- /Gf /Op /Za /QIfist; declaration order (12 random permutations);
+  1-8 unused locals; `while (0) {v++;}` dead loops k=1..8 (no FP-order
+  movement on this base -- the notes' k=1/5 counter is base-specific);
+  `rec`/`index` reused as seat/mode/f (a modified parameter gets a
+  register, so [ebp+8]/[ebp+0xc] are ordinary spill homes); inlined
+  helpers for the bake, the loop or the cross product; static/const/2-D
+  table declarations other than the ord_b+sign_a pairing; every index
+  spelling incl. `float(*)[4][3]`, PosFrame structs and
+  `frame*12+(oa+1)*3+ord_b[j]` (VC6 factors them all to the same IR);
+  product association/temps after the asm; pointers to f, the
+  destination, the row or the sign entries (all fold before allocation);
+  merged layer/sprite/person temporaries (web-split); block-scoped f
+  (only reshuffles the frame slots); an asm spelled as one block, bare
+  `__asm fld f` lines, or with `dword ptr [f]`.
+- 0x00458930 is the CRT `_ftol` (used for `(int)kf1[1]`), so the loop's
+  bare fistp is inline asm, not /QIfist.
+
+Next: find a code-neutral way to give the inner loop a fourth value that
+is live across the asm block (or that outranks the j IV for EAX). The
+pre-asm `sb`/`s` forms prove the rest of the body, including every spill
+slot, is already right.
+
 ## Remaining
 
 Close `Copters_UpdateCarRider`. No merge until 26/26 or explicit ask.
