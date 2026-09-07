@@ -19,10 +19,10 @@ Branch `scope/AA`. File `LEGOLAND/goalstate.c`. Object prefix `/tmp/saa_`.
 | 0x0044f3d0 | CountBlokesAtRideID | 15 | 100 | [OK] | FUNCTION |
 | 0x0044f400 | SeatListFull | 14 | 100 | [OK] | FUNCTION |
 | 0x0044f4a0 | JoinSeatList | 121 | 100 | [OK] | FUNCTION |
-| 0x0044f610 | BlokeAction_PickRide | 699 | ~70 | REJECT | WIP-FUNCTION |
+| 0x0044f610 | BlokeAction_PickRide | 699 | 100 | [OK] | FUNCTION |
 
-**13 / 14 exact.** LeavePark closed (328/328, three residuals, three levers
-below). PickRide WIP (honest residuals below) so audit still PASSes.
+**14 / 14 exact.** LeavePark closed (328/328) and PickRide closed (699/699,
+1977 B, `/W3` clean). Both closes are documented under Remaining below.
 
 ## Mechanics
 
@@ -34,7 +34,7 @@ below). PickRide WIP (honest residuals below) so audit still PASSes.
 - **BlokeAction_SetState4**: LT table 0x01; `state = 4`.
 - **BlokeAction_EnterPark**: LT table 0x02; walk to entrance, JoinSeatList,
   hand off to LT 5; case 2 clears flag 8 and starts LT 6.
-- **BlokeAction_LeavePark** (WIP): LT table 0x03; SuggestNextMove /
+- **BlokeAction_LeavePark**: LT table 0x03; SuggestNextMove /
   PTPSuggestNextMove toward `g_entrance_x`, wander / exit seat list /
   RateBlokeOnLeaving / DestroyBloke.
 - **CountBlokesAtRideID / SeatListFull**: seat-list count vs capacity.
@@ -42,7 +42,7 @@ below). PickRide WIP (honest residuals below) so audit still PASSes.
   (unguarded null-or bug), PutBlokeInList, dirty 0x20.
 - **PosOnObjectFootprint**: four flat neighbour footprint probes; coords as
   `pos->x>>8` expressions; `FootCell(y,x)` order; Pos-local hit sums.
-- **BlokeAction_PickRide** (WIP): LT table 0x06; JT on action 0..0xa at
+- **BlokeAction_PickRide**: LT table 0x06; JT on action 0..0xa at
   `0x44fdcc`; sets `g_cur_bloke_f81` from `b->name_letter`; shuffle/attract
   pick, SuggestNextMove walk, PTP stuck, PosOnObjectFootprint / seat join.
 
@@ -73,8 +73,19 @@ below). PickRide WIP (honest residuals below) so audit still PASSes.
   store between Format's push and call; name-before-`jg` comes from the
   `>10` / not-worth split after one attractiveness call. Case 1 arrive:
   `PosOn==0` → `goto state4` for `je`; cell x/y as int locals then reuse in
-  retarget stores. f64 action mask:
-  `a = (a ? 0xf6 : 0); action = 0xa + a` (and-width residual below).
+  retarget stores. f64 action masks: plain ternaries
+  `f64 ? 0 : 0xa`, `f64 == 0`, `(f64 & 1) ? 6 : 0xa` (byte-wide `and dl`).
+- **PickRide exits / default**: the four `action = 2` exits (case 0 no keys,
+  case 10 not-on-footprint, not-working, fall-out) are `break;` into one
+  post-switch `b->action = 2;`. The `default:` arm is
+  `if (b->action >= 0) goto done;` with `done: ;` after the store — an
+  always-true test the front end does NOT fold (see Remaining §PickRide 4).
+- **PickRide case 10**: uid bytes as `more` / `y` int locals with the map-cell
+  bounds test repeated at each of the three GetInstanceOfClass sites; the
+  flag-set site is `InstFlags* p = GetInstanceOfClass(...); p->flags |= 2;`
+  (direct `->flags |= 2` on the call widens/reorders). `cant_get_on:` is a
+  shared label reached by `goto` from the flags test and the JoinSeatList
+  fail; it ends `action = 2; return;` (NOT `break`) so its store stays inline.
 
 ## Remaining / blocked
 
@@ -106,28 +117,45 @@ The three residuals of the previous pass, and what closed each:
    **Lever: `break` vs `return` in a void switch arm is a tail-merge phase
    selector**, even though both reach the same exit block.
 
-### 0x0044f610 BlokeAction_PickRide (~70%, §6B)
+### 0x0044f610 BlokeAction_PickRide — CLOSED 699/699 (audit [OK])
 
-Cases 0–6 match through the walk/PTP arms (~430/699) aside from two and-width
-residuals. Case 10 matches through SeatListFull fail setup then diverges on
-counter/mood tail layout and instance/map-cell join arms.
+What closed each of the previous residuals, plus the new one that surfaced
+at 97.9%:
 
-1. **f64 masks `and edx,0xf6` / `and edx,0xfc` vs `and dl`** — same family as
-   LeavePark residual (2). Ternary `a ? 0xf6 : 0` / `(f64&1)?-4:0` get
-   `neg/sbb` but widen the `and`. No spelling yields both `sbb dl,dl` and
-   `and dl`.
-2. **Case 10 IncrementBlokeCounter / not-working share** — original seat-full
-   inlines GetBlokeNum→Counter→Increment then falls into `action=2`;
-   not-working `push 1 / jmp` into the seat-full AdjustMood arg setup.
-   Separate C copies emit an extra `jmp` and misalign from the first
-   Increment. Shared `mood_tail` with `more` as the event regenerates the
-   early `mov ebx,2` hoist when `more=2` is also used for the flags test.
-3. **Case 10 join / GetInstanceOfClass map-cell** — original inlines uid-byte
-   map lookup three times (flags test, flag-set, rand-join) with `mov ebx,2`
-   only on the flags path so cant_get_on can `mov [action],bl`. Still open.
-
-Stop grinding (2)/(3) without a lever that shares the mood tail without
-hoisting `ebx=2` into the prologue. WIP body retained.
+1. **f64 and-width** — the plain value ternaries (`f64 ? 0 : 0xa`,
+   `f64 == 0`, `(f64 & 1) ? 6 : 0xa`) give `neg/sbb/and dl` byte-wide; the
+   additive `0xa + (a ? 0xf6 : 0)` spelling is what widened to `edx`.
+2. **Case 10 mood tails** — the seat-full and not-working arms are written
+   as two full copies (sprintf / Format / AdjustMood / Counter / Increment)
+   and both end in `break;` to the shared post-switch `action = 2` store.
+   VC6 cross-jumps the identical Counter/Increment suffixes itself; a hand
+   `mood_tail` label was what hoisted `mov ebx,2`.
+3. **Map-cell join** — `more`/`y` int locals loaded from the uid bytes and
+   the `&g_map_rows[y][more]` bounds test spelled out at each of the three
+   GetInstanceOfClass sites (no helper, no `fr.next` reuse). The flag-set
+   must go through a pointer local (`p->flags |= 2`).
+4. **`ja` default target and the post-store edge (the last 12 insns)** —
+   with the four `action = 2` exits as `break;` into one post-switch store J,
+   a plain `default: return;` (or none) makes VC6's *early* jump-threading
+   pass rewrite the `ja` to the epilogue AND leave J → epilogue as a live
+   edge, so J is laid out as a separate block and the epilogue is
+   duplicated (725 insns, `ja 0x7ca`). The original has `ja` → the one
+   shared epilogue at 0x551 with J falling into it. What reproduces it: a
+   default arm that is non-trivial when early threading runs but folds to
+   nothing later, e.g. `default: if (b->action >= 0) goto done;` with
+   `done: ;` after the store. The label must be referenced (`/W3` C4102) and
+   `done:` must hold `;`, not `return;` (a `jmp exit` there is threaded early
+   again, 96.3%). `default: if (1) return;` / `while (1) return;` /
+   `for (; 1;) return;` each also give 699, but only with an unreferenced
+   `done: ;` after the store (C4102 at `/W3`); without `done:` they are 725.
+   Forms that DON'T work at all: `b->action = b->action`, `&= 0xff`, `|= 0`,
+   `+= 0` self-stores (deleted in the front end, 725); `default: goto done;`
+   with the test AT `done:` (725); `default: return;` / no default (725);
+   `return` in the four exits instead of `break` (four inline epilogues);
+   `goto set2` to a labelled post-switch store (725).
+   **Lever: an always-true `unsigned char >= 0` test survives the early
+   threading/fold pass and is removed late; use it to keep a switch default
+   as a real block so `ja` binds to the shared epilogue.**
 
 ## Names
 

@@ -652,9 +652,10 @@ void BlokeAction_EnterPark(Bloke* b)
 
 /* Long-term action table slot 0x06: pick a ride, walk to it, join seat list.
  * Frame 0x78: {obj, uid, pad, next, msg[100]}. ebx=&saved/&world, edi=more,
- * ebp from case-1 def. Residuals: and edx,0xf6/0xfc vs and dl (same family as
- * LeavePark); case-10 post-SeatListFull counter/mood tail sharing. */
-// WIP-FUNCTION: LEGOLAND 0x0044f610
+ * ebp from case-1 def. The four `action = 2` exits are `break`s into one
+ * post-switch store; the default arm must survive early jump threading (see
+ * lane notes) so the `ja` lands on the shared epilogue, not on that store. */
+// FUNCTION: LEGOLAND 0x0044f610
 void BlokeAction_PickRide(Bloke* b)
 {
     struct {
@@ -667,6 +668,8 @@ void BlokeAction_PickRide(Bloke* b)
     } fr;
     Pos* dest;
     int more;
+    int y;
+    MapCell* cell;
 
     g_cur_bloke_f81 = b->name_letter;
 
@@ -677,7 +680,7 @@ void BlokeAction_PickRide(Bloke* b)
         ResetBestPtr();
         dest = &b->saved;
         if (ShuffleObjKeys(dest, &fr.obj) == 0)
-            goto set_action_2;
+            break;
         more = 1;
         do {
             if (b->last_elem == ((SeatOwner*)fr.obj)->elem) {
@@ -758,11 +761,7 @@ void BlokeAction_PickRide(Bloke* b)
             b->f73 = (unsigned char)(CalcMoveLine(b->world, fr.next, b->path) + 0x10);
             b->state = 6;
             NewDirForAction(b, (unsigned char)((b->f73 >> 5) + 3));
-            {
-                unsigned char a = b->f64;
-                a = (unsigned char)(a ? 0xf6 : 0);
-                b->action = (unsigned char)(0xa + a);
-            }
+            b->action = (unsigned char)(b->f64 ? 0 : 0xa);
             return;
         case 4:
             b->target.x = fr.next.x;
@@ -798,7 +797,7 @@ void BlokeAction_PickRide(Bloke* b)
             b->f73 = (unsigned char)(CalcMoveLine(b->world, fr.next, b->path) + 0x10);
             b->state = 0xb;
             NewDirForAction(b, (unsigned char)((b->f73 >> 5) + 3));
-            b->action = (unsigned char)(0xa + ((b->f64 & 1) ? -4 : 0));
+            b->action = (unsigned char)((b->f64 & 1) ? 6 : 0xa);
             return;
         case 1:
             b->target.x = fr.next.x;
@@ -826,7 +825,7 @@ void BlokeAction_PickRide(Bloke* b)
     case 10:
         dest = &b->world;
         if (PosOnObjectFootprint(dest, (SeatOwner*)((Elem*)b->current_item)->data) == 0)
-            goto set_action_2;
+            break;
         fr.uid = GetObjectUID(dest, (SeatOwner*)((Elem*)b->current_item)->data);
         if (SeatListFull((SeatOwner*)((Elem*)b->current_item)->data, &fr.uid)) {
             sprintf(fr.msg, g_fmt_ride_full);
@@ -834,68 +833,76 @@ void BlokeAction_PickRide(Bloke* b)
             AdjustMood(b, 0, ((SeatOwner*)((Elem*)b->current_item)->data)->mood_scale);
             if (!GetBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b)))
                 IncrementBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b));
-            goto set_action_2;
-        }
-        if (IsObjectRunning((SeatOwner*)((Elem*)b->current_item)->data, (BytePos*)&fr.uid) == 0) {
-            sprintf(fr.msg, g_fmt_not_working);
+        } else {
+            if (IsObjectRunning((SeatOwner*)((Elem*)b->current_item)->data, (BytePos*)&fr.uid) == 0) {
+                sprintf(fr.msg, g_fmt_not_working);
+                FormatBlokeMessage(fr.msg);
+                AdjustMood(b, 1, ((SeatOwner*)((Elem*)b->current_item)->data)->mood_scale);
+                if (!GetBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b)))
+                    IncrementBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b));
+                break;
+            }
+            more = ((unsigned char*)&fr.uid)[0];
+            y = ((unsigned char*)&fr.uid)[1];
+            if (more >= 0 && more < (int)g_map->width
+                && y >= 0 && y < (int)g_map->height)
+                cell = &g_map_rows[y][more];
+            else
+                cell = 0;
+            if (GetInstanceOfClass(((MapObj*)cell->obj)->cls,
+                                   (BytePos*)&fr.uid)->flags & 2)
+                goto cant_get_on;
+            sprintf(fr.msg, g_fmt_going_on);
             FormatBlokeMessage(fr.msg);
-            AdjustMood(b, 1, ((SeatOwner*)((Elem*)b->current_item)->data)->mood_scale);
+            NewLongTermAction(b, 5);
+            if (((Elem*)b->current_item)->flags & 0x100000) {
+                if (!JoinSeatList(b, (SeatOwner*)((Elem*)b->current_item)->data, 0))
+                    goto cant_get_on;
+                if (!SeatListFull((SeatOwner*)((Elem*)b->current_item)->data, &fr.uid))
+                    return;
+                more = ((unsigned char*)&fr.uid)[0];
+                y = ((unsigned char*)&fr.uid)[1];
+                if (more >= 0 && more < (int)g_map->width
+                    && y >= 0 && y < (int)g_map->height)
+                    cell = &g_map_rows[y][more];
+                else
+                    cell = 0;
+                {
+                    InstFlags* p = GetInstanceOfClass(((MapObj*)cell->obj)->cls, (BytePos*)&fr.uid);
+                    p->flags |= 2;
+                }
+                return;
+            }
+            more = ((unsigned char*)&fr.uid)[0];
+            y = ((unsigned char*)&fr.uid)[1];
+            if (more >= 0 && more < (int)g_map->width
+                && y >= 0 && y < (int)g_map->height)
+                cell = &g_map_rows[y][more];
+            else
+                cell = 0;
+            GetInstanceOfClass(((MapObj*)cell->obj)->cls,
+                               (BytePos*)&fr.uid);
+            if (JoinSeatList(b, (SeatOwner*)((Elem*)b->current_item)->data,
+                             (rand() & 0x1ff) + 0xc8))
+                return;
+        cant_get_on:
+            sprintf(fr.msg, g_fmt_cant_get_on);
+            FormatBlokeMessage(fr.msg);
+            AdjustMood(b, 0, ((SeatOwner*)((Elem*)b->current_item)->data)->mood_scale);
             if (!GetBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b)))
                 IncrementBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b));
-            goto set_action_2;
-        }
-        more = ((unsigned char*)&fr.uid)[0];
-        fr.next.y = ((unsigned char*)&fr.uid)[1];
-        if (more >= 0 && more < (int)g_map->width
-            && fr.next.y >= 0 && fr.next.y < (int)g_map->height)
-            fr.obj = &g_map_rows[fr.next.y][more];
-        else
-            fr.obj = 0;
-        if (GetInstanceOfClass(((MapObj*)((MapCell*)fr.obj)->obj)->cls,
-                               (BytePos*)&fr.uid)->flags & 2)
-            goto cant_get_on;
-        sprintf(fr.msg, g_fmt_going_on);
-        FormatBlokeMessage(fr.msg);
-        NewLongTermAction(b, 5);
-        if (((Elem*)b->current_item)->flags & 0x100000) {
-            if (!JoinSeatList(b, (SeatOwner*)((Elem*)b->current_item)->data, 0))
-                goto cant_get_on;
-            if (!SeatListFull((SeatOwner*)((Elem*)b->current_item)->data, &fr.uid))
-                return;
-            more = ((unsigned char*)&fr.uid)[0];
-            fr.next.y = ((unsigned char*)&fr.uid)[1];
-            if (more >= 0 && more < (int)g_map->width
-                && fr.next.y >= 0 && fr.next.y < (int)g_map->height)
-                fr.obj = &g_map_rows[fr.next.y][more];
-            else
-                fr.obj = 0;
-            GetInstanceOfClass(((MapObj*)((MapCell*)fr.obj)->obj)->cls,
-                               (BytePos*)&fr.uid)->flags |= 2;
+            b->action = 2;
             return;
         }
-        more = ((unsigned char*)&fr.uid)[0];
-        fr.next.y = ((unsigned char*)&fr.uid)[1];
-        if (more >= 0 && more < (int)g_map->width
-            && fr.next.y >= 0 && fr.next.y < (int)g_map->height)
-            fr.obj = &g_map_rows[fr.next.y][more];
-        else
-            fr.obj = 0;
-        GetInstanceOfClass(((MapObj*)((MapCell*)fr.obj)->obj)->cls,
-                           (BytePos*)&fr.uid);
-        if (JoinSeatList(b, (SeatOwner*)((Elem*)b->current_item)->data,
-                         (rand() & 0x1ff) + 0xc8))
-            return;
-    cant_get_on:
-        sprintf(fr.msg, g_fmt_cant_get_on);
-        FormatBlokeMessage(fr.msg);
-        AdjustMood(b, 0, ((SeatOwner*)((Elem*)b->current_item)->data)->mood_scale);
-        if (!GetBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b)))
-            IncrementBlokeCounter((SeatOwner*)((Elem*)b->current_item)->data, GetBlokeNum(b));
-        b->action = 2;
-        return;
-
-    set_action_2:
-        b->action = 2;
-        return;
+        break;
+    default:
+        /* Always-true (unsigned char >= 0) so this arm is non-trivial in the
+         * early threading pass; the fold happens late, after `ja` has been
+         * bound to the epilogue and the post-store edge has been removed. */
+        if (b->action >= 0)
+            goto done;
     }
+    b->action = 2;
+done:
+    ;
 }
