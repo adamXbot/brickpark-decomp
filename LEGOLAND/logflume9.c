@@ -372,7 +372,7 @@ void LFPiece_AddCommon(unsigned int sq, Footprint* fp, RideElem* elem,
  * CURSOR CHAIN.  The incoming cursor links to place-cursor A; a second
  * occupied slot chains A to B.  East stores y before x.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x0040d520  (draft)
+// FUNCTION: LEGOLAND 0x0040d520
 void LFTrack_CommitPlacement(LFPiece** nb, EditCursorRec* c)
 {
     int            mask;

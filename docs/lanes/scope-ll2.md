@@ -8,13 +8,13 @@ Brief: `docs/SCOPE_LL2_logflume_drop.md`.
 | address | name | insns | % | audit | marker |
 | --- | --- | ---: | ---: | --- | --- |
 | 0x0040d420 | LFGeom_ApplyCursors | 73 | 100 | [OK] | FUNCTION |
-| 0x0040d520 | LFTrack_CommitPlacement | 128 |  |  | WIP |
+| 0x0040d520 | LFTrack_CommitPlacement | 128 | 100 | [OK] | FUNCTION |
 | 0x0040d6f0 | LFPiece_UpdateCommon | 151 |  |  | WIP (ESCAPES) |
 | 0x0040d900 | LFPiece_AddCommon | 83 | 100 | [OK] | FUNCTION |
 | 0x0040da10 | LFTrack_UnlinkNeighbours | 61 | 100 | [OK] | FUNCTION |
 | 0x0040db00 | LFPiece_RemoveCommon | 61 | 100 | [OK] | FUNCTION |
 
-**3 / 6 exact.** Relocs clean on the three FUNCTION bodies. Neighbour-helper
+**5 / 6 exact.** Relocs clean on the five FUNCTION bodies. Neighbour-helper
 names taken from scope LL1. 0x00409a90 / 0x0040a080 still unmatched in LL1;
 named here `LFTrack_ReshapeEnds` / `LFTrack_LinkEnds`.
 
