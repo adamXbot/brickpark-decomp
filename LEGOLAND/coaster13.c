@@ -537,24 +537,31 @@ void TrackCursorPair_Draw(TrackCursorPair* p)
  * 0x00420780 / 0x00428840 are owned by LL4 / LL6.
  *
  * Frame is 0x70: four 0x14 interpolant records plus the eight setup dwords
- * (y, last-key, two shifts, ylast, pitch, zrow, crow). */
+ * (y, last-idx, two shifts, ylast, pitch, zrow, crow). The eight live in a
+ * reversed-layout struct so crow sits at [ebp-0x20] and y at [ebp-4].
+ * `last` is &keys[n-1].idx (lea -4); the sentinel write reloads through it
+ * so that pointer keeps a frame home. */
 typedef struct ShadeInterp {
     int x;
     int rest[4];
 } ShadeInterp;                  /* 0x14 */
 
-// WIP-FUNCTION: LEGOLAND 0x00428860  (254/254i, 748/771B, 0x6c vs 0x70; ZBuffer floor)
+typedef struct ShadeSetup {
+    short* crow;                /* [ebp-0x20] */
+    short* zrow;                /* [ebp-0x1c] */
+    int    pitch;               /* [ebp-0x18] */
+    int    ylast;               /* [ebp-0x14] */
+    int    shift1;              /* [ebp-0x10] */
+    int    shift0;              /* [ebp-0x0c] */
+    int*   last;                /* [ebp-0x08] = &keys[n-1].idx */
+    int    y;                   /* [ebp-0x04] */
+} ShadeSetup;                   /* 0x20 */
+
+// WIP-FUNCTION: LEGOLAND 0x00428860  (251/254i, 768/771B, 0x70 frame, homes pinned; 61%)
 void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge* edges)
 {
     ShadeInterp ed[4];
-    int         y;
-    int         ylast;
-    int         pitch;
-    int         shift0;
-    int         shift1;
-    SortKey*    last;
-    short*      zrow;
-    short*      crow;
+    ShadeSetup  s;
     char*       tex;
     int         bit0;
     int         bit1;
@@ -562,14 +569,14 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
     short*      yp;
     char*       lut;
 
-    y = keys[0].y;
-    last = &keys[nkeys - 1];
-    yp = &edges[last->idx].y1;
+    s.y = keys[0].y;
+    s.last = &keys[nkeys - 1].idx;
+    yp = &edges[*s.last].y1;
     (*yp)++;
-    ylast = edges[last->idx].y1;
-    crow = (short*)g_raster_bits;
-    zrow = g_zb_base;
-    pitch = g_zb_pitch;
+    s.ylast = edges[*s.last].y1;
+    s.crow = (short*)g_raster_bits;
+    s.zrow = g_zb_base;
+    s.pitch = g_zb_pitch;
     tex = (char*)CoasterTex_Get(tag);
     if (tex == 0)
         return;
@@ -577,17 +584,17 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
     bit1 = BitLowestSet(((int*)tex)[1]);
     tex += 8;
     tag = (int)tex;
-    shift0 = 8 - bit0;
-    shift1 = shift0 - bit1 + 8;
-    g_span_mask = (int)0xff000000 >> shift0;
-    g_span_dshade = grad[1] >> shift0;
-    g_span_dv = (grad[2] << 8) >> shift1;
+    s.shift0 = 8 - bit0;
+    s.shift1 = s.shift0 - bit1 + 8;
+    g_span_mask = (int)0xff000000 >> s.shift0;
+    g_span_dshade = grad[1] >> s.shift0;
+    g_span_dv = (grad[2] << 8) >> s.shift1;
     g_span_dz = grad[3];
-    g_zb_polys++;
     g_span_tmask = (1 << (bit0 + bit1)) - 1;
-    keys[nkeys].y = ylast;
-    crow += pitch * y;
-    zrow += pitch * y;
+    g_zb_polys++;
+    keys[nkeys].y = edges[*s.last].y1;
+    s.crow += s.pitch * s.y;
+    s.zrow += s.pitch * s.y;
     nshade = g_shade_count;
     if (nshade > 0) {
         void** src = g_shade_tab;
@@ -616,10 +623,10 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
             ed[1].rest[1] = e->d[3];
             ed[0].rest[1] = e->a[3] - e->d[3];
         }
-        while (y < keys->y) {
+        while (s.y < keys->y) {
             int span;
 
-            y++;
+            s.y++;
             ed[0].x += ed[1].x;
             ed[2].x += ed[3].x;
             span = ed[2].x - ed[0].x;
@@ -629,8 +636,8 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
                     mov  ebx, ed[40]
                     sar  eax, 16
                     sar  ebx, 16
-                    mov  edi, crow
-                    mov  esi, zrow
+                    mov  edi, s.crow
+                    mov  esi, s.zrow
                     xchg ebx, eax
                     sub  ebx, eax
                     lea  edi, [edi + eax*2]
@@ -645,10 +652,10 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
                     mov  ed[12], eax
                     mov  ed[16], edx
                     mov  ed[8], ebx
-                    mov  ecx, shift1
+                    mov  ecx, s.shift1
                     shl  edx, 8
                     shr  edx, cl
-                    mov  ecx, shift0
+                    mov  ecx, s.shift0
                     sar  eax, cl
                     push ebp
                     sub  esp, 8
@@ -693,8 +700,8 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
                 ed[0].rest[3] += ed[1].rest[3];
                 ed[0].rest[1] += ed[1].rest[1];
             }
-            crow += pitch;
-            zrow += pitch;
+            s.crow += s.pitch;
+            s.zrow += s.pitch;
         }
-    } while (y < ylast);
+    } while (s.y < s.ylast);
 }

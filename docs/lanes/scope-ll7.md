@@ -23,9 +23,9 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 | 0x00429cf0 | Track_StepObjective | 93 | 100 | [OK] | FUNCTION |
 | 0x00429f30 | Track_StepAlong | 70 | 100 | [OK] | FUNCTION |
 | 0x00429560 | TrackRunSetSlope | 90 | 100 | [OK] | FUNCTION |
-| 0x00428860 | TrackShade_FillPoly | 254 | 38 | 243 **ZBuffer floor** | WIP |
+| 0x00428860 | TrackShade_FillPoly | 254 | 61 | 251/254i, 768/771B, **0x70 homes pinned** | WIP |
 
-**16 / 17 exact.** FillPoly remains at its ZBuffer floor. `/W3` clean. `relocs.py` 0 MISMATCH on the 16 FUNCTION bodies.
+**16 / 17 exact.** FillPoly now has the original 0x70 frame and setup homes; residual is the `g_zb_polys++` / last-reload schedule (3i/3B short). `/W3` clean. `relocs.py` 0 MISMATCH on the 16 FUNCTION bodies.
 
 ## Names
 
@@ -51,7 +51,7 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **TrackNode** piece is 0xa4: RouteGeom at +0x4c, parameter range at +0x90/+0x94.
 - **TrackRunSetSlope** builds one ramp geom from the span's world endpoints (square-to-world + `g_joint_world[dir]`, half-offset `g_joint_half[i0]`) and stamps it on every piece with `t` ranges `[i/n, (i+1)/n]`. z/dz only place the endpoints.
 - **Track_Bisect**: same-sign endpoints return 0 (`xor` of the float bits, test `0x80000000`); else midpoint of the final 0.005-wide bracket. Stats at 0x00615fc4 / 0x00615fc8; max iterations at 0x00615fec.
-- **TrackShade_FillPoly** 0x00428860: `SpanFiller(tag, grad, nkeys, keys, edges)` from Raster_SubmitPoly. Increments `edges[keys[n-1].idx].y1`, looks up `g_coaster_tab_c[tag]` (0x00420780), bit-scans the two header dwords (0x00428840), writes colour into `g_raster_bits` and depth into `g_zb_base`. Inner span is `__asm`. Best draft 254/254i, 748/771B, frame 0x6c vs 0x70, matchfull ~38%. A dummy `dead` local dropped the count to 252i. `ne` is a MASM reserved word (jne) — the parameter is `nkeys`. Same residual class as ZBuffer_FillPoly (homes + mixed asm).
+- **TrackShade_FillPoly** 0x00428860: `SpanFiller(tag, grad, nkeys, keys, edges)` from Raster_SubmitPoly. Increments `edges[keys[n-1].idx].y1`, looks up `g_coaster_tab_c[tag]` (0x00420780), bit-scans the two header dwords (0x00428840), writes colour into `g_raster_bits` and depth into `g_zb_base`. Inner span is `__asm`. `last` is `&keys[n-1].idx` (`lea [eax+edx*8-4]`); `keys[n].y` reloads through that pointer (not the cached `ylast`) so the eighth setup dword stays live. The eight setup dwords sit in a reversed-layout `ShadeSetup` (`crow` first → `[ebp-0x20]`, `y` last → `[ebp-4]`). Best 251/254i, 768/771B, frame **0x70**, matchfull ~61%. Residual is `g_zb_polys++` (ebx vs eax) interleaved with a hoisted `y`/`keys` rather than `imul [ebp-4]`. A dummy `dead` local still drops the count. `ne` is a MASM reserved word — the parameter is `nkeys`.
 - **g_step_lo2** is `(step-tol)²`, not `(t-tol)²`. hi2 is `(step+tol)²`.
 
 ## Levers
@@ -63,7 +63,7 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **TrackCursorPair_Draw**: interleave `s=sin; m[0]=s; c=cos; m[2]=c; m[8]=-c; m[10]=s` so the leftover sin is `fst` then later `fstp`. Computing both trigs first emitted `fld st(1)`. Mat slots are 0/2/8/10 (not 1/2/8/10). `#pragma intrinsic(sin, cos)`.
 - **Track_StepObjective**: `if ((dist2 = x*x+y*y+z*z) > hi2)` (assignment-in-condition) lands `fld st / fcomp hi2`. A named `dist2 = sum; if (dist2 > hi2)` emitted `fcom [home]`.
 - **Track_StepAlong**: **exact** (70i/232B). `org = origin` live-across + late `g_step_origin = org` puts origin in edx during `rep movsd`. `hi = tol; … hi = t` + `t0 = cur.geom->t0` before `g_step_len2 = step * step` lands `push esi` immediately after the geom/out_t loads, `push tol` as the hi placeholder, dword `t0` into the dead `from` slot, and `fstp [esp]`. Loop is exact (`hi = cur.geom->t1`). The named `float step2 = step * step` CSE was the 11-mismatch wall: it kept step² as a live local, finished t0+fstp as pre-call statements, and batched `push esi` with `push tol` (attractor A). Writing the square only at the store (`g_step_len2 = step * step`) after t0 keeps prologue `fld/fmul` on ST and lets the solver call start between geom/esi and the t0 load. Attractor B (`g`; `len2`; `t0`) still hoists fstp/fadd before geom. Older negatives (helpers/comma/union/Fst RTL) left in git history (`7c7640a4` and earlier); they do not apply once the named temp is gone.
-- **TrackShade_FillPoly**: **ZBuffer floor**, same class as schoolcar6.c `ZBuffer_FillPoly` (EBP frame, `xchg ebx,eax`, `add ebx,1`, mixed `__asm`). 254/254i, 748/771B, frame 0x6c vs 0x70. Not ground further.
+- **TrackShade_FillPoly**: 0x70 frame and the eight setup homes now match (`y/-4`, `last/-8`, `shift0/-c`, `shift1/-10`, `ylast/-14`, `pitch/-18`, `zrow/-1c`, `crow/-20`). Two load-bearing levers: (1) keep `last` live via `keys[n].y = edges[*last].y1` — writing the cached `ylast` dropped the last home and the frame to 0x6c; (2) reversed-layout `ShadeSetup` — bare scalars stayed 0x70 once last was live but permuted every slot, and declaration order was inert (same as ZBuffer). `int* last = &keys[n-1].idx` is required for `lea -4` / `[ecx]`; `SortKey* last = &keys[n-1]` is `lea -8` / `[ecx+4]`. Ruled out: dummy `dead` (252i); ZBuffer `*(int volatile*)&y` on the struct (frame 0x74); `int slot[8]` (0x74); `nkeys = (int)g_span_lut`; `grad` overwritten with `pitch*2`; dropping `yp`; crow-before-ylast interleave (50%); keys[n].y before `g_zb_polys++` (57%). Residual 251/254i, 768/771B, matchfull 61%.
 
 ## Extern-type divergences
 
