@@ -1161,3 +1161,17 @@ right, byte sources mirrored) and `vy_c` (structure right, colouring flipped).
 - **`__inline` helpers taking the bytes by value** (`(unsigned char,
   unsigned char)`, `(int, int)` with casts inside, `Pos` by value) inline to
   the plain row-four body: argument temps coalesce like any other copy.
+- **Volatile STORES to `sq`** (`*(volatile int*)&sq.y = by`, both fields, or
+  `sq.x` only, with every read spelling) do not stop VC6 forwarding the later
+  `(unsigned char)sq.y` read: all eight variants are row four with no byte
+  load. Only a volatile READ of `sq` is a kill.
+
+**Status at the end of the integrator's passes (2026-09-07).** Every
+mechanism with a precedent in this tree or in VC6's measured behaviour has
+been applied to CLEAR and lands in one of two families: colouring right with
+the byte sources mirrored (the retained body, 24 strict) or structure right
+with the colouring flipped (`vy_c` and the fourth-kill body, register-blind
+2). The construct that produces the original — x parked in ebp WITHOUT a
+byte need yet served by a fix-up copy, y in edx WITH a need yet served from
+memory — is not reachable from any spelling measured, and the pattern has no
+sibling among the 2,517 exact bodies. Reopen only with a new mechanism.
