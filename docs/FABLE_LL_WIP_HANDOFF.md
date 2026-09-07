@@ -1,6 +1,6 @@
 # Fable handoff — LL-wave WIP residuals (2026-09-08)
 
-Grok closed what it could on **LL1–LL8**. **LL1, LL2, and LL5 are done and on `main`.**
+Grok closed what it could on **LL1–LL8**. **LL1, LL2, LL5, and LL8 are done and on `main`.**
 Everything below is still `// WIP-FUNCTION:` on the named branch. Prefer
 closing one body at a time; promote only when `audit.py` prints `[OK]`.
 
@@ -14,44 +14,31 @@ before push.
 PY=/Users/systemadmin/.venvs/legoland/bin/python
 export LEGOLAND_CL=/Users/systemadmin/Documents/Development/Github/alphateam/tools/wibo-msvc/cl
 # work from the scope worktree, e.g.
-cd /Users/systemadmin/Documents/Development/Github/legoland/.worktrees/scope-ll2
-git pull --ff-only origin scope/LL2
+cd /Users/systemadmin/Documents/Development/Github/legoland/.worktrees/scope-ll3
 ```
 
 Gates: `audit.py` `[OK]`, `relocs.py` zero `MISMATCH`, `/W3` clean.
 Objects under `/tmp/sllN_*`. No `verify.py` / `progress.py` / `coverage.py`.
 Contract: `docs/PARALLEL_CONTRACT.md`. Index: `docs/SCOPE_LL_WAVE.md`.
 
-**Main tip when this was written:** post-LL2 merge (UpdateCommon RTL SIB close).
-Rebase/ff worktrees onto current `main` only if you need merged helpers;
-otherwise stay on the scope branch tip.
+**Main tip when this was written:** post-LL8 merge (AddScriptString fail-tail close).
 
 ---
 
-## Priority A — one mismatch / one byte / few mism (highest ROI)
+## Closed this wave (lever notes for reuse)
 
-### LL8 — `AddScriptString` `0x004689f0` (12/13 scope)
+### LL8 — `AddScriptString` `0x004689f0` (13/13 merged)
 
-| | |
-| --- | --- |
-| Branch / file | `scope/LL8` · `LEGOLAND/gameframe2.c` |
-| Tip | `98a7a8a1` |
-| Notes | `docs/lanes/scope-ll8.md` |
-| Score | 91i, **267/264B**, **6 mism** — FLOOR |
-
-Both-string and one-string paths stay exact. The two fail tails **share
-allocation**. LL2 `Fst(a,b)` RTL does **not** transfer: unused/const second
-args DCE; `copy` is proven 0/1 on the fail edges so it cannot hold EAX.
-
-Attractors: kept 87/91 eax-primary; `return count++` 86/91 ecx-primary 264B;
-plain/Fst 85/91. Any real EDX force on `!copy` drops one-string EDX (76–82).
-
-Still need `mov ecx,eax / pop esi / inc ecx` on `!a` **and** `mov edx,[count]`
-on `!copy` together. Name: keep **`AddScriptString`**.
+`!a`: `g_script_strings[count] = 0; goto bump;` duplicates the shared
+`n = count; count++; return n` as eax-primary
+`mov ecx,eax / pop esi / inc ecx`.
+`!copy`: `slot = &g_script_strings[count]; *slot = a;` puts the index in
+**EDX**. Volatile shims / `return count++` / LL2 `Fst` could not hold both
+tails at once.
 
 ---
 
-## Priority B — size-exact / high % with clear next lever
+## Priority A — size-exact / high % with clear next lever
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
@@ -65,6 +52,8 @@ Need / have:
 - hist `edx=*mass`, `ecx=i&0x3f` / swapped
 
 `eax` stays live for `[eax+0x24]` after `mov ebx,eax` — sink-vs-fuse, not missing live use. LL2 `Fst` RTL does **not** transfer (that closes 3-scratch SIB lea, not `reg+disp8` dest-coalesce onto callee-saved `p`). Transparent helpers / two-web `t`/`n` / `Mass_End` fold to 65/77. Volatile `head` spills frame; `fr.f24` makes mov/add adjacent but not `lea`.
+
+**2026-09-08 probes (still 65/77):** `lea ebx,[eax+0x70]` is the **only** such encoding in `.text`. Early n-use (store into `fr.sample` / frame hold) emits adjacent `mov ebx,eax / add ebx,0x70`, never lea. `n=&rt->head` + plain `q=rt` yields `lea ebx,[ebp+0x70]` (lea possible, p in ebp — wrong base). Minimal harness: `use2(p,n)` → `lea ecx,[eax+0x70]`; long-lived n in ebx prefers dest-coalesce. Comma `(src=&rt->pos, &rt->head)`, Mass_HeadPos/FstHead/HeadF24 RTL, `register`, memcpy, g_route_eval-first, hist locals, q-comma-into-acc — all ≤84.4%. Flag variants `/Oy-` `/O1` `/G5` `/Ob1` inert or worse. Need a spelling that keeps **p in eax** and selects lea into callee-saved ebx (orig hoists n with no early use before GetAcceleration).
 
 (`Raster_ClipPoly` closed via `if (1) { switch (flags) … } return count`.)
 Trace NG22 / ClipPlane ESCAPES unchanged.
@@ -107,6 +96,7 @@ survives ICF **and** tail-then-ch helper order.
 
 Ruled out: empty `__asm {}` on fail2 (LL4 Simpson pattern) — frame lever only,
 **64/89 = 71.9%**; main has no sibling that keeps two `pop/xor/ret` copies.
+**Do not** use `if (0) { match_tail: … }` outlining — drops to ~11%.
 
 ### LL6 — `Raster_AddSpanRecord` `0x00423200`
 
@@ -121,7 +111,7 @@ Ruled out: ridemisc-style biased `int*` on `&keys->idx` (`k += 2`, `k[-2]`)
 
 ---
 
-## Priority C — documented floors / ZBuffer-class (low ROI unless new lever)
+## Priority B — documented floors / ZBuffer-class (low ROI unless new lever)
 
 ### LL4 — four `Span_Fill*` + `IntegrateSimpson` (3/8 scope)
 
@@ -168,12 +158,11 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 ## Suggested Fable attack order
 
-1. **LL8 AddScriptString** — fail-tail shared allocation; LL2 RTL Fst inert here.
-2. **LL3 MassAndPower** — size-exact 42 mism; dest-coalesce sink; LL2 RTL Fst inert.
-3. **LL7 StepAlong** — size-exact 11 mism; RTL Fst pins out_t but does not emit `push esi`.
-4. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
-5. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
-6. **LL4 Span family / LL7 Slope+ShadeFill** — last.
+1. **LL3 MassAndPower** — size-exact 42 mism; dest-coalesce sink; LL2 RTL Fst inert.
+2. **LL7 StepAlong** — size-exact 11 mism; RTL Fst pins out_t but does not emit `push esi`.
+3. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
+4. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
+5. **LL4 Span family / LL7 Slope+ShadeFill** — last.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
 Do **not** merge partial scopes yourself.
@@ -191,9 +180,9 @@ Do **not** merge partial scopes yourself.
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
 | LL7 | 14/17 | `7c7640a4` | `coaster13.c` |
-| LL8 | 12/13 | `98a7a8a1` | `gameframe2.c` |
+| LL8 | **13/13** | merged `main` | `gameframe2.c` |
 
-**WIP count in this wave:** 0+0+3+5+0+2+3+1 = **14 bodies**.
+**WIP count in this wave:** 0+0+3+5+0+2+3+0 = **13 bodies**.
 
 ---
 
@@ -205,6 +194,4 @@ Do **not** merge partial scopes yourself.
 | AC | `scope/AC` | 13/15 | `PutOne3DBlokeOnRide`, `LoadAltTextures`; [NJwTi](https://decomp.me/scratch/NJwTi), [m2smI](https://decomp.me/scratch/m2smI) |
 | AG | `scope/AG` | 2/3 | `WinMain` matchfull OK / audit ESCAPES (SEH) |
 | V / FGH | external | WIP | EventTick_Clear etc.; [TG0H2](https://decomp.me/scratch/TG0H2) |
-
-Full per-body evidence lives in each `docs/lanes/scope-llN.md` on the
-corresponding worktree (copy into the Fable session’s tree if missing).
+| X | external | WIP | parallel leftovers |

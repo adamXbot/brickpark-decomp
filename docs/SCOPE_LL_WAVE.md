@@ -13,7 +13,7 @@ F/G/H partials, LONG appraisal, and SEH WinMain.
 | LL5 | `scope/LL5` | 5 | 3 | 130 | `castletrack2.c` | DONE 3/3 merged |
 | LL6 | `scope/LL6` | 6 | 24 | 771 | `coaster12.c` | 22/24 — 2 floors; parked |
 | LL7 | `scope/LL7` | 7 | 17 | 999 | `coaster13.c` | 14/17 — StepAlong 232B/11 mism; parked |
-| LL8 | `scope/LL8` | 12+13+14 | 13 | 514 | `gameframe2.c` | 12/13 — AddScriptString floor; parked |
+| LL8 | `scope/LL8` | 12+13+14 | 13 | 514 | `gameframe2.c` | DONE 13/13 merged |
 
 **Note:** `logflume7.c` already exists on main — LL1 starts at `logflume8.c`.
 

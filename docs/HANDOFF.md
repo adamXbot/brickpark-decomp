@@ -92,12 +92,20 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **71.3% exact, 82.7% with partials** |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2921 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **71.6% exact, 82.9% with partials** |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2934 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F own part of this list; use `tools/inventory.py` for game-code targets. |
 | partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 79 |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
+
+**Scope LL8 closed exact (2026-09-08): 13 of 13; coverage 71.3% -> 71.6% exact
+(82.9% with partials).** Exact count **2934**; **79** WIPs.
+`gameframe2.c` (frame/icon-UI leftovers + AddScriptString). AddScriptString
+fail tails: `table[count]=0; goto bump` for eax-primary `!a`, and
+`slot=&table[count]; *slot=a` for EDX `!copy`. Relocs 0 MISMATCH; `/W3`
+clean (one jump-table UNRESOLVED on UpdateIconPage, same class as other
+exact switch bodies).
 
 **Scope LL2 closed exact (2026-09-08): 6 of 6; coverage 71.0% -> 71.3% exact
 (82.7% with partials).** Exact count **2921**; **79** WIPs.
@@ -129,12 +137,12 @@ MISMATCH; `/W3` clean.
 
 **Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.0% -> 70.3% exact.**
 `music2.c` + `pathobj2.c` (group 16).
-Parallel still open: FGH, V, Codex-F, AC remainders; LL3–LL4/LL6–LL8 in flight.
+Parallel still open: FGH, V, Codex-F, AC remainders; LL3–LL4/LL6–LL7 in flight.
 
 **LL wave cut (2026-09-07):** letter scopes end at AK; new scopes are
 `LL1`…`LL8` (`docs/SCOPE_LL_WAVE.md`). Live inventory leftovers after excluding
 V/X, Codex-F, AG, AC, F/G/H, LONG appraisal, SEH WinMain — **112 functions,
-≈5.8k instructions**. LL1+LL2+LL5 merged, AG (incl. SEH WinMain) merged; others allocated.
+≈5.8k instructions**. LL1+LL2+LL5+LL8 merged, AG (incl. SEH WinMain) merged; LL3/4/6/7 remain.
 
 **Scope AK closed exact (2026-09-07): 20 of 20; coverage 69.5% -> 70.0% exact.**
 `narration2.c` (group 18).
