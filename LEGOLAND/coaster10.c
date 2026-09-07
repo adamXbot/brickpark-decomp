@@ -389,10 +389,8 @@ void CoasterModel_DrawPass1(CoasterMesh* model, void* texture, int mode)
     g_stat_c_4dcbc8 += cycles;
 }
 
-/* Pass 2: faces +0x20/+0x24, normals2 at +0x14, per-vertex normals at
- * face+0x0a, filler 0x4b5658, SubmitPoly attr count 3 (y/x/shade/z).
- * Residual: lea esi/edi/ecx order (1 insn) — 99.4%. */
-// WIP-FUNCTION: LEGOLAND 0x00420a20
+/* Pass 2: faces +0x20/+0x24, normals2 at +0x14, per-vertex normals via *(&face->n0 + k). */
+// FUNCTION: LEGOLAND 0x00420a20
 void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
 {
     unsigned int cycles;
@@ -437,9 +435,9 @@ void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
             job.or_flags |= g_model_vertices[tri[2]].clip;
             job.and_flags &= g_model_vertices[tri[2]].clip;
             if ((job.or_flags & 0xf) == 0xf) {
-                const short* nidx = &face->n0;
+
                 for (k = 0; k < 3; k++) {
-                    const Vec3f* n = &model->normals2[nidx[k]];
+                    const Vec3f* n = &model->normals2[*(&face->n0 + k)];
                     float lit;
                     int shade;
                     lit = g_model_light.z * n->z;
@@ -455,6 +453,7 @@ void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
                     v[k].shade = shade;
                     v[k].sz = g_model_vertices[tri[k]].z;
                 }
+
                 job.tag = ((int*)texture)[face->mat * 3];
                 Raster_SubmitPoly(3, &job);
             }
@@ -472,18 +471,15 @@ void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
     g_stat_c_4dcbc8 += cycles;
 }
 
-/* Pass 3: faces +0x28/+0x2c, filler 0x4b5f50, attr count 4 with UV bytes.
- * Residual: UV emit schedule / frame locals. */
-// WIP-FUNCTION: LEGOLAND 0x00420c40
+/* Pass 3: faces +0x28/+0x2c, filler 0x4b5f50, attr count 4 with UV. */
+// FUNCTION: LEGOLAND 0x00420c40
 void CoasterModel_DrawPass3(CoasterMesh* model, void* texture, int mode)
 {
     unsigned int cycles;
     int i;
-    int k;
     int tri[4];
     PolyVtx v[4];
     PolyJob job;
-    unsigned char* tex = (unsigned char*)texture;
 
     __asm {
         push eax
@@ -535,16 +531,18 @@ void CoasterModel_DrawPass3(CoasterMesh* model, void* texture, int mode)
                     }
                     job.shade = shade;
                 }
+
+                mode = 0;
                 job.tag = ((int*)texture)[face->mat * 3];
-                for (k = 0; k <= 2; k++) {
-                    int m = face->mat;
-                    int off = (m * 6 + k) * 2;
-                    v[k].sy = g_model_vertices[tri[k]].y;
-                    v[k].sx = g_model_vertices[tri[k]].x;
-                    v[k].shade = tex[off + 4];
-                    v[k].sz = tex[off + 5];
-                    v[k].f14 = g_model_vertices[tri[k]].z;
-                }
+                do {
+                    v[mode].sy = g_model_vertices[tri[mode]].y;
+                    v[mode].sx = g_model_vertices[tri[mode]].x;
+                    v[mode].shade = ((unsigned char*)texture)[(mode + face->mat * 6) * 2 + 4];
+                    v[mode].sz = ((unsigned char*)texture)[(mode + face->mat * 6) * 2 + 5];
+                    v[mode].f14 = g_model_vertices[tri[mode]].z;
+                    mode++;
+                } while (mode <= 2);
+
                 Raster_SubmitPoly(4, &job);
             }
         }
