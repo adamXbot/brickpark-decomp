@@ -424,6 +424,16 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **SCOPE AJ (closed 2026-09-07, 27 of 27 exact; evidence in
+  `docs/lanes/scope-aj.md`).** RES volume + frontend save/UI
+  (`resaudio2.c`, `frontend2.c`):
+  - **ConvertWAVToPCM:** `#pragma pack(2)` so 18-byte `WAVEFORMATEX` copies
+    as 4 dwords + word (not 5-dword `rep movsd`); never `acmStreamClose`
+    (original bug).
+  - **PrintTextGetEnd:** `(rc.left + rc.right)` load order.
+  - **RES_LoadDirectory:** `e->dir = d; e->vol = v;` adjacent-store order;
+    rewrite image offsets to pointers in place.
+
 - **SCOPE AH (closed 2026-09-07, 12 of 12 exact; evidence in
   `docs/lanes/scope-ah.md`).** Pop-up / help / icon-bar helpers
   (`popupmisc.c`):

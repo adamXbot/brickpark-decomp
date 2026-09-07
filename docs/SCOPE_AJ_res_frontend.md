@@ -1,8 +1,8 @@
 # Scope AJ — RES volume + frontend save / sample helpers (inventory group 17) (2026-09-07)
 
-> **Status: COMPLETE 2026-09-07 — 27/27 exact (`audit [OK]`), relocs clean, `/W3` clean.** Branch `scope/AJ`.
-> Notes: `docs/lanes/scope-aj.md`. Object prefix `/tmp/saj_`. Cut from
-> inventory group 17 live members.
+> **Status: DONE — 27 of 27 exact, closed into `main` 2026-09-07.** Branch
+> `scope/AJ`. Notes: `docs/lanes/scope-aj.md`. Object prefix `/tmp/saj_`.
+> Cut from inventory group 17 live members.
 
 **Read `docs/PARALLEL_CONTRACT.md` first.** Relocation gate required.
 **Do not add any Co-Authored-By / Co-authored-by trailer.**
