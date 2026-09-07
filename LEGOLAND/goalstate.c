@@ -338,71 +338,53 @@ int JoinSeatList(Bloke* bloke, SeatOwner* owner, int seat_arg)
     return 0;
 }
 
-/* True when world tile (pos>>8) is the footprint origin of an instance of
- * def, found by probing the four orthogonal neighbour cells. Called from
- * sub_44f610.
- *
- * Residual: flat four-probe form is ~46% (register/landing-pad differences
- * vs the original's g_map reload pads between probes). Nested above/below
- * (GetObjectUID shape) dropped to 33%. Needs the same probe-entry g_map
- * landing-pad treatment recorded on GetObjectUID in objmap2.c. */
-// WIP-FUNCTION: LEGOLAND 0x0044f180  (46%, g_map landing pads between probes)
-int PosOnObjectFootprint(Pos* pos, SeatOwner* def)
+/* Cell lookup; (y, x) arg order so VC6 emits x-shift before y-shift and a
+ * separate `test eax,eax` (see objmap2.c CellYX). */
+static __inline MapCell* FootCell(int y, int x)
 {
-    int x = pos->x >> 8;
-    int y = pos->y >> 8;
-    MapCell* c;
-    MapObj* obj;
+    if (x >= 0 && x < g_map->width && y >= 0 && y < g_map->height)
+        return &g_map_rows[y][x];
+    return 0;
+}
+
+/* Both footprint sums through a Pos so VC6 computes them before either cmp. */
+static __inline int FootHit(MapCell* c, SeatOwner* def, int x, int y)
+{
     Pos p;
 
-    if (x >= 0 && x < g_map->width && y - 1 >= 0 && y - 1 < g_map->height) {
-        c = &g_map_rows[y - 1][x];
-        if (c && (c->flags & 0x80) && c->obj) {
-            obj = (MapObj*)c->obj;
-            if (obj->cls == def) {
-                p.x = c->x + def->base_x;
-                p.y = c->y + def->base_y;
-                if (p.x == x && p.y == y)
-                    return 1;
-            }
-        }
-    }
-    if (x >= 0 && x < g_map->width && y + 1 >= 0 && y + 1 < g_map->height) {
-        c = &g_map_rows[y + 1][x];
-        if (c && (c->flags & 0x80) && c->obj) {
-            obj = (MapObj*)c->obj;
-            if (obj->cls == def) {
-                p.x = c->x + def->base_x;
-                p.y = c->y + def->base_y;
-                if (p.x == x && p.y == y)
-                    return 1;
-            }
-        }
-    }
-    if (x - 1 >= 0 && x - 1 < g_map->width && y >= 0 && y < g_map->height) {
-        c = &g_map_rows[y][x - 1];
-        if (c && (c->flags & 0x80) && c->obj) {
-            obj = (MapObj*)c->obj;
-            if (obj->cls == def) {
-                p.x = c->x + def->base_x;
-                p.y = c->y + def->base_y;
-                if (p.x == x && p.y == y)
-                    return 1;
-            }
-        }
-    }
-    if (x + 1 >= 0 && x + 1 < g_map->width && y >= 0 && y < g_map->height) {
-        c = &g_map_rows[y][x + 1];
-        if (c && (c->flags & 0x80) && c->obj) {
-            obj = (MapObj*)c->obj;
-            if (obj->cls == def) {
-                p.x = c->x + def->base_x;
-                p.y = c->y + def->base_y;
-                if (p.x == x && p.y == y)
-                    return 1;
-            }
-        }
-    }
+    p.x = c->x + def->base_x;
+    p.y = c->y + def->base_y;
+    return p.x == x && p.y == y;
+}
+
+/* True when world tile (pos>>8) is the footprint origin of an instance of
+ * def, found by probing the four orthogonal neighbour cells. Called from
+ * sub_44f610. Flat probes (unlike GetObjectUID's nested above/below). */
+// FUNCTION: LEGOLAND 0x0044f180
+int PosOnObjectFootprint(Pos* pos, SeatOwner* def)
+{
+    MapCell* c;
+
+    c = FootCell((pos->y >> 8) - 1, pos->x >> 8);
+    if (c && (c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def
+        && FootHit(c, def, pos->x >> 8, pos->y >> 8))
+        return 1;
+
+    c = FootCell((pos->y >> 8) + 1, pos->x >> 8);
+    if (c && (c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def
+        && FootHit(c, def, pos->x >> 8, pos->y >> 8))
+        return 1;
+
+    c = FootCell(pos->y >> 8, (pos->x >> 8) - 1);
+    if (c && (c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def
+        && FootHit(c, def, pos->x >> 8, pos->y >> 8))
+        return 1;
+
+    c = FootCell(pos->y >> 8, (pos->x >> 8) + 1);
+    if (c && (c->flags & 0x80) && c->obj && ((MapObj*)c->obj)->cls == def
+        && FootHit(c, def, pos->x >> 8, pos->y >> 8))
+        return 1;
+
     return 0;
 }
 
