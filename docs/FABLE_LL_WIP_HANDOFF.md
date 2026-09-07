@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `80443222` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `aa26ec4e` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
@@ -169,35 +169,25 @@ same window).
 
 ### LL3 — `Span_ClipPlane` `0x0041f050`
 
-**9% ESCAPES**, 179i, 597/593B, frame **0x24** (want **0x2c**). Reconstruct.
+**13.2%** (25/189), 179i, **586**/593B, frame **0x24** (want **0x2c**). Tip `aa26ec4e`.
 
-Original control flow (2026-09-08 disasm pass):
-- Close `in[n]=in[0]`, then `cmp n,1 / jl` to a **trailing** early epilogue.
-- Then `in++`, `left=n` (homes in dead `n` slot), `jmp` into body so continue
-  reloads abs/sign.
-- Latch: `in += 4; dec left; jne` (not `in[i+1]`).
-- Classify: signed `sar 1 / and 0x40000000 / or next_sign` as `cls` (also next
-  prev_sign). Tests `0x80000000` enter, `0xC0000000` both-in, `0x40000000` leave.
-- Divide uses **`fld` of bit-abs** (`and 0x7fffffff` then load those bits), not
-  `fild` / `(float)abs` — current C stays ~1–2/179 without that.
-- Prologue coloring: load **cursor, then `n` into ebx, then `*cursor` into edx**.
-  If `*cursor` takes ebx first, dst steals the callee-save and **0x2c homes never
-  appear**. `t` in dead `in` arg; in-cursor in dead `n` arg; prev_abs at `+0x24`.
-- ENTER: `k` spilled, delta in ebp. LEAVE: emit prev first, `k` in ebp, delta spilled.
+**Landed:** `mov ebx,n` via byte store
+`*(volatile unsigned char*)&left = (unsigned char)n` then `left = n` —
+ebx is the only byte-addressable callee-save, beating cursor for the early-out
+`*cursor` store. Prologue: `mov ebx,[n]; cmp ebx,1; in[n]` as `[esi+ebx*4]`;
+left spill `mov [esp+0x1c],ebx`.
 
-Variants that grew frame (0x28/0x38) or forced `in++`/`fld`/signed classify alone
-stayed **2/179**. **ebx=n wave (did not land):** long-lived dest always wins
-ebx; n→esi/edi. Homing dest moves deref to eax but prev_abs/out take ebx.
-`--n` live across `__ftol` blocks ebx reuse (n → spill left → next_abs).
+**Still open:** `next_abs` `and 0x7fffffff` stays in **edx** not ebx; **0x2c**
+homes absent. Dest/plane/out already homed; `out_n` is `mov [esp+0x10],0`.
 
-**Left-home wave (still 18/195, frame 0x24):** left spill after `cmp n,1` /
-`in++` is real (`mov [esp+0x1c],esi`). Dest off ebx does not give ebx to n —
-winners are loop-invariant **plane**, then **prev_abs**, then **`xor ebx,ebx`**
-(zero for `out_n` / `g_span_vtx >= 0`). n stays **esi**. `n = next_abs` does
-not coalesce. Volatile plane → ecx (original colouring for plane) still never
-`mov ebx,n`. Best transient this wave **30/191 (15.7%)** — under commit bar;
-tip restored. **Next:** an n/next_abs web that beats plane, prev_abs, and the
-zero register for ebx.
+Original control flow still required:
+- Close `in[n]=in[0]`, `cmp n,1 / jl` trailing early epilogue
+- `in++`, left, latch `in+=4; dec left; jne`
+- Signed classify; fld bit-abs (not fild)
+- ENTER/LEAVE k/delta colouring; prev_abs at `+0x24`
+
+**Next:** reuse ebx for next_abs after left spill (n dies), without losing
+byte-n prologue; open 0x2c frame.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -209,7 +199,7 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — n/next_abs web must beat plane, prev_abs, and zero for ebx.
+1. **LL3 Span_ClipPlane** — ebx=n landed (byte-n); next next_abs→ebx + 0x2c frame.
 2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
 3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
@@ -225,7 +215,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `80443222` | `coaster11.c` |
+| LL3 | 16/19 | `aa26ec4e` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
