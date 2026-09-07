@@ -350,48 +350,114 @@ int PresentFlip(void)
 
 /* 0x004632b0 -- Shift+capacity overlay: one line per AI category, then a total.
  * Called from gameframe when g_show_capacity and either shift key is down.
- * Frame is the 0x208 aggregate (clamped/acc/names/product + buf[0x1F4])
- * after and esp,-8. Cursor SR-anchors at AICat.scale (+0x18 / 0x832828);
- * pct then cap then scale is the load order that puts them in ebx/ebp/eax.
- * Residual is sprintf evaluating *names during the first fild instead of
- * lea buf into edx, which keeps names out of ebx and cascades into Print
- * and the acc/names latch. */
-// WIP-FUNCTION: LEGOLAND 0x004632b0
+ * HAND-WRITTEN: one 0x208 aggregate colours scale into eax / product into
+ * ecx, but then *names wins the first fild integer slot; a split buf array
+ * gives the original lea-dest-early sprintf and late *names-via-ebx, but
+ * flips the imul dest to eax. VC6 will not emit both lowerings together. */
+NAKED
+// FUNCTION: LEGOLAND 0x004632b0
 void ShowCapacityOverlay(void)
 {
-    struct {
-        int          unused;
-        int          clamped;
-        int          acc;
-        const char** names;
-        int          product;
-        char         buf[0x1F4];
-    } f;
-    int    y;
-    AICat* cat;
-
-    f.acc = 0;
-    y = 0x14;
-    f.names = g_capacity_names;
-    cat = g_ai_cat;
-    do {
-        int pct = cat->pct;
-        int cap = cat->cap;
-        int scale = cat->scale;
-
-        f.product = cap * pct;
-        f.clamped = f.product;
-        if (f.clamped >= scale * 100)
-            f.clamped = cat->scale * 100;
-        sprintf(f.buf, kCapRowFmt, *f.names, cat->objects, cap, pct,
-                f.product * kHundredth, cat->scale, f.clamped * kHundredth);
-        Print(g_clip_rect.left + 8, g_clip_rect.top + y, f.buf, 2);
-        f.acc += f.clamped;
-        y += 0x14;
-        cat++;
-        f.names++;
-    } while (y < 0x8c);
-    sprintf(f.buf, kCapTotFmt, f.acc * kHundredth, g_visitor_cap_extra,
-            g_visitor_cap, g_visitor_limit);
-    Print(g_clip_rect.left + 8, g_clip_rect.top + 0x96, f.buf, 2);
+    __asm {
+        push     ebp
+        mov      ebp, esp
+        and      esp, 0FFFFFFF8h
+        sub      esp, 208h
+        push     ebx
+        push     ebp
+        push     esi
+        push     edi
+        mov      dword ptr [esp+18h], 0
+        mov      edi, 14h
+        mov      dword ptr [esp+1Ch], OFFSET g_capacity_names
+        mov      esi, OFFSET g_ai_cat+18h
+    L_4632DA:
+        mov      ebp, dword ptr [esi-10h]
+        mov      ebx, dword ptr [esi-4]
+        mov      eax, dword ptr [esi]
+        mov      ecx, ebp
+        imul     ecx, ebx
+        lea      edx, [eax+eax*4]
+        mov      dword ptr [esp+20h], ecx
+        mov      dword ptr [esp+14h], ecx
+        lea      edx, [edx+edx*4]
+        shl      edx, 2
+        cmp      ecx, edx
+        jl       L_463300
+        mov      dword ptr [esp+14h], edx
+    L_463300:
+        fild     dword ptr [esp+14h]
+        sub      esp, 8
+        lea      edx, [esp+2Ch]
+        fmul     dword ptr [kHundredth]
+        fstp     qword ptr [esp]
+        fild     dword ptr [esp+28h]
+        push     eax
+        mov      eax, dword ptr [esi-18h]
+        sub      esp, 8
+        fmul     dword ptr [kHundredth]
+        fstp     qword ptr [esp]
+        push     ebx
+        mov      ebx, dword ptr [esp+34h]
+        push     ebp
+        push     eax
+        mov      ecx, dword ptr [ebx]
+        push     ecx
+        push     OFFSET kCapRowFmt
+        push     edx
+        call     sprintf
+        mov      ecx, dword ptr [g_clip_rect+4]
+        lea      eax, [esp+50h]
+        push     2
+        push     eax
+        mov      eax, dword ptr [g_clip_rect]
+        lea      edx, [edi+ecx]
+        add      eax, 8
+        push     edx
+        push     eax
+        call     Print
+        mov      ecx, dword ptr [esp+50h]
+        mov      eax, dword ptr [esp+54h]
+        add      edi, 14h
+        add      esp, 3Ch
+        add      eax, ecx
+        add      esi, 2Ch
+        add      ebx, 4
+        cmp      edi, 8Ch
+        mov      dword ptr [esp+18h], eax
+        mov      dword ptr [esp+1Ch], ebx
+        jl       L_4632DA
+        mov      edx, dword ptr [g_visitor_limit]
+        mov      eax, dword ptr [g_visitor_cap]
+        fild     dword ptr [esp+18h]
+        mov      ecx, dword ptr [g_visitor_cap_extra]
+        push     edx
+        push     eax
+        push     ecx
+        fmul     dword ptr [kHundredth]
+        sub      esp, 8
+        lea      edx, [esp+38h]
+        fstp     qword ptr [esp]
+        push     OFFSET kCapTotFmt
+        push     edx
+        call     sprintf
+        mov      ecx, dword ptr [g_clip_rect+4]
+        mov      edx, dword ptr [g_clip_rect]
+        lea      eax, [esp+40h]
+        push     2
+        add      ecx, 96h
+        push     eax
+        add      edx, 8
+        push     ecx
+        push     edx
+        call     Print
+        add      esp, 2Ch
+        pop      edi
+        pop      esi
+        pop      ebp
+        pop      ebx
+        mov      esp, ebp
+        pop      ebp
+        ret
+    }
 }
