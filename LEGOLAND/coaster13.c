@@ -15,7 +15,7 @@
 #include <math.h>
 #include <string.h>
 
-#pragma intrinsic(memcpy, sqrt)
+#pragma intrinsic(memcpy, memset, sqrt)
 
 typedef struct Vec3f { float x, y, z; } Vec3f;
 typedef struct Mat3 { Vec3f r[3]; } Mat3;
@@ -33,9 +33,17 @@ typedef struct GeomEval {
 } GeomEval;
 
 struct RouteGeom {
-    unsigned char pad00[0x4c];
+    Vec3f         pos;          /* +0x00 */
+    Vec3f         dir;          /* +0x0c */
+    Vec3f         offset;       /* +0x18 */
+    unsigned char pad24[0x40 - 0x24];
+    float         length;       /* +0x40 */
+    float         t0;           /* +0x44 */
+    float         t1;           /* +0x48 */
     GeomEval*     eval;         /* +0x4c */
-};
+    struct RouteGeom* next;     /* +0x50 */
+    struct RouteGeom* prev;     /* +0x54 */
+};                              /* 0x58 */
 
 struct RoutePos {
     TrackNode*  node;           /* +0x00 */
@@ -65,8 +73,10 @@ struct TrackNode {
     void*      owner;           /* +0x10 */
     TrackJoint jin;             /* +0x14 */
     TrackJoint jout;            /* +0x20 */
-    unsigned char pad2c[0x50 - 0x2c];
-};                              /* 0x50 */
+    unsigned char pad2c[0x40 - 0x2c];
+    int        clear40[3];      /* +0x40 */
+    RouteGeom  geom;            /* +0x4c  t0 at +0x90, t1 at +0x94 */
+};                              /* 0xa4 */
 
 struct CoasterRec {
     unsigned char pad00[0xa8];
@@ -98,6 +108,31 @@ extern void  TrackCurve_EvaluateOffset(RoutePos* at, int mode, float t,
                                        float offset, Vec3f* out);   /* 0x00429bb0 */
 extern void  TrackCurve_EvaluateDerivative(RoutePos* at, int mode, float t,
                                            float offset, Vec3f* out); /* 0x00429c60 */
+extern int   JointDir_ToIndex(int direction);                         /* 0x0041cca0 */
+extern void  MapSquareToWorld(const short* sq, float h, Vec3f* out);  /* 0x00425cb0 */
+extern void  TrackGeom_BuildRamp(Vec3f* p0, Vec3f* p1, const Vec3f* half,
+                                 RouteGeom* out);                     /* 0x00422180 */
+
+extern Vec3f g_joint_world[4];   /* 0x004b6398 */
+extern Vec3f g_joint_half[4];    /* 0x004b63c8 */
+extern int   g_stat_c_615fc4;    /* 0x00615fc4 */
+extern int   g_stat_c_615fc8;    /* 0x00615fc8 */
+extern int   g_stat_c_615fcc;    /* 0x00615fcc */
+extern int   g_bisect_max;       /* 0x00615fec */
+extern Vec3f* g_step_origin;     /* 0x00615f8c */
+extern float g_step_len;         /* 0x00615fd0 */
+extern float g_step_len2;        /* 0x00615fd8 */
+extern float g_step_hi2;         /* 0x00615fdc */
+extern float g_step_lo2;         /* 0x00615fe0 */
+extern int   g_step_far;         /* 0x00615fe4 */
+extern int   g_step_up;          /* 0x00615fe8 */
+extern int (*g_track_solver)(float (*fn)(float), float lo, float hi, float* out); /* 0x004b63fc */
+
+extern void  TrackCurve_EvaluatePosition(RoutePos* at, int mode, float t,
+                                         Vec3f* out);                     /* 0x00429a80 */
+extern void  TrackCurve_EvaluateUp(RoutePos* at, int mode, float t,
+                                   Vec3f* out);                           /* 0x00429b90 */
+extern void  TrackCursor_RetreatGeometry(RoutePos* p);                    /* 0x0041f880 */
 
 extern RoutePos* g_curve_at;     /* 0x00615f84 */
 extern int       g_curve_mode;   /* 0x00615f90 */
@@ -234,4 +269,142 @@ float Track_AbsDerivative(float t)
     for (i = 0; i < 3; i++)
         sum += v[i] * v[i];
     return (float)sqrt(sum);
+}
+
+/* Build one ramp geom from the span's world endpoints and stamp it onto
+ * every piece with parameter ranges [i/n, (i+1)/n]. z/dz only place the
+ * endpoints; the per-piece +0x90/+0x94 slots are the parameter, not height. */
+// WIP-FUNCTION: LEGOLAND 0x00429560  (unverified)
+void TrackRunSetSlope(TrackNode* n, TrackNode* e, int steps, float z, float dz)
+{
+    RouteGeom geom;
+    Vec3f p0;
+    Vec3f p1;
+    float t;
+    float inv;
+    int i0;
+    int i1;
+
+    i0 = JointDir_ToIndex(n->jin.dir);
+    i1 = JointDir_ToIndex(e->jout.dir);
+    inv = 1.0f / (float)steps;
+    t = 0.0f;
+    MapSquareToWorld(&n->sx, z, &p0);
+    p0.x += g_joint_world[i0].x;
+    p0.y += g_joint_world[i0].y;
+    MapSquareToWorld(&e->sx, z + dz, &p1);
+    p1.x += g_joint_world[i1].x;
+    p1.y += g_joint_world[i1].y;
+    TrackGeom_BuildRamp(&p0, &p1, &g_joint_half[i0], &geom);
+    if (steps > 0) {
+        do {
+            n->state |= 1;
+            n->geom = geom;
+            n->geom.t0 = t;
+            t += inv;
+            n->geom.t1 = t;
+            n->clear40[0] = 0;
+            n->clear40[1] = 0;
+            n->clear40[2] = 0;
+            n = n->jout.node;
+        } while (--steps);
+    }
+}
+
+typedef float (*TrackSampleFn)(float);
+
+/* Default [0x004b63fc] hook: bisection on a sign-changing sample. Same-sign
+ * endpoints return 0; otherwise the midpoint of the final bracket. */
+// FUNCTION: LEGOLAND 0x00429e20
+int Track_Bisect(TrackSampleFn fn, float lo, float hi, float* out)
+{
+    float pa;
+    float pb;
+    float mid;
+    float pm;
+    int n;
+
+    g_stat_c_615fc4++;
+    g_stat_c_615fc8++;
+    n = 1;
+    pa = fn(lo);
+    pb = fn(hi);
+    if (((*(unsigned*)&pa ^ *(unsigned*)&pb) & 0x80000000) == 0)
+        return 0;
+    if (hi - lo > 0.00499999988f) {
+        do {
+            mid = (lo + hi) * 0.5f;
+            pm = fn(mid);
+            if ((*(unsigned*)&pm ^ *(unsigned*)&pa) & 0x80000000)
+                hi = mid;
+            else {
+                lo = mid;
+                pa = pm;
+            }
+            g_stat_c_615fc8++;
+            n++;
+        } while (hi - lo > 0.00499999988f);
+    }
+    *out = (lo + hi) * 0.5f;
+    if (n > g_bisect_max)
+        g_bisect_max = n;
+    return 1;
+}
+
+/* Bisection objective for Track_StepAlong: |pos(t) - origin - offset*up|^2
+ * minus step^2, with early +1/-1 when the raw |pos-origin| is outside
+ * step±tol. */
+// WIP-FUNCTION: LEGOLAND 0x00429cf0  (unverified)
+float Track_StepObjective(float t)
+{
+    Vec3f pos;
+    Vec3f up;
+    float dist2;
+
+    g_stat_c_615fcc++;
+    TrackCurve_EvaluatePosition(g_curve_at, 1, t, &pos);
+    pos.x -= g_step_origin->x;
+    pos.y -= g_step_origin->y;
+    pos.z -= g_step_origin->z;
+    dist2 = pos.x * pos.x + pos.y * pos.y + pos.z * pos.z;
+    if (dist2 > g_step_hi2) {
+        g_step_far++;
+        return 1.0f;
+    }
+    if (g_step_len > g_curve_offset && dist2 < g_step_lo2)
+        return -1.0f;
+    TrackCurve_EvaluateUp(g_curve_at, 1, t, &up);
+    g_step_up++;
+    pos.x -= g_curve_offset * up.x;
+    pos.y -= g_curve_offset * up.y;
+    pos.z -= g_curve_offset * up.z;
+    return pos.x * pos.x + pos.y * pos.y + pos.z * pos.z - g_step_len2;
+}
+
+/* Walk backward along the track until |pos - origin| == step. First try
+ * the current geom's [t0, t]; then retreat and try each prior [t0, t1]. */
+// WIP-FUNCTION: LEGOLAND 0x00429f30  (unverified)
+void Track_StepAlong(Vec3f* origin, float step, RoutePos* from, float t,
+                     float tol, RoutePos* out, float* out_t)
+{
+    RoutePos cur;
+    float step2 = step * step;
+    float t0;
+
+    cur = *from;
+    t0 = cur.geom->t0;
+    g_step_len2 = step2;
+    g_step_len = step;
+    g_step_origin = origin;
+    g_curve_offset = tol;
+    g_curve_at = &cur;
+    g_step_hi2 = (step + tol) * (step + tol);
+    g_step_lo2 = (t - tol) * (t - tol);
+    if (!g_track_solver(Track_StepObjective, t0, t, out_t)) {
+        do {
+            TrackCursor_RetreatGeometry(&cur);
+            t0 = cur.geom->t0;
+        } while (!g_track_solver(Track_StepObjective, t0, cur.geom->t1, out_t));
+    }
+    *out = cur;
 }

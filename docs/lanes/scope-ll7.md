@@ -17,45 +17,46 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 | 0x00429690 | TrackRunSetLevel | 35 | 100 | [OK] | FUNCTION |
 | 0x00429af0 | TrackCurve_MakeBasis | 39 | 100 | [OK] | FUNCTION |
 | 0x004298a0 | TrackFitSpanGeom | 41 | 100 | [OK] | FUNCTION |
-| 0x00429560 | TrackRunSetSlope | 90 | — | — | not started |
-| 0x00429f30 | — | 70 | — | — | not started |
-| 0x00429e20 | — | 76 | — | — | not started |
-| 0x0042a680 | — | 82 | — | — | not started |
+| 0x00429e20 | Track_Bisect | 76 | 100 | [OK] | FUNCTION |
+| 0x00429560 | TrackRunSetSlope | 90 | 92 | 7 (eax/edx) | WIP |
+| 0x00429cf0 | Track_StepObjective | 93 | — | 61 | WIP |
+| 0x00429f30 | Track_StepAlong | 70 | — | 58 | WIP |
 | 0x0042a1b0 | Track_MeasureDistance | 92 | — | — | not started |
-| 0x00429cf0 | — | 93 | — | — | not started |
+| 0x0042a680 | — | 82 | — | — | not started |
 | 0x00428860 | — | 254 | — | — | not started |
 
-**10 / 17 exact.** `/W3` clean. `relocs.py` 0 MISMATCH (one UNRESOLVED: the pooled `0.0f` in GetRollDelta).
+**11 / 17 exact.** `/W3` clean. `relocs.py` 0 MISMATCH on the 11 FUNCTION bodies.
 
 ## Names
 
-- **TrackCursorPair_GetRollDelta** 0x0042a670: 0x0042a680 adds the return to `pair->roll[i]`. Retail body is a pooled `0.0f`; both arguments are unused.
-- **TrackCurve_EvalVtable** 0x00429ac0: `geom->eval[mode].dir` — the +4 slot of each 8-byte pair. EvaluatePosition (0x00429a80) uses the +0 slot and adds `RoutePos.pos`.
-- **TrackCurve_MakeBasis** 0x00429af0: twin of MakeRotation (coaster6.c 0x00426560). Called by RouteNode_GetTransform.
-- **TrackCurve_EvaluateBasis** 0x00429b60: vtable slot 1 then MakeBasis. Called by 0x0042a680.
-- **TrackCursorPair_Init** 0x0042a5e0: copies one `(at, t)` into both 0x20-aligned cursor slots. Caller 0x0041e8f0 forks a RouteNode's front and rear TrackCursors.
-- **RoutePos_Equal** 0x0042a110: node, geom, then Vec3Equal (0x00425da0) on `pos`.
-- **TrackRunSetLevel** 0x00429690: name from TrackJoinPieces (coaster5.c).
-- **TrackFitSpanGeom** 0x004298a0: name from TrackFitCheckSpan (coaster5.c).
-- **TrackCurve_SolverSample** 0x00429c10: the function pointer TrackCurve_EvaluateDerivative (0x00429c60) passes to 0x0041f4e0. Fills a 3-wide PhysVec from the stashed cursor globals.
-- **Track_AbsDerivative** 0x0042a150: function pointer inside 0x0042a1b0. `fsqrt` of the three-term sum of squares.
+- **TrackCursorPair_GetRollDelta** 0x0042a670: 0x0042a680 adds the return to `pair->roll[i]`. Retail body is a pooled `0.0f`.
+- **TrackCurve_EvalVtable** 0x00429ac0: `geom->eval[mode].dir`.
+- **TrackCurve_MakeBasis** 0x00429af0: twin of MakeRotation (coaster6.c 0x00426560).
+- **TrackCurve_EvaluateBasis** 0x00429b60: vtable slot 1 then MakeBasis.
+- **TrackCursorPair_Init** 0x0042a5e0: copies one `(at, t)` into both 0x20-aligned cursor slots.
+- **RoutePos_Equal** 0x0042a110: node, geom, then Vec3Equal (0x00425da0).
+- **TrackRunSetLevel** 0x00429690 / **TrackFitSpanGeom** 0x004298a0 / **TrackRunSetSlope** 0x00429560: names from TrackJoinPieces / TrackFitCheckSpan (coaster5.c).
+- **TrackCurve_SolverSample** 0x00429c10: pointer inside TrackCurve_EvaluateDerivative.
+- **Track_AbsDerivative** 0x0042a150: pointer inside 0x0042a1b0.
+- **Track_Bisect** 0x00429e20: default `[0x004b63fc]` hook.
+- **Track_StepObjective** 0x00429cf0 / **Track_StepAlong** 0x00429f30: the 30-unit backward stepper RouteCar_SetPosition calls.
 
 ## Mechanics
 
-- **RoutePos** is `{node, geom, pos}` (coaster7.c / coaster9.c), not coastertiny.c's `{node, pos, geom}`.
-- **RouteGeom.eval** at +0x4c is an array of `{pos, dir}` pairs; mode indexes the pair.
-- **TrackCursorPair** is 0x38: `t0`, `at0`, `roll0`, `roll1`, `t1`, `at1`. The rolls sit in the 8-byte gap between two 0x20 slots.
-- **Solver stash** (written by EvaluateDerivative): `g_curve_at` 0x00615f84, `g_curve_mode` 0x00615f90, `g_curve_offset` 0x00615fd4. Distance-measure stash: `g_dist_at` 0x00615f80, `g_dist_mode` 0x00615ff0, `g_dist_offset` 0x00615ff4.
-- **TrackFitSpanGeom** counts sloped joints on both partner runs plus the new piece against the two facing (opposite) direction bits; the span fits iff that count is positive.
+- **RoutePos** is `{node, geom, pos}`. **RouteGeom** is 0x58 with `eval` at +0x4c, `t0`/`t1` at +0x44/+0x48, `prev` at +0x54 (RetreatGeometry).
+- **TrackCursorPair** is 0x38: `t0`, `at0`, `roll0`, `roll1`, `t1`, `at1`.
+- **TrackNode** piece is 0xa4: RouteGeom at +0x4c, parameter range at +0x90/+0x94.
+- **TrackRunSetSlope** builds one ramp geom from the span's world endpoints (square-to-world + `g_joint_world[dir]`, half-offset `g_joint_half[i0]`) and stamps it on every piece with `t` ranges `[i/n, (i+1)/n]`. z/dz only place the endpoints.
+- **Track_Bisect**: same-sign endpoints return 0 (`xor` of the float bits, test `0x80000000`); else midpoint of the final 0.005-wide bracket. Stats at 0x00615fc4 / 0x00615fc8; max iterations at 0x00615fec.
+- **0x00428860** has an EBP frame (`push ebp / mov ebp, esp / sub esp, 0x70`) and calls 0x00420780 / 0x00428840 (owned by LL4 / LL6).
 
 ## Levers
 
-- **TrackFitSpanGeom**: named `head_opp` / `tail_opp` locals. Nested `TrackJointSloped(d, Opposite(...), Opposite(...))` split the `add esp` (70%, 111B vs 108B) and dropped the `push ebx`. The named first opposite stays in ebx across the second call; all five cdecls share one `add esp,0x24`.
-- **Track_AbsDerivative**: `float sum = 0.0f` stored before the derivative call, then the three-term loop accumulates into it and `sqrt` is `#pragma intrinsic`.
-- **TrackCurve_SolverSample**: store `v[0..2]` then `n = 3` (original `fstp` x, then integer copies of y/z, then the count).
-- **GetRollDelta**: plain `return 0.0f` emits `fld [__real@0]` (pooled), not `fldz`.
+- **TrackFitSpanGeom**: named `head_opp` / `tail_opp`. Nested Opposite calls split `add esp` (70%).
+- **Track_Bisect**: `*(unsigned*)&pa ^ *(unsigned*)&pb` (pa first in the xor) lands the original `edx=[esp+0x14], ecx=[esp+0x10]`. A `pm` local is required so the mid-sample does not reuse `pb`'s slot (reuse dropped to 85%).
+- **TrackRunSetSlope**: body is instruction- and byte-identical except the loop prelude's eax/edx swap (`edx=steps, eax=0` vs the reverse). Ruled out: named `zed`/`k`, `zed=steps` then 0, `volatile` reload of steps, splitting `count` for the `1/steps` fild, chained `a=b=c=0` (reverses the +0x40/+0x48 stores). Still open: a free volatile or one extra IR temporary that gives the zero eax.
 
 ## Extern-type divergences
 
-- `TrackCurve_EvaluateOffset` is `float t` here; coaster9.c's definition takes `int t` (raw bits). Same bits on the wire.
-- `TrackCurve_EvaluateDerivative` declared `float t, float offset` here; coaster9.c's extern is `int, int`.
+- `TrackCurve_EvaluateOffset` / `EvaluateDerivative` / `EvaluatePosition` / `EvaluateUp` take `float t` here; coaster9.c uses `int t` on some of these.
+- `g_curve_offset` 0x00615fd4 is the rail offset AND the stepper tolerance (RouteCar_SetPosition passes 4.8 for both).
