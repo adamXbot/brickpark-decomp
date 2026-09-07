@@ -216,5 +216,14 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   `sar1/and 0x40000000/or` vs 0x80000000 / 0xC0000000 / 0x40000000; divide
   is `fld` of bit-abs (`and 0x7fffffff`), not fild/abs. Prologue must load
   cursor, then **ebx=n**, then `*cursor`→edx — deref-first steals ebx and
-  blocks 0x2c homes. Frame-grow / in++ / fld variants alone stayed 2/179.
-  Next: colour `ebx=n` before deref. Mass/Trace not touched this pass.
+  blocks 0x2c homes.
+  **2026-09-08 ebx=n wave (did not land).** Decl order, `int left/nn = n`
+  live into `--n`, comma `*(n, cursor)`, `in+n`, `&out` after n, and
+  reading n before `*out`/`*cursor` all still colour `mov ebx,[cursor]`.
+  n goes to esi/edi. Homing dest (volatile / `*cursor` only) moves the
+  deref to eax/ecx but then **prev_abs or out takes ebx**; n stays esi.
+  `--n` live across `__ftol` overlaps next_abs, so VC6 will not reuse
+  ebx as original does (n prologue → spill left → ebx=next_abs).
+  Need n's live range to **die at the left home** before abs is computed,
+  without a long-lived dest pointer competing for ebx. Still 18/195,
+  frame 0x24. Mass/Trace not touched.
