@@ -85,9 +85,9 @@ typedef struct BitmapInfo {
 
 /* ---- imports ------------------------------------------------------------ */
 
-__declspec(dllimport) int   __stdcall EnumPrintersA(unsigned long flags, char* name, unsigned long level,
-                                                    void* buf, unsigned long cb, unsigned long* needed,
-                                                    unsigned long* returned);              /* [0x4ab344] */
+extern int __stdcall EnumPrintersA(unsigned long flags, char* name, unsigned long level,
+                                   void* buf, unsigned long cb, unsigned long* needed,
+                                   unsigned long* returned);       /* 0x0049e442 thunk -> [0x4ab344] */
 __declspec(dllimport) void* __stdcall CreateDCA(const char* driver, const char* device,
                                                 const char* port, DevMode* dm);            /* [0x4ab0a8] */
 __declspec(dllimport) void* __stdcall GlobalAlloc(unsigned int flags, unsigned long bytes); /* [0x4ab1fc] */
@@ -144,15 +144,12 @@ void KillControllers(void)
 /* Print `path` (an existing BMP) to the first local printer and stamp
  * `msg` / `stamp` in the Lego face. Non-zero on success.
  *
- * Residual: frame 0xb88 and the addressed run match. StretchDIBits
- * precomputes the four margins (96.5%). Inlining pageW/8 and pageH/64
- * into the call emits the original /64 split (cdq/and after push SRCCOPY,
- * sar ecx,6 after the src pushes) but then greedily finishes destW from
- * xDest-in-eax before the pBmi/pBits loads (94.6%). destW depending on
- * destH, comma/volatile pBmi barriers, and a volatile pageH read at the
- * call were DCE'd or worse (95.0 / 86.4). No spelling delayed destW
- * without losing the split. */
-// WIP-FUNCTION: LEGOLAND 0x00451740  (96.5%, StretchDIBits margin schedule; 22 residual)
+ * StretchDIBits destW is an unnamed `pageW - (pageW/8) - (pageW/8)` so
+ * pageW stays the sub destination (`mov edx,[pageW]; sub edx,eax`). A
+ * named destW used at TextOut backwards-propagated into the call (97.7%,
+ * wrong sub dest + slot swap). TextOut X is `pageW / 2`. EnumPrintersA is
+ * a direct call to the 0x49e442 import thunk, not `call [IAT]`. */
+// FUNCTION: LEGOLAND 0x00451740
 int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
 {
     struct { unsigned long returned; void* pBits; unsigned long needed; void* memdc; } rpn;
@@ -169,10 +166,6 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
     LogFont*          lf;
     int               pageW;
     int               pageH;
-    int               xDest;
-    int               yDest;
-    int               destW;
-    int               destH;
     int               nColors;
     BitmapInfoHeader  bih;
     BitmapFileHeader  bfh;
@@ -320,11 +313,8 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
 
     pageW = GetDeviceCaps(hdc, 8);
     pageH = GetDeviceCaps(hdc, 0xa);
-    xDest = pageW / 8;
-    yDest = pageH / 64;
-    destW = pageW - 2 * xDest;
-    destH = pageH - 2 * yDest;
-    if (StretchDIBits(hdc, xDest, yDest, destW, destH,
+    if (StretchDIBits(hdc, pageW / 8, pageH / 64,
+                      pageW - (pageW / 8) - (pageW / 8), pageH - 2 * (pageH / 64),
                       0, 0, bih.biWidth, bih.biHeight,
                       rpn.pBits, (BitmapInfo*)pBmi, 0, 0xcc0020) == 0) {
         GlobalFree(hDib);
@@ -354,7 +344,7 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
     oldfont = SelectObject(hdc, font1);
     SetBkMode(hdc, 1);
     SetTextAlign(hdc, 6);
-    TextOutA(hdc, destW / 2, pageH * 678 / ((BitmapInfoHeader*)pBmi)->biHeight, msg, (int)strlen(msg));
+    TextOutA(hdc, pageW / 2, pageH * 678 / ((BitmapInfoHeader*)pBmi)->biHeight, msg, (int)strlen(msg));
 
     lf->lfHeight = -MulDiv(8, GetDeviceCaps(hdc, 0x5a), 0x48);
     lf->lfWeight = 0x12c;
