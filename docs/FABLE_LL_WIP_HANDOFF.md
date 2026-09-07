@@ -35,9 +35,9 @@ otherwise stay on the scope branch tip.
 | | |
 | --- | --- |
 | Branch / file | `scope/LL2` · `LEGOLAND/logflume9.c` |
-| Tip | `d76dd00e` |
+| Tip | `7bea1842` |
 | Notes | `docs/lanes/scope-ll2.md` |
-| Score | 151i, **519/520B**, **3 mism** — FLOOR notes |
+| Score | 151i, **519/520B**, **3 mism** — FLOOR |
 
 ```
 need: lea edx,[eax+ecx] / mov ecx,[y] / mov [esp],edx
@@ -52,10 +52,11 @@ The intervening ecx load is **`g_mapref.y`**, not v1. Two mutually exclusive
 - **Index 120:** named/`left = ox+v0` then store later — correct y-before-store
   schedule but v0 lands in edx (`add edx,eax`).
 
-`LFTrack_Update` emits the exact `lea` from four plain assigns (still has
-ebx/esi/edi saved). After this function’s `pop edi / pop esi` the same
-spelling dest-coalesces or takes the edx coloring. **Need a use of v0 that
-dies after the add and before the y load**, without an extra insn.
+People block already runs **after** `pop edi / pop esi` (3-scratch lea is
+possible). Silent post-add v0 uses DCE to index-120 edx coloring; observable
+uses add an insn (`if (v0);` → `test`, 139/151). Still need a non-DCE’d v0
+use in the add→y window with zero extra insn, or a dest-symbol that forces
+3-address lea under post-pop allocation.
 
 ### LL8 — `AddScriptString` `0x004689f0` (12/13 scope)
 
@@ -85,19 +86,15 @@ on `!copy` together. Name: keep **`AddScriptString`**.
 
 ## Priority B — size-exact / high % with clear next lever
 
-### LL3 — `Raster_ClipPoly` `0x0041ef60` (14/19 scope)
+### LL3 — `Raster_ClipPoly` `0x0041ef60` (15/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `c098897e` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `3db23e0b` |
 
-**80i / 193/194B**, 43 mis (~82%). Three call tails un-merged via distinct
-plane-pointer locals. Need `add ecx,OFF` on each copy without re-merging.
-(Earlier: cases 1–2 shared one `ClipAgainstPlanes` tail; that is past.)
-
-### LL3 — `LFQueue_StepRider` `0x00411fa0`
-
-**74i / 174/177B**, 55 mis (matchfull 89%). Path lea and `dec ax` clamp landed.
-Still shl y-then-x; target stores interleave with CalcMoveLine pushes. Need
-both stores first, then `mov eax,ecx / reload to.x`.
+**80i / 193/194B**, 44 mism (~86%). Default is `return count` (not `v`).
+Cases 2–3 already emit unmerged `add ecx,OFF`. Case 1’s `p = g; p+4` blocks
+tail merge but colors `g` in eax (the missing byte). `r = count` + `break`
+gives original `dec/jne default` layout but hoists count into eax. Need
+case-1 ecx **and** that layout together.
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90`
 
@@ -194,11 +191,11 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 ## Suggested Fable attack order
 
-1. **LL2 UpdateCommon** — `lea` vs `add`; y-before-store vs v0-in-ecx mutually exclusive.
+1. **LL2 UpdateCommon** — `lea` vs `add`; silent v0 uses DCE or cost an insn.
 2. **LL8 AddScriptString** — fail-tail shared allocation (floored unless new coloring).
-3. **LL3 ClipPoly** — 193→194B; three distinct plane-pointer tails.
+3. **LL3 ClipPoly** — 193→194B; case-1 ecx vs default `return count` layout.
 4. **LL7 StepAlong** — 6-byte placeholder/t0 gap (not floored).
-5. **LL3 StepRider / MassAndPower** — structural but named.
+5. **LL3 MassAndPower** — rt ebp / fstp slot.
 6. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
 7. **LL4 Span family / LL7 Slope+ShadeFill / LL3 Trace+ClipPlane** — last.
 
@@ -212,15 +209,15 @@ Do **not** merge partial scopes yourself.
 | scope | exact | tip (approx) | file |
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
-| LL2 | 5/6 | `d76dd00e` | `logflume9.c` |
-| LL3 | 14/19 | `c098897e` | `coaster11.c` |
+| LL2 | 5/6 | `7bea1842` | `logflume9.c` |
+| LL3 | 15/19 | `3db23e0b` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
 | LL7 | 14/17 | `0f653d1e` | `coaster13.c` |
 | LL8 | 12/13 | `f8c1f002` | `gameframe2.c` |
 
-**WIP count in this wave:** 0+1+5+5+0+2+3+1 = **17 bodies**.
+**WIP count in this wave:** 0+1+4+5+0+2+3+1 = **16 bodies**.
 
 ---
 
