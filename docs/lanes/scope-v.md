@@ -1110,3 +1110,15 @@ coloured before x, and row four is what it produces if x is coloured first. If
 some source change can lower x's web priority below `next`'s without changing
 the emitted references — the reference counts of the two coordinates are
 symmetric in every spelling tried — the fix-up copy should appear on its own.
+
+### Sixth check — a late-dropped mask as the x byte source (integrator, 2026-09-07)
+
+The fifth pass's reading — x carried no byte need at allocation, its byte is a
+late byte-class fix-up copy — suggests a dword operation on `bx` that VC6
+discards after allocation once the store is narrowed. Measured
+(`/tmp/svclear6_*`): `(unsigned char)(bx & 0xff)` and `(unsigned char)(bx |
+0x100)` are folded to `(unsigned char)bx` by the front end (identical to
+`vy_c`); a named `mx = bx & 0xff` keeps the `and` (580 bytes, 34 strict);
+`(unsigned char)((bx << 8) >> 8)` costs two instructions. No dword expression
+on a coordinate survives to allocation and dies afterwards. The residual
+stands as the fifth pass stated it.
