@@ -14,9 +14,9 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 | 0x00423f40 | GetTrackSegmentPiece | 86 | 100 | [OK] | FUNCTION |
 | 0x00424050 | GetTrackSegment | 87 | 72 | WIP | WIP (87/87 i; fail tails / regs) |
 | 0x00425da0 | Vec3f_Equal | 25 | 100 | [OK] | FUNCTION |
-| 0x00426190 | Mat4_Transpose | 21 | 71.4 | WIP | WIP (eax/ecx cursors swapped) |
+| 0x00426190 | Mat4_Transpose | 21 | 100 | [OK] | FUNCTION |
 | 0x004263a0 | ProjectVertsToRect | 72 | ~33 | WIP | WIP (72/72 i after FTOI; walk) |
-| 0x00426460 | Mat3_FromMat4Transpose | 21 | 71.4 | WIP | WIP (same cursor swap) |
+| 0x00426460 | Mat3_FromMat4Transpose | 21 | 100 | [OK] | FUNCTION |
 | 0x004265d0 | ClipRect_ClipTo | 66 | 100 | [OK] | FUNCTION |
 | 0x00426750 | Model_ProjectClipRect | 24 | 100 | [OK] | FUNCTION |
 | 0x004275b0 | TrackNode_RemoveNop | 1 | 100 | [OK] | FUNCTION |
@@ -32,7 +32,7 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 | 0x004286e0 | TrackNode_GetPieceDesc | 8 | 100 | [OK] | FUNCTION |
 | 0x00428840 | LowestSetBitIndex | 10 | 100 | [OK] | FUNCTION |
 
-**18 / 24 exact.** All 24 have bodies. `audit.py` PASS, `relocs.py` zero
+**20 / 24 exact.** All 24 have bodies. `audit.py` PASS, `relocs.py` zero
 MISMATCH (4 UNRESOLVED float literals 0.5 / -2.0 on GetTrackSegmentPiece),
 `/W3` clean.
 
@@ -76,21 +76,32 @@ See the first commit for the exact stubs. New this wave:
   `add -16`; the copy frees ecx for the `jout.node` reload so the original
   `add dword [p1+4], -16` appears. `at.z += world.z` is the `fst` of the
   sum onto at.z before `* -2`.
-- `Mat4_Transpose` / `Mat3_FromMat4Transpose`: 21/21, 46/46. dest cursor
-  ecx, source cursor eax; original swapped. Return dest, named int temp,
-  dest-first declaration all worse or identical.
-- `TrackPiece_FindIndex`: `off += slope` in the `slope == 8` arm still
-  folds to `lea eax,[esi+8]`; original is `add esi,ebx / mov eax,esi`.
+- `Mat4_Transpose` / `Mat3_FromMat4Transpose`: exact once the functions
+  return the walked dest pointer. That parks dest in eax before the
+  saved-register pushes. Returning the original dest (a saved copy) or
+  a dest-first void store helper left the eax/ecx cursors swapped.
+- `TrackPiece_FindIndex`: jump table on `slope-1` is right (12→0, 3→1,
+  4→2, 1→3, 6→4, 9→5, 14→6, 11→7, else -1). Straight arms still
+  `lea eax,[esi+K]` against original `add esi,ebx/imm / pop edi /
+  mov eax,esi`. An inlined `AddOff(off, slope)` does not stop the fold.
   `>> 1` not `/2` (sar vs cdq).
-- `ProjectVertsToRect`: FTOI (`fld`/`fistp`) brings the count to 72/72.
-  Residual is the 2×3 strength-reduced walk and using the dead `n` slot
-  as the convert temp (`[ebp+0x10]`).
+- `ProjectVertsToRect`: 72/72, 191/188. `FTOI(s, n)` then `screen[axis]=n`
+  is the dead-`n` convert (`[ebp+0x10]`). Residual is the 2×3 walk
+  (row base vs walked cursor, `fld 0` / `faddp`) and the LP01
+  `while (n-- > 0)` header (`dec/inc` around the trip copy). Overlaying
+  `ASFLT(n)` as the accumulator collapsed the walk (29%).
 - `Raster_AddSpanRecord`: instruction count exact; keys/edge cursors and
-  the overflow compare are allocation.
-- `GetTrackSegment`: 87/87 after hoisting `tile.x` and writing each walk
-  as `for (;;)` with `nxt` and a sentinel break. Residual is register
-  identity on the three fail `xor eax,eax` tails and the two helper
-  call sites' push order.
+  the overflow compare are allocation. Original `jbe` against
+  `cursor+0x10` and `0x004e3870`; loop does `idx = keys->idx; keys++`
+  then `*48`, y from `keys[-1]`, and `lea ecx,[edx+ecx*8+8]` after
+  `xor ecx,ecx / test ne / jle` so a negative ne still advances by 8.
+- `GetTrackSegment`: 87/87, 242/232, 67 mismatch. `sx` then `nxt` then
+  match, `n = nxt; if (nxt == ring)` so the cmp uses ecx and the
+  `mov eax,ecx` can sit between cmp and jcc. Open path loads the tile
+  pointer before the tail==ring guard; tail exhaust gotos the head
+  walk. Residual is one walk still emitting `je fail / jmp loop`
+  instead of `jne loop`, fail-tail identity, and the two helper
+  call-site push phases (tail loads link+p1; closed/head load link+h1).
 
 ## Extern-type divergences
 

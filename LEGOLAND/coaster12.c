@@ -218,11 +218,10 @@ int Vec3f_Equal(const Vec3f* a, const Vec3f* b)
     return 1;
 }
 
-/* src = arg0, dest = arg1. Column-read / row-write is a transpose.
- * Residual: dest cursor in ecx and source cursor in eax; original has the
- * pair swapped. Structure, counts and callee-saved set are right (15/21). */
-// WIP-FUNCTION: LEGOLAND 0x00426190  (71.4%, dest/src cursors swapped in eax/ecx)
-void Mat4_Transpose(const float* src, float* dst)
+/* src = arg0, dest = arg1. Returning the walked dest keeps dest in eax
+ * from the first instruction (before the saved-register pushes). */
+// FUNCTION: LEGOLAND 0x00426190
+float* Mat4_Transpose(const float* src, float* dst)
 {
     int i;
     int j;
@@ -234,12 +233,12 @@ void Mat4_Transpose(const float* src, float* dst)
         }
         src++;
     }
+    return dst;
 }
 
-/* dest = arg0, src = arg1. 3x3 of a 4x4, same transpose walk.
- * Same eax/ecx cursor swap as Mat4_Transpose (15/21). */
-// WIP-FUNCTION: LEGOLAND 0x00426460  (71.4%, dest/src cursors swapped in eax/ecx)
-void Mat3_FromMat4Transpose(float* dst, const float* src)
+/* dest = arg0, src = arg1. Same walked-dest return as Mat4_Transpose. */
+// FUNCTION: LEGOLAND 0x00426460
+float* Mat3_FromMat4Transpose(float* dst, const float* src)
 {
     int i;
     int j;
@@ -251,6 +250,7 @@ void Mat3_FromMat4Transpose(float* dst, const float* src)
         }
         src++;
     }
+    return dst;
 }
 
 extern int TrackPiece_FindIndex(TrackNode* node); /* 0x004283c0 */
@@ -373,7 +373,8 @@ void ProjectVertsToRect(const Vec3f* verts, const Mat4* mat, int n, ClipBox* out
             for (k = 0; k < 3; k++)
                 s += v[k] * row[k];
             s += row[3];
-            FTOI(s, screen[axis]);
+            FTOI(s, n);
+            screen[axis] = n;
             row += 4;
         }
         if (screen[0] > out->right)
@@ -438,50 +439,69 @@ int GetTrackSegmentPiece(Pos* tile, float* h0, Pos* p1, float* h1,
 }
 
 /* Walk the live coaster for the piece on `tile`. Closed = jout ring;
- * open = tail via jout then head via jin. */
-// WIP-FUNCTION: LEGOLAND 0x00424050  (87/87 i, 72%; hoisted tile.x walks, fail tails)
+ * open = tail via jout then head via jin. nxt is loaded after sx and
+ * assigned back before the sentinel test; open loads the tile pointer
+ * before the tail==ring guard. */
+// WIP-FUNCTION: LEGOLAND 0x00424050  (walk latch / fail tails / call sites)
 int GetTrackSegment(Pos* tile, float* h0, Pos* p1, float* h1, int* link)
 {
     TrackNode* n;
+    TrackNode* nxt;
+    Pos* t;
     int tx;
+    int sx;
     if (g_castle.state == 2) {
         n = g_castle.ring.jout.node;
         if (n == &g_castle.ring)
             return 0;
-        tx = tile->x;
+        t = tile;
+        tx = t->x;
         for (;;) {
-            TrackNode* nxt = n->jout.node;
-            if ((int)n->sx == tx && (int)n->sy == tile->y)
-                return GetTrackSegmentPiece(tile, h0, p1, h1, n, link);
+            sx = (int)n->sx;
+            nxt = n->jout.node;
+            if (sx == tx && (int)n->sy == t->y)
+                return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
+            n = nxt;
             if (nxt == &g_castle.ring)
                 return 0;
-            n = nxt;
         }
     }
     n = g_castle.tail_node;
-    if (n != &g_castle.ring) {
-        tx = tile->x;
-        for (;;) {
-            TrackNode* nxt = n->jout.node;
-            if ((int)n->sx == tx && (int)n->sy == tile->y)
-                return GetTrackSegmentPiece(tile, h0, p1, h1, n, link);
-            if (nxt == &g_castle.ring)
-                break;
-            n = nxt;
-        }
+    t = tile;
+    if (n == &g_castle.ring)
+        goto head;
+    tx = t->x;
+    for (;;) {
+        sx = (int)n->sx;
+        nxt = n->jout.node;
+        if (sx == tx && (int)n->sy == t->y)
+            return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
+        n = nxt;
+        if (nxt == &g_castle.ring)
+            goto head;
     }
+head:
     n = g_castle.head_node;
     if (n == &g_castle.ring)
         return 0;
-    tx = tile->x;
+    tx = t->x;
     for (;;) {
-        TrackNode* nxt = n->jin.node;
-        if ((int)n->sx == tx && (int)n->sy == tile->y)
-            return GetTrackSegmentPiece(tile, h0, p1, h1, n, link);
+        sx = (int)n->sx;
+        nxt = n->jin.node;
+        if (sx == tx && (int)n->sy == t->y)
+            return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
+        n = nxt;
         if (nxt == &g_castle.ring)
             return 0;
-        n = nxt;
     }
+}
+
+/* Add in place and return the same register, so the straight arms stay
+ * `add esi, r/imm / mov eax, esi` instead of `lea eax, [esi+K]`. */
+static __inline int AddOff(int off, int addend)
+{
+    off += addend;
+    return off;
 }
 
 /* Map a live piece onto the 28-entry prototype table. Straight arms
@@ -493,18 +513,12 @@ int TrackPiece_FindIndex(TrackNode* node)
     int off = ((int)node->jout.h - (int)node->jin.h) >> 1;
     off += 2;
     if (node->jin.dir == JointOppositeDir(node->jout.dir)) {
-        if (slope == 8) {
-            off += slope;
-            return off;
-        }
-        if (slope == 2) {
-            off += 13;
-            return off;
-        }
-        if (slope == 13) {
-            off += 18;
-            return off;
-        }
+        if (slope == 8)
+            return AddOff(off, slope);
+        if (slope == 2)
+            return AddOff(off, 13);
+        if (slope == 13)
+            return AddOff(off, 18);
         if (slope == 7)
             off += 23;
         return off;
