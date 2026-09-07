@@ -179,3 +179,115 @@ double CurveFn_Log(float x)
 {
     return log(x);
 }
+
+/* =========================================================================
+ * THE ROUTE'S SEAT TABLE  (the dead half of coaster8.c's mechanism)
+ * =========================================================================
+ * coaster8.c recovered the live half: a RouteNode is 0xec bytes with two
+ * 0x20-byte seats inline at +0x78/+0x98 and its ring links at +0xe4/+0xe8,
+ * and a seat carries FOUR inline method slots at +0x10..+0x1c
+ * (occupied / attach / detach / update).  These four dead bodies are the
+ * rest of that interface: seat one car, take one car back, empty a node,
+ * and the two ring-wide wrappers built on the first two.
+ * ========================================================================= */
+
+typedef struct RouteSeat RouteSeat;
+typedef struct CoasterCar CoasterCar;
+struct RouteSeat {
+    Vec3f       pos;                          /* +0x00 */
+    CoasterCar* car;                          /* +0x0c */
+    int (*occupied)(RouteSeat*);              /* +0x10 */
+    void (*attach)(RouteSeat*, CoasterCar*);  /* +0x14 */
+    void (*detach)(RouteSeat*);               /* +0x18 */
+    void (*update)(RouteSeat*);               /* +0x1c */
+};                                            /* 0x20 */
+
+typedef struct RouteNodeSeats {
+    int           flags, kind;
+    unsigned char pad08[0x78 - 0x08];
+    RouteSeat     seat[2];                    /* +0x78, +0x98 */
+    unsigned char padb8[0xe4 - 0xb8];
+    struct RouteNodeSeats* prev;              /* +0xe4 */
+    struct RouteNodeSeats* next;              /* +0xe8 */
+} RouteNodeSeats;                             /* 0xec */
+
+/* schoolcar7.c / coaster8.c's CoasterRoute, only as far as this file goes. */
+typedef struct CoasterRoute {
+    unsigned char pad00[0x70];
+    RouteNodeSeats head;                      /* +0x70  embedded ring sentinel */
+} CoasterRoute;
+
+/* coastertiny.c's 0x004273e0: clear the seat's car slot and hand it back. */
+extern CoasterCar* RouteSeat_TakeCar(RouteSeat* seat);          /* 0x004273e0 */
+
+/* Put `car` in this node's first empty seat.  The counterpart of
+ * RouteNode_FindFreeSeat (0x0041e760, coaster8.c), which returns the seat
+ * instead of filling it. */
+// FUNCTION: LEGOLAND 0x0041e720
+int RouteNode_SeatCar(RouteNodeSeats* node, CoasterCar* car)
+{
+    int i;
+    RouteSeat* seat = &node->seat[0];
+    for (i = 0; i <= 1; i++, seat++) {
+        if (!seat->occupied(seat)) {
+            seat->attach(seat, car);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Take the car out of this node's first OCCUPIED seat.  The failure arm's
+ * `return 0` costs no `xor eax,eax`: the loop can only fall out with the
+ * last `occupied()` result -- zero -- still in eax. */
+// FUNCTION: LEGOLAND 0x0041e790
+CoasterCar* RouteNode_UnseatCar(RouteNodeSeats* node)
+{
+    int i;
+    RouteSeat* seat = &node->seat[0];
+    for (i = 0; i <= 1; i++, seat++) {
+        if (seat->occupied(seat))
+            return RouteSeat_TakeCar(seat);
+    }
+    return 0;
+}
+
+/* Empty both of a node's seats through their detach slots. */
+// FUNCTION: LEGOLAND 0x0041e7c0
+void RouteNode_ClearSeats(RouteNodeSeats* node)
+{
+    int i = 2;
+    RouteSeat* seat = &node->seat[0];
+    do {
+        seat->detach(seat);
+        seat++;
+    } while (--i);
+}
+
+/* Seat `car` in the first node of the route's ring that has room. */
+// FUNCTION: LEGOLAND 0x0041e260
+int Route_SeatCar(CoasterRoute* route, CoasterCar* car)
+{
+    RouteNodeSeats* node = &route->head;
+    do {
+        if (RouteNode_SeatCar(node, car))
+            return 1;
+        node = node->next;
+    } while (node != &route->head);
+    return 0;
+}
+
+/* Take back the first car seated anywhere on the route's ring. */
+// FUNCTION: LEGOLAND 0x0041e2f0
+CoasterCar* Route_UnseatCar(CoasterRoute* route)
+{
+    RouteNodeSeats* node = &route->head;
+    CoasterCar* car;
+    do {
+        car = RouteNode_UnseatCar(node);
+        if (car)
+            return car;
+        node = node->next;
+    } while (node != &route->head);
+    return 0;
+}
