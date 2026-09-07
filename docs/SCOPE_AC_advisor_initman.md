@@ -1,9 +1,10 @@
 # Scope AC — advisor movies and InitMan texture/rider helpers (2026-09-07)
 
-> **Status: IN PROGRESS (integrator cut 2026-09-07).** Branch `scope/AC`.
-> Notes: `docs/lanes/scope-ac.md`. Object prefix `/tmp/sac_`. Cut from
-> inventory group 9 live members in `0x00441910..0x004441f0` that scope Y
-> did not take.
+> **Status: DONE — 13 of 15 exact, merged into `main` 2026-09-07 (integrator
+> session; merge `f2ff6920`).** Two honest WIPs remain in `mantex.c`
+> (`PutOne3DBlokeOnRide`, `LoadAltTextures`). Branch `scope/AC`. Notes:
+> `docs/lanes/scope-ac.md`. Object prefix `/tmp/sac_`. Cut from inventory
+> group 9 live members in `0x00441910..0x004441f0` that scope Y did not take.
 
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
 here** — including the relocation step of the gate

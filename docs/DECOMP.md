@@ -424,6 +424,26 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **SCOPE AC (merged 2026-09-07, 13 of 15 exact; evidence in
+  `docs/lanes/scope-ac.md`).** Advisor movie helpers and InitMan texture
+  callees (`advisor.c`, `mantex.c`):
+  - **OpenMovie without audio: omit `audio = 0`.** `LoadAdvisorMovie`
+    matches only when `video = 0` alone shares ebx as the zero/video
+    carrier; writing `audio = 0` and/or clip+0x18 costs the −2B / residual
+    seen before the close. Leave frames/fps/w/h uninitialized.
+  - **Float cam subtract via a small float frame.** `float frame[3];
+    frame[0]=pos->x; frame[1]=pos->y; frame[0]-=320.f; frame[1]-=270.f;`
+    yields `sub esp,0xc` and the fld/mov-ybits/fsub schedule in
+    `RiderTrackToScreen`.
+  - **ReadAltLine CR/LF:** the stop path must still test `c != '\\r'`
+    before consuming LF so a maxlen hit on CR eats the following LF.
+  - **FindAltNameIndex:** `while (NameCompare != 0)` with `strlen==0`
+    (not `list[0]==0`) for the `repne scasb` empty test.
+  - **Floors left WIP:** `PutOne3DBlokeOnRide` keeps track in ESI not EDI
+    (34 mism, size-exact); `LoadAltTextures` fail-path ebx / scalar-home
+    permutation (−4B, ~78 mism). Do not reopen without a new register
+    evidence.
+
 - **SCOPE AB (merged 2026-09-07, 8 of 8 exact; evidence in
   `docs/lanes/scope-ab.md`).** The eight SoftBlitRLEPlain specialised
   painters (`rlepaint.c`):

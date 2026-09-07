@@ -1,8 +1,8 @@
 # Handoff — LEGOLAND matching decompilation
 
-**Integration checkpoint: 2026-09-07, scopes Z, Y, and AB merged.** Written
-for the next session to pick up cold. Earlier dated environment and wave notes
-are retained below; use §1 for current scope ownership and progress.
+**Integration checkpoint: 2026-09-07, scopes Z, Y, AB, and AC merged.**
+Written for the next session to pick up cold. Earlier dated environment and
+wave notes are retained below; use §1 for current scope ownership and progress.
 
 Read this, then `docs/DECOMP.md` (the living codegen playbook),
 `docs/LANE_BRIEF.md` (the verbatim text every matching agent gets) and
@@ -91,22 +91,29 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **66.8% exact, 78.0% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2759 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **67.0% exact, 78.4% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2772 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and the separate 26-function Codex-F brief own part of this list; use `tools/inventory.py` for game-code targets. |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 77 |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 79 |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
+
+**Scope AC merged (2026-09-07): 13 of 15 exact; two honest mantex WIPs;
+coverage 66.8% -> 67.0% exact (78.4% with partials).** `LEGOLAND/advisor.c`
+closes all ten advisor-movie helpers (merge `f2ff6920`). `LEGOLAND/mantex.c`
+lands three exact InitMan/rider helpers; `PutOne3DBlokeOnRide` (34 mism,
+ESI≠EDI floor) and `LoadAltTextures` (78 mism / −4B floor) stay WIP with
+notes in `docs/lanes/scope-ac.md`. Exact count **2772**; **79** WIPs.
+Relocs: 0 MISMATCH (UNRESOLVED jump-table / `__ftol` only). `/W3` clean.
+Levers folded at the top of DECOMP. Parallel sessions still open: FGH, V,
+Codex-F, AA.
 
 **Scope AB merged (2026-09-07): 8 of 8 exact, 1,578 instructions, 4,727
 bytes; coverage 66.1% -> 66.8% exact (78.0% with partials).**
 `LEGOLAND/rlepaint.c` closes SoftBlitRLEPlain's eight specialised painters
-as naked hand-written asm (source/merge tip `335dde06`). Audit 8/8 `[OK]`,
-relocs 20/20 matched / 0 MISMATCH, `/W3` clean. Exact count **2759**; 77
-WIPs unchanged. SoftBlitRLE `0x00468040` and SoftPrint painter `0x00468410`
-remain for a later brief. Levers folded at the top of DECOMP; report in
-`docs/lanes/scope-ab.md`. Parallel sessions still open: FGH, V, Codex-F,
-AA, AC.
+as naked hand-written asm (source/merge tip `335dde06`). SoftBlitRLE
+`0x00468040` and SoftPrint painter `0x00468410` remain for a later brief.
+Report: `docs/lanes/scope-ab.md`.
 
 **Scopes Z and Y merged (2026-09-07): 76 of 76 exact, 2,880 instructions,
 8,246 bytes; coverage 64.8% -> 66.1% exact.** Z's `lowlevelai.c` closes the
@@ -436,9 +443,9 @@ Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
 coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
-Open for assignment: none cut and idle — Codex-F, AA, and AC are in
-progress in parallel worktrees; FGH and V remain in their own sessions.
-AB (RLE SoftBlitRLEPlain painters) is DONE and merged. Of the seven
+Open for assignment: none cut and idle — Codex-F and AA are in progress
+in parallel worktrees; FGH and V remain in their own sessions. AB and AC
+are DONE and merged (AC with two honest mantex WIPs). Of the seven
 script-tier briefs six are DONE and merged (R, S, T, U, W, X).
 V remains unmerged: its committed `scope/V` checkpoint is 58/62, but
 `.claude/worktrees/scope-v/LEGOLAND/eventtick.c` has three additional exact
