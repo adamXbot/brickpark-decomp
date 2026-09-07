@@ -4,7 +4,8 @@ Completed 2026-09-08 on `scope/LL9`, based on `main` at `7d756410`.
 File: `LEGOLAND/unref1.c` (new). Brief:
 [`docs/SCOPE_LL9_unref_rides_flume_coaster_a.md`](../SCOPE_LL9_unref_rides_flume_coaster_a.md).
 
-**27 of 31 exact, 930 instructions assigned, 736 of them in exact bodies.**
+**27 of 31 exact — 930 instructions assigned, 613 of them (1,673 bytes) in
+exact bodies.**
 The four remaining bodies are structurally complete and honest WIPs: three
 are a single register-allocation tie-break each, and the fourth
 (`ZBuffer_FillShadedPoly`, a hand-written-assembly function) is exact in
@@ -23,7 +24,7 @@ clean under `/W3 /O2 /Gy /Gd`. No other file was touched.
 | --- | --- | ---: | ---: | --- | --- | --- |
 | `0x00401e00` | `SchoolCarPushWaypoint` | 69 | 100 | [OK] | FUNCTION | — |
 | `0x00403d60` | `Copters_RestoreRider` | 12 | 100 | [OK] | FUNCTION | — |
-| `0x00408f90` | `LFTrack_FindPieceCovering` | 50 | 80 | [WIP] | WIP-FUNCTION | 40 strict, first diff i=1 |
+| `0x00408f90` | `LFTrack_FindPieceCovering` | 50 | 20 | [WIP] | WIP-FUNCTION | 40 strict, first diff i=1 |
 | `0x0040adb0` | `LFPiece_ShadeForRow` | 69 | 4 | [WIP] | WIP-FUNCTION | 68/69 insns, 66 strict, first diff i=3 |
 | `0x0040b270` | `LFBoat_IsAtPiece` | 7 | 100 | [OK] | FUNCTION | — |
 | `0x0040bd40` | `LFBoat_StepAtStation` | 76 | 100 | [OK] | FUNCTION | — |
