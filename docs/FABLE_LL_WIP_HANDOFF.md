@@ -116,7 +116,7 @@ Ruled out: ridemisc-style biased `int*` on `&keys->idx` (`k += 2`, `k[-2]`)
 ### LL4 — four `Span_Fill*` + `IntegrateSimpson` (3/8 scope)
 
 | Branch / file | `scope/LL4` · `LEGOLAND/coastershade2.c` |
-| Tip | `c81396e2` |
+| Tip | `39bc0fac` |
 | Notes | `docs/lanes/scope-ll4.md` |
 
 | address | name | residual |
@@ -125,7 +125,15 @@ Ruled out: ridemisc-style biased `int*` on `&keys->idx` (`k += 2`, `k[-2]`)
 | 0x0041fba0 | Span_FillFlatZ | 136/136i, 398/399B, 62 mism — NG47 row homes |
 | 0x0041fd80 | Span_FillShade | 162/162i, 507/505B, 106 mism |
 | 0x0041ff80 | Span_FillShadeZ | 202/202i, **633/633B**, 62 mism — ZBuffer_FillPoly ceiling |
-| 0x00420200 | IntegrateSimpson | 81/81i, 251/258B, 61 mism — volatile 0x28 frame; `add esp,8`; latch `jle` not `jg` |
+| 0x00420200 | IntegrateSimpson | **80/81 = 98.8%**, 81i/**258**/258B, **2 mism** — only `fn(a)` order |
+
+**Simpson lever (landed):** `#pragma optimize("g", off)` +
+`f.x = a + (f.h = g_half * f.h)` → jmp-to-test `jg`, two `add esp,4`,
+`fsubr`, `fst h` chain. Og-on re-merges `add esp,8` and inverts the for.
+
+**Simpson residual:** ours `call; add esp,4; fstp fa` vs orig
+`call; fstp fa; add esp,4`. Asm-call probe saved esi/ebx/edi → 75.9%.
+Need fstp-before-cleanup without losing Og-off gains.
 
 Exact already: Romberg_Evaluate, TrackCursor_RetreatGeometry, GetCoasterTexture.
 Same class as `ZBuffer_FillPoly` (count-exact, homes wrong). Pos/volatile/latch
@@ -188,8 +196,8 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — force `ebx=n` before `*cursor`; then fld bit-abs + in++ latch.
-2. **LL4 IntegrateSimpson** — jg for-latch + separate `add esp,4` (in flight).
+1. **LL4 IntegrateSimpson** — last residual: `fstp fa` before `add esp,4` after `fn(a)` (80/81).
+2. **LL3 Span_ClipPlane** — force `ebx=n` before `*cursor`; then fld bit-abs + in++ latch.
 3. **LL4 Span_Fill*** — ZBuffer-class; only after Simpson or with a new frame lever.
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
 
@@ -205,7 +213,7 @@ Do **not** merge partial scopes yourself.
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
 | LL3 | 16/19 | `30afb5ac` | `coaster11.c` |
-| LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
+| LL4 | 3/8 | `39bc0fac` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
 | LL7 | 16/17 | `cef28f27` | `coaster13.c` |
