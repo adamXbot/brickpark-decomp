@@ -4,7 +4,8 @@ Branch `scope/LL12` from `main` `7d756410`. New file **`LEGOLAND/unref4.c`**
 (the only `LEGOLAND/*.c` file touched) plus this note and the brief
 `docs/SCOPE_LL12_unref_jungle_planeride_loaders.md`.
 
-**Result: 9 of 11 exact (`audit.py [OK]`), 1,081 of 1,408 instructions.**
+**Result: 8 of 11 exact (`audit.py [OK]`), 606 of 1,408 instructions;
+the three WIPs sit at 98.5%, 92.6% and 60.7%.**
 The file ends `PASS`, `relocs.py` reports zero `MISMATCH`, `/W3` is clean.
 
 ## Status
