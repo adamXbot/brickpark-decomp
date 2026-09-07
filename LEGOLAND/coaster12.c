@@ -37,7 +37,37 @@ struct TrackNode {
     void*       owner;          /* +0x10 */
     TrackJoint  jin;            /* +0x14 */
     TrackJoint  jout;           /* +0x20 */
+    unsigned char pad2c[0x50 - 0x2c];
 };
+
+typedef struct CoasterRec {
+    int        state;           /* +0x00 */
+    TrackNode  ring;            /* +0x04 */
+    unsigned char pad54[0xa8 - 0x54];
+    TrackNode* head_node;       /* +0xa8 */
+    unsigned char padac[0xc0 - 0xac];
+    TrackNode* tail_node;       /* +0xc0 */
+} CoasterRec;
+
+typedef struct PieceHooks {
+    void* unused[2];
+    void (*eval)(void* obj, float t, Vec3f* out); /* +0x08 */
+} PieceHooks;
+
+typedef struct PieceObj {
+    unsigned char pad00[0x44];
+    float t0;                   /* +0x44 */
+    float t1;                   /* +0x48 */
+    PieceHooks* hooks;          /* +0x4c */
+} PieceObj;
+
+typedef struct SortKey { int y; int idx; } SortKey;
+typedef struct SpanEdge {
+    short y0, y1;
+    int dir;
+    int a[5];
+    int d[5];
+} SpanEdge;
 
 typedef struct PieceDesc {
     unsigned char pad00[0x58];
@@ -50,8 +80,14 @@ extern Vec3f g_edge_mid[];                      /* 0x006117c0 */
 extern Vec3f g_half_step[];                     /* 0x00611658 */
 extern PieceDesc g_pieces[];                    /* 0x00828fe0 */
 extern Mat4 g_view_matrix;                      /* 0x008299fc */
+extern CoasterRec g_castle;                     /* 0x00829ae0 */
+extern void* g_span_cursor;                     /* 0x004b5b3c */
+extern int g_span_count;                        /* 0x0060f908 */
+extern int g_span_overflow;                     /* 0x0060f90c */
 
 extern int JointOppositeDir(int dir);           /* 0x0041cc50 */
+extern int TrackNodeSlopeCode(TrackNode* n);    /* 0x0041ce60 */
+extern void* GetTrackNodeWorldPos(TrackNode* n, Vec3f* out); /* 0x0041cff0 */
 extern void Curve_InitLine(void* dest, const Vec3f* from,
     const Vec3f* to, const Vec3f* offset);      /* 0x00421ab0 */
 extern void MakeTransform(const Vec3f*, const Mat3*, Mat4*); /* 0x004264e0 */
@@ -307,9 +343,11 @@ int ClipRect_ClipTo(ClipBox* dest, const ClipBox* clip)
     return 0xf;
 }
 
+#define FTOI(f, i) __asm { fld f } __asm { fistp i }
+
 /* Project n Vec3f through the first two rows of a 4x4 (screen x,y) and
- * expand an integer AABB. The 0.0 at 0x004ab390 is the sum starter. */
-// WIP-FUNCTION: LEGOLAND 0x004263a0
+ * expand an integer AABB. Original fistp's through the dead `n` slot. */
+// WIP-FUNCTION: LEGOLAND 0x004263a0  (fistp vs __ftol; 2x3 walk vs ebp frame)
 void ProjectVertsToRect(const Vec3f* verts, const Mat4* mat, int n, ClipBox* out)
 {
     int screen[2];
@@ -329,7 +367,7 @@ void ProjectVertsToRect(const Vec3f* verts, const Mat4* mat, int n, ClipBox* out
             for (k = 0; k < 3; k++)
                 s += v[k] * row[k];
             s += row[3];
-            screen[axis] = (int)s;
+            FTOI(s, screen[axis]);
             row += 4;
         }
         if (screen[0] > out->right)
@@ -353,4 +391,161 @@ void Model_ProjectClipRect(const Vec3f* verts, const Vec3f* pos, const Mat3* rot
     MakeTransform(pos, rot, &local);
     MatMul(&g_view_matrix, &local, &view);
     ProjectVertsToRect(verts, &view, 8, out);
+}
+
+/* Per-piece half of GetTrackSegment. 80/86 exact; tail residual is
+ * jout.node in edx not ecx (so y-16 is a register add) and *h1 / ret
+ * 1 interleaving. */
+// WIP-FUNCTION: LEGOLAND 0x00423f40  (92%, no-neighbor tail regs)
+int GetTrackSegmentPiece(Pos* tile, float* h0, Pos* p1, float* h1,
+                         TrackNode* node, int* link)
+{
+    TrackNode* n = node;
+    TrackNode* next;
+    Vec3f at;
+    Vec3f world;
+    PieceObj* obj;
+
+    {
+        Vec3f* w = &world;
+        *link = n->jin.node == &g_castle.ring;
+        obj = (PieceObj*)GetTrackNodeWorldPos(n, w);
+    }
+    obj->hooks->eval(obj, (obj->t1 + obj->t0) * 0.5f, &at);
+    at.z += world.z;
+    *h0 = at.z * -2.0f;
+
+    next = n->jout.node;
+    if (next && next != &g_castle.ring) {
+        obj = (PieceObj*)GetTrackNodeWorldPos(next, &world);
+        obj->hooks->eval(obj, (obj->t1 + obj->t0) * 0.5f, &at);
+        at.z += world.z;
+        *h1 = at.z * -2.0f;
+        p1->x = next->sx;
+        p1->y = next->sy;
+        return 1;
+    }
+    p1->x = tile->x;
+    p1->y = tile->y;
+    if (n->jout.node == &g_castle.ring)
+        p1->y = p1->y - 16;
+    *h1 = 0.0f;
+    return 1;
+}
+
+/* Walk the live coaster for the piece on `tile`. Closed = jout ring;
+ * open = tail via jout then head via jin. */
+// WIP-FUNCTION: LEGOLAND 0x00424050  (87/87 i, 72%; hoisted tile.x walks, fail tails)
+int GetTrackSegment(Pos* tile, float* h0, Pos* p1, float* h1, int* link)
+{
+    TrackNode* n;
+    int tx;
+    if (g_castle.state == 2) {
+        n = g_castle.ring.jout.node;
+        if (n == &g_castle.ring)
+            return 0;
+        tx = tile->x;
+        for (;;) {
+            TrackNode* nxt = n->jout.node;
+            if ((int)n->sx == tx && (int)n->sy == tile->y)
+                return GetTrackSegmentPiece(tile, h0, p1, h1, n, link);
+            if (nxt == &g_castle.ring)
+                return 0;
+            n = nxt;
+        }
+    }
+    n = g_castle.tail_node;
+    if (n != &g_castle.ring) {
+        tx = tile->x;
+        for (;;) {
+            TrackNode* nxt = n->jout.node;
+            if ((int)n->sx == tx && (int)n->sy == tile->y)
+                return GetTrackSegmentPiece(tile, h0, p1, h1, n, link);
+            if (nxt == &g_castle.ring)
+                break;
+            n = nxt;
+        }
+    }
+    n = g_castle.head_node;
+    if (n == &g_castle.ring)
+        return 0;
+    tx = tile->x;
+    for (;;) {
+        TrackNode* nxt = n->jin.node;
+        if ((int)n->sx == tx && (int)n->sy == tile->y)
+            return GetTrackSegmentPiece(tile, h0, p1, h1, n, link);
+        if (nxt == &g_castle.ring)
+            return 0;
+        n = nxt;
+    }
+}
+
+/* Map a live piece onto the 28-entry prototype table. Straight arms
+ * should be `add esi, imm/ebx; mov eax, esi` (VC6 emits lea). */
+// WIP-FUNCTION: LEGOLAND 0x004283c0  (103i, straight-arm lea vs add; switch)
+int TrackPiece_FindIndex(TrackNode* node)
+{
+    int slope = TrackNodeSlopeCode(node);
+    int off = ((int)node->jout.h - (int)node->jin.h) >> 1;
+    off += 2;
+    if (node->jin.dir == JointOppositeDir(node->jout.dir)) {
+        if (slope == 8) {
+            off += slope;
+            return off;
+        }
+        if (slope == 2) {
+            off += 13;
+            return off;
+        }
+        if (slope == 13) {
+            off += 18;
+            return off;
+        }
+        if (slope == 7)
+            off += 23;
+        return off;
+    }
+    switch (slope) {
+    case 12: return 0;
+    case 3:  return 1;
+    case 4:  return 2;
+    case 1:  return 3;
+    case 6:  return 4;
+    case 9:  return 5;
+    case 14: return 6;
+    case 11: return 7;
+    }
+    return -1;
+}
+
+/* Append one span-group to the software-rasteriser's edge table.
+ * 61/61 instructions; residual is allocation (keys/edge cursors). */
+// WIP-FUNCTION: LEGOLAND 0x00423200  (61i/61i, register/offset allocation)
+void Raster_AddSpanRecord(int ne, int y, SortKey* keys, SpanEdge* edges)
+{
+    unsigned char* cur = (unsigned char*)g_span_cursor;
+    int count = g_span_count + 1;
+    g_span_count = count;
+    if (cur + 0x10 > (unsigned char*)0x004e3870) {
+        g_span_overflow = 1;
+        return;
+    }
+    if (ne) {
+        int i;
+        unsigned char* dst;
+        *(int*)cur = ne;
+        *(int*)(cur + 4) = y;
+        dst = cur + 0xa;
+        for (i = 0; i < ne; i++) {
+            SpanEdge* e = &edges[keys[i].idx];
+            short ky = (short)keys[i].y;
+            *(short*)(dst - 2) = (short)(e->a[0] >> 16);
+            *(int*)(dst + 2) = e->d[0];
+            *(short*)dst = ky;
+            if (e->dir == 1)
+                *(short*)dst = (short)-(*(short*)dst);
+            dst += 8;
+        }
+        g_span_cursor = cur + 8 + ne * 8;
+    }
 }
