@@ -67,6 +67,38 @@ y-before-store schedule, so dest cannot coalesce with v0 and must be
 before the y load (so y can reuse ecx). No dummy use found that creates
 that window without an extra insn.
 
+2026-09-08 pass (still 149/151, 519/520B, 3 mism; body unchanged). The
+original people block itself sits **after** `pop edi / pop esi`, so lea
+with only eax/ecx/edx is possible — Track's saved ebx/esi/edi explain
+Track's four-assign lea, not a missing Common push. Ruled out:
+
+- Silent post-add v0 uses all DCE to the index-120 edx coloring:
+  `(v0, y)`, `(void)v0`, `left+(v0-v0)`, `y|(v0&0)`, `y^(v0^v0)`,
+  comma-store-y, `goto` after the sum. `if (v0);` is not silent
+  (`test`, 139/151).
+- Observable post-add v0 (`*(volatile int*)&v0 = v0`) spills and
+  reloads (138/153). Address-taken v0 / stack-slot copy of v0 /
+  `u.packed` stash add a store.
+- Bitfield v0, `*(int*)&v[0]`, `(char*)ox+v0`, `&((char*)ox)[v0]`,
+  `ptrdiff` / `(int)&((char*)0)[ox+v0]`, unsigned v0: dest-coalesce
+  (index 121) or edx-color (index 120).
+- Split `left=ox; left+=v0` / `r.left=ox; r.left+=v0` / `Id(ox+v0)` /
+  RTL `Fill(r,y,ox+v0)` / two-arg lea helpers / Pos-by-value fill /
+  struct-return Pos: same two floors. Second live sum (left+right
+  before y; `Pos s` both sums first) is index 120, or pulls esi and
+  moves the pops (136/152).
+- Function-scope `left`/`v0`/`Pos o`, decl-order of cost/people,
+  `int box[4]`, `Footprint*`, `Pos* o=&g_mapref`, CheckForPeople
+  proto (`Rect*` / `void*`), switch people, `register`, short v0
+  (`movsx`), keep-`def` / touch-`cost`: inert or worse.
+- Artificial Track pressure: `(void)def` DCE; a live esi/edi through
+  the people block would move the already-matched pops; original
+  never `push ebx`. `__asm` not used in this file.
+
+Still need a non-DCE'd v0 use in the add→y window that emits no
+insn, or a dest-symbol that forces 3-address lea under the 3-scratch
+post-pop allocation. Kept index-121 C.
+
 Levers that landed the rest: union `{packed, nb}` in the fp slot; `mode=0`
 after ScreenToMapRef so packed cannot colour onto mode; separate
 `FirstRun` / `KeepRun` (nested call splits leftover); `if (count==0)` so
