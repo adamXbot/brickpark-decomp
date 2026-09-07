@@ -169,8 +169,7 @@ same window).
 
 ### LL3 — `Span_ClipPlane` `0x0041f050`
 
-**25.3%** (48/190), 179i, **609**/593B, frame **0x2c**, ESCAPES. Tip notes on
-`8beb9d71`+lane.
+**25.3%** (48/190), 179i, **609**/593B, frame **0x2c**, ESCAPES. Tip `9e1d7e44`.
 
 **Four KEPT held:** 0x2c; byte-n→ebx=n; continue-header latch; loop
 `mov ebx`/`and ebx` via destrel-before-fild.
