@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `a37dd7d7` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `55059efb` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
@@ -169,21 +169,20 @@ same window).
 
 ### LL3 — `Span_ClipPlane` `0x0041f050`
 
-**25.3%** (48/190), 179i, **609**/593B, frame **0x2c**, ESCAPES. Tip `a37dd7d7`
-(C body still `8beb9d71` shape).
+**33.2%** (62/187), 179i, **611**/593B, frame **0x2c**, ESCAPES. Tip `55059efb`.
 
-**Four KEPT held:** 0x2c; byte-n→ebx=n; continue-header latch; loop
-`and ebx` via destrel-before-fild. Colouring: nxt **esi**, dest **edi**,
-sign **ebp**, seed abs **ecx**, loop abs **ebx**.
+**Four KEPT held** (byte-n store dropped; ebx=n still via nest). Colouring:
+nxt=esi, dest=edi, sign=ebp.
 
-**FLOOR on nxt=edi / dest=edx:** destrel locks dest→edi for loop and-ebx.
-Original first-bits need dest live edx (in/plane/dest scratches) → nxt=edi,
-seed abs ebp. On this body **in wins edx**; homing dest CSEs back to edi or
-hands delayed edi to abs. Park that chase.
+**Landed this wave:** nested classify
+`cls != ENTER { cls != BOTH { LEAVE } else BOTH } else ENTER` → orig
+`je ENTER / je BOTH / LEAVE` fallthrough. Divide starts from `prev_abs.i` so
+LEAVE/ENTER `fld` hits `[esp+0x34]`.
 
-**Next:** climb % / trim 609→593 / clear ESCAPES **inside** destrel binding
-(accept nxt=esi). ENTER/LEAVE k·delta, fld schedule, emit arms — do not
-trade away the four KEPT for nxt=edi.
+**Open:** dest-relative walk (`lea edi`) vs orig `[ecx+src]`; bits in n-slot
+not `[esp+0x2c]`; extra epilogue → ESCAPES. nxt=edi chase still parked.
+
+**Next:** `[ecx+src]` walk + bits home + kill ESCAPES epilogue; keep four KEPT.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -195,7 +194,7 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — climb inside destrel binding (nxt=esi OK); trim size/ESCAPES.
+1. **LL3 Span_ClipPlane** — 33%; `[ecx+src]` walk, bits@[esp+0x2c], clear ESCAPES.
 2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
 3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
@@ -211,7 +210,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `a37dd7d7` | `coaster11.c` |
+| LL3 | 16/19 | `55059efb` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
