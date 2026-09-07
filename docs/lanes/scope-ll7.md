@@ -74,7 +74,14 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
   - **4** Split `lo`/`hi2` after the conceptual push: 55.1%.
   - **5** Homes are **not** swapped. After `push tol`, `mov [615fd0],eax` is `g_step_len=step`; later `mov [615f8c],edx` is `g_step_origin=org`; `mov [615fd4],ecx` is `g_curve_offset=tol`. Reordering those three stores: 87.1% (I5/I5b) or the same 11.
   - **6** `Track_MeasureDistance` pushes last-arg **constant** `0.01f` before `rep movsd` because `cur.geom->t1` depends on the copy. StepAlong's last arg is a parameter already in esi; `cur.geom->t0` as the lo arg is B-class (I6/I6b, 61%). `Track_Bisect` has no push/fstp interleave to copy.
-  Also worse/inert this wave: whole-call `static __inline` wrappers (H1–H6, 48–88.6%, best = A); `goto solve` merge with the loop (G1 = A, G2 71.8%); inner-scope `g`/`ot` initialisers (S1 = A); `from->geom->t0` (78.9%); `g_step_len=step` before t0 (82.9%). Still one permutation; Slope/Shade not reopened (no new lever).
+  Also worse/inert this wave: whole-call `static __inline` wrappers (H1–H6, 48–88.6%, best = A); `goto solve` merge with the loop (G1 = A, G2 71.8%); inner-scope `g`/`ot` initialisers (S1 = A); `from->geom->t0` (78.9%); `g_step_len=step` before t0 (82.9%).
+  Follow-up wave (last-arg / hi-comma / pin-helper / volatile-g) still on A:
+  - Last-arg `(g=cur.geom, out_t)` or `PinOt(out_t,g)` + comma-lo: 52.9% (hi2-as-statement steals ST — prologue `fadd` not `fmul`) or 8.6%/2.9% once hi2 moves into the comma (fmul delayed past memcpy).
+  - Both-complex (hi-comma t0/len2/hi2 + last-arg geom/out_t): same 52.9% or 2.9%. Work between the two pushes *must* live in the hi arg, but a complex hi still evaluates before a simple `out_t`, and making `out_t` complex starts the call too early.
+  - Joust `Put(&t0,g,step2)` as a statement: still A. As hi/last-arg side effect: 2.9–52.9%.
+  - `volatile RouteGeom *vg` / `*(volatile float*)&g_step_len2` / `g->t0` as lo: 1.4–52.9% (prologue or B-class hoist). `&*out_t` and `plen=&g_step_len2`: still A.
+  - Union/`*(unsigned*)&t0` C-shape: push sits *after* t0 (wanted window, one slot late) at 18.6% / extra insn; single-store pun wrecks the frame (4.3%).
+  Still one permutation; Slope/Shade not reopened.
 - **TrackShade_FillPoly**: **ZBuffer floor**, same class as schoolcar6.c `ZBuffer_FillPoly` (EBP frame, `xchg ebx,eax`, `add ebx,1`, mixed `__asm`). 254/254i, 748/771B, frame 0x6c vs 0x70. Not ground further.
 
 ## Extern-type divergences
