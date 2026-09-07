@@ -454,9 +454,9 @@ void* Raster_ClipAgainstPlanes(int n, int* src, int* out_count, int nplanes,
 /* Walk each PlaceRect of the probe (offset by `sq`) and refuse if any
  * in-bounds cell returns MapCell_AllowTrack != 0.  Disabled placement
  * and an empty list both succeed. */
-/* Residual: x = sx+x0 is `add esi, eax` from x0; original copies sx to esi
- * then adds x0 (`mov esi,eax / add esi,edx`). 79i, 191B vs 192B. */
-// WIP-FUNCTION: LEGOLAND 0x0041ee40  (96%, x=sx+x0 schedule)
+/* x = sq->x then lim = sq->x + ctx->x1 (textual sq->x repeat) emits
+ * `mov esi,eax / add esi,edx`; a named sx fuses to `add esi,eax`. */
+// FUNCTION: LEGOLAND 0x0041ee40
 int TrackPlace_TestSquare(PackedSquare* sq, PlaceRect* ctx)
 {
     if (g_track_place_enabled) {
@@ -468,12 +468,9 @@ int TrackPlace_TestSquare(PackedSquare* sq, PlaceRect* ctx)
             y1 += sy;
             if (y < y1) {
                 do {
-                    int sx = sq->x;
-                    int x0 = ctx->x0;
-                    int x1 = ctx->x1;
-                    int x = sx;
-                    int lim = sx + x1;
-                    x += x0;
+                    int x = sq->x;
+                    int lim = sq->x + ctx->x1;
+                    x += ctx->x0;
                     if (x < lim) {
                         int off = x * 20;
                         do {
@@ -501,10 +498,10 @@ int TrackPlace_TestSquare(PackedSquare* sq, PlaceRect* ctx)
 /* Clip a 3-vertex ring against the span clip set.  mask 0xf is a no-op
  * (*count = 3).  Otherwise set the vertex stride and ping-pong the ring
  * through the planes named by the low/high nibble of the mask. */
-/* Residual: switch dec/je and esi=mask/edi=flags are right; cases 1 and 2
- * share one ClipAgainstPlanes tail (71i/160B vs 80i/194B). Signed-char
- * compares and a goto early-out move mask into ebx and drop below 50%. */
-// WIP-FUNCTION: LEGOLAND 0x0041ef60  (75%, shared case-1/2 tail)
+/* Residual: switch dec/je and early-out jne are right. Distinct plane
+ * pointer locals un-merge the three call tails (80i) but add lea/reloads
+ * (193B vs 194B, 43 mis). Shared-tail form is 71i/160B / 75%. */
+// WIP-FUNCTION: LEGOLAND 0x0041ef60  (82%, 80i/193B vs 194B, unmerged tails)
 void* Raster_ClipPoly(void** v, int* count, int mask, int n)
 {
     int flags = 0;
@@ -522,12 +519,15 @@ void* Raster_ClipPoly(void** v, int* count, int mask, int n)
     case 3:
         return Raster_ClipAgainstPlanes(3, (int*)v, count, 4,
                                         (char*)g_span_context + 4);
-    case 2:
+    case 2: {
+        void* p = (char*)g_span_context + 0x1c;
+        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2, p);
+    }
+    case 1: {
+        void* p = (char*)g_span_context;
         return Raster_ClipAgainstPlanes(3, (int*)v, count, 2,
-                                        (char*)g_span_context + 0x1c);
-    case 1:
-        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2,
-                                        (char*)g_span_context + 4);
+                                        (char*)p + 4);
+    }
     default:
         return v;
     }
@@ -537,9 +537,10 @@ void* Raster_ClipPoly(void** v, int* count, int mask, int n)
  * path->pts[index] + (tx, ty) in 24.8, then CalcMoveLine / NewDirForAction
  * and index++.  Clamp at the last point; if another bloke already occupies
  * the new index, step back. */
-/* Residual: CalcMoveLine arg schedule and path_i increment (inc mem vs
- * inc ax). 74i, 180B vs 177B. */
-// WIP-FUNCTION: LEGOLAND 0x00411fa0  (72%, CalcMoveLine / path_i)
+/* Residual: path lea sits between the adds and shls; clamp is dec ax.
+ * Still need shl x-then-y, both target stores before pushes, then
+ * mov eax,ecx / reload to.x. 74i/174B vs 177B, 55 mis / 89%. */
+// WIP-FUNCTION: LEGOLAND 0x00411fa0  (89%, CalcMoveLine store/push interleave)
 void LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b)
 {
     LFPath* path = q->path;
@@ -547,10 +548,16 @@ void LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b)
     unsigned char a;
     LFQueueNode* n;
     short i;
+    Pos to;
+    void* pathp;
 
-    b->target.x = (pt->x + tx) << 8;
-    b->target.y = (pt->y + ty) << 8;
-    a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
+    to.x = pt->x + tx;
+    to.y = pt->y + ty;
+    pathp = b->path;
+    to.x <<= 8;
+    to.y <<= 8;
+    b->target = to;
+    a = (unsigned char)(CalcMoveLine(b->world, to, pathp) + 0x10);
     b->state = 7;
     b->dir8 = a;
     NewDirForAction(b, (unsigned char)((a >> 5) + 3));
@@ -633,8 +640,8 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
  * fold each car's heading*heading * acceleration * K into *mass.  *power
  * is the sample energy.  The mass is also pushed into a 64-slot ring. */
 /* Residual: 77i, 255B vs 259B. Frame is 0x6c when locals are one struct;
- * rt lands in ebp not eax. Sum-of-squares reuses the power arg slot in
- * the original. */
+ * rt lands in ebp not eax. Sum-of-squares should fstp over the dead
+ * power arg slot ([esp+0x88]). Root-copy of rt did not free eax. */
 // WIP-FUNCTION: LEGOLAND 0x0041db90  (70%, rt ebp vs eax, 255/259B)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
