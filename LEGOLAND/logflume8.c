@@ -216,10 +216,9 @@ void LFNb_DropFull(LFPiece** nb)
 }
 
 /* Force a piece onto a straight (kind 1).  Even dirs become dir 0
- * (north-south); odd dirs become dir 1 (east-west). */
-/* audit: 12i/46B vs 12i/42B, mismatch=1. Case 0/2 stores kind as
- * immediate 1; original keeps the hoisted edx=1 (`mov [eax+18], edx`). */
-// WIP-FUNCTION: LEGOLAND 0x00409a50  (75%, case 0/2 kind store rematerialised)
+ * (north-south); odd dirs become dir 1 (east-west).  Shared kind store
+ * via goto setkind; VC6 tail-duplicates it into case 0/2 with edx live. */
+// FUNCTION: LEGOLAND 0x00409a50
 void LFPiece_MakeStraight(LFPiece* piece)
 {
     LFPiece* p = piece;
@@ -229,12 +228,12 @@ void LFPiece_MakeStraight(LFPiece* piece)
     case 0:
     case 2:
         p->dir = 0;
-        *(volatile int*)&p->kind = one;
-        return;
+        goto setkind;
     case 1:
     case 3:
         p->dir = one;
     default:
+    setkind:
         p->kind = one;
         return;
     }
@@ -306,7 +305,10 @@ void LFPiece_AttachS(LFPiece* piece)
 
 /* Same for an EAST neighbour (gaining a west connection). */
 /* audit: 26i/82B vs 26i/86B, mismatch=13 ESCAPES. dir==0 arm CSEs 2 into
- * ecx (the `one` paired-store pattern); original uses two immediates. */
+ * ecx (paired same-constant); original rematerialises two immediates.
+ * Tried: named one, literals, 3-1, volatile stores, two named 2s,
+ * reverse store order, keep-dir-live, dir==0 first, char-cast 2.
+ * AttachN's 2,2 stay immediate because no sibling arm defs ecx. */
 // WIP-FUNCTION: LEGOLAND 0x004096e0  (89%, dir==0 stores 2 via ecx not imm)
 void LFPiece_AttachE(LFPiece* piece)
 {
@@ -323,7 +325,7 @@ void LFPiece_AttachE(LFPiece* piece)
         }
         if (dir == 0) {
             p->kind = 2;
-            p->dir = 3 - 1;
+            p->dir = 2;
             return;
         }
         if (dir == 2) {
@@ -452,10 +454,10 @@ void LFTrack_SpliceNeighbours(LFPiece** ours, LFPiece** nb)
         LFRoute_SplicePair(nb[3], ours[3]);
 }
 
-/* Detach the NORTH connection of a neighbour (inverse of AttachN). */
-/* audit: 35i/96B vs 38i/99B, mismatch=35. Missing push esi; dir in ecx
- * not esi; kind==3 && dir!=0 jump-threads to the epilogue. */
-// WIP-FUNCTION: LEGOLAND 0x0040a0f0  (76%, no esi, jump-threads kind==3 fail)
+/* Detach the NORTH connection of a neighbour (inverse of AttachN).
+ * Later kind tests reread `p->kind` so VC6 cannot jump-thread the
+ * proven-3 fail edge; dir then lands in esi. */
+// FUNCTION: LEGOLAND 0x0040a0f0
 void LFNb_DetachN(LFPiece* p)
 {
     int kind;
@@ -473,7 +475,7 @@ void LFNb_DetachN(LFPiece* p)
             return;
         }
     }
-    if (kind == 1) {
+    if (p->kind == 1) {
         dir = p->dir;
         if (dir == 0) {
             p->kind = three;
@@ -481,7 +483,7 @@ void LFNb_DetachN(LFPiece* p)
             return;
         }
     }
-    if (kind == 2) {
+    if (p->kind == 2) {
         int d = p->dir;
         if (d == 2) {
             p->kind = three;
@@ -497,9 +499,7 @@ void LFNb_DetachN(LFPiece* p)
 }
 
 /* Detach the EAST connection (inverse of AttachE). */
-/* audit: 36i/96B vs 37i/98B, mismatch=34. three/one in edx not esi/edx;
- * last corner arm missing (same jump-thread). */
-// WIP-FUNCTION: LEGOLAND 0x0040a160  (55%, three/one regs, missing last arm)
+// FUNCTION: LEGOLAND 0x0040a160
 void LFNb_DetachE(LFPiece* p)
 {
     int kind;
@@ -511,16 +511,20 @@ void LFNb_DetachE(LFPiece* p)
     kind = p->kind;
     three = 3;
     one = 1;
-    if (kind == three && p->dir == one) {
-        p->kind = 4;
-        return;
+    if (kind == three) {
+        if (p->dir == one) {
+            p->kind = 4;
+            return;
+        }
     }
-    if (kind == one && p->dir == one) {
-        p->kind = three;
-        p->dir = three;
-        return;
+    if (p->kind == one) {
+        if (p->dir == one) {
+            p->kind = three;
+            p->dir = three;
+            return;
+        }
     }
-    if (kind == 2) {
+    if (p->kind == 2) {
         int d = p->dir;
         if (d == three) {
             p->kind = three;
@@ -536,9 +540,7 @@ void LFNb_DetachE(LFPiece* p)
 }
 
 /* Detach the SOUTH connection (inverse of AttachS). */
-/* audit: 37i/96B vs 37i/96B, mismatch=35. dir in ecx not esi; same
- * jump-thread of the kind==3 fail edge. */
-// WIP-FUNCTION: LEGOLAND 0x0040a1d0  (81%, dir in ecx not esi)
+// FUNCTION: LEGOLAND 0x0040a1d0
 void LFNb_DetachS(LFPiece* p)
 {
     int kind;
@@ -549,11 +551,13 @@ void LFNb_DetachS(LFPiece* p)
         return;
     kind = p->kind;
     three = 3;
-    if (kind == three && p->dir == 2) {
-        p->kind = 4;
-        return;
+    if (kind == three) {
+        if (p->dir == 2) {
+            p->kind = 4;
+            return;
+        }
     }
-    if (kind == 1) {
+    if (p->kind == 1) {
         dir = p->dir;
         if (dir == 0) {
             p->kind = three;
@@ -561,7 +565,7 @@ void LFNb_DetachS(LFPiece* p)
             return;
         }
     }
-    if (kind == 2) {
+    if (p->kind == 2) {
         int d = p->dir;
         if (d == three) {
             p->kind = three;
@@ -577,9 +581,7 @@ void LFNb_DetachS(LFPiece* p)
 }
 
 /* Detach the WEST connection (inverse of AttachW). */
-/* audit: 40i/100B vs 40i/101B, mismatch=23. kind==1 dir compare is a
- * memory operand; original is push edi / mov edi,dir / cmp / pop edi. */
-// WIP-FUNCTION: LEGOLAND 0x0040a230  (89%, missing edi scratch around dir==1)
+// FUNCTION: LEGOLAND 0x0040a230
 void LFNb_DetachW(LFPiece* p)
 {
     int kind;
@@ -590,12 +592,14 @@ void LFNb_DetachW(LFPiece* p)
         return;
     kind = p->kind;
     three = 3;
-    if (kind == three && p->dir == three) {
-        p->kind = 4;
-        return;
+    if (kind == three) {
+        if (p->dir == three) {
+            p->kind = 4;
+            return;
+        }
     }
     one = 1;
-    if (kind == one) {
+    if (p->kind == one) {
         int dir = p->dir;
         if (dir == one) {
             p->kind = three;
@@ -603,7 +607,7 @@ void LFNb_DetachW(LFPiece* p)
             return;
         }
     }
-    if (kind == 2) {
+    if (p->kind == 2) {
         int d = p->dir;
         if (d == 0) {
             p->kind = three;

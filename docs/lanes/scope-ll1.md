@@ -12,15 +12,15 @@ Brief: `docs/SCOPE_LL1_logflume_track.md`.
 | 0x004096e0 | LFPiece_AttachE | 26 | 89 | WIP | WIP (ESCAPES) |
 | 0x00409740 | LFPiece_AttachW | 25 | 100 | [OK] | FUNCTION |
 | 0x004097a0 | LFTrack_ReshapeNeighbours | 170 | 100 | [OK] | FUNCTION |
-| 0x00409a50 | LFPiece_MakeStraight | 12 | 75 | WIP | WIP |
+| 0x00409a50 | LFPiece_MakeStraight | 12 | 100 | [OK] | FUNCTION |
 | 0x00409a90 | LFTrack_AttachNeighbours | 49 | 100 | [OK] | FUNCTION |
 | 0x00409b10 | LFRoute_OrientPair | 37 | 100 | [OK] | FUNCTION |
 | 0x0040a010 | LFRoute_SplicePair | 46 | 100 | [OK] | FUNCTION |
 | 0x0040a080 | LFTrack_SpliceNeighbours | 45 | 100 | [OK] | FUNCTION |
-| 0x0040a0f0 | LFNb_DetachN | 38 | 76 | WIP | WIP |
-| 0x0040a160 | LFNb_DetachE | 37 | 55 | WIP | WIP |
-| 0x0040a1d0 | LFNb_DetachS | 37 | 81 | WIP | WIP |
-| 0x0040a230 | LFNb_DetachW | 40 | 89 | WIP | WIP |
+| 0x0040a0f0 | LFNb_DetachN | 38 | 100 | [OK] | FUNCTION |
+| 0x0040a160 | LFNb_DetachE | 37 | 100 | [OK] | FUNCTION |
+| 0x0040a1d0 | LFNb_DetachS | 37 | 100 | [OK] | FUNCTION |
+| 0x0040a230 | LFNb_DetachW | 40 | 100 | [OK] | FUNCTION |
 | 0x0040a2a0 | LFTrack_RedrawNeighbours | 23 | 100 | [OK] | FUNCTION |
 | 0x0040b290 | LFPiece_DrawAnim | 93 | 100 | [OK] | FUNCTION |
 | 0x0040ce20 | LFGeom_FillNeighbours | 72 | 100 | [OK] | FUNCTION |
@@ -30,7 +30,7 @@ Brief: `docs/SCOPE_LL1_logflume_track.md`.
 | 0x0040cf80 | LFNb_FirstRun | 14 | 100 | [OK] | FUNCTION |
 | 0x0040cfa0 | LFNb_DropFull | 15 | 100 | [OK] | FUNCTION |
 
-**16 / 22 exact.** `audit.py` PASS (0 extent failures), `relocs.py` zero MISMATCH (4 UNRESOLVED, all `$L62x` jump-table labels inside `LFTrack_ReshapeNeighbours`), `/W3` clean.
+**21 / 22 exact.** `audit.py` PASS, `relocs.py` zero MISMATCH (5 UNRESOLVED jump-table labels: `$L582` in MakeStraight, `$L62x` in ReshapeNeighbours), `/W3` clean.
 
 ## Names
 
@@ -55,12 +55,7 @@ Callers already named `LFTrack_ReshapeNeighbours` (0x004097a0), `LFTrack_RedrawN
 
 ## Residuals (WIP)
 
-- **0x00409a50 MakeStraight** — first diverging store: case 0/2 `mov [eax+18], 1` vs original `mov [eax+18], edx`. Fall-through of cases 1/3 into default is correct; the hoisted `edx=1` is not kept live into the isolated 0/2 arm. Tried named `one`, `piece`/`p` split, volatile store, inline helper.
-- **0x004096e0 AttachE** — dir==0 arm CSEs the two stores of 2 into `mov ecx,2 / store / store` (copying the first arm's named-`one` pattern). Original uses two immediates, so later labels shift (ESCAPES). Tried `3-1`, volatile stores.
-- **0x0040a0f0 DetachN** — need `push esi` before the null test and dir in esi while kind stays in ecx. VC6 jump-threads `kind==3 && dir!=0` to the epilogue (kind is proven 3) instead of falling into the dead `cmp ecx,1`. Goto form scrambled block order.
-- **0x0040a160 DetachE** — `three` should be esi and `one=1` scheduled between `cmp kind,3` and `jne` (mov does not clobber flags). Last corner arm missing (jump-thread).
-- **0x0040a1d0 DetachS** — same esi-for-dir / jump-thread as DetachN. Instruction count already matches (37/37).
-- **0x0040a230 DetachW** — kind==1 dir compare must be `push edi / mov edi,[eax+1c] / cmp edi,edx / pop edi`, not a memory compare. Closest of the four detaches (23 mismatch).
+- **0x004096e0 AttachE** — 24/27 = 88.9% ESCAPES. dir==0 arm CSEs the two stores of 2 into `mov ecx,2 / store / store`. Original rematerialises two immediates, so later labels shift. First arm (`mov ecx,1` pair) already matches. Floor: AttachN's 2,2 stay immediate because no sibling arm defs ecx; AttachE's 1,1 arm must def ecx, and that split lets the 2,2 arm reuse it. Tried named `one`, literals, `3-1`, volatile stores, two named 2s, reverse store order, keep-dir-live, dir==0 first, char-cast 2.
 
 ## Levers
 
@@ -70,6 +65,8 @@ Callers already named `LFTrack_ReshapeNeighbours` (0x004097a0), `LFTrack_RedrawN
 - **DrawAnim overlay offset is function-inner.** `int off = 0` must be declared inside `if (walk)` so its zero store lands after `push edi` at `[esp+0x14]`. Function-scope `off` wrote `[esp+0x10]` (98.9%).
 - **Sparse switch on mask.** ReshapeNeighbours is two `switch (mask)` with `cmp esi, 0x4f / ja` + byte-index table. Case/block order of the second switch is 1, 0x10, 4, 0x40, 0x11, 0x44, 5, 0x14, 0x50, 0x41.
 - **OrientPair degenerate reverse.** `if (!oi) { if (oj) Reverse(a); else Reverse(a); }` leaves a dead `test eax,eax` between the push and the call.
+- **Shared switch store via goto (MakeStraight).** Isolated `p->kind = one` in case 0/2 rematerialised as `mov [eax+18], 1`. `goto setkind` into the default store tail-duplicates with `edx` kept live.
+- **Reread field to block jump-thread (Detach*).** Named `kind` after `kind==3` is proven 3, so later `if (kind==1)` disappears. `if (p->kind == 1)` still CSEs to `cmp ecx, 1` but is not jump-threaded; dir can then take esi and the dead compares stay.
 
 ## Extern-type notes
 
