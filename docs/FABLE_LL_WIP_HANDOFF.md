@@ -81,14 +81,17 @@ on `!copy` together. Name: keep **`AddScriptString`**.
 
 | Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `58c2dcca` |
 
-**77i / 259/259B**, matchfull **84%**, audit **42** mism. Pre-call `p = rt` puts
-rt in eax; `acc = 0.0f` after `*mass = 0` homes sum in dead power slot
-(`fstp [esp+0x88]`). Volatile reload into `q` keeps mass in ebp.
+**77i / 259/259B**, matchfull **84%**, audit **42** mism — FLOOR notes.
 
-Residual: `mov ebx,eax / add ebx,0x70` vs `lea ebx,[eax+0x70]`; `q` load after
-`add esp,4` not before; eax vs edx for reload; hist ecx/edx swap.
+Need / have:
+- `lea ebx,[eax+0x70]` before first `rep movsd` / `mov ebx,eax` then `add` sunk before `Span_EvalRange`
+- `mov edx,[esp+0x84]` then `add esp,4` / reverse (`q` in eax)
+- hist `edx=*mass`, `ecx=i&0x3f` / swapped
+
+`eax` stays live for `[eax+0x24]` after `mov ebx,eax` — sink-vs-fuse, not missing live use. Comma/`char*+0x70`/helpers, early `n`, named `end`, hist `i++`, restore copies → same 65/77. `q` in edx + hist ecx only with extra volatiles (**80i**). Volatile `fr.f24` moves the add earlier but breaks call-arg `rep movsd` interleave (64/77).
 
 (`Raster_ClipPoly` closed via `if (1) { switch (flags) … } return count`.)
+Trace NG22 / ClipPlane ESCAPES unchanged.
 
 ### LL7 — `Track_StepAlong` `0x00429f30` (14/17 scope)
 
