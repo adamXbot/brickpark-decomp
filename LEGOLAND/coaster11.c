@@ -771,12 +771,10 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
  * closed to in[0].  Negative plane distance is inside.  Crossing edges
  * lerp every dword 0..g_span_vtx of the PolyVtx into *cursor and emit
  * that cursor pointer; both-inside emits the previous vertex. */
-/* Residual: 179i, ESCAPES, frame 0x24 vs 0x2c. mov ebx,n + cmp ebx,1 +
- * [eax+ebx*4] land: dest/plane/out homed, prev_abs and in edx, out_n is
- * mov [esp+0x10],0, and a byte store of n forces ebx (only byte-addressable
- * callee-save) over cursor. next_abs and is still edx, not ebx; k down-count
- * not 0..vtx. */
-// WIP-FUNCTION: LEGOLAND 0x0041f050  (13%, frame 0x24 vs 0x2c ESCAPES)
+/* Residual: next_abs and ebx via abs-n live across __ftol + byte store;
+ * lerp dword is a separate temp so n is not overwritten. Frame still
+ * short of 0x2c. Byte-n prologue (mov ebx,n) kept. */
+// WIP-FUNCTION: LEGOLAND 0x0041f050  (10%, next_abs ebx, frame 0x24 vs 0x2c)
 int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
 {
     void** in = (void**)in_v;
@@ -787,6 +785,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
     int prev_abs;
     int prev_sign;
     int left;
+    int abs_b;
 
     /* dest/plane/out off ebx. Byte use of n wins ebx over cursor. */
     *(void* volatile*)&dst = *cursor;
@@ -817,12 +816,16 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
 
         bits.f = plane->d - ((float)((int*)nxt)[2] * plane->nx
                              + (float)((int*)nxt)[1] * plane->ny);
-        n = bits.i & 0x7fffffff;
-        next_sign = bits.i & 0x80000000;
+        /* Reuse n for next_abs after left=. Live across __ftol (prev_abs
+         * stored after lerp) so abs is callee-save; byte store picks ebx. */
+        n = bits.i;
+        next_sign = n;
+        n &= 0x7fffffff;
+        next_sign &= 0x80000000;
+        *(volatile unsigned char*)&abs_b = (unsigned char)n;
         cls = (prev_sign >> 1) & 0x40000000 | next_sign;
         pa.i = *(volatile int*)&prev_abs;
         na.i = n;
-        *(volatile int*)&prev_abs = n;
         if (cls == (int)0x80000000) {
             float t = na.f / (pa.f + na.f);
             if ((int)g_span_vtx >= 0) {
@@ -831,10 +834,10 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                 int dest = (char*)dst - (char*)nxt;
                 int k = (int)g_span_vtx;
                 do {
-                    n = src[0];
+                    int dword = src[0];
                     {
-                        int dlt = *(int*)((char*)src + delta) - n;
-                        *(int*)((char*)src + dest) = n + (int)((float)dlt * t);
+                        int dlt = *(int*)((char*)src + delta) - dword;
+                        *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
                     }
                     src++;
                 } while (k-- > 0);
@@ -857,10 +860,10 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                 int dest = (char*)dst - (char*)prev;
                 int k = (int)g_span_vtx;
                 do {
-                    n = src[0];
+                    int dword = src[0];
                     {
-                        int dlt = *(int*)((char*)src + delta) - n;
-                        *(int*)((char*)src + dest) = n + (int)((float)dlt * t);
+                        int dlt = *(int*)((char*)src + delta) - dword;
+                        *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
                     }
                     src++;
                 } while (k-- > 0);
@@ -870,6 +873,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
             dst = (char*)dst + g_span_vtx_stride;
             out_n += 2;
         }
+        *(volatile int*)&prev_abs = n;
         prev = nxt;
         prev_sign = next_sign;
         in++;

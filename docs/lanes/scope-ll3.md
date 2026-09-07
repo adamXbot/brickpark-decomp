@@ -25,7 +25,7 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041ef60 | Raster_ClipPoly | 80 | 100 | [OK] | FUNCTION |
 | 0x0041db90 | Route_GetMassAndPower | 77 | 84 | 42 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
-| 0x0041f050 | Span_ClipPlane | 179 | 13 | 164 mis ESCAPES | WIP |
+| 0x0041f050 | Span_ClipPlane | 179 | 10 | next_abs ebx; 0x24 vs 0x2c | WIP |
 
 **16 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
@@ -210,7 +210,8 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Hist `edx=*mass; ecx=i&0x3f`: named `m`/`i`/`slot` become `fld`/`fstp`
   (64/77); int-bitcast, post-inc, and SetSlope do-while keep the ecx/edx
   swap. Best remains 65/77. Trace / ClipPlane not touched.
-- **Span_ClipPlane** (WIP): 179i, ESCAPES, frame 0x24 vs 0x2c. Reconstruct
+- **Span_ClipPlane** (WIP): 20/195 (10.3%), ESCAPES, frame 0x24 vs 0x2c,
+  next_abs in ebx. Reconstruct
   notes (2026-09-08): trailing early-out after `in[n]=in[0]`; `in++` then
   `left=n` with latch `in+=4; dec left; jne`; signed classify
   `sar1/and 0x40000000/or` vs 0x80000000 / 0xC0000000 / 0x40000000; divide
@@ -237,3 +238,12 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   because only ebx is byte-addressable among callee-saves. next_abs and
   stays edx (not the original `and ebx,0x7fffffff`). Frame still 0x24.
   25/189 (13.2%). Mass/Trace not touched.
+  **2026-09-08 next_abs→ebx wave.** `and ebx, 0x7fffffff` landed. After
+  `left = n`, reuse `n` for abs (`n = bits.i; next_sign = n; n &= 0x7fffffff`)
+  and keep that web live across `__ftol` by storing `prev_abs = n` *after*
+  the classify/lerp (lerp dword is a separate temp so `n` is not overwritten).
+  Short-lived abs stays edx; callee-save abs wants edi; a byte store of the
+  abs value (`*(volatile unsigned char*)&abs_b = (unsigned char)n`) forces
+  ebx (edi is not byte-addressable). Prologue `mov ebx,n` kept. Extra
+  dest/dlt homes steal ebx back. 8-byte spill / k-up reach 0x28 not 0x2c.
+  20/195 (10.3%), 588/593B, frame 0x24. Mass/Trace not touched.
