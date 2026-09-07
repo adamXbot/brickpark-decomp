@@ -424,6 +424,27 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **SCOPE AB (merged 2026-09-07, 8 of 8 exact; evidence in
+  `docs/lanes/scope-ab.md`).** The eight SoftBlitRLEPlain specialised
+  painters (`rlepaint.c`):
+  - **Hand-written assembly, not C.** The rotating 2-bit mask idiom
+    (`ebx=3`, `rol ebx,2`, wrap via `and ebx,1` + `lea edx,[edx+ebx*4]`),
+    mid-stream callee-saved pushes, and `rep movsw`/`rep stosw` clip splits
+    do not lower from any C spelling. Same `__declspec(naked)` + `__asm`
+    pattern as `tri3d.c` / `coastermath.c`. Keep `NAKED` off the signature
+    line so the `// FUNCTION:` marker stays immediately above the name.
+  - **Family transfer.** `RLEPaintFast` is the unclipped core; ClipR adds a
+    width budget and right-edge run splits; ClipL adds left skip then paints;
+    ClipLR combines both; Hit twins OR `g_blit_hit` before each opaque emit.
+    Diff adjacent leaves — do not re-derive each clip/hit delta.
+  - **Type-3 leaf A/B/C roles.** A = u16 pixels, B = u8 lengths, C = packed
+    2-bit controls (softblit2.c's header names for these leaves are wrong;
+    do not "fix" the caller's comments from this scope).
+  - **Original defect retained.** HitL/HitR/Hit mishandle primary code 1 in
+    the top-skip loop (fall through after the `0xAAAAAAAA` test); HitLR and
+    all four no-hit leaves jump correctly. Shipped 16-bpp assets have no
+    primary code 1 (dormant).
+
 - **SCOPES Y AND Z (merged 2026-09-07, 76 of 76 exact; evidence in
   `docs/lanes/scope-y.md` and `docs/lanes/scope-z.md`).**
   - **A by-value aggregate protects dead parameter homes.** Z's

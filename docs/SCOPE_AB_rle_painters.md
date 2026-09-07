@@ -1,8 +1,9 @@
 # Scope AB — SoftBlitRLEPlain specialised painters (2026-09-07)
 
-> **Status: DONE (2026-09-07).** Branch `scope/AB`. 8/8 exact.
-> Notes: `docs/lanes/scope-ab.md`. Object prefix `/tmp/sab_`. Cut from
-> inventory groups 18–19 (`0x00466d80..0x00467f00`).
+> **Status: DONE — 8 of 8 exact, merged into `main` 2026-09-07 (integrator
+> session; fast-forward `335dde06`).** Branch `scope/AB`. Notes:
+> `docs/lanes/scope-ab.md`. Object prefix `/tmp/sab_`. Cut from inventory
+> groups 18–19 (`0x00466d80..0x00467f00`).
 
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
 here** — including the relocation step of the gate

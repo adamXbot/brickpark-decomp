@@ -1,9 +1,9 @@
 # Scope Codex-F — coaster draw passes, rider updates, route callees (2026-09-05)
 
-> **Status: OPEN, unclaimed.** Branch `codex/scope-f`. The Codex series' sixth
-> scope (after CODEX_A–E). Unrelated to `SCOPE_F_partials_rides.md`, the
-> generic-series scope F, which is a partial scope running elsewhere. Say
-> "Codex-F" when referring to this one.
+> **Status: IN PROGRESS (claimed 2026-09-07 by integrator).** Branch
+> `codex/scope-f`. The Codex series' sixth scope (after CODEX_A–E). Unrelated
+> to `SCOPE_F_partials_rides.md`, the generic-series scope F (FGH, elsewhere).
+> Say "Codex-F" when referring to this one.
 
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
 here.** Notes: `docs/lanes/codex-f.md`. Object prefix: `/tmp/cf_`.
