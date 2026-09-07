@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `55059efb` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `781f84e0` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
@@ -169,20 +169,18 @@ same window).
 
 ### LL3 — `Span_ClipPlane` `0x0041f050`
 
-**33.2%** (62/187), 179i, **611**/593B, frame **0x2c**, ESCAPES. Tip `55059efb`.
+**33.9%** (64/189), 179i, **606**/593B, frame **0x2c**, ESCAPES. Tip `781f84e0`.
 
-**Four KEPT held** (byte-n store dropped; ebx=n still via nest). Colouring:
-nxt=esi, dest=edi, sign=ebp.
+**Six KEPT held:** 0x2c; ebx=n/cmp/jl; latch; loop and-ebx (destrel-before-fild);
+je-ENTER/BOTH/LEAVE nest; fld from prev_abs.i. Shared `*cursor=dst` after
+`n>=1` (early-out stores dest; no xor-eax skip).
 
-**Landed this wave:** nested classify
-`cls != ENTER { cls != BOTH { LEAVE } else BOTH } else ENTER` → orig
-`je ENTER / je BOTH / LEAVE` fallthrough. Divide starts from `prev_abs.i` so
-LEAVE/ENTER `fld` hits `[esp+0x34]`.
+**Open:** `[ecx+src]` lerp walk vs `lea edi`. **destrel-pin** alone → 593B +
+ESCAPES cleared but steals dest=edi / and-ebx (**22.8%**) — not landed. bits
+still `fstp` to n-slot not `[esp+0x2c]`.
 
-**Open:** dest-relative walk (`lea edi`) vs orig `[ecx+src]`; bits in n-slot
-not `[esp+0x2c]`; extra epilogue → ESCAPES. nxt=edi chase still parked.
-
-**Next:** `[ecx+src]` walk + bits home + kill ESCAPES epilogue; keep four KEPT.
+**Next:** `[ecx+src]` and/or bits@[esp+0x2c] and/or clear ESCAPES **without**
+losing and-ebx (find a pin that does not free dest from edi).
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -194,7 +192,7 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — 33%; `[ecx+src]` walk, bits@[esp+0x2c], clear ESCAPES.
+1. **LL3 Span_ClipPlane** — 34%; `[ecx+src]`/bits/ESCAPES without losing and-ebx.
 2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
 3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
@@ -210,7 +208,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `55059efb` | `coaster11.c` |
+| LL3 | 16/19 | `781f84e0` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
