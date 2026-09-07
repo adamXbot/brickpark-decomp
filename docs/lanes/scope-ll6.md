@@ -12,10 +12,10 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 | 0x00423970 | TrackNode_SetStationHeights | 6 | 100 | [OK] | FUNCTION |
 | 0x00423990 | Castle_GetCurveA | 2 | 100 | [OK] | FUNCTION |
 | 0x00423f40 | GetTrackSegmentPiece | 86 | 100 | [OK] | FUNCTION |
-| 0x00424050 | GetTrackSegment | 87 | 72 | WIP | WIP (87/87 i; fail tails / regs) |
+| 0x00424050 | GetTrackSegment | 87 | ~78 | WIP | WIP (47 mismatch; tail/head latch) |
 | 0x00425da0 | Vec3f_Equal | 25 | 100 | [OK] | FUNCTION |
 | 0x00426190 | Mat4_Transpose | 21 | 100 | [OK] | FUNCTION |
-| 0x004263a0 | ProjectVertsToRect | 72 | ~33 | WIP | WIP (72/72 i after FTOI; walk) |
+| 0x004263a0 | ProjectVertsToRect | 72 | 100 | [OK] | FUNCTION |
 | 0x00426460 | Mat3_FromMat4Transpose | 21 | 100 | [OK] | FUNCTION |
 | 0x004265d0 | ClipRect_ClipTo | 66 | 100 | [OK] | FUNCTION |
 | 0x00426750 | Model_ProjectClipRect | 24 | 100 | [OK] | FUNCTION |
@@ -32,7 +32,7 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 | 0x004286e0 | TrackNode_GetPieceDesc | 8 | 100 | [OK] | FUNCTION |
 | 0x00428840 | LowestSetBitIndex | 10 | 100 | [OK] | FUNCTION |
 
-**20 / 24 exact.** All 24 have bodies. `audit.py` PASS, `relocs.py` zero
+**21 / 24 exact.** All 24 have bodies. `audit.py` PASS, `relocs.py` zero
 MISMATCH (4 UNRESOLVED float literals 0.5 / -2.0 on GetTrackSegmentPiece),
 `/W3` clean.
 
@@ -85,23 +85,30 @@ See the first commit for the exact stubs. New this wave:
   `lea eax,[esi+K]` against original `add esi,ebx/imm / pop edi /
   mov eax,esi`. An inlined `AddOff(off, slope)` does not stop the fold.
   `>> 1` not `/2` (sar vs cdq).
-- `ProjectVertsToRect`: 72/72, 191/188. `FTOI(s, n)` then `screen[axis]=n`
-  is the dead-`n` convert (`[ebp+0x10]`). Residual is the 2×3 walk
-  (row base vs walked cursor, `fld 0` / `faddp`) and the LP01
-  `while (n-- > 0)` header (`dec/inc` around the trip copy). Overlaying
-  `ASFLT(n)` as the accumulator collapsed the walk (29%).
+- `ProjectVertsToRect`: exact as the TransformVerts (0x00426250) shape —
+  `while (n-- > 0)`, `acc += sp[j] * *rp++`, `acc += row[3]`, `TOINT`
+  then `ASINT`. `int screen[4]` is the 8-byte ballast that makes
+  `sub esp,0x14` (live x/y at [ebp-0x14]/[ebp-0x10]); `screen[2]` is
+  `sub esp,0xc` and 4 mismatches. Overlaying `ASFLT(n)` as the
+  accumulator collapsed the x87 walk (29%).
 - `Raster_AddSpanRecord`: instruction count exact; keys/edge cursors and
   the overflow compare are allocation. Original `jbe` against
   `cursor+0x10` and `0x004e3870`; loop does `idx = keys->idx; keys++`
   then `*48`, y from `keys[-1]`, and `lea ecx,[edx+ecx*8+8]` after
   `xor ecx,ecx / test ne / jle` so a negative ne still advances by 8.
-- `GetTrackSegment`: 87/87, 242/232, 67 mismatch. `sx` then `nxt` then
-  match, `n = nxt; if (nxt == ring)` so the cmp uses ecx and the
-  `mov eax,ecx` can sit between cmp and jcc. Open path loads the tile
-  pointer before the tail==ring guard; tail exhaust gotos the head
-  walk. Residual is one walk still emitting `je fail / jmp loop`
-  instead of `jne loop`, fail-tail identity, and the two helper
-  call-site push phases (tail loads link+p1; closed/head load link+h1).
+- `GetTrackSegment`: 87/87, 237/232, 47 mismatch (was 69). Closed walk
+  is the original `do { sx; nxt; match; n=nxt; } while (nxt != ring);
+  return 0` — `jne loop` then an inline `pop/xor/ret`, and closed-empty
+  `je`s to that fail. Head-empty also jumps back to it. Residual: tail
+  and head still `je exit / jmp loop` because the tail match call is
+  flushed between tail and head (so the tail loop cannot fall through
+  to head), and head exhaust merges into fail1 instead of a second
+  `xor eax,eax` copy. Two helper sites exist; their push-phase order
+  is swapped versus the original (tail should be link+p1 first).
+- `Raster_AddSpanRecord`: 61/61, 172/175, 58 mismatch. Count increments
+  first; unsigned `cursor+0x10` vs `0x004e3870`; `ne==0` skips the
+  write. Residual is keys cursor (`add edx,8` then y from `[edx-8]`
+  vs `add edx,-8`) and an extra edi save.
 
 ## Extern-type divergences
 

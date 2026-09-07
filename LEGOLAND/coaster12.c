@@ -349,44 +349,52 @@ int ClipRect_ClipTo(ClipBox* dest, const ClipBox* clip)
     return 0xf;
 }
 
-#define FTOI(f, i) __asm { fld f } __asm { fistp i }
+#define TOINT(x) __asm { fld x } __asm { fistp dword ptr x }
+#define ASINT(x) (*(int*)&(x))
 
-/* Project n Vec3f through the first two rows of a 4x4 (screen x,y) and
- * expand an integer AABB. Original fistp's through the dead `n` slot. */
-// WIP-FUNCTION: LEGOLAND 0x004263a0  (fistp vs __ftol; 2x3 walk vs ebp frame)
+/* Same 2-row walk as TransformVerts (0x00426250): while(n-- > 0), one
+ * pointer subscripted and the other walked, convert-in-place then ASINT.
+ * screen[4] keeps the original 0x14-byte frame (two live ints + 8-byte
+ * ballast + the trip count). */
+// FUNCTION: LEGOLAND 0x004263a0
 void ProjectVertsToRect(const Vec3f* verts, const Mat4* mat, int n, ClipBox* out)
 {
-    int screen[2];
+    int k;
+    int j;
+    int screen[4];
     out->right = (int)0x80000000;
     out->bottom = (int)0x80000000;
     out->left = 0x7fffffff;
     out->top = 0x7fffffff;
-    if (n <= 0)
-        return;
-    do {
+    while (n-- > 0) {
         const float* row = mat->m;
-        const float* v = (const float*)verts;
-        int axis;
-        for (axis = 0; axis < 2; axis++) {
-            float s = 0.0f;
-            int k;
-            for (k = 0; k < 3; k++)
-                s += v[k] * row[k];
-            s += row[3];
-            FTOI(s, n);
-            screen[axis] = n;
+        int* pix = screen;
+        for (k = 0; k < 2; k++) {
+            float acc = 0.0f;
+            const float* sp = (const float*)verts;
+            const float* rp = row;
+            for (j = 0; j < 3; j++)
+                acc += sp[j] * *rp++;
+            acc += row[3];
+            TOINT(acc);
+            *pix = ASINT(acc);
             row += 4;
+            pix++;
         }
         if (screen[0] > out->right)
             out->right = screen[0];
         if (screen[0] < out->left)
             out->left = screen[0];
-        if (screen[1] > out->bottom)
-            out->bottom = screen[1];
-        if (screen[1] < out->top)
-            out->top = screen[1];
-        verts++;
-    } while (--n);
+        {
+            int y = screen[1];
+            int b = out->bottom;
+            if (y > b)
+                out->bottom = y;
+            if (y < out->top)
+                out->top = y;
+        }
+        verts = (const Vec3f*)((const char*)verts + 12);
+    }
 }
 
 /* Model pos/rot composed with the view matrix, then eight verts → AABB. */
@@ -456,44 +464,42 @@ int GetTrackSegment(Pos* tile, float* h0, Pos* p1, float* h1, int* link)
             return 0;
         t = tile;
         tx = t->x;
-        for (;;) {
+        do {
             sx = (int)n->sx;
             nxt = n->jout.node;
             if (sx == tx && (int)n->sy == t->y)
-                return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
+                goto call_ch;
             n = nxt;
-            if (nxt == &g_castle.ring)
-                return 0;
-        }
+        } while (nxt != &g_castle.ring);
+        return 0;
     }
     n = g_castle.tail_node;
     t = tile;
     if (n == &g_castle.ring)
         goto head;
     tx = t->x;
-    for (;;) {
+    do {
         sx = (int)n->sx;
         nxt = n->jout.node;
         if (sx == tx && (int)n->sy == t->y)
             return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
         n = nxt;
-        if (nxt == &g_castle.ring)
-            goto head;
-    }
+    } while (nxt != &g_castle.ring);
 head:
     n = g_castle.head_node;
     if (n == &g_castle.ring)
         return 0;
     tx = t->x;
-    for (;;) {
+    do {
         sx = (int)n->sx;
         nxt = n->jin.node;
         if (sx == tx && (int)n->sy == t->y)
-            return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
+            goto call_ch;
         n = nxt;
-        if (nxt == &g_castle.ring)
-            return 0;
-    }
+    } while (nxt != &g_castle.ring);
+    return 0;
+call_ch:
+    return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
 }
 
 /* Add in place and return the same register, so the straight arms stay
@@ -541,29 +547,35 @@ int TrackPiece_FindIndex(TrackNode* node)
 // WIP-FUNCTION: LEGOLAND 0x00423200  (61i/61i, register/offset allocation)
 void Raster_AddSpanRecord(int ne, int y, SortKey* keys, SpanEdge* edges)
 {
-    unsigned char* cur = (unsigned char*)g_span_cursor;
-    int count = g_span_count + 1;
-    g_span_count = count;
-    if (cur + 0x10 > (unsigned char*)0x004e3870) {
+    char* cur = (char*)g_span_cursor;
+    char* saved = cur;
+    int step;
+    g_span_count = g_span_count + 1;
+    if ((unsigned)(cur + 0x10) > (unsigned)0x004e3870) {
         g_span_overflow = 1;
         return;
     }
-    if (ne) {
-        int i;
-        unsigned char* dst;
-        *(int*)cur = ne;
-        *(int*)(cur + 4) = y;
-        dst = cur + 0xa;
-        for (i = 0; i < ne; i++) {
-            SpanEdge* e = &edges[keys[i].idx];
-            short ky = (short)keys[i].y;
+    if (ne == 0)
+        return;
+    *(int*)cur = ne;
+    *(int*)(saved + 4) = y;
+    step = 0;
+    if (ne > 0) {
+        char* dst = saved + 0xa;
+        int left = ne;
+        do {
+            int idx = keys->idx;
+            SpanEdge* e;
+            keys++;
+            e = (SpanEdge*)((char*)edges + idx * 48);
             *(short*)(dst - 2) = (short)(e->a[0] >> 16);
             *(int*)(dst + 2) = e->d[0];
-            *(short*)dst = ky;
+            *(short*)dst = (short)keys[-1].y;
             if (e->dir == 1)
                 *(short*)dst = (short)-(*(short*)dst);
             dst += 8;
-        }
-        g_span_cursor = cur + 8 + ne * 8;
+        } while (--left);
+        step = ne;
     }
+    g_span_cursor = saved + 8 + step * 8;
 }
