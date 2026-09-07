@@ -210,6 +210,11 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Hist `edx=*mass; ecx=i&0x3f`: named `m`/`i`/`slot` become `fld`/`fstp`
   (64/77); int-bitcast, post-inc, and SetSlope do-while keep the ecx/edx
   swap. Best remains 65/77. Trace / ClipPlane not touched.
+  **2026-09-08 ClipPlane imm8 store (reverted):**
+  `*(volatile unsigned char*)&p->head = 0` after pos/f24 forces delay-slot
+  `lea ebx,[eax+0x70]` (66/77) but always emits `mov [ebx],0`. Dropping the
+  store dest-coalesces again. Coupled on this body — cannot exact with the
+  store, cannot lea without it. Body restored to 65/77.
 - **Span_ClipPlane** (WIP): 64/189 (33.9%), latch jne-to-header, frame **0x2c**,
   ebx=n held, loop abs `and ebx,0x7fffffff`. Reconstruct
   notes (2026-09-08): trailing early-out after `in[n]=in[0]`; `in++` then

@@ -637,14 +637,16 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
 /* Snapshot the train, run the shade evaluator over CollectCarSample, then
  * fold each car's heading*heading * acceleration * K into *mass.  *power
  * is the sample energy.  The mass is also pushed into a 64-slot ring. */
-/* Residual: 77i/260B, matchfull 66/77 (85.7%), audit 52 mis. ClipPlane-style byte store
- * through `&p->head` after the pos/f24 snapshot forces `lea ebx,[eax+0x70]`
- * in the first `rep movsd` delay slot while eax stays p for `[eax+0x24]`.
- * Imm8 store (not a load / |=0) is required: a byte load steals edx and
- * dest-coalesces again (57/77). Extra `mov byte ptr [ebx],0` plus q after
- * `add esp,4` and hist ecx/edx swap remain. Load-only / pad00 without
- * volatile / store-before-pos keep lea but 57–65%. */ 
-// WIP-FUNCTION: LEGOLAND 0x0041db90  (85.7%, lea ebx landed, q/hist residual)
+/* Residual: 77i/259B, matchfull 65/77 (84%), audit 42 mis. Dest-coalesce
+ * `mov ebx,eax` / sunk `add ebx,0x70` vs `lea ebx,[eax+0x70]`.
+ * ClipPlane imm8 store through `&p->head` after the snapshot DOES force
+ * delay-slot lea ebx with eax live for [eax+0x24] (66/77) — but the store
+ * is coupled: every spelling that drops `mov [ebx],0` dest-coalesces again.
+ * Known-zero / dead-alias / g_route_eval from n-0x70 / SetTrainAt next /
+ * if(n) / Fst / EvalRange commas CSE away or steal edx. Cannot exact with
+ * the extra store; cannot lea without it on this body. q after add esp,4;
+ * hist ecx/edx swap sticky. */ 
+// WIP-FUNCTION: LEGOLAND 0x0041db90  (84%, lea ebx coupled to imm8 store)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
     struct {
@@ -661,7 +663,6 @@ void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
     n = &p->head;
     fr.pos = p->pos;
     fr.f24 = p->f24;
-    *(volatile unsigned char*)&p->head = 0;
     g_route_eval = p;
     g_route_eval_at = p->pos;
     Span_EvalRange(Route_CollectCarSample, g_span_eval_ops, fr.f24, 0.1f,
