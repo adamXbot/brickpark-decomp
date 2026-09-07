@@ -106,6 +106,42 @@ double log(double);
 #pragma intrinsic(log)
 
 /* =========================================================================
+ * THE BOATING SCHOOL'S IN-EXE LIBRARY ENTRY POINT
+ * =========================================================================
+ * loaders.c recovered the object-library mechanism: a class whose ODF sets
+ * OC_USEDLL loads ".\dlls\<name>.dll", whose start-up code registers its
+ * GetInterfaces into the scratch record g_objlib_cur points at (+0x0c).
+ * This is that start-up code for the BOATING SCHOOL family, compiled into
+ * the exe alongside the GetInterface (0x0041b150) it registers -- a DllMain
+ * that never runs because the classes are built in.
+ * ========================================================================= */
+
+typedef struct LLElem   LLElem;
+typedef struct IfaceTable IfaceTable;
+typedef struct ObjLib {
+    struct ObjLib* next;                                  /* +0x00 */
+    void*          handle;                                /* +0x04 */
+    int            refcount;                              /* +0x08 */
+    void         (*get_interfaces)(LLElem*, IfaceTable*); /* +0x0c */
+} ObjLib;
+
+extern ObjLib* g_objlib_cur;                                    /* 0x007fd620 */
+extern void    GetInterface(LLElem* elem, IfaceTable* t);       /* 0x0041b150 */
+
+// FUNCTION: LEGOLAND 0x0041b130
+int __stdcall BoatingSchoolLibMain(void* module, unsigned long reason,
+                                   void* reserved)
+{
+    (void)module; (void)reserved;
+    switch (reason) {
+    case 1:
+        g_objlib_cur->get_interfaces = GetInterface;
+        break;
+    }
+    return 1;
+}
+
+/* =========================================================================
  * ONE-BYTE STUBS
  * =========================================================================
  * Three `ret`-only bodies with no surviving call site: an empty void
@@ -290,4 +326,90 @@ CoasterCar* Route_UnseatCar(CoasterRoute* route)
         node = node->next;
     } while (node != &route->head);
     return 0;
+}
+
+/* =========================================================================
+ * THE COPTERS' SAVE-INDEX INVERSE
+ * =========================================================================
+ * ridetiny.c's Copters_StepRider (0x00403d30) replaces a rider's animation
+ * path POINTER with its ordinal in the five-entry table at 0x004c1124 (or
+ * -1) so the ordinal can go into a save file.  This is the load-side twin,
+ * and like its live partner it walks SIX slots of a five-entry table.
+ * ========================================================================= */
+
+typedef struct Bloke {
+    unsigned char pad00[0x50];
+    void*         path;         /* +0x50 */
+} Bloke;
+
+typedef struct RiderNode {
+    struct RiderNode* next;     /* +0x00 */
+    struct RiderNode* prev;     /* +0x04 */
+    Bloke*            bloke;    /* +0x08 */
+} RiderNode;
+
+extern void* g_copters_paths[6];                 /* 0x004c1124 */
+
+/* Turn a saved path ordinal back into the path pointer; an out-of-range
+ * ordinal (which is what Copters_StepRider's -1 miss produces) clears the
+ * path instead. */
+// FUNCTION: LEGOLAND 0x00403d60
+void Copters_RestoreRider(RiderNode* rider)
+{
+    Bloke* bloke = rider->bloke;
+    int index = (int)bloke->path;
+
+    if (index >= 0 && index < 6)
+        bloke->path = g_copters_paths[index];
+    else
+        bloke->path = 0;
+}
+
+/* =========================================================================
+ * THE LOG FLUME'S BOARDING QUEUE
+ * ========================================================================= */
+
+typedef struct LFQueueNode {
+    struct LFQueueNode* next;   /* +0x00 */
+    RiderNode*          rider;  /* +0x04 */
+} LFQueueNode;
+
+typedef struct LFQueue {
+    void*        path;          /* +0x00 the capacity reference */
+    LFQueueNode* head;          /* +0x04 */
+} LFQueue;
+
+/* Is `bloke` the rider at the FRONT of the boarding queue -- i.e. the one
+ * whose turn it is to take the next boat?  An empty queue answers no. */
+// FUNCTION: LEGOLAND 0x00411f70
+int LFQueue_IsFrontRider(LFQueue* q, Bloke* bloke)
+{
+    LFQueueNode* n = q->head;
+
+    if (n && n->rider->bloke == bloke)
+        return 1;
+    return 0;
+}
+
+/* =========================================================================
+ * THE OPEN ROUTE'S END LENGTHS, PER PIECE
+ * =========================================================================
+ * schoolcar.c's GetOpenEndSteps (0x0041cf70) asks the same question of the
+ * whole coaster record and answers 0/0 for a closed circuit.  This dead twin
+ * asks it of ONE piece, through that piece's two joints, and its "no
+ * neighbour" answer is -1 rather than 0.
+ * ========================================================================= */
+
+extern int Track_CountHeadPieces(TrackNode* n);  /* 0x0041cee0 */
+extern int Track_CountTailPieces(TrackNode* n);  /* 0x0041cf00 */
+
+// FUNCTION: LEGOLAND 0x0041cf20
+void GetNodeEndSteps(TrackNode* node, int* tail_steps, int* head_steps)
+{
+    *head_steps = -1;
+    *tail_steps = -1;
+    if (node->jin.node)
+        *head_steps = Track_CountHeadPieces(node->jin.node);
+    if (node->jout.node)
+        *tail_steps = Track_CountTailPieces(node->jout.node);
 }
