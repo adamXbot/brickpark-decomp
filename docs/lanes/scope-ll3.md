@@ -17,24 +17,26 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041db20 | Route_CollectCarSample | 37 | 100 | [OK] | FUNCTION |
 | 0x0041ede0 | MapCell_AllowTrack | 38 | 100 | [OK] | FUNCTION |
 | 0x0041d210 | TrackFitFindPartners | 60 | 100 | [OK] | FUNCTION |
-| 0x0041f2b0 |  | 55 |  |  |  |
-| 0x0041d950 | Route_SetTrainAt | 66 |  |  |  |
+| 0x0041f2b0 | Raster_ClipAgainstPlanes | 55 | 100 | [OK] | FUNCTION |
+| 0x0041d950 | Route_SetTrainAt | 66 | 100 | [OK] | FUNCTION |
 | 0x00411fa0 | LFQueue_StepRider | 74 |  |  |  |
 | 0x0041db90 | Route_GetMassAndPower | 77 |  |  |  |
-| 0x0041ee40 | TrackPlace_TestSquare | 79 |  |  |  |
+| 0x0041ee40 | TrackPlace_TestSquare | 79 | 96 | 60 mis | WIP |
 | 0x0041ef60 | Raster_ClipPoly | 80 |  |  |  |
 | 0x0041f3e0 |  | 85 |  |  |  |
 | 0x0041c940 | BsRoute_Trace | 130 |  |  |  |
 | 0x0041f050 |  | 179 |  |  |  |
 
-**9 / 19 exact.** Find residual: slot/bit registers ecx/edx vs edx/ecx.
+**11 / 19 exact.** Find: slot/bit ecx/edx vs edx/ecx. TestSquare: x=sx+x0
+schedule (`add esi,eax` vs `mov esi,eax / add esi,edx`), 191B vs 192B.
 
 ## Names
 
-Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`.
-New: `Span_SetVertexBuf`, `JointSlot_TestSquare`, `RouteCar_GetHeading`,
-`Span_AllocPairs`, `RouteCar_PlaceAndBind`, `JointSlot_Find`,
-`Route_CollectCarSample`, `MapCell_AllowTrack`.
+Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
+`Route_SetTrainAt`. New: `Span_SetVertexBuf`, `JointSlot_TestSquare`,
+`RouteCar_GetHeading`, `Span_AllocPairs`, `RouteCar_PlaceAndBind`,
+`JointSlot_Find`, `Route_CollectCarSample`, `MapCell_AllowTrack`,
+`Raster_ClipAgainstPlanes`, `TrackPlace_TestSquare`.
 
 ## Mechanics
 
@@ -75,6 +77,17 @@ New: `Span_SetVertexBuf`, `JointSlot_TestSquare`, `RouteCar_GetHeading`,
 - **TrackFitFindPartners**: one trailing `return 0` (`if (state != 2) {
   ...; if (a != -1 || b != -1) return 1; } return 0;`). Local
   `PackedSquare at` reuses the dead `d` argument slot.
+- **Route_SetTrainAt**: same walk as PositionRouteCars but
+  `RouteCar_PlaceAndBind`; CoasterRoute +0x20 is the unused `dimension`
+  word so `f24` stays at +0x24 and `head` at +0x70.
+- **Raster_ClipAgainstPlanes**: dest-relative dword copy
+  (`edx = src - dest; [edx+ecx]`), then ping-pong `g_clip_ping[i&1]` /
+  `[(i-1)&1]`. Latch is `i++; planes += 0xc` (not a for-increment).
+  Reuses `n` as the clip result so the next plane sees the survivor count.
 - **JointSlot_Find** (WIP): need the slot walker in edx and the bit in ecx
   (`test ecx, esi`). `int i = 0` first puts the walker in ecx; no early
   zero puts the walker in eax then `lea edx,[eax+4]`.
+- **TrackPlace_TestSquare** (WIP): do-while over the PlaceRect list
+  (first node is dereferenced with no NULL test — original bug). x = sx+x0
+  still emits `mov esi,[x0] / add esi,eax` instead of `mov esi,eax /
+  add esi,edx`.
