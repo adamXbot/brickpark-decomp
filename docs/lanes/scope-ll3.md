@@ -12,36 +12,38 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041e7f0 | RouteCar_GetHeading | 10 | 100 | [OK] | FUNCTION |
 | 0x0041f4c0 | Span_AllocPairs | 13 | 100 | [OK] | FUNCTION |
 | 0x0041e8f0 | RouteCar_PlaceAndBind | 25 | 100 | [OK] | FUNCTION |
-| 0x0041cd40 | JointSlot_Find | 27 | 70 | 9 mis | WIP |
+| 0x0041cd40 | JointSlot_Find | 27 | 96 | 1 mis | WIP |
 | 0x0041cd80 | JointSlot_Set | 45 | 100 | [OK] | FUNCTION |
 | 0x0041db20 | Route_CollectCarSample | 37 | 100 | [OK] | FUNCTION |
 | 0x0041ede0 | MapCell_AllowTrack | 38 | 100 | [OK] | FUNCTION |
 | 0x0041d210 | TrackFitFindPartners | 60 | 100 | [OK] | FUNCTION |
 | 0x0041f2b0 | Raster_ClipAgainstPlanes | 55 | 100 | [OK] | FUNCTION |
 | 0x0041d950 | Route_SetTrainAt | 66 | 100 | [OK] | FUNCTION |
-| 0x00411fa0 | LFQueue_StepRider | 74 |  |  |  |
-| 0x0041db90 | Route_GetMassAndPower | 77 |  |  |  |
+| 0x00411fa0 | LFQueue_StepRider | 74 | 72 | 52 mis | WIP |
+| 0x0041db90 | Route_GetMassAndPower | 77 | 70 | 51 mis | WIP |
 | 0x0041ee40 | TrackPlace_TestSquare | 79 | 96 | 60 mis | WIP |
-| 0x0041ef60 | Raster_ClipPoly | 80 |  |  |  |
-| 0x0041f3e0 |  | 85 |  |  |  |
-| 0x0041c940 | BsRoute_Trace | 130 |  |  |  |
-| 0x0041f050 |  | 179 |  |  |  |
+| 0x0041ef60 | Raster_ClipPoly | 80 | 75 | 47 mis | WIP |
+| 0x0041f3e0 | Span_FillEvalTable | 85 | 74 | 29 mis | WIP |
+| 0x0041c940 | BsRoute_Trace | 130 | byte-exact | 105 mis | WIP |
+| 0x0041f050 | Span_ClipPlane | 179 | 9 | 178 mis ESCAPES | WIP |
 
-**11 / 19 exact.** Find: slot/bit ecx/edx vs edx/ecx. TestSquare: x=sx+x0
-schedule (`add esi,eax` vs `mov esi,eax / add esi,edx`), 191B vs 192B.
+**11 / 19 exact.** All 19 addresses have a body. Relocs on FUNCTION bodies: 0 MISMATCH.
 
 ## Names
 
 Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
-`Route_SetTrainAt`. New: `Span_SetVertexBuf`, `JointSlot_TestSquare`,
-`RouteCar_GetHeading`, `Span_AllocPairs`, `RouteCar_PlaceAndBind`,
-`JointSlot_Find`, `Route_CollectCarSample`, `MapCell_AllowTrack`,
-`Raster_ClipAgainstPlanes`, `TrackPlace_TestSquare`.
+`Route_SetTrainAt`, `LFQueue_StepRider`, `BsRoute_Trace`,
+`Route_GetMassAndPower`, `Raster_ClipPoly`. New: `Span_SetVertexBuf`,
+`JointSlot_TestSquare`, `RouteCar_GetHeading`, `Span_AllocPairs`,
+`RouteCar_PlaceAndBind`, `JointSlot_Find`, `Route_CollectCarSample`,
+`MapCell_AllowTrack`, `Raster_ClipAgainstPlanes`, `TrackPlace_TestSquare`,
+`Span_FillEvalTable`, `Span_ClipPlane`.
 
 ## Mechanics
 
 - **Span_SetVertexBuf**: stores PolyVtx stride 0x1c at 0x004b5608 and the
-  live vertex pointer at 0x004b560c.
+  live vertex pointer / lerp dword bound at 0x004b560c. ClipPoly passes
+  `n + 1` (an integer bound, not a pointer).
 - **JointSlot_TestSquare**: forwards (square, probe-ctx) to 0x0041ee40.
 - **RouteCar_GetHeading**: copies RouteNode +0xb8..+0xc0 (dx/dy/dz).
 - **Span_AllocPairs**: allocator at +0x24 gets `(n+1)*(n+2)/2` slots.
@@ -59,6 +61,26 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   `&g_castle`; head offset +0x18/+0x1a against head_slot, tail +0x10/+0x12
   against tail_slot; a hit writes `1<<index` into jout.dir / jin.dir.
   Fail only when both indices are -1.
+- **Route_GetMassAndPower**: save `rt->pos` / `rt->f24`, set `g_route_eval`,
+  copy pos to `g_route_eval_at`, call 0x0041f4e0 (`Span_EvalRange`) with
+  `Route_CollectCarSample`, ops at 0x004d8270, saved `f24`, `0.1f`. `*power`
+  is the sample energy; `*mass` is the sum over cars of
+  `|heading|^2 * GetAcceleration * 2.52015616e-06f` (0x4ab400). Restore
+  pos/f24; push `*mass` into the 64-slot ring at 0x004d829c.
+- **Raster_ClipPoly**: mask 0xf is a no-op (`*count = 3`). Otherwise
+  `SetVertexBuf(n+1)` and clip against the low/high nibble of the mask:
+  flags 3 → 4 planes at ctx+4; 2 → 2 planes at ctx+0x1c; 1 → 2 planes at
+  ctx+4.
+- **Span_FillEvalTable**: alloc `(n+1)*(n+2)/2` via vtable +0x20, fill row
+  pointers at 0x004d88cc, evaluate `eval` at n+1 samples centred on `a`
+  with step `b`, then combine adjacent pairs down the rows via +0x04.
+- **Span_ClipPlane**: close `in[n] = in[0]`; negative plane distance is
+  inside. Both-inside emits prev; leave emits prev + lerp; enter emits
+  lerp. Lerp walks dwords `0..g_span_vtx` through `__ftol` (0x00458930)
+  into `*cursor` and advances by `g_span_vtx_stride`.
+- **BsRoute_Trace**: twin of `JungleCruise_TraceRoute`. DFS over the
+  school's water graph (step 5); west is a tail-call that VC6 turns into
+  a loop. `*ok` is a success flag.
 
 ## Levers
 
@@ -84,10 +106,26 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   (`edx = src - dest; [edx+ecx]`), then ping-pong `g_clip_ping[i&1]` /
   `[(i-1)&1]`. Latch is `i++; planes += 0xc` (not a for-increment).
   Reuses `n` as the clip result so the next plane sees the survivor count.
-- **JointSlot_Find** (WIP): need the slot walker in edx and the bit in ecx
-  (`test ecx, esi`). `int i = 0` first puts the walker in ecx; no early
-  zero puts the walker in eax then `lea edx,[eax+4]`.
+- **JointSlot_Find** (WIP): first insn `mov edx,[esp+8]` (slot); bit in
+  ecx, mask in esi, `i` in eax. Only leftover is `test ecx,esi` vs
+  `test esi,ecx`.
 - **TrackPlace_TestSquare** (WIP): do-while over the PlaceRect list
   (first node is dereferenced with no NULL test — original bug). x = sx+x0
   still emits `mov esi,[x0] / add esi,eax` instead of `mov esi,eax /
-  add esi,edx`.
+  add esi,edx`. Volatile x0 made it worse.
+- **Raster_ClipPoly** (WIP): `if (mask == 0xf)` exiles the early-out
+  (`je` vs original `jne` fall-through). switch(flags) gives the dec/je
+  chain and esi/edi, but cases 1 and 2 (both `planes=2`) share one call
+  tail. Original duplicates all three. Signed-char nibble tests match
+  `cmp dl,3 / jge` but move mask into ebx.
+- **BsRoute_Trace** (WIP): copy of the jcroute volatile-shim body
+  (`BS_W_MEM` / `BS_OWNER_MEM`) is 130i/339B byte-exact. Same phase-order
+  ALLOCATION floor as JungleCruise_TraceRoute (NG22).
+- **Span_FillEvalTable** (WIP): size-exact; n wants ebx from the first
+  insn (`push ebx / mov ebx,[esp+0x10]`). This build puts n in edi.
+- **Route_GetMassAndPower** (WIP): one struct of `{f24, pos, sample[21]}`
+  restores the 0x6c frame. rt still in ebp. Original stores the heading
+  sum of squares over the dead `power` argument slot (`fstp [esp+0x88]`).
+- **Span_ClipPlane** (WIP): 179i, ESCAPES. Need the original's 0x2c frame,
+  `in++` cursor in the latch, and the three-way sign classify
+  (`(prev_sign>>1)|next_sign` against 0x80000000 / 0xC0000000 / 0x40000000).

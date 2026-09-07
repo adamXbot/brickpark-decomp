@@ -3,7 +3,45 @@
  * Verification and recovered mechanics: docs/lanes/scope-ll3.md.
  */
 
+typedef struct Pos { int x, y; } Pos;
 typedef struct Vec3f { float x, y, z; } Vec3f;
+typedef struct BPos { unsigned char x, y; } BPos;
+typedef union BPosW { unsigned short w; BPos b; } BPosW;
+typedef struct BsWater {
+    BPosW pos;                      /* +0x00 */
+    BPosW owner;                    /* +0x02 */
+    int mask;                       /* +0x04 */
+    int dist;                       /* +0x08 */
+    int seen;                       /* +0x0c */
+} BsWater;
+typedef struct PathPt { int x, y, z; } PathPt;
+typedef struct LFPath { int count; PathPt* pts; } LFPath;
+typedef struct RiderNode {
+    unsigned char pad00[8];
+    struct Bloke* bloke;
+} RiderNode;
+typedef struct LFQueueNode {
+    struct LFQueueNode* next;
+    RiderNode* rider;
+} LFQueueNode;
+typedef struct LFQueue {
+    LFPath* path;
+    LFQueueNode* head;
+} LFQueue;
+typedef struct Bloke {
+    unsigned char pad00[0x0e];
+    unsigned short state;           /* +0x0e */
+    unsigned char pad10[0x24 - 0x10];
+    Pos target;                     /* +0x24 */
+    unsigned char pad2c[0x38 - 0x2c];
+    short path_i;                   /* +0x38 */
+    unsigned char pad3a[0x68 - 0x3a];
+    Pos world;                      /* +0x68 */
+    unsigned char pad70[0x73 - 0x70];
+    unsigned char dir8;             /* +0x73 */
+    unsigned char pad74[0x98 - 0x74];
+    unsigned char path[0x14];       /* +0x98 */
+} Bloke;
 typedef struct PackedSquare { short x, y; } PackedSquare;
 typedef struct JointSlot {
     int mask;
@@ -63,6 +101,9 @@ typedef struct SpanAlloc {
     unsigned char pad00[0x24];
     void (*alloc)(void* p, int n);  /* +0x24 */
 } SpanAlloc;
+typedef struct ClipPlane {
+    float nx, ny, d;
+} ClipPlane;
 typedef struct RouteCarSample {
     int count;                      /* +0x00  1 + 3 * nodes */
     float energy;                   /* +0x04  sum of car +0xc4 */
@@ -123,9 +164,28 @@ extern unsigned int JointBitFromIndex(int index);   /* 0x0041cc90 */
 extern void RouteNode_GetTailTangent(RouteNode* n, Vec3f* dir); /* 0x0041e930 */
 extern void Sub_429f30(Vec3f* dir, float step, RoutePos* from, float f40,
                        float tol, RoutePos* out, float* out_a); /* 0x00429f30 */
-extern int Span_ClipPlane(int n, void* in, void* out, void** cursor,
-                          void* plane);             /* 0x0041f050 */
+int Span_ClipPlane(int n, void* in, void* out, void** cursor,
+                   void* plane);                    /* 0x0041f050 */
+extern BsWater* BsWater_FindAt(int x, int y);       /* 0x0041c890 */
+extern int CalcMoveLine(Pos from, Pos to, void* path); /* 0x00480740 */
+extern int NewDirForAction(Bloke* b, unsigned char dir); /* 0x004833d0 */
+void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok); /* 0x0041c940 */
+extern float RouteNode_GetAcceleration(RouteNode* n); /* 0x0041e7e0 */
+extern void Span_EvalRange(void (*fn)(float, RouteCarSample*), void* ops,
+                           float a, float dt, RouteCarSample* out); /* 0x0041f4e0 */
+extern char g_span_eval_ops[];                      /* 0x004d8270 */
+extern float g_mass_hist[];                         /* 0x004d829c */
+extern int g_mass_hist_i;                           /* 0x004d83c0 */
+extern void* g_span_rows[];                         /* 0x004d88cc */
 
+typedef struct SpanOps2 {
+    unsigned char pad00[4];
+    void (*combine)(void* a, void* b, void* c); /* +0x04 */
+    unsigned char pad08[0x20 - 8];
+    void* (*alloc)(int n);                      /* +0x20 */
+} SpanOps2;
+
+extern void* g_span_context;                        /* 0x004b55fc */
 extern int g_track_place_enabled;                   /* 0x004b55f4 */
 extern MapHdr* g_map;                               /* 0x004bcbf4 */
 extern Cell** g_map_rows;                           /* 0x00801400 */
@@ -182,26 +242,27 @@ void RouteCar_PlaceAndBind(RouteNode* n, const RoutePos* at, float a)
 
 /* Which of the slot's four candidate squares equals `sq`.  Returns the
  * index, or -1.  Only bits set in the slot mask are considered. */
-/* Residual: slot walker in ecx and bit in edx; original has slot in edx
- * and bit in ecx (`test ecx,esi` / `add edx,4`). Same 27i/55B. */
-// WIP-FUNCTION: LEGOLAND 0x0041cd40  (70%, slot/bit ecx/edx vs edx/ecx)
+/* Residual: one TEST operand-order (`test ecx,esi` vs `test esi,ecx`).
+ * Walker/bit/mask registers and 27i/55B are right. mask&bit and bit&mask
+ * both emit test esi,ecx. */
+// WIP-FUNCTION: LEGOLAND 0x0041cd40  (96%, test ecx,esi vs test esi,ecx)
 int JointSlot_Find(const PackedSquare* sq, JointSlot* slot)
 {
-    int mask = *(int*)slot;
-    int i;
-    int bit;
+    int* p = (int*)slot;
+    unsigned mask = (unsigned)*p;
+    const int* want = (const int*)sq;
+    int i = 0;
+    unsigned bit = 1;
 
-    slot = (JointSlot*)((int*)slot + 1);
-    i = 0;
-    bit = 1;
+    p++;
     do {
-        if (mask & bit) {
-            if (*(const int*)sq == *(int*)slot)
+        if (bit & mask) {
+            if (*want == *p)
                 return i;
         }
         bit <<= 1;
         i++;
-        slot = (JointSlot*)((int*)slot + 1);
+        p++;
     } while (i <= 3);
     return -1;
 }
@@ -434,4 +495,328 @@ int TrackPlace_TestSquare(PackedSquare* sq, PlaceRect* ctx)
         } while (ctx);
     }
     return 1;
+}
+
+/* Clip a 3-vertex ring against the span clip set.  mask 0xf is a no-op
+ * (*count = 3).  Otherwise set the vertex stride and ping-pong the ring
+ * through the planes named by the low/high nibble of the mask. */
+/* Residual: switch dec/je and esi=mask/edi=flags are right; cases 1 and 2
+ * share one ClipAgainstPlanes tail (71i/160B vs 80i/194B). Signed-char
+ * compares and a goto early-out move mask into ebx and drop below 50%. */
+// WIP-FUNCTION: LEGOLAND 0x0041ef60  (75%, shared case-1/2 tail)
+void* Raster_ClipPoly(void** v, int* count, int mask, int n)
+{
+    int flags = 0;
+
+    if (mask == 0xf) {
+        *count = 3;
+        return v;
+    }
+    Span_SetVertexBuf((void*)(n + 1));
+    if ((mask & 3) < 3)
+        flags = 1;
+    if ((mask & 0xc) < 0xc)
+        flags |= 2;
+    switch (flags) {
+    case 3:
+        return Raster_ClipAgainstPlanes(3, (int*)v, count, 4,
+                                        (char*)g_span_context + 4);
+    case 2:
+        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2,
+                                        (char*)g_span_context + 0x1c);
+    case 1:
+        return Raster_ClipAgainstPlanes(3, (int*)v, count, 2,
+                                        (char*)g_span_context + 4);
+    default:
+        return v;
+    }
+}
+
+/* Walk one queued bloke one pace along the queue path: world target =
+ * path->pts[index] + (tx, ty) in 24.8, then CalcMoveLine / NewDirForAction
+ * and index++.  Clamp at the last point; if another bloke already occupies
+ * the new index, step back. */
+/* Residual: CalcMoveLine arg schedule and path_i increment (inc mem vs
+ * inc ax). 74i, 180B vs 177B. */
+// WIP-FUNCTION: LEGOLAND 0x00411fa0  (72%, CalcMoveLine / path_i)
+void LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b)
+{
+    LFPath* path = q->path;
+    PathPt* pt = &path->pts[b->path_i];
+    unsigned char a;
+    LFQueueNode* n;
+    short i;
+
+    b->target.x = (pt->x + tx) << 8;
+    b->target.y = (pt->y + ty) << 8;
+    a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
+    b->state = 7;
+    b->dir8 = a;
+    NewDirForAction(b, (unsigned char)((a >> 5) + 3));
+    b->path_i++;
+    i = b->path_i;
+    if ((int)i >= path->count) {
+        i = (short)path->count;
+        i--;
+        b->path_i = i;
+        return;
+    }
+    n = q->head;
+    while (n) {
+        Bloke* o = n->rider->bloke;
+        if (o->path_i == i) {
+            if (o != b) {
+                i--;
+                b->path_i = i;
+                return;
+            }
+        }
+        n = n->next;
+    }
+}
+
+/* Recursive four-way flood from (x, y) over the school's water graph
+ * (neighbours five squares away).  Sets *ok when it reaches (x1, y1).
+ * West is a tail-loop: x -= 5 and restart, not a recursive call. */
+/* Twin of JungleCruise_TraceRoute: west arm is a tail-call that VC6 turns
+ * into a loop. Volatile shims pin w/owner to frame homes so the body is
+ * byte-exact (339B) even if allocation still disagrees. */
+#define BS_W_MEM     (*(BsWater* volatile*)&w)
+#define BS_OWNER_MEM (*(BPosW*   volatile*)&owner)
+/* Residual: 130i/339B byte-exact, 105 mismatches. Same ALLOCATION floor as
+ * JungleCruise_TraceRoute: original gives esi/edi/ebp/ebx to x/y/x1/y1;
+ * our tail-call-to-loop conversion ranks the pointers first. */
+// WIP-FUNCTION: LEGOLAND 0x0041c940  (130i/339B byte-exact, 105 ALLOCATION)
+void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
+{
+    BsWater* w;
+    BsWater* p;
+
+    if (*ok == 1)
+        return;
+    w = BsWater_FindAt(x, y);
+    if (!w)
+        return;
+    if (w->owner.w != BS_OWNER_MEM->w)
+        return;
+    if (x == x1 && y == y1) {
+        *ok = 1;
+        return;
+    }
+    w->seen = 1;
+    if (w->mask & 1) {
+        p = BsWater_FindAt(x, y - 5);
+        if (p && p->seen == 0)
+            BsRoute_Trace(x, y - 5, x1, y1, BS_OWNER_MEM, ok);
+    }
+    if (BS_W_MEM->mask & 2) {
+        p = BsWater_FindAt(x + 5, y);
+        if (p && p->seen == 0)
+            BsRoute_Trace(x + 5, y, x1, y1, BS_OWNER_MEM, ok);
+    }
+    if (BS_W_MEM->mask & 4) {
+        p = BsWater_FindAt(x, y + 5);
+        if (p && p->seen == 0)
+            BsRoute_Trace(x, y + 5, x1, y1, BS_OWNER_MEM, ok);
+    }
+    if (BS_W_MEM->mask & 8) {
+        int nx = x - 5;
+        p = BsWater_FindAt(nx, y);
+        if (p && p->seen == 0)
+            BsRoute_Trace(nx, y, x1, y1, BS_OWNER_MEM, ok);
+    }
+}
+
+/* Snapshot the train, run the shade evaluator over CollectCarSample, then
+ * fold each car's heading*heading * acceleration * K into *mass.  *power
+ * is the sample energy.  The mass is also pushed into a 64-slot ring. */
+/* Residual: 77i, 255B vs 259B. Frame is 0x6c when locals are one struct;
+ * rt lands in ebp not eax. Sum-of-squares reuses the power arg slot in
+ * the original. */
+// WIP-FUNCTION: LEGOLAND 0x0041db90  (70%, rt ebp vs eax, 255/259B)
+void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
+{
+    struct {
+        float f24;
+        RoutePos pos;
+        float sample[21];
+    } fr;
+    RouteNode* n;
+    float* h;
+    int k;
+
+    fr.pos = rt->pos;
+    fr.f24 = rt->f24;
+    n = &rt->head;
+    g_route_eval = rt;
+    g_route_eval_at = rt->pos;
+    Span_EvalRange(Route_CollectCarSample, g_span_eval_ops, fr.f24, 0.1f,
+                   (RouteCarSample*)fr.sample);
+    *power = ((RouteCarSample*)fr.sample)->energy;
+    *mass = 0.0f;
+    h = &((RouteCarSample*)fr.sample)->heading[0].x;
+    do {
+        float acc = 0.0f;
+        k = 3;
+        do {
+            float v = *h;
+            acc += v * v;
+            h++;
+        } while (--k);
+        *mass += RouteNode_GetAcceleration(n) * acc * 2.52015616e-06f;
+        n = n->next;
+    } while (n != &rt->head);
+    rt->pos = fr.pos;
+    rt->f24 = fr.f24;
+    g_mass_hist[g_mass_hist_i & 0x3f] = *mass;
+    g_mass_hist_i++;
+}
+
+/* Alloc a triangular pair table, evaluate `eval` at n+1 samples centred on
+ * a, then combine adjacent pairs down the rows.  Returns the row-pointer
+ * table at 0x004d88cc. */
+/* Residual: 85i/212B exact size, 29 mismatches. n lives in edi not ebx;
+ * eval/row walkers are swapped as a result. */
+// WIP-FUNCTION: LEGOLAND 0x0041f3e0  (74%, n edi vs ebx)
+void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
+                          float a, float b)
+{
+    int m;
+    void* mem;
+    int i;
+    void** row;
+    int rows;
+
+    m = n + 1;
+    mem = ops->alloc((m * (m + 1)) >> 1);
+
+    if (mem == 0)
+        return 0;
+    if (n >= 0) {
+        void** p = g_span_rows;
+        int stride = m * 4;
+        do {
+            *p = mem;
+            mem = (char*)mem + stride;
+            p++;
+            stride -= 4;
+        } while (--m);
+    }
+    i = 0;
+    a = a - (float)(n >> 1) * b;
+    if (n >= 0) {
+        do {
+            eval(a, ((void**)g_span_rows[0])[i]);
+            a = a + b;
+            i++;
+        } while (i <= n);
+    }
+    if (n >= 1) {
+        row = &g_span_rows[1];
+        rows = n;
+        do {
+            for (i = 0; i < n; i++) {
+                void** prev = (void**)row[-1];
+                void** cur = (void**)row[0];
+                ops->combine(prev[i + 1], prev[i], cur[i]);
+            }
+            n--;
+            row++;
+        } while (--rows);
+    }
+    return g_span_rows;
+}
+
+/* Sutherland-Hodgman one-plane clip of a vertex-pointer ring.  in[n] is
+ * closed to in[0].  Negative plane distance is inside.  Crossing edges
+ * lerp every dword 0..g_span_vtx of the PolyVtx into *cursor and emit
+ * that cursor pointer; both-inside emits the previous vertex. */
+/* Residual: 179i (right count), 597B vs 593B, ESCAPES. Classification and
+ * both-inside / leave / enter emit are right; frame is 0x24 vs 0x2c and
+ * the edge latch does not reuse the original's in++ cursor. */
+// WIP-FUNCTION: LEGOLAND 0x0041f050  (9%, frame 0x24 vs 0x2c ESCAPES)
+int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
+{
+    void** in = (void**)in_v;
+    void** out = (void**)out_v;
+    ClipPlane* plane = (ClipPlane*)plane_v;
+    void* dst = *cursor;
+    int out_n = 0;
+    void* prev;
+    union { float f; int i; } pd;
+    int prev_abs;
+    int prev_sign;
+    int i;
+
+    in[n] = in[0];
+    prev = in[0];
+    pd.f = plane->d - ((float)((int*)prev)[2] * plane->nx
+                       + (float)((int*)prev)[1] * plane->ny);
+    prev_abs = pd.i & 0x7fffffff;
+    prev_sign = pd.i & 0x80000000;
+    if (n < 1) {
+        *cursor = dst;
+        return out_n;
+    }
+    for (i = 0; i < n; i++) {
+        void* next = in[i + 1];
+        union { float f; int i; } nd;
+        int next_abs;
+        int next_sign;
+        int cls;
+
+        nd.f = plane->d - ((float)((int*)next)[2] * plane->nx
+                           + (float)((int*)next)[1] * plane->ny);
+        next_abs = nd.i & 0x7fffffff;
+        next_sign = nd.i & 0x80000000;
+        cls = ((unsigned)prev_sign >> 1) | next_sign;
+        if (cls == (int)0x80000000) {
+            float t = (float)next_abs / (float)(prev_abs + next_abs);
+            int k;
+            if ((int)g_span_vtx >= 0) {
+                int* src = (int*)next;
+                int delta = (char*)prev - (char*)next;
+                int dest = (char*)dst - (char*)next;
+                k = 0;
+                do {
+                    int a = src[0];
+                    int d = *(int*)((char*)src + delta) - a;
+                    *(int*)((char*)src + dest) = a + (int)((float)d * t);
+                    src++;
+                    k++;
+                } while (k <= (int)g_span_vtx);
+            }
+            *out++ = dst;
+            dst = (char*)dst + g_span_vtx_stride;
+            out_n++;
+        } else if (cls == (int)0xc0000000) {
+            *out++ = prev;
+            out_n++;
+        } else if (cls == 0x40000000) {
+            float t = (float)prev_abs / (float)(prev_abs + next_abs);
+            int k;
+            *out++ = prev;
+            if ((int)g_span_vtx >= 0) {
+                int* src = (int*)prev;
+                int delta = (char*)next - (char*)prev;
+                int dest = (char*)dst - (char*)prev;
+                k = 0;
+                do {
+                    int a = src[0];
+                    int d = *(int*)((char*)src + delta) - a;
+                    *(int*)((char*)src + dest) = a + (int)((float)d * t);
+                    src++;
+                    k++;
+                } while (k <= (int)g_span_vtx);
+            }
+            *out++ = dst;
+            dst = (char*)dst + g_span_vtx_stride;
+            out_n += 2;
+        }
+        prev = next;
+        prev_abs = next_abs;
+        prev_sign = next_sign;
+    }
+    *cursor = dst;
+    return out_n;
 }
