@@ -72,13 +72,32 @@ typedef struct WinRect {
     int bottom;  /* +0x0c */
 } WinRect;
 
-/* fpui.c's 0xd0-byte ObjDef; only the fields the dead builder reads. */
+/* An LLIDB element (llidb.c / fpui.c LLElem): its name is the first field
+ * and its loaded class definition hangs off +0x0c. */
+typedef struct LLElem {
+    char*             name;   /* +0x00 */
+    char              pad04[0x0c - 0x04];
+    struct ObjDef*    def;    /* +0x0c */
+} LLElem;
+
+/* fpui.c's 0xd0-byte ObjDef; only the fields these functions read. */
 typedef struct ObjDef {
-    char       pad00[0x68];
+    char       pad00[0x1c];
+    unsigned int flags1c; /* +0x1c */
+    char       pad20[0x68 - 0x20];
     SpriteRec* icon;      /* +0x68 */
     char       pad6c[0x78 - 0x6c];
     char*      name;      /* +0x78 */
+    char       pad7c[0xc4 - 0x7c];
+    LLElem*    elem;      /* +0xc4 */
 } ObjDef;
+
+/* The 12-byte research/object list node (fpui.c ObjNode). */
+typedef struct ObjNode {
+    struct ObjNode* next;   /* +0x00 */
+    ObjDef*         obj;    /* +0x04 */
+    int             keep;   /* +0x08 */
+} ObjNode;
 
 /* workorder2.c's 17-record message table at 0x004ba8e0 (stride 12). */
 typedef struct MessageDef {
@@ -113,6 +132,8 @@ extern Icon*      g_cb_icon_ok;        /* 0x007fdea8 */
 extern Icon*      g_cb_icon_close;     /* 0x007fe000 */
 extern Pos        g_input_point;       /* 0x00813a44 */
 
+extern ObjNode*   g_research_list;     /* 0x00668ed8 (fpui.c) */
+
 /* The DirectInput keyboard state array lives at 0x007fdda0 (sysstubs.c names
  * g_left_shift = [0x2a] and g_right_shift = [0x36] out of it). */
 extern unsigned char g_left_ctrl;      /* 0x007fddbd  = key[DIK_LCONTROL] */
@@ -139,6 +160,10 @@ extern void  PrintCachedText(const char* text, int x, int y, int w, int h,
 extern void  InitPopUpTools(IconInputFn ok_fn, IconInputFn close_fn); /* 0x00470950 */
 extern void  UnloadPopUpTools(void);                            /* 0x00470b00 */
 extern void  ResetToolIcons(void);                              /* 0x00471d60 */
+extern void* HeapAlloc_w(unsigned int size);                    /* 0x0049e4ff */
+extern int   SaveGameWrite(const void* buf, unsigned int n);    /* 0x0047d760 */
+extern int   SaveGameRead(void* buf, unsigned int n);           /* 0x0047d730 */
+extern LLElem* ElemID(const char* name);                        /* 0x0047b3f0 */
 __declspec(dllimport) int __stdcall IntersectRect(WinRect* dst, const WinRect* a,
                                                   const WinRect* b); /* [0x4ab2a0] */
 
@@ -388,4 +413,62 @@ void DrawMessageBar(void)
         ResetToolIcons();
     if (box.bottom < g_input_point.y || g_input_point.y < y)
         ResetToolIcons();
+}
+
+/* ---------------------------------------- the research list's save chunk -- */
+
+/* Write the research list: the node count, then per node the length of its
+ * class element's name, the name itself (unterminated) and the node's keep
+ * flag. */
+// FUNCTION: LEGOLAND 0x00476250
+void SaveResearchList(void)
+{
+    int      count;
+    int      len;
+    ObjNode* p;
+
+    count = 0;
+    for (p = g_research_list; p; p = p->next)
+        count++;
+    SaveGameWrite(&count, 4);
+    for (p = g_research_list; p; p = p->next) {
+        len = strlen(p->obj->elem->name);
+        SaveGameWrite(&len, 4);
+        SaveGameWrite(p->obj->elem->name, len);
+        SaveGameWrite(&p->keep, 4);
+    }
+}
+
+/* Read the research list back. The name is read into a 512-byte stack buffer
+ * and NUL-terminated at the stored length, looked up with ElemID, and the
+ * class it resolves to gets flag 0x04000000 cleared and 0x08000000 set. */
+// FUNCTION: LEGOLAND 0x004762f0
+void LoadResearchList(void)
+{
+    int      n;
+    int      len;
+    char     name[0x200];
+    ObjNode* p;
+
+    p = 0;
+    g_research_list = 0;
+    SaveGameRead(&n, 4);
+    while (n-- != 0) {
+        if (p) {
+            p->next = (ObjNode*)HeapAlloc_w(0xc);
+            p = p->next;
+        } else {
+            p = (ObjNode*)HeapAlloc_w(0xc);
+            g_research_list = p;
+        }
+        SaveGameRead(&len, 4);
+        SaveGameRead(name, len);
+        name[len] = 0;
+        p->obj = ElemID(name)->def;
+        p->obj->flags1c &= 0xfbffffff;
+        p->obj->flags1c |= 0x8000000;
+        SaveGameRead(&p->keep, 4);
+    }
+    if (p)
+        p->next = 0;
 }
