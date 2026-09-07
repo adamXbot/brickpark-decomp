@@ -119,7 +119,7 @@ Best: `hi = tol; … hi = t;` + late `t0`. Lands early `push out_t` and
 | | |
 | --- | --- |
 | Branch / file | `scope/LL6` · `LEGOLAND/coaster12.c` |
-| Tip | `8c5eb5f5` |
+| Tip | `00779571` |
 | Notes | `docs/lanes/scope-ll6.md` |
 | Score | **87/87i, 232/232B, 34 mism (~83%)** — Grok FLOOR |
 
@@ -128,6 +128,9 @@ ICF-merges into fail1 (head stays `je fail1 / jmp loop`). Helpers stay
 ch-then-tail (LIFO). `goto match_tail` undoes latches. Needs a fail2 that
 survives ICF **and** tail-then-ch helper order.
 
+Ruled out: empty `__asm {}` on fail2 (LL4 Simpson pattern) — frame lever only,
+**64/89 = 71.9%**; main has no sibling that keeps two `pop/xor/ret` copies.
+
 ### LL6 — `Raster_AddSpanRecord` `0x00423200`
 
 **61/61i, 175/175B, 35 mism (~61%)** — Grok FLOOR.
@@ -135,6 +138,9 @@ survives ICF **and** tail-then-ch helper order.
 `mov edx,ecx` (y from `[ecx+4]`); keys-1 IV (`lea edx,[keys-8]`) vs
 `add edx,8` / `[edx-8]`; `dec edi` not `dec ebx`. Dropping volatile home
 gets `dec ebx` but loses the frame.
+
+Ruled out: ridemisc-style biased `int*` on `&keys->idx` (`k += 2`, `k[-2]`)
+→ **38/61**, wrong IV anchor (`add edx,4` / `[edx]`).
 
 ---
 
@@ -207,7 +213,7 @@ Do **not** merge partial scopes yourself.
 | LL3 | 14/19 | `c098897e` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
-| LL6 | 22/24 | `8c5eb5f5` | `coaster12.c` |
+| LL6 | 22/24 | `00779571` | `coaster12.c` |
 | LL7 | 14/17 | `0f653d1e` | `coaster13.c` |
 | LL8 | 12/13 | `94632422` | `gameframe2.c` |
 
