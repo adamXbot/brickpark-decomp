@@ -191,7 +191,25 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   `mov eax,[f24]`. q-before-`add esp,4` still only with extra volatiles
   or a pre-call q (ebp, 61/78). CollectCarSample's no-use lea cannot host
   `lea ebx,[eax+0x70]` here: Mass kills eax for f24 before the call.
-  Trace / ClipPlane not touched.
+  **2026-09-08 interleave hypothesis (still 65/77, lea ebx did not land).**
+  Original slot is `lea edi,[esp+0x14] / lea ebx,[eax+0x70] / rep movsd`
+  with eax still p for `[eax+0x24]` and `g_route_eval=eax`. Ours fills that
+  slot with `mov ebx,eax` and sinks `add ebx,0x70` to the last push before
+  `Span_EvalRange`. Reorder `fr.pos=p->pos; n=&p->head; fr.f24=p->f24`
+  (and named `src=&p->pos`, comma, two-step `node` then aggregate, rt
+  without `p`) all CSE back to the attractor. 3-arg / return-keep
+  `MassSnap` helpers DCE the unused keep and dest-coalesce. Short-lived
+  `p->head.next` DCE; used nxt steals ebp (59/80). `g_route_eval=p` then
+  `n=&g_route_eval->head` either `add eax,0x70` (54%) or still mov/add
+  (56–72%). `n` only in the EvalRange comma mutates eax (54%). Extra
+  PlaceAndBind on this 77i body still mov/add (56/83) — the mini-morph
+  lea does not survive. Volatile `fr.f24` makes mov/add adjacent (64/77)
+  but does not fuse to lea; pos-then-head does not change that.
+  q-before-`add esp,4`: comma / `while (n!=&(q=reload)->head)` /
+  `if ((q=reload)!=0)` leave the load after cleanup (or add a test).
+  Hist `edx=*mass; ecx=i&0x3f`: named `m`/`i`/`slot` become `fld`/`fstp`
+  (64/77); int-bitcast, post-inc, and SetSlope do-while keep the ecx/edx
+  swap. Best remains 65/77. Trace / ClipPlane not touched.
 - **Span_ClipPlane** (WIP): 179i, ESCAPES. Need the original's 0x2c frame,
   `in++` cursor in the latch, and the three-way sign classify
   (`(prev_sign>>1)|next_sign` against 0x80000000 / 0xC0000000 / 0x40000000).

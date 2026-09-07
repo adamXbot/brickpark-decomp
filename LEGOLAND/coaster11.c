@@ -652,7 +652,12 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
  * CollectCarSample's no-use lea (`mov ebp,1 / lea esi,[eax+0x70]`) cannot
  * host `lea ebx,[eax+0x70]` here: Mass already has `lea edx,[eax+0xc]`
  * in-slot and kills eax for f24 before the call (named src + delayed n is
- * `add eax,0xc` / dest-coalesce from edx, 58/78). */ 
+ * `add eax,0xc` / dest-coalesce from edx, 58/78).
+ * Interleave hypothesis (pos-copy setup, then lea head, eax live for f24
+ * / g_route_eval): still 65/77. Reorder / named src / two-step / helpers
+ * / dying next / n-from-g / n-in-call / vol f24 all fail to fuse
+ * `mov ebx,eax`+sunk `add ebx,0x70` into `lea ebx,[eax+0x70]`. q load
+ * stays after `add esp,4`; hist ecx/edx swap is sticky. */ 
 // WIP-FUNCTION: LEGOLAND 0x0041db90  (84%, lea ebx vs mov/add, q reload)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
