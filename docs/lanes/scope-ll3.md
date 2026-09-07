@@ -301,3 +301,23 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   holds frame 0x2c. Dropping it keeps ebx=n, `cmp ebx,1 / jl`, latch, and
   `and ebx,0x7fffffff`. 48/190 (25.3%), 609/593B (audit window), still
   ESCAPES. Sign still ebp (nxt is esi). Mass/Trace not touched.
+  **2026-09-08 nxt→edi wave (did not land).** dest-in-edi is the destrel-before-fild
+  occupant that keeps loop abs on ebx. Homing dest (dest_mem / volatile /
+  *cursor / assign-after-classify) frees edi, but nxt stays esi — loop abs
+  takes the delayed edi (`and edi,0x7fffffff`). nxt does not migrate; VC6
+  assigns esi at the 3-save prologue and only pushes edi when the loop abs
+  web needs a 4th. Assignment-order swap of nxt/dest is inert. Named
+  function-scope plane knocks ebx=n (plane→ebx or edi). Block-local
+  non-volatile plane coalesces across __ftol → edi, gives and-ebx, loses
+  ebx=n (n→edx). Split plane (first non-vol, loop vol) puts first plane in
+  ecx but bits still copy-abs in ecx; edi delayed. Plane writeback after
+  the abs/sign split restores ebx=n, not nxt=edi (plane is eax). An in_v
+  writeback makes **in** win edi (`mov edi,eax` / walk in in edi) and
+  still loads nxt into esi. A dummy `keep` live to `return` spills
+  (frame 0x30), never a 4th callee-save. Original nxt=edi because at the
+  first bits load **all three scratches are busy** (eax=in, ecx=plane,
+  edx=dest still live after the [esp+0x14] home), so abs is ebp, sign is
+  esi, nxt is leftover edi; dest stays edx until lerp destrel and is
+  spilled before __ftol. destrel-before-fild plus dest increment after
+  __ftol forces dest into edi — that conflicts with dest-as-edx. Cursor-first
+  / dest-smash / fild-order not reused. Tip restored. Mass/Trace not touched.
