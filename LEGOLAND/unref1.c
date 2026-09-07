@@ -51,7 +51,7 @@ struct LFPiece {
 typedef struct LFBoat {
     int           state;        /* +0x00 */
     unsigned int  flags;        /* +0x04  bit 0 = waiting at the station */
-    void*         rider;        /* +0x08  who is aboard */
+    struct RiderNode* rider;    /* +0x08  who is aboard */
     Pos           pos;          /* +0x0c  the quadrant point it entered at */
     LFPiece*      piece;        /* +0x14  the route piece it is over */
     float         z;            /* +0x18  how far along that piece, 0..1 */
@@ -341,6 +341,8 @@ CoasterCar* Route_UnseatCar(CoasterRoute* route)
 typedef struct Bloke {
     unsigned char pad00[0x50];
     void*         path;         /* +0x50 */
+    unsigned char pad54[0x60 - 0x54];
+    unsigned char action;       /* +0x60  the bloke's script step */
 } Bloke;
 
 typedef struct RiderNode {
@@ -580,15 +582,25 @@ void MathSelfTest(void)
 typedef struct Footprint { int v[4]; void* parts; } Footprint;  /* 0x14 */
 typedef struct TileBounds { int left, top, right, bottom; } TileBounds;
 
-typedef struct LFRunHead {
-    struct LFRunHead* next;     /* +0x00 */
-    unsigned int      flags;    /* +0x04 */
-    LFPiece*          f08;      /* +0x08 */
-    LFPiece*          f0c;      /* +0x0c */
-    LFPiece*          pieces;   /* +0x10 */
-} LFRunHead;
+/* The full run record (0xd4 bytes; logflume4.c / lfentrance.c own it). */
+struct LFRun {
+    LFRun*        next;         /* +0x00 */
+    unsigned int  flags;        /* +0x04  bit 0 = a boat is loading */
+    LFPiece*      f08;          /* +0x08 */
+    LFPiece*      f0c;          /* +0x0c */
+    LFPiece*      pieces;       /* +0x10 */
+    BPosW         sq;           /* +0x14 */
+    unsigned char pad16[2];
+    LFPiece*      f18;          /* +0x18 */
+    int           frame;        /* +0x1c */
+    unsigned char pad20[0x38 - 0x20];
+    LFBoat*       boat;         /* +0x38 */
+    int           boat_count;   /* +0x3c */
+    LFBoat        boats[4];     /* +0x40 */
+    int           piece_count;  /* +0xd0 */
+};                              /* 0xd4 */
 
-extern LFRunHead* g_lf_queue;                    /* 0x004cbe84 */
+extern LFRun* g_lf_queue;                        /* 0x004cbe84 */
 extern Footprint  g_lf_footprint;                /* 0x004b4728 */
 
 extern void GetTileBounds(const Pos* tile, TileBounds* out);  /* 0x0045acc0 */
@@ -610,7 +622,7 @@ extern void GetTileBounds(const Pos* tile, TileBounds* out);  /* 0x0045acc0 */
 // WIP-FUNCTION: LEGOLAND 0x00408f90  (50/50 insns, 40 strict mismatches; run vs h spill choice)
 LFPiece* LFTrack_FindPieceCovering(int x, int y)
 {
-    LFRunHead* run = g_lf_queue;
+    LFRun* run = g_lf_queue;
     int    h = g_lf_footprint.v[3] - g_lf_footprint.v[1];
     int    w = g_lf_footprint.v[2] - g_lf_footprint.v[0];
 
@@ -676,4 +688,203 @@ int LFPiece_ShadeForRow(BPos sq, const Footprint* fp, void* unused,
     else if (r > 1.0f)
         r = 1.0f;
     return 0x20 - (int)(r * -192.0f);
+}
+
+/* =========================================================================
+ * TWO MORE DEAD FLUME BODIES
+ * ========================================================================= */
+
+/* 0x0040bab0 (not exported, not matched): may boat `idx` of this run move on
+ * to the next route piece?  It compares this boat's position along its piece
+ * with every other boat's, using the same 0.5-of-a-piece spacing the draw
+ * code uses. */
+extern int LFBoat_IsWayClear(LFRun* run, int idx);              /* 0x0040bab0 */
+
+/* The dead twin of LFBoat_Step (0x0040bbb0): the same one-boat advance, but
+ * with the STATION handling folded in.  A boat with the "moving" bit set
+ * drops its rider when it reaches run->f0c (the exit piece: the rider's
+ * script step is bumped and the seat cleared), parks with a 50-frame timer
+ * when it reaches run->f08 (the station), and otherwise creeps forward one
+ * piece whenever the way is clear.  A parked boat counts its timer down and
+ * restarts -- unless a boat is already loading (run flag bit 0) -- resetting
+ * the timer to 1 either way.
+ *
+ * The leading `if (boat)` is a null test on `&run->boats[idx]`, which can
+ * never be null; the original tests it anyway and so do we. */
+// FUNCTION: LEGOLAND 0x0040bd40
+void LFBoat_StepAtStation(LFRun* run, int idx)
+{
+    LFBoat* boat = &run->boats[idx];
+
+    if (!boat)
+        return;
+    if (boat->flags & 1) {
+        if (boat->piece == run->f0c) {
+            if (boat->rider) {
+                Bloke* b = boat->rider->bloke;
+                b->action++;
+                boat->rider = 0;
+            }
+        }
+        if (boat->piece == run->f08) {
+            boat->state = 0x32;
+            boat->flags &= ~1u;
+            return;
+        }
+        if (boat->piece->fwd) {
+            if (LFBoat_IsWayClear(run, idx))
+                boat->piece = boat->piece->fwd;
+        }
+        return;
+    }
+    if (--boat->state < 0) {
+        if (!(run->flags & 1)) {
+            if (boat->piece->fwd) {
+                if (LFBoat_IsWayClear(run, idx)) {
+                    boat->flags |= 1;
+                    boat->piece = boat->piece->fwd;
+                }
+            }
+        }
+        boat->state = 1;
+    }
+}
+
+/* Move every boat standing on `p` (or on one of its sub-pieces) onto the
+ * neighbouring piece, so `p` can be taken out of the route.
+ *
+ * ORIGINAL BUG, reproduced: when the piece has neither a previous nor a next
+ * piece, `dest` is never assigned and the function reads it uninitialised.
+ * VC6 homes it in the incoming argument's own stack slot, so in practice it
+ * reads back `p` itself and every boat on `p` is "moved" onto `p`. */
+/* WIP: 64/64 instructions and 143 bytes, first divergence at index 1, 57
+ * strict.  The block layout is right (the two destination stores CROSS-JUMP
+ * into one; the sub-list arm is exiled past the `mov eax,1` epilogue; ebx and
+ * esi are pushed INSIDE the boat-loop path; the boat count is re-read from
+ * the run local in the latch).  The residual is one allocation choice: the
+ * original enregisters the PIECE in ebp and homes the destination cursor in
+ * the parameter's own stack slot; VC6 does the reverse for us whichever way
+ * the two are spelled.  Ruled out (57-63): a plain `dest` local left
+ * uninitialised on the no-neighbour path, reassigning the parameter itself
+ * (this form), a merged `n = prev; if (!n) n = next;` temporary, declaring
+ * the copy before the run, and indexing `run->boats[i]` instead of walking a
+ * cursor. */
+// WIP-FUNCTION: LEGOLAND 0x0040c250  (64/64 insns, 57 strict; piece vs dest spill choice)
+int LFPiece_MoveBoatsOff(LFPiece* p)
+{
+    LFPiece* piece = p;
+    LFRun*   run = piece->run;
+    LFBoat*  boat;
+    int      i;
+
+    if (piece->prev)
+        p = piece->prev;
+    else if (piece->next)
+        p = piece->next;
+    if (!p)
+        return 0;
+    if (p->sub)
+        p = p->sub;
+
+    boat = run->boats;
+    for (i = 0; i < run->boat_count; i++, boat++) {
+        LFPiece* s = piece->sub;
+        if (!s) {
+            if (LFBoat_IsAtPiece(boat, piece))
+                boat->piece = p;
+        } else {
+            do {
+                if (LFBoat_IsAtPiece(boat, s)) {
+                    boat->piece = p;
+                    break;
+                }
+                s = s->next;
+            } while (s);
+        }
+    }
+    return 1;
+}
+
+/* =========================================================================
+ * THE DRIVING SCHOOL'S WAYPOINT PUSH
+ * =========================================================================
+ * The mirror image of schoolcar4.c's SchoolCarIdleStep (0x00401cd0): that
+ * one shifts wp[1..16] DOWN over wp[0] and drops the count, this one shifts
+ * wp[0..15] UP to make room at the front and raises it.  Both carry the same
+ * one-past-the-end bug at their own end of the array -- here the first copy
+ * WRITES wp[16], i.e. over the cached unit heading at +0xb0/+0xb4 -- and
+ * both are written out as sixteen separate 8-byte struct assignments (a
+ * counted loop compiles to 19 instructions; VC6 SP3 does not unroll it).
+ * ========================================================================= */
+
+typedef struct Waypoint { int x, y; } Waypoint;
+typedef struct CarPos { int x, y; } CarPos;
+typedef struct SchoolCar {
+    struct SchoolCar* next;     /* +0x00 */
+    unsigned short school;      /* +0x04 */
+    unsigned char  pad06[2];
+    int            sx, sy;      /* +0x08 */
+    int            wx, wy;      /* +0x10 */
+    CarPos         cur;         /* +0x18 */
+    CarPos         start;       /* +0x20 */
+    int            vx, vy;      /* +0x28 */
+    Waypoint       wp[16];      /* +0x30 */
+    float          ux, uy;      /* +0xb0 */
+    unsigned char  frame;       /* +0xb8 */
+    unsigned char  b9;          /* +0xb9 */
+    unsigned char  turn;        /* +0xba */
+    unsigned char  nwp;         /* +0xbb */
+} SchoolCar;
+
+// FUNCTION: LEGOLAND 0x00401e00
+void SchoolCarPushWaypoint(SchoolCar* c)
+{
+    c->wp[16] = c->wp[15];      /* one past the end -- the original's bug */
+    c->wp[15] = c->wp[14];
+    c->wp[14] = c->wp[13];
+    c->wp[13] = c->wp[12];
+    c->wp[12] = c->wp[11];
+    c->wp[11] = c->wp[10];
+    c->wp[10] = c->wp[9];
+    c->wp[9]  = c->wp[8];
+    c->wp[8]  = c->wp[7];
+    c->wp[7]  = c->wp[6];
+    c->wp[6]  = c->wp[5];
+    c->wp[5]  = c->wp[4];
+    c->wp[4]  = c->wp[3];
+    c->wp[3]  = c->wp[2];
+    c->wp[2]  = c->wp[1];
+    c->wp[1]  = c->wp[0];
+    c->nwp++;
+}
+
+/* The vector four-point derivative.  Two scratch vectors are taken from the
+ * ops pool but only the second is used: the caller's `out` doubles as the
+ * accumulator, so the first sample is written straight into it and every
+ * later sample is scaled in `work` and added on.  The stencil is
+ * {-1, -1/3, +1/3, +1} in units of h/2 with the weights
+ * {1/16, -27/16, +27/16, -1/16}; the whole sum is finally divided by h/2.
+ * The first stencil point is peeled out of the loop, which is why the loop's
+ * table displacements are the SECOND entry of each array. */
+// FUNCTION: LEGOLAND 0x0041f5a0
+int PhysVec_Derivative4(void (*fn)(float, PhysVec*), PhysOps* ops,
+                        float x, float h, PhysVec* out)
+{
+    PhysVec** tmp;
+    PhysVec*  work;
+    int       i;
+
+    h *= 0.5f;
+    tmp = ops->alloc(2);
+    work = tmp[1];
+    fn(x + g_deriv_offsets[0] * h, out);
+    ops->scale(out, g_deriv_weights[0]);
+    for (i = 1; i <= 3; i++) {
+        fn(x + g_deriv_offsets[i] * h, work);
+        ops->scale(work, g_deriv_weights[i]);
+        ops->add(work, out, out);
+    }
+    ops->scale(out, 1.0f / h);
+    ops->free(tmp, 2);
+    return 1;
 }
