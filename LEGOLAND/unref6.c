@@ -76,7 +76,8 @@ typedef struct WinRect {
  * and its loaded class definition hangs off +0x0c. */
 typedef struct LLElem {
     char*             name;   /* +0x00 */
-    char              pad04[0x0c - 0x04];
+    int               pad04;  /* +0x04 */
+    unsigned int      flags;  /* +0x08  0x10 = a build class */
     struct ObjDef*    def;    /* +0x0c */
 } LLElem;
 
@@ -84,13 +85,31 @@ typedef struct LLElem {
 typedef struct ObjDef {
     char       pad00[0x1c];
     unsigned int flags1c; /* +0x1c */
-    char       pad20[0x68 - 0x20];
+    char       pad20[0x58 - 0x20];
+    LLElem*    parent;    /* +0x58 */
+    char       pad5c[0x68 - 0x5c];
     SpriteRec* icon;      /* +0x68 */
     char       pad6c[0x78 - 0x6c];
     char*      name;      /* +0x78 */
     char       pad7c[0xc4 - 0x7c];
     LLElem*    elem;      /* +0xc4 */
 } ObjDef;
+
+/* The 0x2c-byte scrolling object-list panel (fpui2.c ObjListPanel). */
+typedef struct ObjListPanel {
+    unsigned short group;    /* +0x00 */
+    short          pad02;
+    int            f04;      /* +0x04 */
+    Icon*          box;      /* +0x08 the list box icon */
+    int            list_x0;  /* +0x0c */
+    int            list_y0;  /* +0x10 */
+    int            list_x1;  /* +0x14 */
+    int            list_y1;  /* +0x18 */
+    int            box_x0;   /* +0x1c */
+    int            box_y0;   /* +0x20 */
+    int            box_x1;   /* +0x24 */
+    int            box_y1;   /* +0x28 */
+} ObjListPanel;
 
 /* The 12-byte research/object list node (fpui.c ObjNode). */
 typedef struct ObjNode {
@@ -164,6 +183,14 @@ extern void* HeapAlloc_w(unsigned int size);                    /* 0x0049e4ff */
 extern int   SaveGameWrite(const void* buf, unsigned int n);    /* 0x0047d760 */
 extern int   SaveGameRead(void* buf, unsigned int n);           /* 0x0047d730 */
 extern LLElem* ElemID(const char* name);                        /* 0x0047b3f0 */
+extern Icon* AddGBarIcons(void* owner, int x, int y, int unused, int h,
+                          int group);                           /* 0x0046dbc0 */
+extern void  SetNewGroup_Callbacks(void* a, void* b, void* c);  /* 0x0046d740 */
+extern void  AddFullScreenIcon(int group);                      /* 0x0046d760 */
+extern void  RemoveObjectListIcons(int group);                  /* 0x0046fb40 */
+extern int   LLIDB_GetCount(void);                              /* 0x0047b2d0 */
+extern void  LLIDB_GetElement(int i, LLElem** out);             /* 0x0047b2e0 */
+extern char  BuildObjectIconInput(Icon* p, int ev, short dx, short dy); /* 0x00470000 */
 __declspec(dllimport) int __stdcall IntersectRect(WinRect* dst, const WinRect* a,
                                                   const WinRect* b); /* [0x4ab2a0] */
 
@@ -471,4 +498,108 @@ void LoadResearchList(void)
     }
     if (p)
         p->next = 0;
+}
+
+/* --------------------------------------------- the children-class panel -- */
+
+/* Build a scrolling panel of every LLIDB build class whose parent is
+ * `parent`, laid out down the panel when bit 0 of `flags` is set and across
+ * it otherwise. Returns the number of icons made; when that is zero the
+ * whole group is removed again. The panel record is the same 0x2c-byte
+ * ObjListPanel fpui2.c's MakeUpObjectList builds, and the icons get the
+ * build panel's own input handler through SetNewGroup_Callbacks. */
+/* RESIDUAL (2026-09-08). Instruction count and block layout are exact
+ * (audit: 148i/420B ours vs 148i/411B original, mismatch 139, first
+ * diverging index 1; matchfull 84/147 = 57.1%). Every memory offset, every
+ * call, every branch target and every field store is in the original's
+ * place -- the whole residual is ONE register-allocation split:
+ *
+ *   original: esi=panel, edi=group, ebx=flags, ebp=i;  ix, iy and count
+ *             spilled into the DEAD ARGUMENT SLOTS of `group` (E+4),
+ *             `flags` (E+0x14) and `h` (E+0x18), n in the real local at
+ *             E-8, and the constant 0 hoisted into ebp before the malloc
+ *             (it serves `n = 0`, `cmp esi,ebp`, both SetNewGroup_Callbacks
+ *             zero arguments, and then becomes the loop counter).
+ *   ours:     esi=panel, ebx=group, ebp=ix, edi=iy;  i, flags and count
+ *             spilled, no zero web at all.
+ *
+ * ix/iy outrank group/flags/i in VC6's ranking for every spelling tried
+ * (about 30): loop as for / while / continue-guards; n++ before and after
+ * the call; `d = e->def` hoisted; root copies of group and flags; tail
+ * reading `icon` vs `w->box` and `iy` vs `w->list_y1`; `if (!w)` vs
+ * `if (w == 0)`. Putting `i = 0` at the top of the function (before the
+ * allocation) DOES build the zero web -- `xor edi,edi` / `cmp esi,edi` --
+ * but VC6 then gives `i` its own frame slot (`sub esp,0xc` instead of 8)
+ * and edi still ends up carrying iy, so it scores lower (48.7%). `register`
+ * is inert at /O2. What is still untried: a spelling that makes the two
+ * cursors cheap in memory (the original updates them with
+ * `add dword ptr [esp+X],K`) while leaving group and flags register-worthy.
+ * The nearest exact sibling, fpui2.c's MakeUpObjectList 0x00475960, has one
+ * fewer live value (it walks a list instead of counting an index) and keeps
+ * ix/iy in ebx/edi -- exactly what we get here. */
+// WIP-FUNCTION: LEGOLAND 0x0046f9a0  (57.1%, 84/147 by matchfull; audit 148i/420B vs 148i/411B, mismatch 139, first diverging index 1 -- whole-body register permutation, see the note)
+int MakeUpChildrenList(int group, LLElem* parent, int x, int y, int flags,
+                       int h)
+{
+    ObjListPanel* w;
+    LLElem*       e;
+    Icon*         icon;
+    Icon*         q;
+    int           n;
+    int           ix;
+    int           iy;
+    int           i;
+    int           count;
+
+    n = 0;
+    w = (ObjListPanel*)HeapAlloc_w(sizeof(ObjListPanel));
+    if (!w)
+        return 0;
+    icon = AddGBarIcons(w, x, y, flags, h, group);
+    w->box = icon;
+    ix = icon->x;
+    w->box_x0 = ix;
+    w->list_x0 = ix;
+    iy = icon->y;
+    w->box_y0 = iy;
+    w->list_y0 = iy;
+    w->box_x1 = icon->x + icon->w;
+    w->box_y1 = icon->y + icon->h;
+    w->f04 = flags;
+    w->group = (unsigned short)group;
+    SetNewGroup_Callbacks(0, 0, BuildObjectIconInput);
+    count = LLIDB_GetCount();
+    for (i = 0; i < count; i++) {
+        LLIDB_GetElement(i, &e);
+        if ((e->flags & 0x10) && e->def->parent == parent) {
+            n++;
+            AddGBarClassIcon(w, e->def, ix, iy, group, (short)i);
+            if (flags & 1)
+                iy += 0x38;
+            else
+                ix += 0x79;
+        }
+    }
+    AddFullScreenIcon(group + 6);
+    w->list_x1 = ix;
+    w->list_y1 = iy;
+    icon = w->box;
+    if (flags & 1) {
+        if (iy < icon->y + icon->h) {
+            icon->h = (short)(iy - w->list_y0);
+            q = FindIcon(group + 4);
+            if (q)
+                q->y = (short)w->list_y1;
+        }
+    } else {
+        if (ix < icon->x + icon->w) {
+            icon->w = (short)(w->list_x1 - w->list_x0);
+            q = FindIcon(group + 4);
+            if (q)
+                q->x = (short)w->list_x1;
+        }
+    }
+    if (n == 0)
+        RemoveObjectListIcons(group);
+    return n;
 }
