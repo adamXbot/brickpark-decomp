@@ -1,7 +1,6 @@
 # Scope AE — high-level bloke AI table handlers (inventory group 13 live) (2026-09-07)
 
-> **Status: DONE — 6 of 7 exact, merged into `main` 2026-09-07.** One
-> honest WIP: `Visitor_ReserveCafeBrolly` (i19 `test dl,1` floor). Branch
+> **Status: DONE — 7 of 7 exact, closed into `main` 2026-09-07.** Branch
 > `scope/AE`. Notes: `docs/lanes/scope-ae.md`. Object prefix `/tmp/sae_`.
 
 **Read `docs/PARALLEL_CONTRACT.md` first.** Relocation gate required.

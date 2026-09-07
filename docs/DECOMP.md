@@ -432,9 +432,12 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
     no `rep movsw` on literal runs.
   - **AD ShowCapacityOverlay:** C cannot jointly emit scale-in-eax and
     dest-lea-early; close `__declspec(naked)` like `BltAdvisor`.
-  - **AE:** `act = b->action; switch (b->action)` (goldrush); entrance tile
-    as two ints not one `Pos`. CafeBrolly still WIP (Cell stride 0x14;
-    reserved/flag split).
+  - **AE (closed 7/7):** `act = b->action; switch (b->action)` (goldrush);
+    entrance tile as two ints; Cell stride 0x14; for-latch GetNext +
+    `reserved = f & 1`. CafeBrolly SuggestNextMove arms: no named
+    `world`/`dest`/`out` pointers — mirror `Garderner_Repair`
+    (`SuggestNextMove(&b->world, &b->dest, &leg); target = leg;
+    CalcMoveLine(b->world, leg, path)`).
   - **AA:** AppraisalDueTick nested guards; FormatBlokeMessage indexed for
     with signed `jl`; JoinSeatList intrinsic memset + `unsigned short flags`.
     LeavePark/PickRide: `and dl` vs `and edx` residual family — leave WIP.
