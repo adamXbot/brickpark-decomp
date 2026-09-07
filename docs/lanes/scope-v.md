@@ -281,3 +281,37 @@ $PY tools/relocs.py LEGOLAND/eventtick.c  # 0 MISMATCH (10 UNRESOLVED literals)
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" "$LEGOLAND_CL" /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/sv_w3.obj LEGOLAND/eventgoal.c
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" "$LEGOLAND_CL" /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/sv_w3.obj LEGOLAND/eventtick.c
 ```
+
+## Resumption notes — 2026-09-07
+
+The recovered 61 exact functions were committed before further work on CLEAR.
+Its unmodified 172i/560B candidate remains the retained WIP; no experimental
+variant has been promoted. The note above its marker now corrects the former
+claim that it was five instructions longer: the gate counts five fewer.
+
+The fresh probes establish a bounded negative, not impossibility. Simple
+reordering, scalar/Pos/array/union views, compound footprint sums, inline
+helpers taking values or pointers, grouped local snapshots, copy assignments
+versus intrinsic memcpy, packed-byte read/write forms, and several equivalent
+loop/guard spellings did not recover the full body. Whole-footprint loads plus
+adds can give the original next/cell register pair but introduce other stores
+and reloads. A volatile byte reload of the y coordinate changes allocation,
+yet pins it too late or moves the wrong coordinate into ebp. Neither is an
+acceptable promotion. Diagnostic compiler-option and C++ probes also failed;
+the required `/O2 /Gy /Gd` toolchain remains unchanged.
+
+For a future pass, start from the original facts: instruction 19 loads next
+into ebx from its never-initialized home; the object is in edi; at 77 the x
+byte loads into dl and transfers to ebp at 79, then y reuses edx at 80–81.
+At 110 sq.y spills before the cursor copy, 112 moves x from ebp to ecx,
+113 stores cursor origin.y from edx, 114 reloads sq.y as a byte, and 115
+stores sq.x from ecx. This is followed by the original selected-position
+and class stores. The cursor restore reloads saved_def from the stack.
+Scratch generators, source, full comparisons and scores are `/tmp/v_finish/`;
+no scratch code is required by the project or included in the commits.
+
+Four extern names now agree with the already integrated definitions by
+address: `ResetAppraisalDeadline` (0x0044db40), `GoalCheck_Need`
+(0x00468d80), `GoalCheck_Connect` (0x00468dc0), and `GoalCheck_Link`
+(0x00468e00). Their caller-side types are preserved. The older rename and
+residual discussions above are historical.

@@ -191,7 +191,7 @@ extern void  KillAdvisorHelp(void);                                      /* 0x00
 extern void  RestoreScriptStepHelp(void);                                /* 0x0046b760 */
 extern void  ShowInfoPanel(int kind);                                    /* 0x00490600 */
 extern int   LoadHelpTextFor(const char* key);                           /* 0x004907a0 */
-extern void  sub_44db40(void);                                           /* 0x0044db40 */
+extern void  ResetAppraisalDeadline(void);                                           /* 0x0044db40 */
 extern void  PopInfoSizeMayChange(void);                                 /* 0x00471550 */
 extern void* GenerateGardener(Pos* pos, int in_hut);                     /* 0x0049a1a0 */
 extern void* GenerateMechanic(Pos* pos, int in_hut);                     /* 0x0049a340 */
@@ -211,9 +211,9 @@ extern int   TileJoinsPathNetwork(Pos* pos);                             /* 0x00
 /* scope X's hint primitives: queue a "need N of this", "connect this" or
  * "link this" hint when the hint timer has run (our reading; see
  * eventgoal.c for the four they are built on). */
-extern void  QueueNeedHint(ScriptEvent* e, void* elem, int count);       /* 0x00468d80 */
-extern void  QueueConnectHint(ScriptEvent* e, void* elem);               /* 0x00468dc0 */
-extern void  QueueLinkHint(ScriptEvent* e, void* elem);                  /* 0x00468e00 */
+extern void  GoalCheck_Need(ScriptEvent* e, void* elem, int count);       /* 0x00468d80 */
+extern void  GoalCheck_Connect(ScriptEvent* e, void* elem);               /* 0x00468dc0 */
+extern void  GoalCheck_Link(ScriptEvent* e, void* elem);                  /* 0x00468e00 */
 
 /* ---- this file ----------------------------------------------------------- */
 void CountNewThemeElem(LLElem* e);
@@ -555,7 +555,7 @@ void SetFeatureFlags(int idx, int v)
     case 3:  g_auto_stud = v; break;
     case 4:  g_power_available = v; break;
     case 5:  g_visitor_tire = v; break;
-    case 6:  g_inspector_on = v; sub_44db40(); break;
+    case 6:  g_inspector_on = v; ResetAppraisalDeadline(); break;
     case 7:  g_map->f3c = v; break;
     case 8:  g_map->f2c = v; break;
     case 9:  g_bricks_full = v; break;
@@ -774,7 +774,7 @@ int EventTick_Need(ScriptEvent* e)
     int have = ObjCount(e->elem);
 
     if (have < e->f1c) {
-        QueueNeedHint(e, e->elem, e->f1c - have);
+        GoalCheck_Need(e, e->elem, e->f1c - have);
         g_need_shortfall = e->f1c - have;
         return 0;
     }
@@ -793,7 +793,7 @@ int EventTick_Needat(ScriptEvent* e)
         cell = 0;
     if ((cell->flags & 0x80) && cell->obj == e->elem)
         return 1;
-    QueueNeedHint(e, e->elem, 1);
+    GoalCheck_Need(e, e->elem, 1);
     return 0;
 }
 
@@ -820,7 +820,7 @@ int EventTick_Needin(ScriptEvent* e)
     }
     if (count >= e->f1c)
         return 1;
-    QueueNeedHint(e, e->elem, e->f1c - count);
+    GoalCheck_Need(e, e->elem, e->f1c - count);
     return 0;
 }
 
@@ -855,7 +855,7 @@ int EventTick_Connect(ScriptEvent* e)
     }
     return 1;
 fail:
-    QueueConnectHint(e, elem);
+    GoalCheck_Connect(e, elem);
     return 0;
 }
 
@@ -942,11 +942,11 @@ int EventTick_Link(ScriptEvent* e)
         }
     }
     if (outside) {
-        QueueConnectHint(e, e->elem);
+        GoalCheck_Connect(e, e->elem);
         return 0;
     }
     if (missing) {
-        QueueLinkHint(e, e->elem);
+        GoalCheck_Link(e, e->elem);
         return 0;
     }
     return 1;
