@@ -91,18 +91,18 @@ instance of the same strip that was never wired up:
 
 ```
 0x00668d68  active flag        0x00668964  centre-slice count n
-0x00668010* x   (0x007fe010)   0x007fe014  y
+0x007fe010  x                  0x007fe014  y
 0x00668968  caption buffer (strcpy'd, no length check)
 ```
 
-* `OpenMessageBar(x, y, text, ok_fn, close_fn)` (0x00473680) `strcpy`s the
+- `OpenMessageBar(x, y, text, ok_fn, close_fn)` (0x00473680) `strcpy`s the
   caption into the 0x00668968 buffer (intrinsic `repne scasb` + `rep
   movsd`/`movsb` — an unbounded copy into a fixed global), stores x/y,
   builds the two gadgets through the SHARED `InitPopUpTools`, and sets the
   active flag.
-* `CloseMessageBar` (0x004736e0) calls 0x00470b00 (the control bar's sprite
+- `CloseMessageBar` (0x004736e0) calls 0x00470b00 (the control bar's sprite
   unloader — `UnloadPopUpTools`, named here) and clears the flag.
-* `DrawMessageBar` (0x004736f0) is a near-clone of `DrawPopUpExtra`: the
+- `DrawMessageBar` (0x004736f0) is a near-clone of `DrawPopUpExtra`: the
   CB_BGleft / CB_BGCentre x n / CB_BGRight strip at 0x7a + n*0x20 + 0x4e, the
   same OK / Close gadget placement (`right - 0x4b`, `right - 0x27`, `y + 3`,
   flags `&= ~0x400`), the caption through `PrintCachedText` at
