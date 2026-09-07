@@ -385,3 +385,112 @@ int Slider_Track(Box* r, int lo, int hi, int value)
     g_slider_grabbed = 0;
     return value;
 }
+
+/* =========================================================================
+ * The scrolling LIST PICKER these dialogs are built on, and the LLIDB
+ * front-end that fills it.  All dead.
+ * ========================================================================= */
+
+/* One LLIDB element as this picker reads it. */
+typedef struct LLElem {
+    const char*  name;      /* +0x00 */
+    void*        f04;       /* +0x04 */
+    unsigned int flags;     /* +0x08  bit 0 = "happy", the caller's mask */
+} LLElem;
+
+extern int   LLIDB_GetCount(void);                          /* 0x0047b2d0 */
+extern void  LLIDB_GetElement(int i, LLElem** out);         /* 0x0047b2e0 */
+extern void* LoadSprite(const char* name, int mode);        /* 0x00497ab0 */
+extern void  KillSprite(void* sprite);                      /* 0x00497bd0 */
+extern void  HeapFree_w(void* p);                           /* 0x0049e4d0 */
+extern int   NameCompare(const char* a, const char* b);     /* 0x004aab90 (_stricmp) */
+
+/* scope LL13 owns these two: wrapped-text measure and draw. */
+extern int   MeasureWrappedText(const char* text, int font, int width); /* 0x004551a0 */
+extern void  DrawWrappedText(int x, int y, const char* text, int font,
+                             int width);                    /* 0x00455220 */
+
+int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
+                  void (*overlay)(int sel), void** icons, int a7, int a8,
+                  int keep_scroll);                         /* 0x0043ea30 */
+
+/* Builds the picker's string array from every LLIDB element whose flags
+ * carry `mask`, sorts it by name and runs the picker; returns the chosen
+ * element (0 if the user backed out).  The two sprites are loaded and
+ * killed but never handed to the picker -- `icons` is one of its three
+ * DEAD parameters. */
+// FUNCTION: LEGOLAND 0x0043eee0
+LLElem* PickLLIDBElement(const char* title, void* backdrop, IRect* r,
+                         unsigned int mask, int keep_scroll)
+{
+    int      n;
+    LLElem*  elem;
+    LLElem** list;
+    char**   names;
+    void**   icons;
+    void*    spr_happy;
+    void*    spr_poor;
+    int      total;
+    int      matches;
+    int      i;
+    int      pass;
+    int      sel;
+    LLElem*  result;
+
+    total = LLIDB_GetCount();
+    matches = 0;
+    spr_happy = LoadSprite("happy.lls", 0);
+    spr_poor = LoadSprite("poor.lls", 0);
+    for (i = 0; i < total; i++) {
+        LLIDB_GetElement(i, &elem);
+        if (elem->flags & mask)
+            matches++;
+    }
+    names = (char**)HeapAlloc_w(matches * 4 + 4);
+    list = (LLElem**)HeapAlloc_w(matches * 4);
+    icons = (void**)HeapAlloc_w(matches * 4);
+    n = 0;
+    for (i = 0; i < total; i++) {
+        LLIDB_GetElement(i, &elem);
+        if (elem->flags & mask) {
+            list[n] = elem;
+            n++;
+        }
+    }
+    names[n] = 0;
+    for (pass = 0; pass < n - 1; pass++) {
+        int j;
+        int swapped = 0;
+
+        for (j = n - 2; j >= pass; j--) {
+            if (NameCompare(list[j + 1]->name, list[j]->name) < 0) {
+                LLElem* t = list[j + 1];
+
+                list[j + 1] = list[j];
+                list[j] = t;
+                swapped = 1;
+            }
+        }
+        if (!swapped)
+            break;
+    }
+    for (i = 0; i < n; i++) {
+        names[i] = (char*)list[i]->name;
+        if (list[i]->flags & 1)
+            icons[i] = spr_happy;
+        else
+            icons[i] = spr_poor;
+    }
+    sel = RunListPicker(names, title, backdrop, r, 0, icons, 0x2e, 0x28,
+                        keep_scroll);
+    if (sel != -1)
+        result = list[sel];
+    else
+        result = 0;
+    HeapFree_w(names);
+    HeapFree_w(list);
+    HeapFree_w(icons);
+    KillSprite(spr_happy);
+    KillSprite(spr_poor);
+    return result;
+}
