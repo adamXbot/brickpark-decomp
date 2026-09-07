@@ -36,12 +36,16 @@ Contract: `docs/PARALLEL_CONTRACT.md`. Index: `docs/SCOPE_LL_WAVE.md`.
 **EDX**. Volatile shims / `return count++` / LL2 `Fst` could not hold both
 tails at once.
 
-### LL7 — `Track_StepAlong` `0x00429f30` (exact on `scope/LL7`, tip `aec6ec9f`; scope **15/17**)
+### LL7 — `Track_StepAlong` `0x00429f30` + `TrackRunSetSlope` `0x00429560` (exact on `scope/LL7`, tip `479fd4bc`; scope **16/17**)
 
-Named `float step2 = step * step` was the wall (CSE kept step² live → batched
-`push esi` with tol). Write the square only at the store after t0:
-`t0 = cur.geom->t0; g_step_len2 = step * step;` — early `push esi` + correct FP.
-Still open on LL7: `TrackRunSetSlope` (7 eax↔edx), `TrackShade_FillPoly` (ZBuffer).
+**StepAlong:** Named `float step2 = step * step` was the wall. Write the square
+only at the store after t0: `t0 = cur.geom->t0; g_step_len2 = step * step;`
+
+**SetSlope:** Latch spelling — `for (; steps > 0; steps--)` (not
+`if (steps > 0) do { … } while (--steps)`) gets the 7 eax↔edx homes.
+Same 90i/302B either way; only the IV/zero colouring differs.
+
+Still open: `TrackShade_FillPoly` (ZBuffer floor, 0x6c vs 0x70).
 
 ---
 
@@ -116,16 +120,11 @@ Exact already: Romberg_Evaluate, TrackCursor_RetreatGeometry, GetCoasterTexture.
 Same class as `ZBuffer_FillPoly` (count-exact, homes wrong). Pos/volatile/latch
 probes exhausted by Grok.
 
-### LL7 — `TrackRunSetSlope` `0x00429560`
-
-**Floor.** 90i/302B, **7 eax↔edx**. `--steps` IV always wins eax; loop zero in edx.
-Volatile zero / named remain / live-across-call: inert or +bytes.
-
 ### LL7 — `TrackShade_FillPoly` `0x00428860`
 
 **ZBuffer floor.** Sibling of `ZBuffer_FillPoly` (schoolcar6.c). 254/254i,
 748/771B, frame 0x6c vs 0x70. EBP, `xchg ebx,eax`, `add ebx,1`, mixed `__asm`.
-Param is `nkeys` (`ne` is MASM reserved).
+Param is `nkeys` (`ne` is MASM reserved). Last WIP on LL7 (16/17).
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -146,7 +145,7 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 1. **LL3 MassAndPower** — size-exact 42 mism; dest-coalesce sink; LL2 RTL Fst inert.
 2. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
 3. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
-4. **LL7 SetSlope / ShadeFill** — eax↔edx / ZBuffer floors (StepAlong closed on branch).
+4. **LL7 ShadeFill** — ZBuffer floor (StepAlong + SetSlope closed on branch).
 5. **LL4 Span family** — last.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
@@ -164,10 +163,10 @@ Do **not** merge partial scopes yourself.
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
-| LL7 | 15/17 | `aec6ec9f` | `coaster13.c` |
+| LL7 | 16/17 | `479fd4bc` | `coaster13.c` |
 | LL8 | **13/13** | merged `main` | `gameframe2.c` |
 
-**WIP count in this wave:** 0+0+3+5+0+2+2+0 = **12 bodies**.
+**WIP count in this wave:** 0+0+3+5+0+2+1+0 = **11 bodies**.
 
 ---
 
