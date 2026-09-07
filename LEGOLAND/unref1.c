@@ -572,3 +572,108 @@ void MathSelfTest(void)
     PhysVec_InitOps(&ops, 3);
     PhysVec_DerivativeTable(ExpDerivs, &ops, 3.0f, 0.01f, &state);
 }
+
+/* =========================================================================
+ * THE LOG FLUME'S DEAD LOOK-UPS
+ * ========================================================================= */
+
+typedef struct Footprint { int v[4]; void* parts; } Footprint;  /* 0x14 */
+typedef struct TileBounds { int left, top, right, bottom; } TileBounds;
+
+typedef struct LFRunHead {
+    struct LFRunHead* next;     /* +0x00 */
+    unsigned int      flags;    /* +0x04 */
+    LFPiece*          f08;      /* +0x08 */
+    LFPiece*          f0c;      /* +0x0c */
+    LFPiece*          pieces;   /* +0x10 */
+} LFRunHead;
+
+extern LFRunHead* g_lf_queue;                    /* 0x004cbe84 */
+extern Footprint  g_lf_footprint;                /* 0x004b4728 */
+
+extern void GetTileBounds(const Pos* tile, TileBounds* out);  /* 0x0045acc0 */
+
+/* The flume piece whose one-cell footprint covers the map square (x, y).
+ * posstep.c's live LFTrack_FindPiece compares the square exactly; this dead
+ * twin accepts anything inside the flume cell's own span, so a piece drawn
+ * larger than one square still answers for its whole extent. */
+/* WIP: 40/50 strict, first divergence at index 1; the block layout, the two
+ * zero registers, all four compares and both epilogues are index-for-index
+ * right.  The whole residual is one register-allocation choice: the original
+ * spills the RUN cursor into the single stack dword (`push ecx`) and keeps
+ * both footprint spans in ebp/edi; VC6 gives us edi for `run` and spills the
+ * y-span instead, which costs the two outer-loop reloads and adds one inner
+ * reload.  Ruled out (identical 40): while/for/do-while spellings, reading
+ * the head first or last, two-definition (`h = v3; h -= v1;`) spans, a
+ * Footprint pointer local, function-scope cursors, a `volatile` run (48,
+ * worse), split `continue` guards, and swapping the two span initialisers. */
+// WIP-FUNCTION: LEGOLAND 0x00408f90  (50/50 insns, 40 strict mismatches; run vs h spill choice)
+LFPiece* LFTrack_FindPieceCovering(int x, int y)
+{
+    LFRunHead* run = g_lf_queue;
+    int    h = g_lf_footprint.v[3] - g_lf_footprint.v[1];
+    int    w = g_lf_footprint.v[2] - g_lf_footprint.v[0];
+
+    while (run) {
+        LFPiece* p = run->pieces;
+        while (p) {
+            int px = p->sq.b.x;
+            int py = p->sq.b.y;
+            if (x >= px && x <= px + w && y >= py && y <= py + h)
+                return p;
+            p = p->next;
+        }
+        run = run->next;
+    }
+    return 0;
+}
+
+/* Where a screen row falls down a piece's own drawn height, as a shade band.
+ * The class footprint's two corners are turned into tile bounds; `y` is
+ * measured from the TOP corner's top edge against the BOTTOM corner's bottom
+ * edge, scaled, clamped to 0..1 and mapped onto 0x20..0xe0 -- the game's
+ * darkness ramp, which is why the multiplier is -192 and the base is 32. */
+/* WIP: 68 of the original's 69 instructions, first divergence at index 3.
+ * Everything from the second GetTileBounds on is right, including the frame
+ * (one Pos + one TileBounds reused by both calls), the merged `add esp,0x10`,
+ * the two spills into the dead arg-2 slot, the fild/fmul/fdivp order, both
+ * clamp arms and the `0x20 - __ftol(r * -192)` tail.  The deficit is ONE
+ * callee-saved push: the original holds seven values at once (fp, sq.x, sq.y
+ * and all four corner sums) and so pushes ebx/ebp/esi/edi, putting x0 in edx
+ * and y0 in edi; VC6 lets sq.x die before it loads v[1], needs only six, and
+ * pushes three.  Ruled out (all 65-67): loading all four v[] before the adds,
+ * every permutation of the four sum statements, named sq.x/sq.y locals, a
+ * `const int* v = fp->v` cursor, storing the first point early or y-before-x,
+ * and moving the `(void)unused`. */
+// WIP-FUNCTION: LEGOLAND 0x0040adb0  (68/69 insns, 66 strict; one callee-saved push short)
+int LFPiece_ShadeForRow(BPos sq, const Footprint* fp, void* unused,
+                        int y, float scale)
+{
+    Pos        t;
+    TileBounds tb;
+    int        x0, x1, y0, y1, top, bottom;
+    float      r;
+
+    (void)unused;
+    x0 = fp->v[0] + sq.x;
+    x1 = fp->v[2] + sq.x;
+    y0 = fp->v[1] + sq.y;
+    y1 = fp->v[3] + sq.y;
+
+    t.x = x0;
+    t.y = y0;
+    GetTileBounds(&t, &tb);
+    top = tb.top;
+
+    t.x = x1;
+    t.y = y1;
+    GetTileBounds(&t, &tb);
+    bottom = tb.bottom;
+
+    r = (float)(y - top) / ((float)(bottom - top + 1) * scale);
+    if (r < 0.0f)
+        r = 0.0f;
+    else if (r > 1.0f)
+        r = 1.0f;
+    return 0x20 - (int)(r * -192.0f);
+}
