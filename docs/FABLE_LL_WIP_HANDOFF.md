@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `57e06366` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `80443222` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
@@ -189,9 +189,15 @@ Variants that grew frame (0x28/0x38) or forced `in++`/`fld`/signed classify alon
 stayed **2/179**. **ebx=n wave (did not land):** long-lived dest always wins
 ebx; n→esi/edi. Homing dest moves deref to eax but prev_abs/out take ebx.
 `--n` live across `__ftol` blocks ebx reuse (n → spill left → next_abs).
-**Next:** n’s live range must **die at the left home** before abs is computed,
-and dest must not be a callee-save candidate at the same time. Tip shape has
-in++/fld/classify; still ~9%/0x24.
+
+**Left-home wave (still 18/195, frame 0x24):** left spill after `cmp n,1` /
+`in++` is real (`mov [esp+0x1c],esi`). Dest off ebx does not give ebx to n —
+winners are loop-invariant **plane**, then **prev_abs**, then **`xor ebx,ebx`**
+(zero for `out_n` / `g_span_vtx >= 0`). n stays **esi**. `n = next_abs` does
+not coalesce. Volatile plane → ecx (original colouring for plane) still never
+`mov ebx,n`. Best transient this wave **30/191 (15.7%)** — under commit bar;
+tip restored. **Next:** an n/next_abs web that beats plane, prev_abs, and the
+zero register for ebx.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -203,7 +209,7 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — n dies at left-home before abs; dest must not take ebx.
+1. **LL3 Span_ClipPlane** — n/next_abs web must beat plane, prev_abs, and zero for ebx.
 2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
 3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
@@ -219,7 +225,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `57e06366` | `coaster11.c` |
+| LL3 | 16/19 | `80443222` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
