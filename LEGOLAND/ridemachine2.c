@@ -108,17 +108,27 @@ void Copters_StepCar(CoptersRec* rec, int index)
 /* Clear flying flags (paired 0/1 then 3/2 then 4), park frames at frames-1
  * in order 1,0,2,3,4, drop riders, clear ride bits 0x4001. silent!=0 skips
  * the fade/play pair (InitRecord path).
- * Residual: flag-pair register assignment swaps seat0/1 and seat2/3 loads
- * (85.9%). */
-// WIP-FUNCTION: LEGOLAND 0x004049a0  (85.9%, flag-pair edx/ebx swap)
+ * Residual: VC6 swaps edx/ebx on paired seat0/1 and seat3/2 loads
+ * (strict ~69%, matchfull 85.9%). Source order / volatile / reverse-pair
+ * cancel do not flip the coloring. */
+// WIP-FUNCTION: LEGOLAND 0x004049a0
 void Copters_StopRide(CoptersRec* rec, int silent)
 {
     unsigned mask = ~1u;
-    rec->seat[0].flags &= mask;
-    rec->seat[1].flags &= mask;
-    rec->seat[3].flags &= mask;
-    rec->seat[2].flags &= mask;
-    rec->seat[4].flags &= mask;
+    unsigned edx = rec->seat[0].flags;
+    unsigned ebx = rec->seat[1].flags;
+    edx &= mask;
+    ebx &= mask;
+    rec->seat[0].flags = edx;
+    edx = rec->seat[3].flags;
+    rec->seat[1].flags = ebx;
+    ebx = rec->seat[2].flags;
+    edx &= mask;
+    ebx &= mask;
+    rec->seat[3].flags = edx;
+    rec->seat[2].flags = ebx;
+    ebx = rec->seat[4].flags & mask;
+    rec->seat[4].flags = ebx;
     rec->seat[1].frame = (signed char)(rec->seat[1].frames - 1);
     rec->seat[0].frame = (signed char)(rec->seat[0].frames - 1);
     rec->seat[2].frame = (signed char)(rec->seat[2].frames - 1);
@@ -143,8 +153,6 @@ void Copters_StopRide(CoptersRec* rec, int silent)
     }
 }
 
-/* Space-tower car state machine: 1 waits on f10, 2 ascends by revs then
- * descends by 2 until height hits 0 and clears state. */
 // FUNCTION: LEGOLAND 0x0043a940
 void SpaceTower_StepCar(TowerCar* car)
 {
@@ -241,7 +249,17 @@ void SpaceTower_UpdateRiders(TowerRec* rec)
 
 /* Place one seated copter rider: screen+layer offset, POS-frame lift, then
  * bake a signed fixed-point 3x3 into person+0x58 from the POS matrix.
- * Residual: ebp-frame + jump-table/anim regs and POS-matrix loop schedule. */
+ *
+ * Jump table (NOT identity): 0->(3,0xd7) 1->(0,0xeb) 2->(4,0xe1)
+ * 3->(1,0xe6) 4->(2,0xe6).
+ *
+ * Levers recovered:
+ *  - `*(CopterSeat* volatile*)&rec = seat` keeps seat in [ebp+8]
+ *  - `sel = *(volatile int*)&index` + mode via `*(volatile*)&index`
+ *    yields ebx=anim, [ebp+0xc]=mode, jmp [eax*4], esi=layer
+ *  - residual: prologue wants `lea edi,[ecx+eax+0x18]` with early def
+ *    load; volatile seat store currently splits the lea. Plain assign
+ *    raises LCS (~20-24%) but steals anim into edi. */
 // WIP-FUNCTION: LEGOLAND 0x00404630
 void Copters_UpdateCarRider(CoptersRec* rec, int index)
 {
@@ -255,46 +273,34 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
     float* kf;
     float scale;
     int anim;
+    int layer;
     void** slots;
     int* out_base;
     int* ord;
     typedef struct SprHdr { char pad[0x14]; short dim; } SprHdr;
 #define SEAT ((CopterSeat*)rec)
 
-    __asm { nop }
-
     inst = rec;
-    rec = (CoptersRec*)&rec->seat[index];
+    *(CopterSeat* volatile*)&rec = &inst->seat[index];
     screen = GetScreenCoordsForObject(inst, g_copters_def);
     if (SEAT->rider == 0)
         return;
 
-    anim = 1;
-    switch (index) {
-    case 0:
-        anim = 0;
-        index = 0xeb;
-        break;
-    case 1:
+    layer = SEAT->ride_layer;
+    {
+        int sel = *(volatile int*)&index;
         anim = 1;
-        index = 0xe6;
-        break;
-    case 2:
-        anim = 2;
-        index = 0xe6;
-        break;
-    case 3:
-        anim = 3;
-        index = 0xd7;
-        break;
-    case 4:
-        anim = 4;
-        index = 0xe1;
-        break;
+        switch (sel) {
+        case 1: anim = 0; *(volatile int*)&index = 0xeb; break;
+        case 3: anim = 1; *(volatile int*)&index = 0xe6; break;
+        case 4: anim = 2; *(volatile int*)&index = 0xe6; break;
+        case 0: anim = 3; *(volatile int*)&index = 0xd7; break;
+        case 2: anim = 4; *(volatile int*)&index = 0xe1; break;
+        }
     }
 
-    layer_ofs = GetRenderOffsetForLayer(g_copters_layers, SEAT->ride_layer);
-    sprite = GetSpriteForLayer(g_copters_layers, SEAT->ride_layer);
+    layer_ofs = GetRenderOffsetForLayer(g_copters_layers, layer);
+    sprite = GetSpriteForLayer(g_copters_layers, layer);
     AdjustOffsetForViewMode(&layer_ofs);
 
     slots = *(void***)((char*)g_copters_postable + 0x24);
@@ -302,20 +308,25 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
     lift.oy = (int)kf[1] + index;
     AdjustOffsetForViewMode(&lift);
 
-    {
-        int half = ((SprHdr*)sprite)->dim >> 1;
-        pos.ox = screen.ox + layer_ofs.ox + half;
-        pos.oy = screen.oy + layer_ofs.oy + lift.oy;
-    }
+    pos.ox = screen.ox + layer_ofs.ox + (((SprHdr*)sprite)->dim >> 1);
+    pos.oy = screen.oy + layer_ofs.oy + lift.oy;
     AdjustBlokePosition(&pos);
     person = SEAT->rider->person;
     SetPersonPosition(person, pos.ox, pos.oy);
 
     scale = 65536.0f;
     kf = (float*)((char*)slots[anim] + SEAT->frame * 0x30);
-    kf[9] = kf[5] * kf[7] - kf[8] * kf[4];
-    kf[10] = kf[8] * kf[3] - kf[6] * kf[5];
-    kf[11] = kf[6] * kf[4] - kf[3] * kf[7];
+    {
+        float a = kf[5] * kf[7];
+        float b = kf[8] * kf[4];
+        kf[9] = a - b;
+        a = kf[8] * kf[3];
+        b = kf[6] * kf[5];
+        kf[10] = a - b;
+        a = kf[6] * kf[4];
+        b = kf[3] * kf[7];
+        kf[11] = a - b;
+    }
 
     ord = g_copter_ord_a;
     out_base = (int*)((char*)person + 0x58);
@@ -324,10 +335,18 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
         int* out = out_base;
         int off;
         for (off = 0; off < 0xc; off += 4) {
-            int idx = (oa + SEAT->frame * 4 + 1) * 3
-                    + *(int*)((char*)g_copter_ord_b + off);
-            float f = ((float*)slots[anim])[idx];
-            int v = (int)(f * scale);
+            int idx, v;
+            float f;
+            idx = (oa + SEAT->frame * 4 + 1) * 3
+                + *(int*)((char*)g_copter_ord_b + off);
+            f = ((float*)slots[anim])[idx];
+            *(float*)&index = f;
+            *(float*)&index = *(float*)&index * scale;
+            __asm {
+                fld dword ptr [index]
+                fistp dword ptr [index]
+            }
+            v = index;
             *out = *(int*)((char*)g_copter_sign_a + off)
                  * g_copter_sign_b[oa] * v;
             out += 3;

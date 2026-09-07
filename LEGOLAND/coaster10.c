@@ -206,22 +206,17 @@ float Route_GetSpeed(CoasterRoute* route)
 
 
 
-/* Transform `count` vectors by Mat4 (row-major, translation in m[3/7/11]). */
-
-
-/* Transform `count` vectors by Mat4 (row-major, translation in m[3/7/11]). */
-
-
 /* Transform `count` vectors by Mat4 (row-major, translation in m[3/7/11]).
- * Residual: out+=12 spills the out slot; original keeps edi live without a
- * writeback (86.7%, ESCAPES). Same shape as TransformVerts without clip. */
-// WIP-FUNCTION: LEGOLAND 0x004261c0  (86.7%, out-pointer spill vs live edi)
-void TransformVec3(const Vec3f* s, Vec3f* d, const Mat4* m, int count)
+ * Live `float* d` advances by +4 and avoids the d+=12 stack spill (ESCAPES).
+ * Residual: s lands in ebx and col-count in ebp; original wants ebp=s /
+ * ebx=3 (78.6%). Vec3f* d restores ebp=s but reintroduces the spill. */
+// WIP-FUNCTION: LEGOLAND 0x004261c0
+void TransformVec3(const Vec3f* s, float* d, const Mat4* m, int count)
 {
     int j, k;
+    int keep = 0;
     while (count-- > 0) {
         const float* row = m->m;
-        float* o = (float*)d;
         for (k = 0; k < 3; k++) {
             float acc = 0.0f;
             const float* sp = (const float*)s;
@@ -229,13 +224,13 @@ void TransformVec3(const Vec3f* s, Vec3f* d, const Mat4* m, int count)
             for (j = 0; j < 3; j++)
                 acc += *rp++ * sp[j];
             acc += row[3];
-            *o = acc;
+            *d++ = acc;
             row += 4;
-            o++;
+            keep++;
         }
         s = (const Vec3f*)((const char*)s + 12);
-        d = (Vec3f*)((char*)d + 12);
     }
+    (void)keep;
 }
 
 // FUNCTION: LEGOLAND 0x00422400
@@ -287,17 +282,22 @@ void RouteNode_LinkPending(RouteNode* node)
 
 /* h == 0: direct tangent via method table[mode*8+4].
  * h != 0: finite-difference of EvaluateOffset through 0x0041f4e0.
- * Residual: FD call arg schedule and PhysVec→Vec3f copy (stores to
- * g_deriv_* interleaved with pushes) not yet recovered. */
-// WIP-FUNCTION: LEGOLAND 0x00429c60  (55%, FD schedule / result copy)
+ * Lever: `(g_deriv_out = out, TrackCurve_DerivSample)` as fn arg places the
+ * g_deriv_out store immediately before call (RTL). Residual: early
+ * mov edx,out / lea schedule and PhysVec copy via fstp+[eax] (~33%). */
+// WIP-FUNCTION: LEGOLAND 0x00429c60
 void TrackCurve_EvaluateDerivative(RoutePos* at, int mode, int t, float h, Vec3f* out)
 {
+    char scratch[0x54];
     if (h != 0.0f) {
-        char scratch[0x54];
         g_deriv_at = at;
         g_deriv_mode = mode;
-        g_deriv_out = out;
-        FiniteDifference(TrackCurve_DerivSample, (void*)0x00615f98, t, 0.01f, scratch);
+        FiniteDifference(
+            (g_deriv_out = out, TrackCurve_DerivSample),
+            (void*)0x00615f98,
+            t,
+            0.01f,
+            scratch);
         out->x = ((float*)scratch)[1];
         out->y = ((float*)scratch)[2];
         out->z = ((float*)scratch)[3];
@@ -306,7 +306,6 @@ void TrackCurve_EvaluateDerivative(RoutePos* at, int mode, int t, float h, Vec3f
     }
 }
 
-/* Pass 1: faces +0x18/+0x1c, filler 0x4b5648, SubmitPoly attr count 2. */
 // FUNCTION: LEGOLAND 0x00420810
 void CoasterModel_DrawPass1(CoasterMesh* model, void* texture, int mode)
 {
