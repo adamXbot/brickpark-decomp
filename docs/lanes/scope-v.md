@@ -1150,3 +1150,14 @@ right, byte sources mirrored) and `vy_c` (structure right, colouring flipped).
   Here the arms' loads are forwarded from `by`/`bx` before the phi is formed,
   so no fresh web survives; FGH's arms loaded through a pointer with no
   preceding store, which is why theirs did.
+- **Reference count is not the colouring driver.** With `vy_c`'s group plus
+  one, two or three extra stores of `by` to globals (7 y references against
+  6 for x, at the cost of the extra instructions) x still takes edx: the byte
+  need decides absolutely, priority does not enter.
+- **The `B5h` family** (volatile read of `sq.x` as the barrier, colouring
+  right at 112) with `origin.y = sq.y`, `origin = sq`, or the y byte placed
+  before the barrier: y's byte always comes from `dl`; the aggregate forms
+  reach 27 strict with `next` moved. No fresh `sq.y` web spans the copy.
+- **`__inline` helpers taking the bytes by value** (`(unsigned char,
+  unsigned char)`, `(int, int)` with casts inside, `Pos` by value) inline to
+  the plain row-four body: argument temps coalesce like any other copy.
