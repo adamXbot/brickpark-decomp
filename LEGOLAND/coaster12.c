@@ -449,8 +449,9 @@ int GetTrackSegmentPiece(Pos* tile, float* h0, Pos* p1, float* h1,
 /* Walk the live coaster for the piece on `tile`. Closed = jout ring;
  * open = tail via jout then head via jin. nxt is loaded after sx and
  * assigned back before the sentinel test; open loads the tile pointer
- * before the tail==ring guard. */
-// WIP-FUNCTION: LEGOLAND 0x00424050  (walk latch / fail tails / call sites)
+ * before the tail==ring guard. Tail-match stays pending until after
+ * head so both latches invert and fail2 survives. */
+// WIP-FUNCTION: LEGOLAND 0x00424050  (head fail2 / call-site order)
 int GetTrackSegment(Pos* tile, float* h0, Pos* p1, float* h1, int* link)
 {
     TrackNode* n;
@@ -458,6 +459,7 @@ int GetTrackSegment(Pos* tile, float* h0, Pos* p1, float* h1, int* link)
     Pos* t;
     int tx;
     int sx;
+    int from_tail = 0;
     if (g_castle.state == 2) {
         n = g_castle.ring.jout.node;
         if (n == &g_castle.ring)
@@ -468,7 +470,7 @@ int GetTrackSegment(Pos* tile, float* h0, Pos* p1, float* h1, int* link)
             sx = (int)n->sx;
             nxt = n->jout.node;
             if (sx == tx && (int)n->sy == t->y)
-                goto call_ch;
+                goto did_match;
             n = nxt;
         } while (nxt != &g_castle.ring);
         return 0;
@@ -477,15 +479,17 @@ int GetTrackSegment(Pos* tile, float* h0, Pos* p1, float* h1, int* link)
     t = tile;
     if (n == &g_castle.ring)
         goto head;
+    from_tail = 1;
     tx = t->x;
     do {
         sx = (int)n->sx;
         nxt = n->jout.node;
         if (sx == tx && (int)n->sy == t->y)
-            return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
+            goto did_match;
         n = nxt;
     } while (nxt != &g_castle.ring);
 head:
+    from_tail = 0;
     n = g_castle.head_node;
     if (n == &g_castle.ring)
         return 0;
@@ -494,25 +498,19 @@ head:
         sx = (int)n->sx;
         nxt = n->jin.node;
         if (sx == tx && (int)n->sy == t->y)
-            goto call_ch;
+            goto did_match;
         n = nxt;
     } while (nxt != &g_castle.ring);
     return 0;
-call_ch:
+did_match:
+    if (from_tail)
+        return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
     return GetTrackSegmentPiece(t, h0, p1, h1, n, link);
 }
 
-/* Add in place and return the same register, so the straight arms stay
- * `add esi, r/imm / mov eax, esi` instead of `lea eax, [esi+K]`. */
-static __inline int AddOff(int off, int addend)
-{
-    off += addend;
-    return off;
-}
-
-/* Map a live piece onto the 28-entry prototype table. Straight arms
- * should be `add esi, imm/ebx; mov eax, esi` (VC6 emits lea). */
-// WIP-FUNCTION: LEGOLAND 0x004283c0  (103i, straight-arm lea vs add; switch)
+/* Map a live piece onto the 28-entry prototype table. Add in the arm
+ * and return after the chain so VC6 cannot fold `off+K` into lea. */
+// FUNCTION: LEGOLAND 0x004283c0
 int TrackPiece_FindIndex(TrackNode* node)
 {
     int slope = TrackNodeSlopeCode(node);
@@ -520,12 +518,12 @@ int TrackPiece_FindIndex(TrackNode* node)
     off += 2;
     if (node->jin.dir == JointOppositeDir(node->jout.dir)) {
         if (slope == 8)
-            return AddOff(off, slope);
-        if (slope == 2)
-            return AddOff(off, 13);
-        if (slope == 13)
-            return AddOff(off, 18);
-        if (slope == 7)
+            off += slope;
+        else if (slope == 2)
+            off += 13;
+        else if (slope == 13)
+            off += 18;
+        else if (slope == 7)
             off += 23;
         return off;
     }
@@ -543,43 +541,45 @@ int TrackPiece_FindIndex(TrackNode* node)
 }
 
 /* Append one span-group to the software-rasteriser's edge table.
- * 61/61 instructions; residual is allocation (keys/edge cursors). */
-// WIP-FUNCTION: LEGOLAND 0x00423200  (61i/61i, register/offset allocation)
+ * Count-before-cursor is the push-ecx / mov ecx,[cursor] prologue.
+ * Residual is ebx vs esi, the edx saved copy, and the keys-1 IV. */
+// WIP-FUNCTION: LEGOLAND 0x00423200  (61i/175B, ebx/edx/keys IV)
 void Raster_AddSpanRecord(int ne, int y, SortKey* keys, SpanEdge* edges)
 {
-    int home;
-    char* cur = (char*)g_span_cursor;
-    int count = g_span_count;
-    home = (int)cur;
-    count++;
-    g_span_count = count;
-    if ((unsigned)(home + 0x10) > (unsigned)0x004e3870) {
+    char* cur;
+    char* saved;
+    int n;
+    int keep;
+
+    n = g_span_count;
+    cur = (char*)g_span_cursor;
+    saved = cur;
+    n++;
+    g_span_count = n;
+    if ((unsigned)(cur + 0x10) > (unsigned)0x004e3870) {
         g_span_overflow = 1;
         return;
     }
     if (ne == 0)
         return;
-    *(int*)home = ne;
-    *(int*)(home + 4) = y;
-    {
-        int keep = 0;
-        if (ne > 0) {
-            char* dst = (char*)home + 0xa;
-            int left = ne;
-            keep = ne;
-            do {
-                int idx = keys->idx;
-                SpanEdge* e;
-                keys++;
-                e = (SpanEdge*)((char*)edges + idx * 48);
-                *(short*)(dst - 2) = (short)(e->a[0] >> 16);
-                *(int*)(dst + 2) = e->d[0];
-                *(short*)dst = (short)keys[-1].y;
-                if (e->dir == 1)
-                    *(short*)dst = (short)-(*(short*)dst);
-                dst += 8;
-            } while (--left);
-        }
-        g_span_cursor = (char*)home + 8 + keep * 8;
+    *(int*)cur = ne;
+    *(int*)(saved + 4) = y;
+    keep = 0;
+    if (ne > 0) {
+        char* dst = saved + 0xa;
+        n = ne;
+        keep = ne;
+        do {
+            int idx = keys->idx;
+            SpanEdge* e = (SpanEdge*)((char*)edges + idx * 48);
+            keys++;
+            *(short*)(dst - 2) = (short)(e->a[0] >> 16);
+            *(int*)(dst + 2) = e->d[0];
+            *(short*)dst = (short)keys[-1].y;
+            if (e->dir == 1)
+                *(short*)dst = (short)-*(short*)dst;
+            dst += 8;
+        } while (--n);
     }
+    g_span_cursor = *(char* volatile*)&saved + 8 + keep * 8;
 }

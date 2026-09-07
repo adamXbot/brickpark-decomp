@@ -7,12 +7,12 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 
 | address | name | insns | % | audit | marker |
 | --- | --- | ---: | ---: | --- | --- |
-| 0x00423200 | Raster_AddSpanRecord | 61 | 61/61 i | WIP | WIP (allocation; 61 mismatch) |
+| 0x00423200 | Raster_AddSpanRecord | 61 | ~61 | WIP | WIP (push ecx; esi vs ebx) |
 | 0x00423940 | TrackNode_InitStationJoints | 8 | 100 | [OK] | FUNCTION |
 | 0x00423970 | TrackNode_SetStationHeights | 6 | 100 | [OK] | FUNCTION |
 | 0x00423990 | Castle_GetCurveA | 2 | 100 | [OK] | FUNCTION |
 | 0x00423f40 | GetTrackSegmentPiece | 86 | 100 | [OK] | FUNCTION |
-| 0x00424050 | GetTrackSegment | 87 | ~78 | WIP | WIP (47 mismatch; tail/head latch) |
+| 0x00424050 | GetTrackSegment | 87 | ~83 | WIP | WIP (fail2 / call order) |
 | 0x00425da0 | Vec3f_Equal | 25 | 100 | [OK] | FUNCTION |
 | 0x00426190 | Mat4_Transpose | 21 | 100 | [OK] | FUNCTION |
 | 0x004263a0 | ProjectVertsToRect | 72 | 100 | [OK] | FUNCTION |
@@ -28,11 +28,11 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 | 0x00427f70 | TrackNode_RemovePath | 39 | 100 | [OK] | FUNCTION |
 | 0x00427ff0 | TrackNode_AddPath | 39 | 100 | [OK] | FUNCTION |
 | 0x00428350 | Piece_InitStraight | 30 | 100 | [OK] | FUNCTION |
-| 0x004283c0 | TrackPiece_FindIndex | 103 | ~83 | WIP | WIP (lea vs add esi,ebx; switch) |
+| 0x004283c0 | TrackPiece_FindIndex | 103 | 100 | [OK] | FUNCTION |
 | 0x004286e0 | TrackNode_GetPieceDesc | 8 | 100 | [OK] | FUNCTION |
 | 0x00428840 | LowestSetBitIndex | 10 | 100 | [OK] | FUNCTION |
 
-**21 / 24 exact.** All 24 have bodies. `audit.py` PASS, `relocs.py` zero
+**22 / 24 exact.** All 24 have bodies. `audit.py` PASS, `relocs.py` zero
 MISMATCH (UNRESOLVED float literals 0.0 / 0.5 / -2.0),
 `/W3` clean.
 
@@ -80,11 +80,12 @@ See the first commit for the exact stubs. New this wave:
   return the walked dest pointer. That parks dest in eax before the
   saved-register pushes. Returning the original dest (a saved copy) or
   a dest-first void store helper left the eax/ecx cursors swapped.
-- `TrackPiece_FindIndex`: jump table on `slope-1` is right (12→0, 3→1,
-  4→2, 1→3, 6→4, 9→5, 14→6, 11→7, else -1). Straight arms still
-  `lea eax,[esi+K]` against original `add esi,ebx/imm / pop edi /
-  mov eax,esi`. An inlined `AddOff(off, slope)` does not stop the fold.
-  `>> 1` not `/2` (sar vs cdq).
+- `TrackPiece_FindIndex`: exact once adds live in the if/else-if chain
+  and `return off` sits after the chain. That splits add from return so
+  VC6 emits `add esi,ebx/imm` instead of `lea eax,[esi+K]`. Jump table
+  on `slope-1` is right (12→0, 3→1, 4→2, 1→3, 6→4, 9→5, 14→6, 11→7,
+  else -1). `>> 1` not `/2` (sar vs cdq). An inlined `AddOff` still
+  folded into lea.
 - `ProjectVertsToRect`: exact as the TransformVerts (0x00426250) shape —
   `while (n-- > 0)`, `acc += sp[j] * *rp++`, `acc += row[3]`, `TOINT`
   then `ASINT`. `int screen[4]` is the 8-byte ballast that makes
@@ -96,19 +97,22 @@ See the first commit for the exact stubs. New this wave:
   `cursor+0x10` and `0x004e3870`; loop does `idx = keys->idx; keys++`
   then `*48`, y from `keys[-1]`, and `lea ecx,[edx+ecx*8+8]` after
   `xor ecx,ecx / test ne / jle` so a negative ne still advances by 8.
-- `GetTrackSegment`: 87/87, 237/232, 47 mismatch (was 69). Closed walk
-  is the original `do { sx; nxt; match; n=nxt; } while (nxt != ring);
-  return 0` — `jne loop` then an inline `pop/xor/ret`, and closed-empty
-  `je`s to that fail. Head-empty also jumps back to it. Residual: tail
-  and head still `je exit / jmp loop` because the tail match call is
-  flushed between tail and head (so the tail loop cannot fall through
-  to head), and head exhaust merges into fail1 instead of a second
-  `xor eax,eax` copy. Two helper sites exist; their push-phase order
-  is swapped versus the original (tail should be link+p1 first).
-- `Raster_AddSpanRecord`: 61/61, 172/175, 58 mismatch. Count increments
-  first; unsigned `cursor+0x10` vs `0x004e3870`; `ne==0` skips the
-  write. Residual is keys cursor (`add edx,8` then y from `[edx-8]`
-  vs `add edx,-8`) and an extra edi save.
+- `GetTrackSegment`: 87/87, 232/232, 34 mismatch (~83%). Shared
+  `did_match` after head keeps the tail-match call pending, so closed
+  and tail are the original `jne loop` fall-through latches and
+  head-empty `je`s back to fail1. Residual: head exhaust still
+  `je fail1 / jmp loop` because the two `return 0`s merge (fail2 does
+  not survive); the two helper sites are ch-then-tail (original is
+  tail-then-ch, link+p1 first). A single-predecessor `goto match_tail`
+  inlines the tail call between tail and head and undoes both latches.
+- `Raster_AddSpanRecord`: 61/61, 175/175, 35 mismatch (~61%). Count
+  loaded before cursor gives `push ecx` / `mov ecx,[cursor]` /
+  `lea eax,[ecx+0x10]` / `jbe` vs `0x004e3870`. `keep=0` is the
+  `xor / test ne / jle` so a negative ne still advances by 8; the
+  volatile `&saved` is the 4-byte home. Residual: count in esi not
+  ebx, no `mov edx,ecx` copy (y store uses `[ecx+4]`), keys-1 IV
+  (`lea edx,[keys-8]` / y from `[edx]` vs `add edx,8` / `[edx-8]`),
+  `dec edi` not `dec ebx`.
 
 ## Extern-type divergences
 
