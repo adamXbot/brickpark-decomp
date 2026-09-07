@@ -14,7 +14,7 @@
  *
  * kind 3/4 still have a free end; attaching a neighbour turns 4 into 3
  * (one end) and 3 into 1 (straight) or 2 (corner).  Detaching is the
- * inverse and lives in the four LFNb_Detach* helpers (still WIP).
+ * inverse and lives in the four LFNb_Detach* helpers.
  *
  *   0x0040cf10  LFGeom_ProbeNeighbours      7/7 exact
  *   0x0040ce20  LFGeom_FillNeighbours      72/72 exact
@@ -22,20 +22,20 @@
  *   0x0040cf50  LFNb_KeepRun               15/15 exact
  *   0x0040cf80  LFNb_FirstRun              14/14 exact
  *   0x0040cfa0  LFNb_DropFull              15/15 exact
- *   0x00409a50  LFPiece_MakeStraight       WIP (75%)
+ *   0x00409a50  LFPiece_MakeStraight       12/12 exact
  *   0x00409620  LFPiece_AttachN            25/25 exact
  *   0x00409680  LFPiece_AttachS            25/25 exact
- *   0x004096e0  LFPiece_AttachE            WIP (89%, ESCAPES)
+ *   0x004096e0  LFPiece_AttachE            26/26 exact
  *   0x00409740  LFPiece_AttachW            25/25 exact
  *   0x004097a0  LFTrack_ReshapeNeighbours 170/170 exact
  *   0x00409a90  LFTrack_AttachNeighbours   49/49 exact
  *   0x00409b10  LFRoute_OrientPair         37/37 exact
  *   0x0040a010  LFRoute_SplicePair         46/46 exact
  *   0x0040a080  LFTrack_SpliceNeighbours   45/45 exact
- *   0x0040a0f0  LFNb_DetachN               WIP (76%)
- *   0x0040a160  LFNb_DetachE               WIP (55%)
- *   0x0040a1d0  LFNb_DetachS               WIP (81%)
- *   0x0040a230  LFNb_DetachW               WIP (89%)
+ *   0x0040a0f0  LFNb_DetachN               38/38 exact
+ *   0x0040a160  LFNb_DetachE               37/37 exact
+ *   0x0040a1d0  LFNb_DetachS               37/37 exact
+ *   0x0040a230  LFNb_DetachW               40/40 exact
  *   0x0040a2a0  LFTrack_RedrawNeighbours   23/23 exact
  *   0x0040b290  LFPiece_DrawAnim           93/93 exact
  */
@@ -304,12 +304,12 @@ void LFPiece_AttachS(LFPiece* piece)
 }
 
 /* Same for an EAST neighbour (gaining a west connection). */
-/* audit: 26i/82B vs 26i/86B, mismatch=13 ESCAPES. dir==0 arm CSEs 2 into
- * ecx (paired same-constant); original rematerialises two immediates.
- * Tried: named one, literals, 3-1, volatile stores, two named 2s,
- * reverse store order, keep-dir-live, dir==0 first, char-cast 2.
- * AttachN's 2,2 stay immediate because no sibling arm defs ecx. */
-// WIP-FUNCTION: LEGOLAND 0x004096e0  (89%, dir==0 stores 2 via ecx not imm)
+/* dir==2 must store kind as the literal 2, not `dir`.  `p->kind = dir`
+ * value-numbers the 2,2 arm onto ecx (CSE → ESCAPES).  After `cmp ecx,2`
+ * a literal 2 still emits `mov [eax+18], ecx` — same third-arm bytes,
+ * without infecting the previous arm.  AttachN's 2,2 stay immediate
+ * because its sibling stores `2` as a literal, not via live dir. */
+// FUNCTION: LEGOLAND 0x004096e0
 void LFPiece_AttachE(LFPiece* piece)
 {
     LFPiece* p = piece;
@@ -329,7 +329,7 @@ void LFPiece_AttachE(LFPiece* piece)
             return;
         }
         if (dir == 2) {
-            p->kind = dir;
+            p->kind = 2;
             p->dir = 3;
             return;
         }

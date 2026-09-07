@@ -9,7 +9,7 @@ Brief: `docs/SCOPE_LL1_logflume_track.md`.
 | --- | --- | ---: | ---: | --- | --- |
 | 0x00409620 | LFPiece_AttachN | 25 | 100 | [OK] | FUNCTION |
 | 0x00409680 | LFPiece_AttachS | 25 | 100 | [OK] | FUNCTION |
-| 0x004096e0 | LFPiece_AttachE | 26 | 89 | WIP | WIP (ESCAPES) |
+| 0x004096e0 | LFPiece_AttachE | 26 | 100 | [OK] | FUNCTION |
 | 0x00409740 | LFPiece_AttachW | 25 | 100 | [OK] | FUNCTION |
 | 0x004097a0 | LFTrack_ReshapeNeighbours | 170 | 100 | [OK] | FUNCTION |
 | 0x00409a50 | LFPiece_MakeStraight | 12 | 100 | [OK] | FUNCTION |
@@ -30,7 +30,7 @@ Brief: `docs/SCOPE_LL1_logflume_track.md`.
 | 0x0040cf80 | LFNb_FirstRun | 14 | 100 | [OK] | FUNCTION |
 | 0x0040cfa0 | LFNb_DropFull | 15 | 100 | [OK] | FUNCTION |
 
-**21 / 22 exact.** `audit.py` PASS, `relocs.py` zero MISMATCH (5 UNRESOLVED jump-table labels: `$L582` in MakeStraight, `$L62x` in ReshapeNeighbours), `/W3` clean.
+**22 / 22 exact.** `audit.py` PASS, `relocs.py` zero MISMATCH (5 UNRESOLVED jump-table labels: `$L582` in MakeStraight, `$L62x` in ReshapeNeighbours), `/W3` clean.
 
 ## Names
 
@@ -55,7 +55,7 @@ Callers already named `LFTrack_ReshapeNeighbours` (0x004097a0), `LFTrack_RedrawN
 
 ## Residuals (WIP)
 
-- **0x004096e0 AttachE** — 24/27 = 88.9% ESCAPES. dir==0 arm CSEs the two stores of 2 into `mov ecx,2 / store / store`. Original rematerialises two immediates, so later labels shift. First arm (`mov ecx,1` pair) already matches. Floor: AttachN's 2,2 stay immediate because no sibling arm defs ecx; AttachE's 1,1 arm must def ecx, and that split lets the 2,2 arm reuse it. Tried named `one`, literals, `3-1`, volatile stores, two named 2s, reverse store order, keep-dir-live, dir==0 first, char-cast 2.
+None. AttachE closed: `p->kind = 2` in the dir==2 arm (not `p->kind = dir`). After `cmp ecx,2` the literal still stores via ecx; using live `dir` value-numbered the dir==0 `2,2` pair onto ecx and shifted later labels (ESCAPES).
 
 ## Levers
 
@@ -67,6 +67,7 @@ Callers already named `LFTrack_ReshapeNeighbours` (0x004097a0), `LFTrack_RedrawN
 - **OrientPair degenerate reverse.** `if (!oi) { if (oj) Reverse(a); else Reverse(a); }` leaves a dead `test eax,eax` between the push and the call.
 - **Shared switch store via goto (MakeStraight).** Isolated `p->kind = one` in case 0/2 rematerialised as `mov [eax+18], 1`. `goto setkind` into the default store tail-duplicates with `edx` kept live.
 - **Reread field to block jump-thread (Detach*).** Named `kind` after `kind==3` is proven 3, so later `if (kind==1)` disappears. `if (p->kind == 1)` still CSEs to `cmp ecx, 1` but is not jump-threaded; dir can then take esi and the dead compares stay.
+- **Literal 2, not live dir, after `cmp ecx,2` (AttachE).** `p->kind = dir` in the dir==2 arm value-numbers the earlier `2,2` pair onto ecx (`mov ecx,2 / store / store`, labels shift, ESCAPES). `p->kind = 2` still emits `mov [eax+18], ecx` because the compare proves ecx==2, and the dir==0 immediates survive. AttachN's 2,2 stay immediate for the same reason: its sibling stores a literal 2, not live dir.
 
 ## Extern-type notes
 
