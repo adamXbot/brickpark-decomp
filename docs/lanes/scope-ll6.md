@@ -11,13 +11,13 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 | 0x00423940 | TrackNode_InitStationJoints | 8 | 100 | [OK] | FUNCTION |
 | 0x00423970 | TrackNode_SetStationHeights | 6 | 100 | [OK] | FUNCTION |
 | 0x00423990 | Castle_GetCurveA | 2 | 100 | [OK] | FUNCTION |
-| 0x00423f40 | GetTrackSegmentPiece | 86 | 92 | WIP | WIP (9 mismatch, no-neighbor tail) |
+| 0x00423f40 | GetTrackSegmentPiece | 86 | 100 | [OK] | FUNCTION |
 | 0x00424050 | GetTrackSegment | 87 | 72 | WIP | WIP (87/87 i; fail tails / regs) |
 | 0x00425da0 | Vec3f_Equal | 25 | 100 | [OK] | FUNCTION |
 | 0x00426190 | Mat4_Transpose | 21 | 71.4 | WIP | WIP (eax/ecx cursors swapped) |
 | 0x004263a0 | ProjectVertsToRect | 72 | ~33 | WIP | WIP (72/72 i after FTOI; walk) |
 | 0x00426460 | Mat3_FromMat4Transpose | 21 | 71.4 | WIP | WIP (same cursor swap) |
-| 0x004265d0 | ClipRect_ClipTo | 66 | 98.5 | WIP | WIP (2 arg-pointer loads swapped) |
+| 0x004265d0 | ClipRect_ClipTo | 66 | 100 | [OK] | FUNCTION |
 | 0x00426750 | Model_ProjectClipRect | 24 | 100 | [OK] | FUNCTION |
 | 0x004275b0 | TrackNode_RemoveNop | 1 | 100 | [OK] | FUNCTION |
 | 0x004275c0 | TrackNode_PlaceNop | 1 | 100 | [OK] | FUNCTION |
@@ -32,8 +32,9 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 | 0x004286e0 | TrackNode_GetPieceDesc | 8 | 100 | [OK] | FUNCTION |
 | 0x00428840 | LowestSetBitIndex | 10 | 100 | [OK] | FUNCTION |
 
-**16 / 24 exact.** All 24 have bodies. `audit.py` PASS, `relocs.py` zero
-MISMATCH on FUNCTION bodies, `/W3` clean.
+**18 / 24 exact.** All 24 have bodies. `audit.py` PASS, `relocs.py` zero
+MISMATCH (4 UNRESOLVED float literals 0.5 / -2.0 on GetTrackSegmentPiece),
+`/W3` clean.
 
 ## Names
 
@@ -66,17 +67,18 @@ See the first commit for the exact stubs. New this wave:
 
 ## Levers / residuals
 
-- `ClipRect_ClipTo`: 66/66, 122/122. Only `mov eax,[esp+8] / mov ecx,[esp+4]`
-  vs the reverse. Volatile clip load sinks the pair past the pushes (92.4%).
-  Two-instruction scheduling floor.
+- `ClipRect_ClipTo`: exact once the first test is an inlined helper
+  `ClipMissesRight(clip, dest)` — clip as arg0 of the helper loads
+  `[esp+8]` into eax first. Direct `dest->left > clip->right` loads dest
+  first (65/66).
+- `GetTrackSegmentPiece`: exact once the no-neighbor square is `*p1 = *tile`
+  (whole Pos copy). Field stores left y in ecx and forced a register
+  `add -16`; the copy frees ecx for the `jout.node` reload so the original
+  `add dword [p1+4], -16` appears. `at.z += world.z` is the `fst` of the
+  sum onto at.z before `* -2`.
 - `Mat4_Transpose` / `Mat3_FromMat4Transpose`: 21/21, 46/46. dest cursor
   ecx, source cursor eax; original swapped. Return dest, named int temp,
   dest-first declaration all worse or identical.
-- `GetTrackSegmentPiece`: 80/86 after `at.z += world.z` (fst to at.z) and
-  taking `&world` before `*link` so the first call's pushes sandwich the
-  sete. Tail: original reloads `jout.node` into ecx (kills the copied y,
-  so `add [p1+4],-16`); this build keeps y in ecx and uses edx for the
-  reload. Extra `jn` / `ok` locals collapse node into esi and lose 25%.
 - `TrackPiece_FindIndex`: `off += slope` in the `slope == 8` arm still
   folds to `lea eax,[esi+8]`; original is `add esi,ebx / mov eax,esi`.
   `>> 1` not `/2` (sar vs cdq).

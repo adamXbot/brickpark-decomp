@@ -310,19 +310,25 @@ void Piece_InitStraight(int dir, int side, int off, PieceDesc* out, int slot)
     Curve_InitLine(out, &g_edge_mid[dir], &to, &g_half_step[slot]);
 }
 
-/* Clip dest against clip; 0 if they miss, 0xf (all four edges) after clamp.
- * ClipRect_SetBounds (0x00426700) stores the return in dest->mask.
- * Residual: the two argument-pointer loads are swapped (clip should be
- * eax first). Registers, tests, clamps and epilogues are exact (65/66). */
-// WIP-FUNCTION: LEGOLAND 0x004265d0  (98.5%, arg-pointer load order)
+/* First compare as an inlined helper with clip first so VC6 loads arg1
+ * into eax before dest. */
+static __inline int ClipMissesRight(const ClipBox* clip, const ClipBox* dest)
+{
+    return dest->left > clip->right;
+}
+
+/* Clip dest against clip; 0 if they miss, 0xf after clamp.
+ * ClipRect_SetBounds stores the return in dest->mask. */
+// FUNCTION: LEGOLAND 0x004265d0
 int ClipRect_ClipTo(ClipBox* dest, const ClipBox* clip)
 {
-    int left = dest->left;
+    int left;
     int right;
     int top;
     int bottom;
-    if (left > clip->right)
+    if (ClipMissesRight(clip, dest))
         return 0;
+    left = dest->left;
     right = dest->right;
     if (right < clip->left)
         return 0;
@@ -393,10 +399,9 @@ void Model_ProjectClipRect(const Vec3f* verts, const Vec3f* pos, const Mat3* rot
     ProjectVertsToRect(verts, &view, 8, out);
 }
 
-/* Per-piece half of GetTrackSegment. 80/86 exact; tail residual is
- * jout.node in edx not ecx (so y-16 is a register add) and *h1 / ret
- * 1 interleaving. */
-// WIP-FUNCTION: LEGOLAND 0x00423f40  (92%, no-neighbor tail regs)
+/* Per-piece half of GetTrackSegment. `*p1 = *tile` (not field stores)
+ * is what frees ecx for the jout.node reload and the memory `add -16`. */
+// FUNCTION: LEGOLAND 0x00423f40
 int GetTrackSegmentPiece(Pos* tile, float* h0, Pos* p1, float* h1,
                          TrackNode* node, int* link)
 {
@@ -425,10 +430,9 @@ int GetTrackSegmentPiece(Pos* tile, float* h0, Pos* p1, float* h1,
         p1->y = next->sy;
         return 1;
     }
-    p1->x = tile->x;
-    p1->y = tile->y;
+    *p1 = *tile;
     if (n->jout.node == &g_castle.ring)
-        p1->y = p1->y - 16;
+        p1->y += -16;
     *h1 = 0.0f;
     return 1;
 }
