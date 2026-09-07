@@ -25,7 +25,7 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041ef60 | Raster_ClipPoly | 80 | 100 | [OK] | FUNCTION |
 | 0x0041db90 | Route_GetMassAndPower | 77 | 84 | 42 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
-| 0x0041f050 | Span_ClipPlane | 179 | 10 | next_abs ebx; 0x24 vs 0x2c | WIP |
+| 0x0041f050 | Span_ClipPlane | 179 | 10 | next_abs ebx; frame 0x2c | WIP |
 
 **16 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
@@ -210,7 +210,7 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Hist `edx=*mass; ecx=i&0x3f`: named `m`/`i`/`slot` become `fld`/`fstp`
   (64/77); int-bitcast, post-inc, and SetSlope do-while keep the ecx/edx
   swap. Best remains 65/77. Trace / ClipPlane not touched.
-- **Span_ClipPlane** (WIP): 20/195 (10.3%), ESCAPES, frame 0x24 vs 0x2c,
+- **Span_ClipPlane** (WIP): 20/195 (10.3%), ESCAPES, frame **0x2c**,
   next_abs in ebx. Reconstruct
   notes (2026-09-08): trailing early-out after `in[n]=in[0]`; `in++` then
   `left=n` with latch `in+=4; dec left; jne`; signed classify
@@ -247,3 +247,13 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   ebx (edi is not byte-addressable). Prologue `mov ebx,n` kept. Extra
   dest/dlt homes steal ebx back. 8-byte spill / k-up reach 0x28 not 0x2c.
   20/195 (10.3%), 588/593B, frame 0x24. Mass/Trace not touched.
+  **2026-09-08 0x2c frame wave.** Original 0x2c locals after 4 pushes:
+  `[esp+0x10]` out_n, `+0x14` dest, `+0x18` k/delta, `+0x1c` left, `+0x20` cls,
+  `+0x24`/`+0x28` dlt↔dest-rel, `+0x2c` bits/next_abs, `+0x34` prev_abs;
+  **unused `+0x30` and `+0x38`**. Arg reuse: n-slot→in, in-slot→t, out updated
+  in place. Extra dest/dlt homes steal ebx. Volatile plane floats used in
+  the fmul open 0x2c but rewrite `[ecx]`/`[ecx+4]` operands (score stays 20,
+  more insns). `bits` as `double` union is 0x28 / 27/195. The unused pair
+  is an 8-byte prev_abs `{int i; int pad;}` — pad is ebx-neutral and does
+  not replace dest/dlt. `sub esp,0x2c`, 20/195 (10.3%), 195i, ebx-n and
+  `and ebx,0x7fffffff` held. Mass/Trace not touched.

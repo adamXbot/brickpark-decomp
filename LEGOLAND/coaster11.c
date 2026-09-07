@@ -772,9 +772,10 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
  * lerp every dword 0..g_span_vtx of the PolyVtx into *cursor and emit
  * that cursor pointer; both-inside emits the previous vertex. */
 /* Residual: next_abs and ebx via abs-n live across __ftol + byte store;
- * lerp dword is a separate temp so n is not overwritten. Frame still
- * short of 0x2c. Byte-n prologue (mov ebx,n) kept. */
-// WIP-FUNCTION: LEGOLAND 0x0041f050  (10%, next_abs ebx, frame 0x24 vs 0x2c)
+ * lerp dword is a separate temp so n is not overwritten. Frame 0x2c via
+ * 8-byte prev_abs {i, pad} — pad is ebx-neutral (orig unused [esp+0x38]).
+ * Byte-n prologue (mov ebx,n) kept. */
+// WIP-FUNCTION: LEGOLAND 0x0041f050  (10%, next_abs ebx, frame 0x2c)
 int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
 {
     void** in = (void**)in_v;
@@ -782,7 +783,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
     int out_n = 0;
     void* prev;
     union { float f; int i; } bits;
-    int prev_abs;
+    struct { int i; int pad; } prev_abs;
     int prev_sign;
     int left;
     int abs_b;
@@ -798,7 +799,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
     }
     prev_sign = bits.i & 0x80000000;
     bits.i &= 0x7fffffff;
-    *(volatile int*)&prev_abs = bits.i;
+    *(volatile int*)&prev_abs.i = bits.i;
     if (n < 1) {
         *cursor = dst;
         return out_n;
@@ -824,7 +825,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
         next_sign &= 0x80000000;
         *(volatile unsigned char*)&abs_b = (unsigned char)n;
         cls = (prev_sign >> 1) & 0x40000000 | next_sign;
-        pa.i = *(volatile int*)&prev_abs;
+        pa.i = *(volatile int*)&prev_abs.i;
         na.i = n;
         if (cls == (int)0x80000000) {
             float t = na.f / (pa.f + na.f);
@@ -873,7 +874,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
             dst = (char*)dst + g_span_vtx_stride;
             out_n += 2;
         }
-        *(volatile int*)&prev_abs = n;
+        *(volatile int*)&prev_abs.i = n;
         prev = nxt;
         prev_sign = next_sign;
         in++;
