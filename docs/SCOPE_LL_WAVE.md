@@ -8,7 +8,7 @@ F/G/H partials, LONG appraisal, and SEH WinMain.
 | --- | --- | --- | ---: | ---: | --- | --- |
 | LL1 | `scope/LL1` | 1 | 22 | 861 | `logflume8.c` | DONE 22/22 merged |
 | LL2 | `scope/LL2` | 2 | 6 | 602 | `logflume9.c` | DONE 6/6 merged |
-| LL3 | `scope/LL3` | 3 | 19 | 1091 | `coaster11.c` | 16/19 — ClipPlane 0x2c+ebx; matchfull ~10% |
+| LL3 | `scope/LL3` | 3 | 19 | 1091 | `coaster11.c` | 16/19 — ClipPlane 18%; latch vs abs-ebx open |
 | LL4 | `scope/LL4` | 4 | 8 | 797 | `coastershade2.c` | 3/8 — Simpson FLOOR 80/81; Span floors |
 | LL5 | `scope/LL5` | 5 | 3 | 130 | `castletrack2.c` | DONE 3/3 merged |
 | LL6 | `scope/LL6` | 6 | 24 | 771 | `coaster12.c` | 22/24 — GetTrackSegment fail1/fail2 fight; park |
