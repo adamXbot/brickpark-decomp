@@ -104,6 +104,13 @@ and commit messages are that runtime's spec.
 `music2.c` + `pathobj2.c` (group 16). Relocs 0 MISMATCH; `/W3` clean.
 Parallel still open: FGH, V, Codex-F, AG, AC remainders.
 
+**Scope LL5 closed exact (2026-09-08): 3 of 3.** `castletrack2.c` (TrackCurve_InitLine/Cubic/Arc).
+
+**LL wave cut (2026-09-07):** letter scopes end at AK; new scopes are
+`LL1`…`LL8` (`docs/SCOPE_LL_WAVE.md`). Live inventory leftovers after excluding
+V/X, Codex-F, AG, AC, F/G/H, LONG appraisal, SEH WinMain — **112 functions,
+≈5.8k instructions**. First allocation: LL1–LL4; LL5–LL8 cut and idle.
+
 **Scope AK closed exact (2026-09-07): 20 of 20; coverage 69.5% -> 70.0% exact.**
 `narration2.c` (group 18).
 
@@ -240,7 +247,7 @@ twin's block layout is a hypothesis, not an inheritance — diff first, always.
 **Wave sixteen (2026-09-05): 40 more exact, coverage 51.2% -> 52.2%.**
 `sysmisc3.c`+`screencb4.c` 13 of 13, `bswater2.c` 8 of 8 (the boating-school
 boat mover complete, including its 294-instruction leg stepper),
-`logflume7.c`+`goldrush4.c`+`fpui5.c` 10 of 11, `coaster5.c`+`schoolcar6.c` 9
+`logflume9.c`+`goldrush4.c`+`fpui5.c` 10 of 11, `coaster5.c`+`schoolcar6.c` 9
 of 12. A THIRD hand-written-assembly site was identified on three independent
 proofs (`ZBuffer_FillPoly`, 0x00423350, after the four `tri3d.c` rasterisers).
 Two callee externs were found to be misnamed by their callers (an ICM error
