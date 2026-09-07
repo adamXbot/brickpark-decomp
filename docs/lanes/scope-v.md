@@ -1141,3 +1141,12 @@ measured negative (`/tmp/svclear6_*`):
 
 Current best bodies are unchanged: the retained 24-strict body (colouring
 right, byte sources mirrored) and `vy_c` (structure right, colouring flipped).
+
+- **Identical-arm joins whose arms are LOADS of `sq` fields** (the form in
+  which the FGH lever worked for `SchoolCarBlockedAhead`, where the arms
+  loaded `c->wx`): `if (next) ty = sq.y; else ty = sq.y;` and the byte,
+  ternary, `pass`-conditioned, before-the-copy, mixed-access-path and
+  two-coordinate variants all fold to the plain body (row four or `vy_c`).
+  Here the arms' loads are forwarded from `by`/`bx` before the phi is formed,
+  so no fresh web survives; FGH's arms loaded through a pointer with no
+  preceding store, which is why theirs did.
