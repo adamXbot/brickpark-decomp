@@ -25,7 +25,7 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041ef60 | Raster_ClipPoly | 80 | 100 | [OK] | FUNCTION |
 | 0x0041db90 | Route_GetMassAndPower | 77 | 84 | 42 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
-| 0x0041f050 | Span_ClipPlane | 179 | 18 | latch jne; ebx=n; and ecx | WIP |
+| 0x0041f050 | Span_ClipPlane | 179 | 17 | latch jne; ebx=n; frame 0x2c | WIP |
 
 **16 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
@@ -210,8 +210,8 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Hist `edx=*mass; ecx=i&0x3f`: named `m`/`i`/`slot` become `fld`/`fstp`
   (64/77); int-bitcast, post-inc, and SetSlope do-while keep the ecx/edx
   swap. Best remains 65/77. Trace / ClipPlane not touched.
-- **Span_ClipPlane** (WIP): 35/193 (18.1%), latch jne-to-header, frame **0x28**,
-  ebx=n held, next_abs in ecx. Reconstruct
+- **Span_ClipPlane** (WIP): 35/203 (17.2%), latch jne-to-header, frame **0x2c**,
+  ebx=n held, next_abs in edx. Reconstruct
   notes (2026-09-08): trailing early-out after `in[n]=in[0]`; `in++` then
   `left=n` with latch `in+=4; dec left; jne`; signed classify
   `sar1/and 0x40000000/or` vs 0x80000000 / 0xC0000000 / 0x40000000; divide
@@ -274,3 +274,15 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   keeping n live across `__ftol` or rebirthing n as abs at the header
   knocks ebx=n and/or inverts the latch to `je / mov / jmp`. Frame **0x28**
   (prev_abs pad unused). 35/193 (18.1%), 640/593B. Mass/Trace not touched.
+  **2026-09-08 cls/esi + 0x2c wave.** Seed `cls=prev_sign` after `left=n`
+  was a `mov ebx,eax` (sign started in a scratch), so the bits load could
+  not be ebx. Assigning sign before `nxt = v0` puts the sign web in a
+  callee-save from the first classify (ebp here, not the wanted esi).
+  Named long-lived `plane` hoists to edi and knocks ebx=n. Volatile plane
+  plus a post-bits writeback to the plane arg keeps ecx=plane, but dest
+  is then free to take the leftover ebx (`void* d = dst` + volatile
+  restore) and bits falls to edx (`and edx,0x7fffffff`). That dest copy
+  plus the writeback is what restores **frame 0x2c** (pad lives) without
+  extending n across `__ftol` or inverting the latch. ebx=n, `cmp ebx,1
+  / jl`, count-up lerp, and `in+=4; dec left; jne reload` all held.
+  35/203 (17.2%), 672/593B. Mass/Trace not touched.
