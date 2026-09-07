@@ -211,3 +211,209 @@ void Raster_DrawWireframe(WireObj* obj)
         Raster_DrawLine(&obj->vert[obj->edge[i].a].at,
                         &obj->vert[obj->edge[i].b].at, -1);
 }
+
+/* ==========================================================================
+ * 0x00420fd0 and 0x00421130 -- build the module's DEBUG BOX: an eight-vertex,
+ * twelve-triangle cuboid written into caller-supplied vertex and normal
+ * arrays, with the mesh header copied wholesale from the 0x90-byte template
+ * at 0x004b58c8.
+ *
+ * The template already carries the box's constants -- eight vertices, the six
+ * face normals at 0x004b5700, and the twelve triangles at 0x004b5748 in the
+ * FIRST triangle slot (+0x18/+0x1c, the pass-1 list DrawPass1 0x00420810
+ * walks).  Both builders point the mesh at the caller's arrays, fill the
+ * bottom quad from the three half-extents, mirror it upwards, derive one
+ * normal per vertex by NORMALISING the vertex itself (a box centred on the
+ * origin, so the position is the outward direction), and then move the
+ * triangle list to the SECOND slot (+0x20/+0x24) pointing at the second copy
+ * of the same twelve triangles at 0x004b5808 -- after stamping shade = -1 into
+ * each record and copying its vertex indices over its texture indices.
+ *
+ * The two differ in ONE statement: 0x00420fd0 puts the top quad at z = 0, so
+ * the box hangs BELOW the origin, and 0x00421130 puts it at +hz, so the box is
+ * centred on it.  That one difference is worth four instructions: the literal
+ * zero is needed three times in 0x00420fd0 (the top-quad z, tri1_count and the
+ * null test), so VC6 hoists it into edi and has to push a FOURTH callee-saved
+ * register (ebp) to carry the copy loop's temporary.  0x00421130 stores a
+ * float there instead, needs the zero only twice, and pushes three.
+ *
+ * `model->vertex` is re-read from the mesh before EVERY component store: the
+ * store through it may alias the mesh header, so the pointer cannot be cached.
+ *
+ * Both take an unused fourth argument between the normal array and the three
+ * extents; nothing in the image calls either, so what it carried is lost.
+ * ======================================================================== */
+typedef struct ModelTri {
+    short pad00;
+    short shade;               /* +0x02 */
+    short v[3];                /* +0x04  vertex indices */
+    short t[3];                /* +0x0a  texture indices */
+} ModelTri;                    /* 0x10 */
+
+typedef struct ModelMesh {
+    int       verts;           /* +0x00 */
+    int       pad04;
+    int       faces;           /* +0x08 */
+    Vec3f*    vertex;          /* +0x0c */
+    Vec3f*    facenormal;      /* +0x10 */
+    Vec3f*    normal;          /* +0x14 */
+    ModelTri* tri1;            /* +0x18 */
+    int       tri1_count;      /* +0x1c */
+    ModelTri* tri2;            /* +0x20 */
+    int       tri2_count;      /* +0x24 */
+    char      pad28[0x90 - 0x28];
+} ModelMesh;                   /* 0x90 */
+
+extern ModelMesh g_box_template;                                /* 0x004b58c8 */
+extern ModelTri  g_box_tris[12];                                /* 0x004b5808 */
+extern void Vec3Normalise(Vec3f* v);                            /* 0x00425d50 */
+
+// FUNCTION: LEGOLAND 0x00420fd0
+void Model_BuildBoxBelow(ModelMesh* model, Vec3f* verts, Vec3f* normals,
+                         int unused, float hx, float hy, float hz)
+{
+    int i;
+
+    (void)unused;
+    *model = g_box_template;
+    model->vertex = verts;
+    model->normal = normals;
+    model->vertex[0].x =  hx;
+    model->vertex[0].y = -hy;
+    model->vertex[0].z = -hz;
+    model->vertex[1].x =  hx;
+    model->vertex[1].y =  hy;
+    model->vertex[1].z = -hz;
+    model->vertex[2].x = -hx;
+    model->vertex[2].y =  hy;
+    model->vertex[2].z = -hz;
+    model->vertex[3].x = -hx;
+    model->vertex[3].y = -hy;
+    model->vertex[3].z = -hz;
+    for (i = 0; i <= 3; i++) {
+        model->vertex[i + 4] = model->vertex[i];
+        model->vertex[i + 4].z = 0.0f;
+    }
+    if (normals) {
+        for (i = 0; i <= 7; i++) {
+            Vec3f n = model->vertex[i];
+            Vec3Normalise(&n);
+            model->normal[i] = n;
+        }
+        for (i = 0; i < 12; i++) {
+            g_box_tris[i].shade = -1;
+            g_box_tris[i].t[0] = g_box_tris[i].v[0];
+            g_box_tris[i].t[1] = g_box_tris[i].v[1];
+            g_box_tris[i].t[2] = g_box_tris[i].v[2];
+        }
+        model->tri1_count = 0;
+        model->tri2_count = 12;
+        model->tri2 = g_box_tris;
+    }
+}
+
+// FUNCTION: LEGOLAND 0x00421130
+void Model_BuildBoxCentred(ModelMesh* model, Vec3f* verts, Vec3f* normals,
+                           int unused, float hx, float hy, float hz)
+{
+    int i;
+
+    (void)unused;
+    *model = g_box_template;
+    model->vertex = verts;
+    model->normal = normals;
+    model->vertex[0].x =  hx;
+    model->vertex[0].y = -hy;
+    model->vertex[0].z = -hz;
+    model->vertex[1].x =  hx;
+    model->vertex[1].y =  hy;
+    model->vertex[1].z = -hz;
+    model->vertex[2].x = -hx;
+    model->vertex[2].y =  hy;
+    model->vertex[2].z = -hz;
+    model->vertex[3].x = -hx;
+    model->vertex[3].y = -hy;
+    model->vertex[3].z = -hz;
+    for (i = 0; i <= 3; i++) {
+        model->vertex[i + 4] = model->vertex[i];
+        model->vertex[i + 4].z = hz;
+    }
+    if (normals) {
+        for (i = 0; i <= 7; i++) {
+            Vec3f n = model->vertex[i];
+            Vec3Normalise(&n);
+            model->normal[i] = n;
+        }
+        for (i = 0; i < 12; i++) {
+            g_box_tris[i].shade = -1;
+            g_box_tris[i].t[0] = g_box_tris[i].v[0];
+            g_box_tris[i].t[1] = g_box_tris[i].v[1];
+            g_box_tris[i].t[2] = g_box_tris[i].v[2];
+        }
+        model->tri1_count = 0;
+        model->tri2_count = 12;
+        model->tri2 = g_box_tris;
+    }
+}
+
+/* ==========================================================================
+ * 0x00423080 -- blit one of the module's textures to the 16-bit target at
+ * (x, y), running every source byte through that colour's SHADE RAMP at the
+ * caller's brightness.
+ *
+ * The texture comes from the module's texture table (0x004d89c8, schoolcar.c's
+ * g_coaster_tab_c) through 0x00420780 and is {int w; int h; unsigned char
+ * pixels[]}, one palette index per pixel.  Each index selects a 128-byte ramp
+ * through g_shade_tab (0x00829c60, schoolcar5.c's CoasterShades_Init builds
+ * it) and `shade` picks the 16-bit entry inside the ramp.
+ *
+ * The destination is 0x004b5b20 as a 16-bit base with 0x004b5b28 as the pitch
+ * in PIXELS -- schoolcar6.c calls 0x004b5b20 `int g_zb_4b5b20` and uses
+ * 0x004b5b24 as its base, so this file's `unsigned short*` view of it is a
+ * deliberate divergence; do NOT align schoolcar6.c's declaration.
+ *
+ * Raster_SaveState's result is DISCARDED here, unlike Coaster3D_DrawModel
+ * (0x00420e90) which skips the whole paint when it fails.
+ *
+ * FRAME: three of the four arguments are dead after the prologue and every one
+ * of their homes is reused -- `index` holds the row counter and `y` holds the
+ * one-byte pixel temporary, which is written as a BYTE and read back as an
+ * aligned DWORD with `and 0xff` (the slot is four bytes wide).
+ * ======================================================================== */
+typedef struct Sprite { int width, height; unsigned char pix[1]; } Sprite;
+typedef struct VideoSurfaceInfo {
+    long pitch; int width, height; void* bits; int unused, format;
+} VideoSurfaceInfo;                                              /* 0x18 */
+
+extern unsigned short* g_raster_bits;                            /* 0x004b5b20 */
+extern int             g_zb_pitch;                               /* 0x004b5b28 */
+extern unsigned short* g_shade_tab[0x400];                       /* 0x00829c60 */
+
+extern Sprite* CoasterModel_GetTexture(int index);               /* 0x00420780 */
+extern int  Raster_SaveState(VideoSurfaceInfo*);                 /* 0x00423760 */
+extern void Raster_RestoreState(VideoSurfaceInfo*);              /* 0x00423790 */
+
+// FUNCTION: LEGOLAND 0x00423080
+void Raster_BlitTextureShaded(int x, int y, int index, int shade)
+{
+    VideoSurfaceInfo surface;
+    Sprite*          tex = CoasterModel_GetTexture(index);
+
+    if (tex) {
+        const unsigned char* src = tex->pix;
+        unsigned short*      dst;
+        int                  row, col;
+
+        Raster_SaveState(&surface);
+        dst = g_raster_bits + (g_zb_pitch * y + x);
+        for (row = 0; row < tex->height; row++) {
+            unsigned short* p = dst;
+            for (col = 0; col < tex->width; col++) {
+                unsigned char c = *src++;
+                *p++ = g_shade_tab[c][shade];
+            }
+            dst += g_zb_pitch;
+        }
+        Raster_RestoreState(&surface);
+    }
+}
