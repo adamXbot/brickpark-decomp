@@ -913,3 +913,40 @@ gives `by` a register byte need that the allocator honours, while emitting
 that byte as a load from `sq.y`'s home?** Equivalently, a byte use of `by`
 that VC6 rematerialises from memory after `by`'s last dword use even though
 edx is free. Nothing in the statement space of one basic block does it.
+
+### Fourth pass, continued — the pattern is unique in the binary
+
+- **Binary-wide scan** (`/tmp/svclear4_scan.py`): over the 2,517 exact
+  bodies' ORIGINAL code, "dword store to an esp slot from register R, then a
+  byte load from the same slot with R not redefined and no call between"
+  occurs in **no exact function**. CLEAR's 0x00469dd1/0x00469ddf pair is the
+  only instance. The nearest relatives are `LFTrack_Add` (0x0040c780, a call
+  between: `Pos p` spilled across `LFPiece_Alloc`, reloaded as bytes — VC6
+  narrows a spilled int's reload to the width consumed) and
+  `CalculateMapRenderOrder` / `CalculateFullMapRenderOrder` (the register was
+  reused). So the reload is a **spill re-materialisation**, not a forwarding
+  failure, and the construct that causes it has no sibling in the tree to
+  copy from.
+- **Where the retained body's `mov esi, edx` comes from.** The aggregate read
+  `g_destroy_cursor.origin = sq` after a `volatile` access to `sq` forwards
+  each field through a FRESH temp that is not merged with `bx`/`by`; the temp
+  coalesces back only if the source is dead afterwards. Without the volatile
+  access the aggregate read forwards straight to the coordinate (eight
+  spellings, all row four). A volatile read of `sq.x` does not stop
+  `(unsigned char)sq.y` forwarding to `dl` (`B5h`: colouring right, x byte
+  from memory). A volatile STORE to any of the group's globals (origin,
+  `g_sel_def`, a volatile `g_query_block` view) is not a barrier at all.
+- **Re-defining `by` through a volatile view of `sq.y`** (`by = *(volatile
+  int*)&sq.y;` after the origin store) is a load with full affinity, but the
+  colouring still goes to row two because `(unsigned char)bx` — however it is
+  spelled — is a register byte need on x.
+- **`register`** on the coordinates or on `next`, and the coordinates'
+  declaration order, are ignored.
+
+The residual is therefore ONE allocator decision: VC6 hands edx to whichever
+coordinate carries a register byte need, and the original hands it to y while
+x's byte is served by a copy. Every construct measured that gives y the need
+also serves it from `dl`; every construct that serves y from memory removes
+the need. `vy_c` (176 instructions, register-blind 2) is the closest body and
+is one colouring flip away; the retained 24-strict body keeps the colouring
+and mirrors the byte sources. Neither is promotable.
