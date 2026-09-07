@@ -322,3 +322,71 @@ void Coaster3D_SetupFlatView(int use_base)
     t.m[11] = 0.0f;
     MatMul(&g_view_xf, &t, &g_view_matrix);
 }
+
+/* ---- the debug wire box ------------------------------------------------
+ * A 0xcc-byte mesh of 8 vertices and 12 edges: the rectangle
+ * (+hw,-hh) (+hw,+hh) (-hw,+hh) (-hw,-hh) at z = 0, copied to z = -depth,
+ * and the twelve edges of the resulting prism as index pairs.  Only
+ * 0x004267b0 (also dead) draws it. */
+typedef struct WireBox {
+    short colour;       /* +0x00  the 16-bit pen 0x004267b0 plots with */
+    short f02;          /* +0x02 */
+    int   nverts;       /* +0x04 */
+    int   nedges;       /* +0x08 */
+    int   edges[24];    /* +0x0c  12 index pairs */
+    Vec3f verts[8];     /* +0x6c */
+} WireBox;
+
+// FUNCTION: LEGOLAND 0x00426850
+void WireBox_Init(float hw, float hh, float depth, WireBox* b)
+{
+    int i;
+
+    /* LEVER: the two counts must be the FIRST statements.  With them after
+     * the corner stores VC6 sinks them below the zero web and compiles
+     * verts[0].x as an fld/fstp pair instead of the original's GPR copy
+     * (66/80); first, everything schedules (80/80).  Nine statement orders
+     * measured; the next best (z stores first) is 78/80. */
+    b->nverts = 8;
+    b->nedges = 12;
+    b->verts[0].x = hw;
+    b->verts[0].y = -hh;
+    b->verts[0].z = 0.0f;
+    b->verts[1].x = hw;
+    b->verts[1].y = hh;
+    b->verts[1].z = 0.0f;
+    b->verts[2].x = -hw;
+    b->verts[2].y = hh;
+    /* ORIGINAL BUG: verts[2].z is never written -- the other three corners
+     * get their 0.0f and this one keeps whatever was in the buffer.  The
+     * copy loop below overwrites verts[6].z anyway, so only verts[2] is
+     * left undefined. */
+    b->verts[3].x = -hw;
+    b->verts[3].y = -hh;
+    b->verts[3].z = 0.0f;
+    for (i = 0; i < 4; i++) {
+        b->verts[i + 4] = b->verts[i];
+        b->verts[i + 4].z = -depth;
+    }
+    b->edges[0] = 0;
+    b->edges[1] = 1;
+    b->edges[2] = 1;
+    b->edges[3] = 2;
+    b->edges[4] = 2;
+    b->edges[5] = 3;
+    b->edges[6] = 3;
+    b->edges[7] = 0;
+    for (i = 0; i < 4; i++) {
+        b->edges[i * 2 + 8] = b->edges[i * 2] + 4;
+        b->edges[i * 2 + 9] = b->edges[i * 2 + 1] + 4;
+    }
+    b->edges[16] = 0;
+    b->edges[17] = 4;
+    b->edges[18] = 1;
+    b->edges[19] = 5;
+    /* ORIGINAL BUG: this vertical edge repeats (1,5); it should be (2,6). */
+    b->edges[20] = 1;
+    b->edges[21] = 5;
+    b->edges[22] = 3;
+    b->edges[23] = 7;
+}
