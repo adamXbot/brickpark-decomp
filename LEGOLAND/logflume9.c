@@ -432,73 +432,87 @@ void LFTrack_CommitPlacement(LFPiece** nb, EditCursorRec* c)
     } while (i < 2);
 }
 
+static __inline void LFUpd_PackSq(unsigned int* slot, int x, int y)
+{
+    ((unsigned char*)slot)[0] = (unsigned char)x;
+    ((unsigned char*)slot)[1] = (unsigned char)y;
+}
+
 /* =========================================================================
  * 0x0040d6f0 -- SHARED UPDATE (+0x90).  Stamp the class footprint onto the
  * edit cursor, convert the mouse, paint the geom preview, refuse on bricks
  * / empty neighbourhood / failed probe / people, else commit the placement
- * cursors.
+ * cursors.  Packed square and the neighbour-list pointer share one union
+ * that lives in the dead footprint-argument slot; mode=0 after
+ * ScreenToMapRef pins the dead mode slot so the union cannot take it.
  * ========================================================================= */
 // WIP-FUNCTION: LEGOLAND 0x0040d6f0  (draft)
 void LFPiece_UpdateCommon(RideDef* def, int screen, int mode, Footprint* fp,
-                          void (*geom)(BPos sq, LFGeom* out),
+                          void (*geom)(unsigned int sq, LFGeom* out),
                           int (*probe)(LFPiece** nb))
 {
-    BPos      sq;
-    LFGeom    g;
-    LFPiece** nb;
     Rect      r;
+    LFGeom    g;
+    int       cost;
+    int       people;
+    union {
+        unsigned int packed;
+        LFPiece**    nb;
+    } u;
 
     g_edit_cursor.footprint = *fp;
     ScreenToMapRef(screen, &g_mapref, mode);
-    g_8003f0 = 0;
+    mode = 0;
+    g_8003f0 = (void*)mode;
     ResetCursorFootprint(&g_edit_cursor);
     ValidateCursor(&g_edit_cursor, def);
-    sq.x = (unsigned char)g_mapref.x;
-    sq.y = (unsigned char)g_mapref.y;
-    geom(sq, &g);
+    LFUpd_PackSq(&u.packed, g_mapref.x, g_mapref.y);
+    geom(u.packed, &g);
     LFGeom_ApplyCursors(&g);
     g_8003f0 = &g_lf_geom_cursor_a;
-    {
-        int cost = GetObjCost(def);
-        if (GetBrickCount() < cost)
-            SetCursorError(&g_edit_cursor, 2);
-    }
+    cost = GetObjCost(def);
+    if (GetBrickCount() < cost)
+        SetCursorError(&g_edit_cursor, 2);
     if (CursorIsValid(&g_edit_cursor)) {
-        sq.x = (unsigned char)g_mapref.x;
-        sq.y = (unsigned char)g_mapref.y;
-        geom(sq, &g);
-        LFGeom_ProbeNeighbours(&g, &nb);
-        LFNb_DropFull(nb);
-        if (LFNb_Count(nb) != 0) {
-            ResetCursorFootprint(&g_edit_cursor);
-            LFNb_KeepRun(LFNb_FirstRun(nb), nb);
-            if (LFNb_Count(nb) != 0) {
-                if (probe(nb)) {
-                    ResetCursorFootprint(&g_edit_cursor);
-                    LFTrack_CommitPlacement(nb,
-                        ((EditCursorRec*)g_8003f0)->next);
-                } else {
-                    SetCursorError(&g_edit_cursor, 0xd);
-                }
-            } else {
-                SetCursorError(&g_edit_cursor, 0xe);
-            }
-        } else {
+        LFUpd_PackSq(&u.packed, g_mapref.x, g_mapref.y);
+        geom(u.packed, &g);
+        LFGeom_ProbeNeighbours(&g, &u.nb);
+        LFNb_DropFull(u.nb);
+        if (LFNb_Count(u.nb) == 0) {
             SetCursorError(&g_edit_cursor, 0xe);
+        } else {
+            ResetCursorFootprint(&g_edit_cursor);
+            {
+                LFRun* run = LFNb_FirstRun(u.nb);
+                LFNb_KeepRun(run, u.nb);
+            }
+            if (LFNb_Count(u.nb) == 0) {
+                SetCursorError(&g_edit_cursor, 0xe);
+            } else if (probe(u.nb) != 0) {
+                ResetCursorFootprint(&g_edit_cursor);
+                LFTrack_CommitPlacement(u.nb,
+                    ((EditCursorRec*)g_8003f0)->next);
+            } else {
+                SetCursorError(&g_edit_cursor, 0xd);
+            }
         }
     }
     if (CursorIsValid(&g_edit_cursor)) {
-        r.left   = g_mapref.x + g_edit_cursor.footprint.v[0];
-        r.top    = g_mapref.y + g_edit_cursor.footprint.v[1];
-        r.right  = g_mapref.x + g_edit_cursor.footprint.v[2];
-        r.bottom = g_mapref.y + g_edit_cursor.footprint.v[3];
-        switch (CheckForPeople(&r)) {
-        case -1:
+        {
+            Pos o;
+            o.x = g_mapref.x;
+            r.left = o.x + g_edit_cursor.footprint.v[0];
+            o.y = g_mapref.y;
+            r.top    = *(volatile int*)&g_edit_cursor.footprint.v[1] + o.y;
+            r.right  = g_edit_cursor.footprint.v[2] + o.x;
+            r.bottom = g_edit_cursor.footprint.v[3] + o.y;
+        }
+        people = CheckForPeople(&r);
+        if (people != -1) {
+            if (people == 1)
+                SetCursorError(&g_edit_cursor, 3);
+        } else {
             SetCursorError(&g_edit_cursor, 4);
-            break;
-        case 1:
-            SetCursorError(&g_edit_cursor, 3);
-            break;
         }
     }
     PropagateCursorStatus(&g_edit_cursor);
