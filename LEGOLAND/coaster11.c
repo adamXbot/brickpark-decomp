@@ -242,17 +242,18 @@ void RouteCar_PlaceAndBind(RouteNode* n, const RoutePos* at, float a)
 
 /* Which of the slot's four candidate squares equals `sq`.  Returns the
  * index, or -1.  Only bits set in the slot mask are considered. */
-/* Residual: one TEST operand-order (`test ecx,esi` vs `test esi,ecx`).
- * Walker/bit/mask registers and 27i/55B are right. mask&bit and bit&mask
- * both emit test esi,ecx. */
-// WIP-FUNCTION: LEGOLAND 0x0041cd40  (96%, test ecx,esi vs test esi,ecx)
+/* Which of the slot's four candidate squares equals `sq`.  Returns the
+ * index, or -1.  Only bits set in the slot mask are considered.
+ * `bit = 1` before `mask = *p` is the TEST operand-order lever
+ * (`test ecx,esi`); mask-first emits `test esi,ecx`. */
+// FUNCTION: LEGOLAND 0x0041cd40
 int JointSlot_Find(const PackedSquare* sq, JointSlot* slot)
 {
     int* p = (int*)slot;
-    unsigned mask = (unsigned)*p;
-    const int* want = (const int*)sq;
     int i = 0;
-    unsigned bit = 1;
+    int bit = 1;
+    int mask = *p;
+    const int* want = (const int*)sq;
 
     p++;
     do {
@@ -556,9 +557,7 @@ void LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b)
     b->path_i++;
     i = b->path_i;
     if ((int)i >= path->count) {
-        i = (short)path->count;
-        i--;
-        b->path_i = i;
+        b->path_i = (short)path->count - 1;
         return;
     }
     n = q->head;
@@ -583,10 +582,13 @@ void LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b)
  * byte-exact (339B) even if allocation still disagrees. */
 #define BS_W_MEM     (*(BsWater* volatile*)&w)
 #define BS_OWNER_MEM (*(BPosW*   volatile*)&owner)
-/* Residual: 130i/339B byte-exact, 105 mismatches. Same ALLOCATION floor as
- * JungleCruise_TraceRoute: original gives esi/edi/ebp/ebx to x/y/x1/y1;
- * our tail-call-to-loop conversion ranks the pointers first. */
-// WIP-FUNCTION: LEGOLAND 0x0041c940  (130i/339B byte-exact, 105 ALLOCATION)
+/* FLOOR: 130i/339B byte-exact, 105 mismatches. Same NG22 phase-order
+ * ALLOCATION as JungleCruise_TraceRoute (jcroute.c): original allocates
+ * esi/edi/ebp/ebx to x/y/x1/y1 with w in the dead arg3 slot; our
+ * tail-call-to-loop conversion runs before allocation and ranks the
+ * pointers first. Dead trailing statements restore the ints but lose the
+ * loop. Retired. */
+// WIP-FUNCTION: LEGOLAND 0x0041c940  (FLOOR, 130i/339B byte-exact, 105 NG22)
 void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
 {
     BsWater* w;
@@ -675,24 +677,26 @@ void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 /* Alloc a triangular pair table, evaluate `eval` at n+1 samples centred on
  * a, then combine adjacent pairs down the rows.  Returns the row-pointer
  * table at 0x004d88cc. */
-/* Residual: 85i/212B exact size, 29 mismatches. n lives in edi not ebx;
- * eval/row walkers are swapped as a result. */
-// WIP-FUNCTION: LEGOLAND 0x0041f3e0  (74%, n edi vs ebx)
+/* Residual: 85i, 204B vs 212B, 29 mismatches. `int count = n` puts n in
+ * ebx (original first-insn). Missing the rows stack home that overwrites
+ * the dead `a` slot (`mov [esp+0x20],ebx` / dec / store). volatile rows
+ * emits the home but steals ebx. Address-taken rows CSE away. */
+// WIP-FUNCTION: LEGOLAND 0x0041f3e0  (95%, rows stack home vs ebx CSE)
 void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
                           float a, float b)
 {
+    int count = n;
     int m;
     void* mem;
     int i;
     void** row;
-    int rows;
 
-    m = n + 1;
+    m = count + 1;
     mem = ops->alloc((m * (m + 1)) >> 1);
 
     if (mem == 0)
         return 0;
-    if (n >= 0) {
+    if (count >= 0) {
         void** p = g_span_rows;
         int stride = m * 4;
         do {
@@ -703,24 +707,24 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
         } while (--m);
     }
     i = 0;
-    a = a - (float)(n >> 1) * b;
-    if (n >= 0) {
+    a = a - (float)(count >> 1) * b;
+    if (count >= 0) {
         do {
             eval(a, ((void**)g_span_rows[0])[i]);
             a = a + b;
             i++;
-        } while (i <= n);
+        } while (i <= count);
     }
-    if (n >= 1) {
+    if (count >= 1) {
+        int rows = count;
         row = &g_span_rows[1];
-        rows = n;
         do {
-            for (i = 0; i < n; i++) {
+            for (i = 0; i < count; i++) {
                 void** prev = (void**)row[-1];
                 void** cur = (void**)row[0];
                 ops->combine(prev[i + 1], prev[i], cur[i]);
             }
-            n--;
+            count--;
             row++;
         } while (--rows);
     }
