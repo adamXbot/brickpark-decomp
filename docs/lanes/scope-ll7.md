@@ -20,12 +20,12 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 | 0x00429e20 | Track_Bisect | 76 | 100 | [OK] | FUNCTION |
 | 0x0042a1b0 | Track_MeasureDistance | 92 | 100 | [OK] | FUNCTION |
 | 0x0042a680 | TrackCursorPair_Draw | 82 | 100 | [OK] | FUNCTION |
+| 0x00429cf0 | Track_StepObjective | 93 | 100 | [OK] | FUNCTION |
 | 0x00429560 | TrackRunSetSlope | 90 | 92 | 7 (eax/edx) | WIP |
-| 0x00429cf0 | Track_StepObjective | 93 | — | 61 | WIP |
-| 0x00429f30 | Track_StepAlong | 70 | — | 58 | WIP |
-| 0x00428860 | — | 254 | — | — | not started |
+| 0x00429f30 | Track_StepAlong | 70 | 62 | 58 | WIP |
+| 0x00428860 | TrackShade_FillPoly | 254 | — | — | not started |
 
-**13 / 17 exact.** `/W3` clean. `relocs.py` 0 MISMATCH on the 13 FUNCTION bodies.
+**14 / 17 exact.** `/W3` clean. `relocs.py` 0 MISMATCH on the 14 FUNCTION bodies.
 
 ## Names
 
@@ -40,6 +40,7 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **Track_AbsDerivative** 0x0042a150: pointer inside 0x0042a1b0.
 - **Track_Bisect** 0x00429e20: default `[0x004b63fc]` hook.
 - **Track_StepObjective** 0x00429cf0 / **Track_StepAlong** 0x00429f30: the 30-unit backward stepper RouteCar_SetPosition calls.
+- **TrackShade_FillPoly** 0x00428860: shaded/textured sibling of ZBuffer_FillPoly (schoolcar6.c 0x00423350). Same proofs: EBP frame, `xchg ebx,eax`, `add ebx,1`.
 - **Track_MeasureDistance** 0x0042a1b0: name from Coaster_StationDerivative (coaster7.c).
 - **TrackCursorPair_Draw** 0x0042a680: wheels at the first cursor; then first→second copy.
 
@@ -50,7 +51,8 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **TrackNode** piece is 0xa4: RouteGeom at +0x4c, parameter range at +0x90/+0x94.
 - **TrackRunSetSlope** builds one ramp geom from the span's world endpoints (square-to-world + `g_joint_world[dir]`, half-offset `g_joint_half[i0]`) and stamps it on every piece with `t` ranges `[i/n, (i+1)/n]`. z/dz only place the endpoints.
 - **Track_Bisect**: same-sign endpoints return 0 (`xor` of the float bits, test `0x80000000`); else midpoint of the final 0.005-wide bracket. Stats at 0x00615fc4 / 0x00615fc8; max iterations at 0x00615fec.
-- **0x00428860** has an EBP frame (`push ebp / mov ebp, esp / sub esp, 0x70`) and calls 0x00420780 / 0x00428840 (owned by LL4 / LL6).
+- **0x00428860** is a shaded z-buffer span filler: EBP frame `sub esp,0x70`, increments `edge[key[n-1].idx].ylast`, calls 0x00420780 (table at 0x004d89c8) and 0x00428840 (lowest-set-bit). Sibling of ZBuffer_FillPoly. Inner span is `__asm` (`xchg ebx,eax`, `add ebx,1`).
+- **g_step_lo2** is `(step-tol)²`, not `(t-tol)²`. hi2 is `(step+tol)²`.
 
 ## Levers
 
@@ -59,6 +61,9 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **TrackRunSetSlope**: body is instruction- and byte-identical except the loop prelude's eax/edx swap (`edx=steps, eax=0` vs the reverse). Ruled out: named `zed`/`k`, `zed=steps` then 0, `volatile` reload of steps, splitting `count` for the `1/steps` fild, chained `a=b=c=0` (reverses the +0x40/+0x48 stores). Still open: a free volatile or one extra IR temporary that gives the zero eax.
 - **Track_MeasureDistance**: extra `g_dist_at = &cur` before the loop integrate and the final `[t0, t]` integrate (equal path sets it to `from`). 0.01f is `0x3c23d70a`.
 - **TrackCursorPair_Draw**: interleave `s=sin; m[0]=s; c=cos; m[2]=c; m[8]=-c; m[10]=s` so the leftover sin is `fst` then later `fstp`. Computing both trigs first emitted `fld st(1)`. Mat slots are 0/2/8/10 (not 1/2/8/10). `#pragma intrinsic(sin, cos)`.
+- **Track_StepObjective**: `if ((dist2 = x*x+y*y+z*z) > hi2)` (assignment-in-condition) lands `fld st / fcomp hi2`. A named `dist2 = sum; if (dist2 > hi2)` emitted `fcom [home]`.
+- **TrackRunSetSlope**: post-call `int zed=0; int left=steps; if (left>zed)`, named `st`/`clr` pointer, and a `from`-slot pun on StepAlong are inert or worse. The IV still wins eax.
+- **Track_StepAlong**: best honest body is 70i/227B vs 232B, matchfull 61.8%, audit 58. `g_step_lo2=(step-tol)²`. Original pushes `out_t` early, dword-moves `geom->t0` over the dead `from` slot, and `fstp [esp]` overwrites a pushed `tol` with `t`. A `float t0` local is 5 bytes short; an `int` pun and overwriting `from` dropped to ~55%. Residual is the solver-arg push schedule.
 
 ## Extern-type divergences
 

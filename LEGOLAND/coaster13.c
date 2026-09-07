@@ -372,7 +372,7 @@ int Track_Bisect(TrackSampleFn fn, float lo, float hi, float* out)
 /* Bisection objective for Track_StepAlong: |pos(t) - origin - offset*up|^2
  * minus step^2, with early +1/-1 when the raw |pos-origin| is outside
  * step±tol. */
-// WIP-FUNCTION: LEGOLAND 0x00429cf0  (unverified)
+// FUNCTION: LEGOLAND 0x00429cf0
 float Track_StepObjective(float t)
 {
     Vec3f pos;
@@ -384,8 +384,7 @@ float Track_StepObjective(float t)
     pos.x -= g_step_origin->x;
     pos.y -= g_step_origin->y;
     pos.z -= g_step_origin->z;
-    dist2 = pos.x * pos.x + pos.y * pos.y + pos.z * pos.z;
-    if (dist2 > g_step_hi2) {
+    if ((dist2 = pos.x * pos.x + pos.y * pos.y + pos.z * pos.z) > g_step_hi2) {
         g_step_far++;
         return 1.0f;
     }
@@ -417,7 +416,7 @@ void Track_StepAlong(Vec3f* origin, float step, RoutePos* from, float t,
     g_curve_offset = tol;
     g_curve_at = &cur;
     g_step_hi2 = (step + tol) * (step + tol);
-    g_step_lo2 = (t - tol) * (t - tol);
+    g_step_lo2 = (step - tol) * (step - tol);
     if (!g_track_solver(Track_StepObjective, t0, t, out_t)) {
         do {
             TrackCursor_RetreatGeometry(&cur);
