@@ -271,3 +271,54 @@ void* Coaster_ReadSaveBlob(void)
     CloseHandle(h);
     return p;
 }
+
+/* ---- the flat (unscrolled) camera setup -------------------------------- */
+/* Only the view window matters; same shape coaster3d.c declares. */
+typedef struct Config {
+    unsigned char  pad00[0x10];
+    unsigned short w;           /* +0x10 */
+    unsigned short h;           /* +0x12 */
+    unsigned char  pad14[0x0c];
+    unsigned short x;           /* +0x20 */
+    unsigned short y;           /* +0x22 */
+} Config;
+
+extern Config* lpConfig;                                        /* 0x004bcbf4 */
+extern void MatIdentity(Mat4* out);                             /* 0x004260f0 */
+extern void MatMul(const Mat4* a, const Mat4* b, Mat4* out);    /* 0x00426120 */
+
+/* Coaster3D_SetupView (0x00425e20) with the map scroll taken out: the basis
+ * is chosen by the argument, its translation column is zeroed instead of
+ * being centred on the view window, the eye is the origin, and the
+ * world->screen matrix is the basis times a plain identity.  No
+ * ScreenToMapRef / GetTileBounds / SetSpanClip. */
+// FUNCTION: LEGOLAND 0x00426000
+void Coaster3D_SetupFlatView(int use_base)
+{
+    Mat4 t;
+
+    /* LEVER: the selection must be an if/else over TWO struct assignments,
+     * not `g_view_xf = use_base ? g_view_base : g_view_tmpl` and not a
+     * `Mat4*` select.  Both pointer forms schedule the rep-movsd count
+     * (`mov ecx,0x10`) after the lpConfig load and hoist the zero-extension
+     * `xor edx,edx` above the copy: 48/51 either way.  The if/else form is
+     * 51/51. */
+    if (use_base)
+        g_view_xf = g_view_base;
+    else
+        g_view_xf = g_view_tmpl;
+    g_view_xf.m[3] = 0.0f;
+    g_view_xf.m[7] = 0.0f;
+    g_view_left = lpConfig->x;
+    g_view_top = lpConfig->y;
+    g_view_right = lpConfig->w + lpConfig->x;
+    g_view_bottom = lpConfig->h + lpConfig->y;
+    g_eye.x = 0.0f;
+    g_eye.y = 0.0f;
+    g_eye.z = 0.0f;
+    MatIdentity(&t);
+    t.m[3] = 0.0f;
+    t.m[7] = 0.0f;
+    t.m[11] = 0.0f;
+    MatMul(&g_view_xf, &t, &g_view_matrix);
+}
