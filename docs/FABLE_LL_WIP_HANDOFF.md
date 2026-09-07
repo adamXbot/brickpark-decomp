@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `5b566c42` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `3e1017da` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
@@ -169,19 +169,23 @@ same window).
 
 ### LL3 — `Span_ClipPlane` `0x0041f050`
 
-**18.1%** (36/199), 179i, **603**/593B, frame **0x2c**, ESCAPES. Tip `5b566c42`.
+**18.1%** (35/193), 179i, **614**/593B, frame **0x28** (was 0x2c). Tip `3e1017da`.
 
 **Landed:**
-1. Byte-n → `mov ebx,n`; abs-n+byte → `and ebx,0x7fffffff`
-2. Frame 0x2c via `prev_abs {i,pad}`
-3. Trailing early-out: `if (n >= 1) { body; return }` → `cmp ebx,1 / jl` past fall-through ret
-4. Count-up lerp: `k=0; k++; while (k <= g_span_vtx)` — ENTER keeps `k` outside
-   vtx guard (spill); LEAVE inits `k` inside guard
+1. Byte-n → `mov ebx,n` / `cmp ebx,1 / jl` (prologue ebx held)
+2. Trailing early-out + count-up lerp ENTER/LEAVE k
+3. **Continue-header latch:** first-iter `jmp` over reloads; header reloads
+   abs+cls then `prev=nxt; prev_abs=abs; nxt=*in`; latch
+   `in+=4; dec left; store; jne header`
 
-**Still open:** goto continue-header (`in+=4; dec; jne` + reload abs/sign) knocks
-next_abs off ebx. Size 603 vs 593; ESCAPES. Need latch without losing abs-ebx.
+**Regressed / open:**
+- Loop abs is `and ecx`, not `and ebx` — seed `cls=prev_sign` occupies a
+  callee-save so bits reload uses plane’s ecx scratch
+- Frame pad unused → **0x28**; size 614 vs 593; ESCAPES
+- Extending n across ftol / rebirthing abs at header knocks ebx=n or inverts latch
 
-**Next:** land continue-header latch while holding ebx colourings + 0x2c.
+**Next:** put cls/sign in **esi** so post-`fstp` bits load is
+`mov ebx,[slot] / and ebx`; restore **0x2c** without losing latch or ebx=n.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -193,7 +197,7 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — 18%; land continue-header latch without losing abs-ebx.
+1. **LL3 Span_ClipPlane** — latch landed; cls→esi for abs-ebx; restore 0x2c.
 2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
 3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
@@ -209,7 +213,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `5b566c42` | `coaster11.c` |
+| LL3 | 16/19 | `3e1017da` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
