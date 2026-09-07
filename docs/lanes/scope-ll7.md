@@ -81,7 +81,13 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
   - Joust `Put(&t0,g,step2)` as a statement: still A. As hi/last-arg side effect: 2.9–52.9%.
   - `volatile RouteGeom *vg` / `*(volatile float*)&g_step_len2` / `g->t0` as lo: 1.4–52.9% (prologue or B-class hoist). `&*out_t` and `plen=&g_step_len2`: still A.
   - Union/`*(unsigned*)&t0` C-shape: push sits *after* t0 (wanted window, one slot late) at 18.6% / extra insn; single-store pun wrecks the frame (4.3%).
-  Still one permutation; Slope/Shade not reopened.
+  LL2 `LFUpd_Fst` RTL-helper wave (2026-09-08, tip 637f8231) still on A. `static __inline int Fst(int a, int b) { return a; }` (b evals first) and pointer twins `Ot`/`OtG`/`G`/`T0` / float `FstF`/`Keep`:
+  - Statement pin (`t0 = T0(geom,out_t)`, `t0 = G(geom,out_t)->t0`, `org = Fst(origin,out_t)`, last-arg `Ot(out_t,0)` / `OtG(out_t,geom)` / `(float*)Fst(out_t,0)`): **still A** (88.6%). Inlined helper args become temps, not a `push`; esi was already early.
+  - Float helpers / `*(int*)&t0` pun: steal ST or hoist `fld/fmul` above `sub esp` (I1 69.1%, frame wrecked). Keep(len2=step2, t0) as a statement: 68.1%.
+  - Wanted window is push-then-t0-then-fstp-then-fadd-then-push-tol. That work must live in the **hi** arg *and* last-arg `out_t` must eval first. Complex hi still wins over last-arg helper (t0/fstp before esi/push). Heavier last-arg only moves FP work *before* the push (K3 71%, K5/K6 43%).
+  - J11 (all stores in hi-comma + `OtG(out_t, g=cur.geom)`): best non-A at **81.4%/70i**, prologue `fld/fmul` kept, but origin load before `push esi` and both pushes still batched after fadd. Pulling origin back to a statement (K4) drops to 65.2% (fmul delayed past memcpy).
+  - Balanced `FstF(hi, t0/len2)` + `OtG` last: 65.2–65.7% (fadd-over-fmul). hi2-in-helper vs hi2-as-statement is the same ST/prologue pair as the prior last-arg wave.
+  Coupling unchanged: helper RTL can pin `out_t` before `t0` but cannot emit the missing `push esi` without starting the solver call, and starting the call early still hoists fstp/fadd (B) or flattens (A). Slope/Shade not reopened.
 - **TrackShade_FillPoly**: **ZBuffer floor**, same class as schoolcar6.c `ZBuffer_FillPoly` (EBP frame, `xchg ebx,eax`, `add ebx,1`, mixed `__asm`). 254/254i, 748/771B, frame 0x6c vs 0x70. Not ground further.
 
 ## Extern-type divergences
