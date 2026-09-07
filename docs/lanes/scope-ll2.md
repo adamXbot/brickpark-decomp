@@ -9,88 +9,40 @@ Brief: `docs/SCOPE_LL2_logflume_drop.md`.
 | --- | --- | ---: | ---: | --- | --- |
 | 0x0040d420 | LFGeom_ApplyCursors | 73 | 100 | [OK] | FUNCTION |
 | 0x0040d520 | LFTrack_CommitPlacement | 128 | 100 | [OK] | FUNCTION |
-| 0x0040d6f0 | LFPiece_UpdateCommon | 151 | 99.3 | 1 | WIP |
+| 0x0040d6f0 | LFPiece_UpdateCommon | 151 | 100 | [OK] | FUNCTION |
 | 0x0040d900 | LFPiece_AddCommon | 83 | 100 | [OK] | FUNCTION |
 | 0x0040da10 | LFTrack_UnlinkNeighbours | 61 | 100 | [OK] | FUNCTION |
 | 0x0040db00 | LFPiece_RemoveCommon | 61 | 100 | [OK] | FUNCTION |
 
-**5 / 6 exact.** Relocs clean on the five FUNCTION bodies. `/W3` clean.
+**6 / 6 exact.** Relocs clean. `/W3` clean.
 Neighbour-helper names taken from scope LL1. 0x00409a90 / 0x0040a080 still
 unmatched in LL1; named here `LFTrack_ReshapeEnds` / `LFTrack_LinkEnds`.
 
-## UpdateCommon residual (index 121, SIB only)
+## UpdateCommon people-rect SIB (closed)
 
-151i/520B vs 151i/520B (byte-exact). First **120** instructions match, and
-the people-rect schedule is now the original's: `lea` into edx, y load
-into ecx, then `mov [esp],edx`. ox stays in eax through `r.right`.
+151i/520B exact. People-rect after `pop edi / pop esi` is
+`mov eax,[ox] / mov ecx,[v0] / lea edx,[eax+ecx]` (`8D 14 08`).
 
-The only remaining delta is lea SIB base/index:
-
-```
-orig: lea edx,[eax+ecx]    ; 8D 14 08  base=eax (ox)  index=ecx (v0)
-ours: lea edx,[ecx+eax]    ; 8D 14 01  base=ecx (v0)  index=eax (ox)
-```
-
-One mismatch. `norm` does not commute lea operands.
-
-### Lever that got the lea
-
-`o.y` holds v0, then is overwritten with `g_mapref.y`. Combined with an
-`unsigned left` dest that is stored after that overwrite:
+Closing hybrid: keep the unsigned-`left` / two-def `o.y` lea, but assign
+v0 through a cdecl RTL helper so the **ox write is the second argument**
+(evaluated first) and **o.y takes the return** (first argument / v0):
 
 ```
-o.x = g_mapref.x;
-o.y = g_edit_cursor.footprint.v[0];
+o.y = LFUpd_Fst(g_edit_cursor.footprint.v[0], o.x = g_mapref.x);
 left = (unsigned)o.x + (unsigned)o.y;
 o.y = g_mapref.y;
 r.left = (int)left;
 ```
 
-The two-def `o.y` web keeps v0 live across the add (dest cannot coalesce)
-and dies before the y load (y reuses ecx). Unsigned `left` is required:
-plain `r.left = o.x + o.y` dest-coalesces (`add ecx,eax`, index 121).
-Volatile v1 on top is unchanged.
-
-### SIB is tied to load order
-
-VC6 uses the **last-loaded addend as lea base**:
-
-- ox then v0 → correct loads, `lea [ecx+eax]` (kept)
-- v0 then ox → `lea [eax+ecx]`, but `mov ecx,[v0]` before `mov eax,[ox]`
-
-Those are two 150/151 residuals; they do not combine. Tried and inert for
-the SIB (same `[ecx+eax]` or a worse floor): commuting the unsigned add,
-`(char*)o.x + o.y`, `&((char*)o.x)[o.y]`, pointer-typed `o.x`, `__inline`
-`p+i` helper, `char* px` instead of `o.x` (drops to index 120), dummy
-redef/`+0`/cast of `o.x` after v0, volatile ox preload, `int ox` copy
-into `o.x` after v0, both addends as memory (breaks the later rect),
-y-first struct layout, `Pos s` member dest.
-
-Need a spelling that keeps ox-first loads *and* treats ox as the lea
-base, without a second ox load. No such form found.
-
-2026-09-08 SIB pass (still 150/151, body unchanged). Confirmed the two
-150/151 residuals still do not combine. Extra measurements after the
-unsigned-`left` / two-def `o.y` lea:
-
-- Commuting `o.y + o.x`, pointer-typed `o.x` / `char *p` copy after v0,
-  `&p[i]`, `left` as `char*`, union `{int; char*}`, empty-if, `left +=`,
-  `ox - (-v0)`, assignment-in-expr, `__inline p+i` / param+global /
-  RTL `H(v0,(char*)ox)`, address-taken `o.x`, `*(int*volatile)&o.x`
-  after v0: same `[ecx+eax]` (forwarded; no extra insn).
-- `o.y = v[0]; o.x = g_mapref.x; left = o.x + o.y` (and comma-hoist
-  variants that DCE): correct SIB, swapped loads (`mov ecx,[v0]` first).
-- Track `v[0] + g_mapref.x` without both addends as named regs: dest-
-  coalesces (`add edx,ecx` / `add edx,eax`), 140–149/151. REG+MEM
-  loses the lea; both addends must stay register symbols.
-- Clean `char *px` / pointer-struct without `Pos o.x` drops to 149
-  (`add edx,eax`). Second ox load or `o.x =` after the lea shuffles
-  the later rect (141).
-
-`LFTrack_Update`'s `[eax+ecx]` is mem+mem RTL (`v[0]+g_mapref.x`)
-under saved ebx/esi/edi. The two-def that produces the 3-scratch lea
-here turns that add into reg+reg and flips the SIB. Still no spelling
-that keeps ox-first moffs32 loads *and* ox as lea base.
+`LFUpd_Fst` is `return a`. RTL loads `o.x = g_mapref.x` before v0
+(`a1` then `8B 0D`); returning v0 into `o.y` is the last addend def
+that selects base=eax. A plain `o.x=ox; o.y=v0` pair is the other
+150/151 attractor (`8D 14 01`). `o.y=v0; o.x=ox` is the F/N attractor
+(correct SIB, v0-first moffs). Hoisted `ox=g_mapref.x` then F/N
+rematerialises the ox moffs after v0. Pointer-typed ox, commute,
+volatile, comma, and `left=ox+o.y` stay on one attractor or drop the
+lea. Track's mem+mem `[eax+ecx]` needs saved ebx/esi/edi; here only
+three scratches remain after the pops.
 
 2026-09-08 earlier floors (still true of spellings that drop the two-def
 `o.y` / unsigned `left` pair):

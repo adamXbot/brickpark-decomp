@@ -438,6 +438,12 @@ static __inline void LFUpd_PackSq(unsigned int* slot, int x, int y)
     ((unsigned char*)slot)[1] = (unsigned char)y;
 }
 
+/* cdecl RTL: the ox assign (second arg) loads before v0 (first arg / return). */
+static __inline int LFUpd_Fst(int a, int b)
+{
+    return a;
+}
+
 /* =========================================================================
  * 0x0040d6f0 -- SHARED UPDATE (+0x90).  Stamp the class footprint onto the
  * edit cursor, convert the mouse, paint the geom preview, refuse on bricks
@@ -445,8 +451,10 @@ static __inline void LFUpd_PackSq(unsigned int* slot, int x, int y)
  * cursors.  Packed square and the neighbour-list pointer share one union
  * that lives in the dead footprint-argument slot; mode=0 after
  * ScreenToMapRef pins the dead mode slot so the union cannot take it.
+ * People-rect left is unsigned two-def o.y plus LFUpd_Fst(v0, o.x=ox)
+ * so RTL emits ox-first moffs and lea edx,[eax+ecx].
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x0040d6f0  (150/151, lea SIB [ecx+eax] vs [eax+ecx])
+// FUNCTION: LEGOLAND 0x0040d6f0
 void LFPiece_UpdateCommon(RideDef* def, int screen, int mode, Footprint* fp,
                           void (*geom)(unsigned int sq, LFGeom* out),
                           int (*probe)(LFPiece** nb))
@@ -501,8 +509,7 @@ void LFPiece_UpdateCommon(RideDef* def, int screen, int mode, Footprint* fp,
         {
             Pos o;
             unsigned left;
-            o.x = g_mapref.x;
-            o.y = g_edit_cursor.footprint.v[0];
+            o.y = LFUpd_Fst(g_edit_cursor.footprint.v[0], o.x = g_mapref.x);
             left = (unsigned)o.x + (unsigned)o.y;
             o.y = g_mapref.y;
             r.left = (int)left;
