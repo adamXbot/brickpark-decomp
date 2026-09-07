@@ -83,6 +83,24 @@ toolchain was rebuilt from `adamXbot/alphateam`'s
 
 ---
 
+## 0b. Portable build (2026-09-08)
+
+`portable/` is the start of the isle-portable-style browser/native port
+(see `portable/README.md`). Every game source compiles with clang and a
+whole-archive link closes against a generated closure (`ninja -C
+portable/build legoland_linkcheck`). All source changes sit under
+`#ifdef LEGOLAND_PORTABLE`, invisible to the VC6 gate: 82 inline-asm sites
+in 29 files got C fallbacks or `LL_UNPORTED_ASM()` traps, exceptlog.c's SEH
+compiles to plain blocks, and castleobj.c's `Track_Update` is renamed for the
+portable build only (it collides with coaster.c's). The census
+(`portable/tools/linkreport.py`) is the port's work list: 66 referenced
+functions unwritten, 102 externs without an address comment, 198 stale
+extern names (bridged by generated aliases until the rename pass), 130
+Win32/DirectX imports for the host shim, 23 asm blitters to port. Lane
+authors: keep new inline asm behind the same guard, and keep extern address
+comments on new declarations, because the generator sizes and initialises
+globals from them.
+
 ## 1. Where the project stands
 
 Goal: human-written C that, compiled with the VC6 SP3 toolchain the game shipped

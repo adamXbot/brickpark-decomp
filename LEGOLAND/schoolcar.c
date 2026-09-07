@@ -1182,6 +1182,7 @@ void Coaster3D_EndFrame(void)
     unsigned int t;
     int*         p = g_cmd_buf;
 
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -1190,6 +1191,9 @@ void Coaster3D_EndFrame(void)
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc();
+#endif
     if (g_frame_abandoned) {
         memset(g_zbuffer, 0, 0x25800 * 4);
         g_60f914 = 10;
@@ -1211,6 +1215,7 @@ void Coaster3D_EndFrame(void)
     g_cmd_write = g_cmd_buf;
     g_frame_abandoned = 0;
     g_frame_cmds = 0;
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -1220,6 +1225,9 @@ void Coaster3D_EndFrame(void)
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc() - t;
+#endif
     g_frame_ticks = t;
 }
 

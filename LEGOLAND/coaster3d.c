@@ -109,15 +109,28 @@ extern int g_view_bottom;                                       /* 0x008299b8 */
 /* float -> int in place: the module leaves the x87 in round-to-nearest with
  * everything masked for the whole draw, so this is a bare fistp and never the
  * CRT's __ftol (person3d.c records the same idiom). */
+#ifndef LEGOLAND_PORTABLE
 #define TOINT(x) __asm { fld x } __asm { fistp dword ptr x }
+#else
+#define TOINT(x) do { int ll_t = LL_FISTP(LL_ASFLT(x)); LL_ASINT(x) = ll_t; } while (0)
+#endif
 #define ASINT(x) (*(int*)&(x))
 /* float -> int into a SEPARATE int local, int -> float in place, and an
  * int scaled by a float and rounded back into its own slot.  All three are
  * bare x87 with no __ftol, for the same reason. */
+#ifndef LEGOLAND_PORTABLE
 #define FTOI(f, i)   __asm { fld f } __asm { fistp i }
 #define TOFLT(x)     __asm { fild x } __asm { fstp dword ptr x }
+#else
+#define FTOI(f, i)   ((i) = LL_FISTP(f))
+#define TOFLT(x)     do { float ll_f = (float)LL_ASINT(x); LL_ASFLT(x) = ll_f; } while (0)
+#endif
 #define ASFLT(x)     (*(float*)&(x))
+#ifndef LEGOLAND_PORTABLE
 #define FSCALE(x, k) __asm { fild x } __asm { fmul k } __asm { fistp x }
+#else
+#define FSCALE(x, k) (LL_ASINT(x) = LL_FISTPD((double)LL_ASINT(x) * (double)(k)))
+#endif
 
 /* =========================================================================
  * 0x00426250 -- TransformVerts (schoolcar3.c declares it under this name).

@@ -14,3 +14,8 @@ web/dist/
 
 # machine-local VC6 toolchain (symlink)
 toolchain
+
+# worktree symlinks to the main checkout (docs/HANDOFF.md) and the portable build tree
+original
+gamedata
+portable/build/

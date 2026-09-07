@@ -17,6 +17,13 @@
  * docs/lanes/scope-u.md.
  */
 
+#ifdef LEGOLAND_PORTABLE
+/* No structured exception handling off Win32: the guarded blocks run
+ * unguarded and the handlers are dead code. */
+#define __try if (1)
+#define __except(x) else if (0)
+#endif
+
 /* ---- Win32 types (only what is used) ------------------------------------- */
 typedef struct FILETIME { unsigned long lo, hi; } FILETIME;
 
@@ -406,8 +413,12 @@ int WriteExceptionReport(EXCEPTION_POINTERS* ep, const char* where)
     ReportWrite(report, "\r\nStack dump:\r\n");
     __try {
         dwords = (unsigned long*)ctx->Esp;
+#ifndef LEGOLAND_PORTABLE
         __asm mov eax, dword ptr fs:[4]     /* NT_TIB.StackBase */
         __asm mov stackend, eax
+#else
+        stackend = dwords + g_report_stack_dwords; /* no NT_TIB stack base */
+#endif
         if (stackend > dwords + g_report_stack_dwords)
             stackend = dwords + g_report_stack_dwords;
         end = textline + sizeof(textline) - leeway;

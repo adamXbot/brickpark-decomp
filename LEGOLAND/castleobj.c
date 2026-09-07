@@ -651,6 +651,11 @@ void Track_Destroy(RideElem* elem);                  /* 0x00427af0 */
 void Track_Interact(int a, int b, int c, MapPos* p); /* 0x00427a00 */
 extern void Track_Update90(void);                    /* 0x004275d0 */
 void Track_Tick(RideElem* elem);                     /* 0x00427940 */
+#ifdef LEGOLAND_PORTABLE
+/* Name collision with coaster.c's Track_Update (0x004275d0, declared here as
+ * Track_Update90); the portable build keeps both under distinct symbols. */
+#define Track_Update Track_Update_427b20
+#endif
 void Track_Update(RideElem* elem, int a, int b);     /* 0x00427b20 */
 void Track_Update2(RideElem* elem, MapRef* p);       /* 0x00427970 */
 void Track_Add(RideElem* elem, MapRef* node);          /* 0x00427bc0 */

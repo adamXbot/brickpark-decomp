@@ -412,6 +412,7 @@ void SetPersonRotation(Person3D* p, Vec3* rot)
     p->rot.z = rot->z;
     angle = rot->y;
     m = p->matrix.m;
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push esi
         fld  angle
@@ -439,6 +440,15 @@ void SetPersonRotation(Person3D* p, Vec3* rot)
         mov  [eax+20h], esi
         pop  esi
     }
+#else
+    {
+        int ll_s = LL_FISTP(__builtin_sin((double)angle) * scale);
+        int ll_c = LL_FISTP(__builtin_cos((double)angle) * scale);
+        m[0] = ll_c;  m[1] = 0; m[2] = ll_s;
+        m[3] = 0;     m[4] = 0x10000; m[5] = 0;
+        m[6] = -ll_s; m[7] = 0; m[8] = ll_c;
+    }
+#endif
     p->matrix.m[4] = -p->matrix.m[4];
 }
 
@@ -466,6 +476,7 @@ void SetPersonDirection(Person3D* p, unsigned int dir)
 // FUNCTION: LEGOLAND 0x004433b0
 void TransformVectorsL(int* src, int* dst, int* m, int count)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push esi
         push edi
@@ -522,6 +533,16 @@ void TransformVectorsL(int* src, int* dst, int* m, int count)
         pop  edi
         pop  esi
     }
+#else
+    while (count-- > 0) {
+        int x = src[0], y = src[1], z = src[2];
+        int r0 = LL_FMUL16(m[0], x) + LL_FMUL16(m[1], y) + LL_FMUL16(m[2], z);
+        int r1 = LL_FMUL16(m[3], x) + LL_FMUL16(m[4], y) + LL_FMUL16(m[5], z);
+        int r2 = LL_FMUL16(m[6], x) + LL_FMUL16(m[7], y) + LL_FMUL16(m[8], z);
+        dst[2] = r2; dst[1] = r1; dst[0] = r0;
+        src += 3; dst += 3;
+    }
+#endif
 }
 
 // FUNCTION: LEGOLAND 0x00443270

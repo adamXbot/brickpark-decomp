@@ -392,6 +392,7 @@ Anim3D* LoadAnim3D(const char* file, const char* dir, int texbase)
                 ((float*)anim->frames[i].verts)[k * 3 + 1] =
                     -((float*)anim->frames[i].verts)[k * 3 + 1];
             for (j = 0; j < nv * 12; j += 4) {
+#ifndef LEGOLAND_PORTABLE
                 __asm {
                     mov   eax, vp
                     add   eax, j
@@ -399,6 +400,9 @@ Anim3D* LoadAnim3D(const char* file, const char* dir, int texbase)
                     fmul  k65536
                     fistp dword ptr [eax]
                 }
+#else
+                { int* ll_p = (int*)((char*)vp + j); LL_ASINT(*ll_p) = LL_FISTP(LL_ASFLT(*ll_p) * k65536); }
+#endif
             }
             RES_ReadFile(fp, &nn.n, 4);
             anim->frames[i].n_normals = nn.n;
@@ -411,6 +415,7 @@ Anim3D* LoadAnim3D(const char* file, const char* dir, int texbase)
                 ((float*)anim->frames[i].normals)[k * 3 + 1] =
                     -((float*)anim->frames[i].normals)[k * 3 + 1];
             for (k = 0; k < nn.n * 12; k += 4) {
+#ifndef LEGOLAND_PORTABLE
                 __asm {
                     mov   eax, np
                     add   eax, k
@@ -418,6 +423,9 @@ Anim3D* LoadAnim3D(const char* file, const char* dir, int texbase)
                     fmul  k65536
                     fistp dword ptr [eax]
                 }
+#else
+                { int* ll_p = (int*)((char*)np + k); LL_ASINT(*ll_p) = LL_FISTP(LL_ASFLT(*ll_p) * k65536); }
+#endif
             }
             anim->frames[i].faces = set;
             ComputeVertexBounds(&anim->frames[i], &anim->frames[i]);
@@ -514,33 +522,52 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  * `imul` / `shrd eax,edx,16` pair the original uses cannot be reached from C.
  * SetPersonRotation and TransformVectorsL in math3d.c are asm for the same
  * reason.  r = (a * b) >> 16, all three 16.16 lvalues. */
+#ifndef LEGOLAND_PORTABLE
 #define FMUL(r, a, b) \
     __asm { mov  eax, a } __asm { mov  ecx, b } __asm { imul ecx } \
     __asm { shrd eax, edx, 16 } __asm { mov  r, eax }
+#else
+#define FMUL(r, a, b) ((r) = LL_FMUL16((a), (b)))
+#endif
 
 /* d[n] = (s[n] * m) >> 16 for two ARRAY locals, byte offset n. */
+#ifndef LEGOLAND_PORTABLE
 #define FMULA(d, s, n, m) \
     __asm { lea  eax, s } __asm { mov  eax, [eax+n] } __asm { mov  ecx, m } \
     __asm { imul ecx } __asm { shrd eax, edx, 16 } \
     __asm { lea  edx, d } __asm { mov  [edx+n], eax }
+#else
+#define FMULA(d, s, n, m) \
+    (*(int*)((char*)(d) + (n)) = LL_FMUL16(*(int*)((char*)(s) + (n)), (m)))
+#endif
 
 /* p[n] = (p[n] * m) >> 16 through a POINTER local, byte offset n. */
+#ifndef LEGOLAND_PORTABLE
 #define FMULP(p, n, m) \
     __asm { mov  eax, p } __asm { mov  eax, [eax+n] } __asm { mov  ecx, m } \
     __asm { imul ecx } __asm { shrd eax, edx, 16 } \
     __asm { mov  edx, p } __asm { mov  [edx+n], eax }
+#else
+#define FMULP(p, n, m) \
+    (*(int*)((char*)(p) + (n)) = LL_FMUL16(*(int*)((char*)(p) + (n)), (m)))
+#endif
 
 /* float -> 16.16 in place.  Render3DPerson leaves the x87 in round-to-nearest
  * with everything masked (CW 0x7f) for the whole draw, so this is a bare
  * fistp and never the CRT's __ftol. */
+#ifndef LEGOLAND_PORTABLE
 #define TOFIX(x) \
     __asm { fld   x } __asm { fmul  k65536 } __asm { fistp dword ptr x }
+#else
+#define TOFIX(x) (LL_ASINT(x) = LL_FISTP(LL_ASFLT(x) * k65536))
+#endif
 
 #define FIXV(x)   (*(int*)&(x))
 
 /* The per-vertex diffuse term: dot(normal, light) in 16.16 with the normal
  * pointer already in ebx, negatives folded to 1 by `(unsigned)d >> (d >> 31)`,
  * biased by 0x3333 and dropped into vertex record vo (+0x14 = shade). */
+#ifndef LEGOLAND_PORTABLE
 #define SHADE(nb, vo) \
     __asm { mov  eax, [ebx+nb] } __asm { imul dword ptr light[0] } \
     __asm { shrd eax, edx, 16 } __asm { mov  ecx, eax } \
@@ -551,6 +578,18 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
     __asm { mov  eax, ecx } __asm { sar  ecx, 31 } __asm { shr  eax, cl } \
     __asm { mov  ecx, eax } __asm { add  ecx, 0x3333 } \
     __asm { lea  edx, v[vo] } __asm { mov  [edx+20], ecx }
+#else
+/* ebx (the normal pointer) is the portable local ll_nrm; negatives fold to
+ * 1 through `shr eax, cl` with cl = 31. */
+#define SHADE(nb, vo) \
+    do { \
+        int ll_d = LL_FMUL16(ll_nrm[(nb) / 4], light[0]) \
+                 + LL_FMUL16(ll_nrm[(nb) / 4 + 1], light[1]) \
+                 + LL_FMUL16(ll_nrm[(nb) / 4 + 2], light[2]); \
+        unsigned int ll_u = (unsigned int)ll_d >> ((ll_d >> 31) & 31); \
+        *(int*)((char*)v + (vo) + 20) = (int)ll_u + 0x3333; \
+    } while (0)
+#endif
 
 /* Residual 63.3% (matchfull 648/1023; audit strict mismatch 377).  The w10p3d
  * round found NO new reconstruction error and did not move the number; what it
@@ -1008,6 +1047,9 @@ void Draw3DPersonModel(Person3D* p)
      * The original stores to a real frame slot (0x00440e... `mov [ebp-0x14],eax`). */
     int      crs1, crs2;
     int      yy;
+#ifdef LEGOLAND_PORTABLE
+    const int* ll_nrm = 0;
+#endif
 
     anim = GetBlokeAnim3DFromPerson(p);
     k65536 = 65536.0f;
@@ -1126,6 +1168,7 @@ void Draw3DPersonModel(Person3D* p)
     }
 
     /* TransformVectorsL's body, inlined with src == dst == g_xverts. */
+#ifndef LEGOLAND_PORTABLE
     __asm {
         mov  ebx, mpp
         mov  edi, nverts
@@ -1181,6 +1224,19 @@ void Draw3DPersonModel(Person3D* p)
         dec  edi
         jne  xf_next
     }
+#else
+    {
+        int  ll_i;
+        int* ll_v = g_xverts;
+        for (ll_i = 0; ll_i < nverts; ll_i++, ll_v += 3) {
+            int x = ll_v[0], y = ll_v[1], z = ll_v[2];
+            int r0 = LL_FMUL16(x, mpp[0]) + LL_FMUL16(y, mpp[1]) + LL_FMUL16(z, mpp[2]);
+            int r1 = LL_FMUL16(mpp[3], x) + LL_FMUL16(mpp[4], y) + LL_FMUL16(mpp[5], z);
+            int r2 = LL_FMUL16(mpp[6], x) + LL_FMUL16(mpp[7], y) + LL_FMUL16(mpp[8], z);
+            ll_v[2] = r2; ll_v[1] = r1; ll_v[0] = r0;
+        }
+    }
+#endif
 
     lo = g_xverts[2];
     hi = g_xverts[2];
@@ -1264,6 +1320,7 @@ void Draw3DPersonModel(Person3D* p)
             v[0].z = g_vert_key[tp[0]];
             v[1].z = g_vert_key[tp[1]];
             v[2].z = g_vert_key[tp[2]];
+#ifndef LEGOLAND_PORTABLE
             __asm {
                 mov ecx, i
                 lea ebx, [ecx+ecx*8]
@@ -1271,6 +1328,9 @@ void Draw3DPersonModel(Person3D* p)
                 mov ecx, fr
                 add ebx, [ecx+40]
             }
+#else
+            ll_nrm = (const int*)((const char*)fr->normals + i * 36);
+#endif
             SHADE(0, 0);
             SHADE(12, 28);
             SHADE(24, 56);
@@ -1329,12 +1389,16 @@ void Draw3DPersonModel(Person3D* p)
             v[0].z = g_vert_key[tp[0]];
             v[1].z = g_vert_key[tp[1]];
             v[2].z = g_vert_key[tp[2]];
+#ifndef LEGOLAND_PORTABLE
             __asm {
                 mov ecx, i
                 lea ecx, [ecx+ecx*2]
                 mov ebx, nrm
                 lea ebx, [ebx+ecx*4]
             }
+#else
+            ll_nrm = nrm + i * 3;
+#endif
             SHADE(0, 0);
             if (face->flags & 0x2000) {
                 SetFlatColour(face->tex);

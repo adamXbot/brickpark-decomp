@@ -592,8 +592,13 @@ unsigned short Raster_SetFloatMode(void)
 {
     unsigned int saved;
     unsigned short control;
+#ifndef LEGOLAND_PORTABLE
     __asm { fstcw word ptr saved }
+#else
+    saved = 0x27f; /* the x87 default control word */
+#endif
     if ((saved & 0x300) || ((unsigned char)saved & 0x3f) != 0x3f || (saved & 0xc00)) {
+#ifndef LEGOLAND_PORTABLE
         __asm {
             mov ax, word ptr saved
             and ax, 0fcffh
@@ -602,6 +607,10 @@ unsigned short Raster_SetFloatMode(void)
             mov control, ax
             fldcw control
         }
+#else
+        control = (unsigned short)(((saved & 0xfcff) | 0x3f) & 0xf3ff);
+        (void)control;
+#endif
     }
     return (unsigned short)saved;
 }

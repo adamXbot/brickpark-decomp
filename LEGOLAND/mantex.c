@@ -184,11 +184,15 @@ void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
         int  j;
         for (j = 0; j < 3; j++) {
             *(float*)&frame = track[g_ride_mtx_row[j] + si * 3 + 3];
+#ifndef LEGOLAND_PORTABLE
             __asm {
                 fld   dword ptr frame
                 fmul  dword ptr screen_y
                 fistp dword ptr frame
             }
+#else
+            frame = LL_FISTP(LL_ASFLT(frame) * LL_ASFLT(screen_y));
+#endif
             dest[j * 3] = g_ride_mtx_sign_a[j] * g_ride_mtx_sign_b[si] * frame;
         }
     }

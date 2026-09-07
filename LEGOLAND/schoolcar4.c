@@ -383,6 +383,7 @@ void Route_AdvanceTrain(CoasterRoute* rt)
     dt = ((float)now - rt->started) * 0.001f;
     if (dt > 0.8f)
         dt = 0.8f;
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -391,6 +392,9 @@ void Route_AdvanceTrain(CoasterRoute* rt)
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc();
+#endif
     limit = dt - 1e-6f;
     for (;;) {
         st = rt->state;
@@ -416,6 +420,7 @@ void Route_AdvanceTrain(CoasterRoute* rt)
         }
     }
     rt->started = now;
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -425,6 +430,9 @@ void Route_AdvanceTrain(CoasterRoute* rt)
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc() - t;
+#endif
     g_stat_c_4d83bc += t;
 }
 

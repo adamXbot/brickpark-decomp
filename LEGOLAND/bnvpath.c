@@ -89,7 +89,11 @@ extern BNVVertex* GetVertex(BNVNameNode* object, int index); /* 0x0044ddf0 */
 // FUNCTION: LEGOLAND 0x00458930
 int sub_458930(void)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm fistp dword ptr [g_bnv_fist_scratch]
+#else
+    LL_UNPORTED_ASM(); /* takes ST(0): no portable caller */
+#endif
     return g_bnv_fist_scratch;
 }
 
@@ -140,57 +144,93 @@ void ApplyObjectOrientationToPerson(BNVPerson* person,
     person->orientation[8].real = orientation->m[4];
 
     value = person->orientation[0].real;
+#ifndef LEGOLAND_PORTABLE
     __asm fld value
     __asm fmul scale
     __asm fistp value
+#else
+    LL_FISTP_SCALE_INPLACE(value, scale);
+#endif
     person->orientation[0].fixed = *(int*)&value;
 
     value = person->orientation[3].real;
+#ifndef LEGOLAND_PORTABLE
     __asm fld value
     __asm fmul scale
     __asm fistp value
+#else
+    LL_FISTP_SCALE_INPLACE(value, scale);
+#endif
     person->orientation[3].fixed = *(int*)&value;
 
     value = person->orientation[6].real;
+#ifndef LEGOLAND_PORTABLE
     __asm fld value
     __asm fmul scale
     __asm fistp value
+#else
+    LL_FISTP_SCALE_INPLACE(value, scale);
+#endif
     person->orientation[6].fixed = *(int*)&value;
 
     value = person->orientation[1].real;
+#ifndef LEGOLAND_PORTABLE
     __asm fld value
     __asm fmul scale
     __asm fistp value
+#else
+    LL_FISTP_SCALE_INPLACE(value, scale);
+#endif
     person->orientation[1].fixed = *(int*)&value;
 
     value = person->orientation[4].real;
+#ifndef LEGOLAND_PORTABLE
     __asm fld value
     __asm fmul scale
     __asm fistp value
+#else
+    LL_FISTP_SCALE_INPLACE(value, scale);
+#endif
     person->orientation[4].fixed = *(int*)&value;
 
     value = person->orientation[7].real;
+#ifndef LEGOLAND_PORTABLE
     __asm fld value
     __asm fmul scale
     __asm fistp value
+#else
+    LL_FISTP_SCALE_INPLACE(value, scale);
+#endif
     person->orientation[7].fixed = *(int*)&value;
 
     value = person->orientation[2].real;
+#ifndef LEGOLAND_PORTABLE
     __asm fld value
     __asm fmul scale
     __asm fistp value
+#else
+    LL_FISTP_SCALE_INPLACE(value, scale);
+#endif
     person->orientation[2].fixed = *(int*)&value;
 
     value = person->orientation[5].real;
+#ifndef LEGOLAND_PORTABLE
     __asm fld value
     __asm fmul scale
     __asm fistp value
+#else
+    LL_FISTP_SCALE_INPLACE(value, scale);
+#endif
     person->orientation[5].fixed = *(int*)&value;
 
     value = person->orientation[8].real;
+#ifndef LEGOLAND_PORTABLE
     __asm fld value
     __asm fmul scale
     __asm fistp value
+#else
+    LL_FISTP_SCALE_INPLACE(value, scale);
+#endif
     person->orientation[8].fixed = *(int*)&value;
 }
 

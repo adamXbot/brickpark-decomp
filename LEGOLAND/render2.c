@@ -205,6 +205,7 @@ int RenderingComplete(void)
 
     ProcessSystemEvents();
     ExpireCachedText(0);
+#ifndef LEGOLAND_PORTABLE
     __asm {
         pushad
         rdtsc
@@ -214,15 +215,26 @@ int RenderingComplete(void)
         add g_rdtsc_accum, eax
         popad
     }
+#else
+    {
+        int ll_now = (int)ll_rdtsc();
+        g_rdtsc_last = ll_now - g_rdtsc_last;
+        g_rdtsc_accum += g_rdtsc_last;
+    }
+#endif
     g_last_tick = GetTickCount();
     result = g_present();
     g_rdtsc_accum = 0;
+#ifndef LEGOLAND_PORTABLE
     __asm {
         pushad
         rdtsc
         mov g_rdtsc_last, eax
         popad
     }
+#else
+    g_rdtsc_last = (int)ll_rdtsc();
+#endif
     return result;
 }
 

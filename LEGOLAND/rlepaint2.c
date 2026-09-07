@@ -15,7 +15,11 @@
  * `and ax, [mask]` (highlight also `shr ax, 1`) then `rep stosw`.
  */
 
+#ifndef LEGOLAND_PORTABLE
 #define NAKED __declspec(naked)
+#else
+#define NAKED
+#endif
 
 extern int g_blit_hit;       /* 0x007feb14 */
 extern int g_sp_recolour;    /* 0x007fe998  16-bit AND mask */
@@ -27,6 +31,7 @@ void SoftBlitRLEFrameRecolour(void* dst, void* a, void* b, void* c, int h,
                               int pitch, int top, int left, int w, int spare,
                               void* mouse)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         mov      edx, dword ptr [esp+14h]
@@ -361,6 +366,9 @@ void SoftBlitRLEFrameRecolour(void* dst, void* a, void* b, void* c, int h,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* 0x00468410 -- highlight Hit+ClipLR; 312 instructions. */
@@ -369,6 +377,7 @@ NAKED
 void SoftBlitRLEFrame(void* dst, void* a, void* b, void* c, int h, int pitch,
                       int top, int left, int w, int spare, void* mouse)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         mov      edx, dword ptr [esp+14h]
@@ -712,4 +721,7 @@ void SoftBlitRLEFrame(void* dst, void* a, void* b, void* c, int h, int pitch,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }

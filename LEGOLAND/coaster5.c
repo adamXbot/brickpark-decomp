@@ -325,11 +325,17 @@ extern SqrtEnt g_sqrt_tab[64];          /* 0x00610c40 */
 extern float   g_sqrt_exp[256];         /* 0x00610e44 */
 extern void*   g_fast_sqrt;             /* 0x00829a58 */
 extern void    FastSqrt(void);          /* 0x00426ab0 */
+#ifdef LEGOLAND_PORTABLE
+extern float   ll_FastSqrt(float);       /* coastermath.c, C ABI */
+#endif
 
 extern SqrtEnt g_rsqrt_tab[64];         /* 0x00610a20 */
 extern float   g_rsqrt_exp[256];        /* 0x00611244 */
 extern void*   g_fast_rsqrt;            /* 0x00829a5c */
 extern void    FastRSqrt(void);         /* 0x00426980 */
+#ifdef LEGOLAND_PORTABLE
+extern float   ll_FastRSqrt(float);      /* coastermath.c, C ABI */
+#endif
 
 // FUNCTION: LEGOLAND 0x00426b10
 void FastSqrt_InitTables(void)
@@ -344,12 +350,16 @@ void FastSqrt_InitTables(void)
     }
     for (i = 0; i <= 255; i++)
         g_sqrt_exp[i] = (float)sqrt(pow(2.0, i - 127));
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         lea  eax, FastSqrt
         mov  g_fast_sqrt, eax
         pop  eax
     }
+#else
+    g_fast_sqrt = (void*)ll_FastSqrt;
+#endif
 }
 
 // FUNCTION: LEGOLAND 0x004269e0
@@ -369,12 +379,16 @@ void FastRSqrt_InitTables(void)
     g_rsqrt_exp[0] = 1.0f;
     for (i = 1; i <= 255; i++)
         g_rsqrt_exp[i] = 1.0f / (float)sqrt(pow(2.0, i - 127));
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         lea  eax, FastRSqrt
         mov  g_fast_rsqrt, eax
         pop  eax
     }
+#else
+    g_fast_rsqrt = (void*)ll_FastRSqrt;
+#endif
 }
 
 /* ==========================================================================

@@ -84,24 +84,32 @@ extern int KLIBAUDIO_DestroyAVISoundBuffer(IDSBuffer*); /* 0x004964c0 */
 void ReadBE16(void* f, void* dest)
 {
     RES_ReadFile(f, dest, 2);
+#ifndef LEGOLAND_PORTABLE
     __asm {
         mov eax, dest
         movzx edx, word ptr [eax]
         xchg dh, dl
         mov word ptr [eax], dx
     }
+#else
+    *(unsigned short*)dest = (unsigned short)__builtin_bswap16(*(unsigned short*)dest);
+#endif
 }
 
 // FUNCTION: LEGOLAND 0x00480150
 void ReadBE32(void* f, void* dest)
 {
     RES_ReadFile(f, dest, 4);
+#ifndef LEGOLAND_PORTABLE
     __asm {
         mov eax, dest
         mov edx, dword ptr [eax]
         bswap edx
         mov dword ptr [eax], edx
     }
+#else
+    *(unsigned int*)dest = __builtin_bswap32(*(unsigned int*)dest);
+#endif
 }
 
 // FUNCTION: LEGOLAND 0x004927b0

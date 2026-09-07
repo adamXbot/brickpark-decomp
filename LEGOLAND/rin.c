@@ -552,12 +552,20 @@ void Render3DPerson(Person3D* p)
     SetRasterTarget((char*)vs.bits + p->sy * vs.pitch + p->sx * 2, vs.pitch, vs.width, vs.height);
     SetRasterOrigin(vs.bits, &g_raster_origin);
     Render_SetViewport(&r);
+#ifndef LEGOLAND_PORTABLE
     __asm {
         fstcw word ptr [g_fpu_cw_saved]
         fldcw word ptr [g_fpu_cw_render]
     }
+#else
+    /* x87 control word save/set: no-op in the portable build */
+#endif
     Draw3DPersonModel(p);
+#ifndef LEGOLAND_PORTABLE
     __asm fldcw word ptr [g_fpu_cw_saved]
+#else
+    /* x87 control word restore: no-op in the portable build */
+#endif
     if (g_raster_hit == 0)
         return;
     if (g_selection_lock) {

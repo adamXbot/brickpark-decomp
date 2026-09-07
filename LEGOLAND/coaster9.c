@@ -84,9 +84,13 @@ void PhysObj_WriteState(PhysObj* obj, const void* in) { obj->copy(obj->state, in
 // FUNCTION: LEGOLAND 0x00426a90
 float VecMath_Sqrt(float value)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm { fld value
         call dword ptr [g_fast_sqrt]
         fstp value }
+#else
+    value = ((float (*)(float))g_fast_sqrt)(value);
+#endif
     return value;
 }
 /* 0x4273e0 already owns RouteSeat_DetachCar. This operation invokes the
@@ -233,6 +237,7 @@ void Coaster3D_DrawModel(ModelMesh* model, void* texture, const Vec3f* pos, cons
     unsigned int cycles;
     VideoSurfaceInfo surface;
     Mat4 transform, projected;
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -241,6 +246,9 @@ void Coaster3D_DrawModel(ModelMesh* model, void* texture, const Vec3f* pos, cons
         pop edx
         pop eax
     }
+#else
+    cycles = ll_rdtsc();
+#endif
     if (model && texture) {
         Mat3_TransposeToMat4(rot, &transform);
         TransformVec3(&g_view_cur.direction, &g_model_light, &transform, 1);
@@ -250,6 +258,7 @@ void Coaster3D_DrawModel(ModelMesh* model, void* texture, const Vec3f* pos, cons
         MakeTransform(pos, rot, &transform);
         MatMul(&g_view_matrix, &transform, &projected);
         TransformVerts(model->vertices, g_model_vertices, &projected, 0x10, model->count);
+#ifndef LEGOLAND_PORTABLE
         __asm {
             push eax
             push edx
@@ -259,6 +268,9 @@ void Coaster3D_DrawModel(ModelMesh* model, void* texture, const Vec3f* pos, cons
             pop edx
             pop eax
         }
+#else
+        cycles = ll_rdtsc() - cycles;
+#endif
         g_stat_c_4dcbc8 += cycles;
         if (Raster_SaveState(&surface)) {
             CoasterModel_DrawPass1(model, texture, mode);
