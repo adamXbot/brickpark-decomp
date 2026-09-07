@@ -2,9 +2,11 @@
 
 Branch `scope/AG`, baseline `main` `f2ff6920`. Two new files, nothing
 else touched. Objects under `/tmp/sag_*`. `/W3` clean on both files.
-`relocs.py` 0 `MISMATCH` on both `// FUNCTION:` bodies (one UNRESOLVED
-string literal on `"Lego certificate"`). Two of three exact; WinMain
-is matchfull-identical but audit-WIP (tool limit, below).
+`relocs.py` 0 `MISMATCH` on all three `// FUNCTION:` bodies (UNRESOLVED
+lines are the two string literals and `__except_list`, the CRT absolute
+that match.py resolves). **Three of three exact (2026-09-08).** WinMain was
+held at WIP by the extent walker, not the C; `tools/match.py` now reads
+the SEH scope table (below) and the body audits `[OK]` unchanged.
 
 ## Per function
 
@@ -12,7 +14,7 @@ is matchfull-identical but audit-WIP (tool limit, below).
 | --- | --- | ---: | ---: | --- | --- | --- |
 | 0x00451f40 | `KillControllers` | 9 | 100 | `[OK]` | `// FUNCTION:` | first compile |
 | 0x00451740 | `SaveScreenshotBmp` | 620 | 100 | `[OK]` | `// FUNCTION:` | — |
-| 0x00453d10 | `WinMain` | 48 | 100 matchfull | 31i/93B ESCAPES | `// WIP-FUNCTION:` | SEH jmp-over-filter (below) |
+| 0x00453d10 | `WinMain` | 48 | 100 | `[OK]` 48i/143B | `// FUNCTION:` | walker fix (below) |
 
 Names: gamemain.c already named 0x00451f40 `KillControllers` (frees
 `g_controller`); render5.c already named 0x00451740 `SaveScreenshotBmp`.
@@ -38,12 +40,21 @@ the exception keeps searching. Both cdecl cleanups merge into one
 `add esp, 0x14`.
 
 matchfull is 48/48, 143B, byte-identical including the SEH prologue's
-`fs:[0]` (scope U's `KNOWN_ABSOLUTE` on `__except_list`). audit walks
-31i/93B `ESCAPES`: the try body ends in `jmp` over the filter/handler,
-which only the `.rdata` scope table reaches (scope N: 31i/93B walked →
-48i/143B). WriteExceptionReport / ReportModuleDetails walk in full
-because earlier forwards already set `furthest` past their jmp. No C
-spelling moves the original's terminator. Marker stays WIP.
+`fs:[0]` (scope U's `KNOWN_ABSOLUTE` on `__except_list`). audit used to
+walk 31i/93B `ESCAPES`: the try body ends in `jmp` over the filter/handler,
+which only the `.rdata` scope table at 0x004ab4e0 reaches
+(`{-1, 0x00453d6d, 0x00453d7f}`). WriteExceptionReport /
+ReportModuleDetails walked in full only because earlier forwards had set
+`furthest` past their jmp. No C spelling moves the original's terminator,
+so the fix went into the walker (integrator change, 2026-09-08):
+`true_extent` recognises the VC6 SEH prologue (`push -1 / push
+<scopetable> / push __except_handler3 / mov eax, fs:[0]`) and, at every
+`mov dword ptr [ebp-4], K` that enters trylevel K, adds entry K's filter
+and handler to `furthest`. Reading only the entered levels bounds the
+table (the next SEH function's entries follow it contiguously, and
+0x00453da0's table is immediately followed by 0x00454380's). All seven
+SEH frames in the binary re-walk to the same extent except WinMain, which
+becomes 48i/143B; audit `[OK]`, relocs 0 MISMATCH, `/W3` clean.
 
 **`SaveScreenshotBmp(path, msg, stamp)`.** Not a screen grab and not a
 BMP writer (fable-d's `_write` reading was `_read` 0x0049f4ca). It
@@ -98,15 +109,14 @@ print path: `EnumPrintersA` thunk 0x0049e442 → [0x4ab344], `CreateDCA` [0x4ab0
   puts the call in the *filter* (`ret` at 0x00453d7e), not the handler
   (`mov esp, [ebp-0x18]` at 0x00453d7f). `__except (1) { report(); }`
   swaps them.
-- **audit cannot `[OK]` a body whose only path to the filter is the
-  scope table.** WinMain's try body is straight-line, so `true_extent`
-  walks the *original* and stops at `jmp 0x453d89` (insn 30, 31i/93B),
-  then flags the compiled jmp to the epilogue as ESCAPES. matchfull
-  uses the compiled COMDAT (48i/143B, byte-identical including
-  `fs:[0]`). WriteExceptionReport starts at 0x00453da0 after a nop;
-  `__except (1) { report(); }` swaps filter/handler. No C spelling
-  moves the original terminator. Marker stays WIP — promoting it
-  makes audit REJECT.
+- **A straight-line `__try` body's only path to its filter is the
+  scope table.** WinMain's `true_extent` walk stopped at `jmp 0x453d89`
+  (insn 30, 31i/93B) and flagged the compiled jmp to the epilogue as
+  ESCAPES; no C spelling moves the original terminator (WriteExceptionReport
+  and ReportModuleDetails only passed because forward branches in their
+  try bodies reached past the jmp). Fixed in the walker: trylevel stores
+  index the scope table (see "Mechanics"). A future SEH body with a
+  straight-line try needs nothing special.
 - **`returned <= 0` on an `unsigned long`** is `jbe`; `== 0` is `je`.
 - **Field-by-field `BITMAPINFOHEADER` stores**, not `*dst = src`
   (`rep movsd`). The `cmp word [ebp+0xe], 9` hoists into the copy.
@@ -164,9 +174,9 @@ print path: `EnumPrintersA` thunk 0x0049e442 → [0x4ab344], `CreateDCA` [0x4ab0
 
 ```sh
 $PY tools/audit.py LEGOLAND/certificate.c   # KillControllers + SaveScreenshotBmp [OK]
-$PY tools/audit.py LEGOLAND/winmain.c       # WinMain [WIP] 31i/93B ESCAPES, mismatch 0
+$PY tools/audit.py LEGOLAND/winmain.c       # WinMain [OK] 48i/143B
 $PY tools/relocs.py LEGOLAND/certificate.c  # 0 MISMATCH (1 UNRESOLVED string)
-$PY tools/relocs.py LEGOLAND/winmain.c      # 0 functions checked (WIP)
+$PY tools/relocs.py LEGOLAND/winmain.c      # 0 MISMATCH (UNRESOLVED: __except_list x3, "main thread")
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" "$LEGOLAND_CL" /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/sag_w3_cert.obj LEGOLAND/certificate.c
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" "$LEGOLAND_CL" /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/sag_w3_winmain.obj LEGOLAND/winmain.c
 ```

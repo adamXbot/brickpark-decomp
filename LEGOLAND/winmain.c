@@ -22,12 +22,15 @@ extern int  WriteExceptionReport(EXCEPTION_POINTERS* ep, const char* where); /* 
 
 void* __cdecl _exception_info(void);
 
-/* matchfull 48/48, 143B. audit walks 31i/93B ESCAPES: the try body ends in
- * `jmp` over the filter/handler, which only the .rdata scope table reaches
- * (scope N). WriteExceptionReport / ReportModuleDetails walk in full because
- * earlier forwards already set `furthest` past that jmp. No C spelling moves
- * the original's terminator. */
-// WIP-FUNCTION: LEGOLAND 0x00453d10  (100% matchfull 48/48; audit 31i/93B ESCAPES, SEH jmp-over-filter)
+/* Gate note: the try body is straight-line and ends in `jmp` over the
+ * filter/handler blocks, which only the .rdata scope table (0x004ab4e0)
+ * reaches, so the extent walker used to stop at 31i/93B and report ESCAPES.
+ * match.py's true_extent now reads the SEH scope table: entering trylevel K
+ * (`mov [ebp-4], K`) makes entry K's filter and handler branch targets, and
+ * the body walks its full 48i/143B (audit [OK], 0 mismatch). The
+ * `mov [ebp-4], esi` after GameMain restores trylevel -1 through the
+ * `r = -1` register, not an immediate. */
+// FUNCTION: LEGOLAND 0x00453d10
 int __stdcall WinMain(void* hinst, void* hprev, char* cmdline, int ncmdshow)
 {
     int r = -1;
