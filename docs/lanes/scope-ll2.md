@@ -9,7 +9,7 @@ Brief: `docs/SCOPE_LL2_logflume_drop.md`.
 | --- | --- | ---: | ---: | --- | --- |
 | 0x0040d420 | LFGeom_ApplyCursors | 73 | 100 | [OK] | FUNCTION |
 | 0x0040d520 | LFTrack_CommitPlacement | 128 | 100 | [OK] | FUNCTION |
-| 0x0040d6f0 | LFPiece_UpdateCommon | 151 | 98.7 | 3 | WIP |
+| 0x0040d6f0 | LFPiece_UpdateCommon | 151 | 99.3 | 1 | WIP |
 | 0x0040d900 | LFPiece_AddCommon | 83 | 100 | [OK] | FUNCTION |
 | 0x0040da10 | LFTrack_UnlinkNeighbours | 61 | 100 | [OK] | FUNCTION |
 | 0x0040db00 | LFPiece_RemoveCommon | 61 | 100 | [OK] | FUNCTION |
@@ -18,86 +18,75 @@ Brief: `docs/SCOPE_LL2_logflume_drop.md`.
 Neighbour-helper names taken from scope LL1. 0x00409a90 / 0x0040a080 still
 unmatched in LL1; named here `LFTrack_ReshapeEnds` / `LFTrack_LinkEnds`.
 
-## UpdateCommon residual (index 121)
+## UpdateCommon residual (index 121, SIB only)
 
-151i/519B vs 151i/520B. First **120** instructions match (v0 now in ecx),
-including packed BPos in the dead `fp` argument slot (`[esp+0x64]` /
-`[esp+0x4c]`), leftover `add esp,0x28` / `0x18` / `0x14`, inverted count
-fails, probe `je` fail, and the people `!= -1` / `== 1` tail.
+151i/520B vs 151i/520B (byte-exact). First **120** instructions match, and
+the people-rect schedule is now the original's: `lea` into edx, y load
+into ecx, then `mov [esp],edx`. ox stays in eax through `r.right`.
 
-The only remaining delta is dest-coalesced people-rect **left**:
+The only remaining delta is lea SIB base/index:
 
 ```
-orig: lea edx,[eax+ecx] / mov ecx,[g_mapref.y] / mov [esp],edx
-ours: add ecx,eax       / mov [esp],ecx        / mov ecx,[g_mapref.y]
+orig: lea edx,[eax+ecx]    ; 8D 14 08  base=eax (ox)  index=ecx (v0)
+ours: lea edx,[ecx+eax]    ; 8D 14 01  base=ecx (v0)  index=eax (ox)
 ```
 
-One byte short (`add` 2B vs `lea` 3B). The ecx load between lea and the left
-store is **oy** (`g_mapref.y` at 0x7fffc8), not v1; v1 is loaded into edx
-*after* the store (`add edx,ecx` for top). ox stays in eax through `r.right`.
+One mismatch. `norm` does not commute lea operands.
 
-Two 149/151 floors, neither is lea-with-v0-in-ecx:
+### Lever that got the lea
 
-- **Index 121 (kept):** `Pos o` + `r.left = o.x + v[0]` + volatile v1 on top.
-  v0 stays in ecx; dest-coalesces (`add ecx,eax`) and stores immediately.
-- **Index 120:** any named sum / delayed `r.left=left` / sequential helper.
-  Correct *schedule* (y load before store) but v0 is loaded into edx
-  (`add edx,eax`). Same 3 mism.
+`o.y` holds v0, then is overwritten with `g_mapref.y`. Combined with an
+`unsigned left` dest that is stored after that overwrite:
 
-`LFTrack_Update` emits the exact `lea edx,[eax+ecx]` sequence from four
-plain assigns, but that function still has ebx/esi/edi saved. After this
-body's `pop edi / pop esi` only eax/ecx/edx are free; the same four assigns
-here either dest-coalesce or take the index-120 coloring.
+```
+o.x = g_mapref.x;
+o.y = g_edit_cursor.footprint.v[0];
+left = (unsigned)o.x + (unsigned)o.y;
+o.y = g_mapref.y;
+r.left = (int)left;
+```
 
-Tried and inert for the lea (this pass + earlier): named sum as dest
-(block/function/`cost`/`people`), v0-first, Pos aggregate, volatile v0/v1/y
-and volatile-y-then-store, one-temp, pointer/`&((char*)ox)[v0]` /
-`(char*)ox+v0` on the baseline, `register`, switch people, live `def`/`keep`,
-Track_Update / Roads operand orders (with and without Pos/volatile),
-y-first top, preload named v0, comma `o.y=(left=..., y)`, helper-local Rect,
-RTL `FillR` (four live arg temps pull esi and move the pops), sequential
-`PeopleRect` helper (ox kept live for right — still index 120), `__inline`
-store-after-y / two-arg lea helpers, Pos-sum then call-arg store, cost/people
-as the y web. `ebx` is unused in the original people block; GetObjCost
-already ran.
+The two-def `o.y` web keeps v0 live across the add (dest cannot coalesce)
+and dies before the y load (y reuses ecx). Unsigned `left` is required:
+plain `r.left = o.x + o.y` dest-coalesces (`add ecx,eax`, index 121).
+Volatile v1 on top is unchanged.
 
-Need a spelling that keeps the index-121 v0-in-ecx load *and* the index-120
-y-before-store schedule, so dest cannot coalesce with v0 and must be
-`lea edx,[eax+ecx]`. v0 has to die after the add (interfere with dest) but
-before the y load (so y can reuse ecx). No dummy use found that creates
-that window without an extra insn.
+### SIB is tied to load order
 
-2026-09-08 pass (still 149/151, 519/520B, 3 mism; body unchanged). The
-original people block itself sits **after** `pop edi / pop esi`, so lea
-with only eax/ecx/edx is possible — Track's saved ebx/esi/edi explain
-Track's four-assign lea, not a missing Common push. Ruled out:
+VC6 uses the **last-loaded addend as lea base**:
 
-- Silent post-add v0 uses all DCE to the index-120 edx coloring:
-  `(v0, y)`, `(void)v0`, `left+(v0-v0)`, `y|(v0&0)`, `y^(v0^v0)`,
-  comma-store-y, `goto` after the sum. `if (v0);` is not silent
-  (`test`, 139/151).
-- Observable post-add v0 (`*(volatile int*)&v0 = v0`) spills and
-  reloads (138/153). Address-taken v0 / stack-slot copy of v0 /
-  `u.packed` stash add a store.
-- Bitfield v0, `*(int*)&v[0]`, `(char*)ox+v0`, `&((char*)ox)[v0]`,
-  `ptrdiff` / `(int)&((char*)0)[ox+v0]`, unsigned v0: dest-coalesce
-  (index 121) or edx-color (index 120).
-- Split `left=ox; left+=v0` / `r.left=ox; r.left+=v0` / `Id(ox+v0)` /
-  RTL `Fill(r,y,ox+v0)` / two-arg lea helpers / Pos-by-value fill /
-  struct-return Pos: same two floors. Second live sum (left+right
-  before y; `Pos s` both sums first) is index 120, or pulls esi and
-  moves the pops (136/152).
-- Function-scope `left`/`v0`/`Pos o`, decl-order of cost/people,
-  `int box[4]`, `Footprint*`, `Pos* o=&g_mapref`, CheckForPeople
-  proto (`Rect*` / `void*`), switch people, `register`, short v0
-  (`movsx`), keep-`def` / touch-`cost`: inert or worse.
-- Artificial Track pressure: `(void)def` DCE; a live esi/edi through
-  the people block would move the already-matched pops; original
-  never `push ebx`. `__asm` not used in this file.
+- ox then v0 → correct loads, `lea [ecx+eax]` (kept)
+- v0 then ox → `lea [eax+ecx]`, but `mov ecx,[v0]` before `mov eax,[ox]`
 
-Still need a non-DCE'd v0 use in the add→y window that emits no
-insn, or a dest-symbol that forces 3-address lea under the 3-scratch
-post-pop allocation. Kept index-121 C.
+Those are two 150/151 residuals; they do not combine. Tried and inert for
+the SIB (same `[ecx+eax]` or a worse floor): commuting the unsigned add,
+`(char*)o.x + o.y`, `&((char*)o.x)[o.y]`, pointer-typed `o.x`, `__inline`
+`p+i` helper, `char* px` instead of `o.x` (drops to index 120), dummy
+redef/`+0`/cast of `o.x` after v0, volatile ox preload, `int ox` copy
+into `o.x` after v0, both addends as memory (breaks the later rect),
+y-first struct layout, `Pos s` member dest.
+
+Need a spelling that keeps ox-first loads *and* treats ox as the lea
+base, without a second ox load. No such form found.
+
+2026-09-08 earlier floors (still true of spellings that drop the two-def
+`o.y` / unsigned `left` pair):
+
+- **Index 121:** `Pos o` + `r.left = o.x + v[0]` + volatile v1. v0 in ecx;
+  dest-coalesces (`add ecx,eax`) and stores immediately. 519/520B.
+- **Index 120:** named sum / delayed store without the `o.y` two-def.
+  y-before-store but v0 in edx (`add edx,eax`).
+
+`LFTrack_Update` emits `lea edx,[eax+ecx]` from four plain assigns because
+ebx/esi/edi are still saved; the same four assigns here dest-coalesce or
+take index 120. The original people block sits after `pop edi / pop esi`,
+so the 3-scratch lea is real — Track's extra pushes are not a missing
+Common `push ebx`.
+
+Also ruled out this pass: silent post-add v0 (DCE to index 120),
+observable post-add v0 (extra store), zero-table index (extra load or
+DCE), `*(int*)&ox + v0` (index 121 or 120), cost/people as dest (120),
+RTL `FillR` / second live sum (esi, moved pops). `__asm` not used.
 
 Levers that landed the rest: union `{packed, nb}` in the fp slot; `mode=0`
 after ScreenToMapRef so packed cannot colour onto mode; separate

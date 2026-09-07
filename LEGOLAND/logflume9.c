@@ -446,7 +446,7 @@ static __inline void LFUpd_PackSq(unsigned int* slot, int x, int y)
  * that lives in the dead footprint-argument slot; mode=0 after
  * ScreenToMapRef pins the dead mode slot so the union cannot take it.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x0040d6f0  (draft)
+// WIP-FUNCTION: LEGOLAND 0x0040d6f0  (150/151, lea SIB [ecx+eax] vs [eax+ecx])
 void LFPiece_UpdateCommon(RideDef* def, int screen, int mode, Footprint* fp,
                           void (*geom)(unsigned int sq, LFGeom* out),
                           int (*probe)(LFPiece** nb))
@@ -500,9 +500,12 @@ void LFPiece_UpdateCommon(RideDef* def, int screen, int mode, Footprint* fp,
     if (CursorIsValid(&g_edit_cursor)) {
         {
             Pos o;
+            unsigned left;
             o.x = g_mapref.x;
-            r.left = o.x + g_edit_cursor.footprint.v[0];
+            o.y = g_edit_cursor.footprint.v[0];
+            left = (unsigned)o.x + (unsigned)o.y;
             o.y = g_mapref.y;
+            r.left = (int)left;
             r.top    = *(volatile int*)&g_edit_cursor.footprint.v[1] + o.y;
             r.right  = g_edit_cursor.footprint.v[2] + o.x;
             r.bottom = g_edit_cursor.footprint.v[3] + o.y;
