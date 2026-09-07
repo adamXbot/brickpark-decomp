@@ -35,21 +35,16 @@ otherwise stay on the scope branch tip.
 | | |
 | --- | --- |
 | Branch / file | `scope/LL8` · `LEGOLAND/gameframe2.c` |
-| Tip | `f8c1f002` |
+| Tip | `98a7a8a1` |
 | Notes | `docs/lanes/scope-ll8.md` |
 | Score | 91i, **267/264B**, **6 mism** — FLOOR |
 
 Both-string and one-string paths stay exact. The two fail tails **share
-allocation**: lea/CSE/volatile flips that fix one recolor the other (or the
-exact one-string EDX store).
+allocation**. LL2 `Fst(a,b)` RTL does **not** transfer: unused/const second
+args DCE; `copy` is proven 0/1 on the fail edges so it cannot hold EAX.
 
-- Drop `!copy` volatile → loses one-string EDX (74/91)
-- Drop only `!a` volatile → early `pop edi`, flips eax/ecx and store order (83/91)
-- `count = n + 1` / `-~n` → `lea`, moves `!copy`’s `a` into EDX (73/91)
-- Out-of-line helpers → `call` (77/91); inlined twins still share allocator
-- Per-edge volatiles → best 86/92 (+extra base load)
-- `return count++` on `!a` → **86/91 exact 264B** but won’t combine with EDX `!copy`
-- Early live `n`, `register`, decl order, sibling push-sink: inert or first-break
+Attractors: kept 87/91 eax-primary; `return count++` 86/91 ecx-primary 264B;
+plain/Fst 85/91. Any real EDX force on `!copy` drops one-string EDX (76–82).
 
 Still need `mov ecx,eax / pop esi / inc ecx` on `!a` **and** `mov edx,[count]`
 on `!copy` together. Name: keep **`AddScriptString`**.
@@ -173,7 +168,7 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 ## Suggested Fable attack order
 
-1. **LL8 AddScriptString** — fail-tail shared allocation (floored unless new coloring).
+1. **LL8 AddScriptString** — fail-tail shared allocation; LL2 RTL Fst inert here.
 2. **LL3 MassAndPower** — size-exact 42 mism; lea ebx vs add; q-load schedule.
 3. **LL7 StepAlong** — size-exact 11 mism; RTL Fst pins out_t but does not emit `push esi`.
 4. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
@@ -196,7 +191,7 @@ Do **not** merge partial scopes yourself.
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
 | LL7 | 14/17 | `7c7640a4` | `coaster13.c` |
-| LL8 | 12/13 | `f8c1f002` | `gameframe2.c` |
+| LL8 | 12/13 | `98a7a8a1` | `gameframe2.c` |
 
 **WIP count in this wave:** 0+0+3+5+0+2+3+1 = **14 bodies**.
 
