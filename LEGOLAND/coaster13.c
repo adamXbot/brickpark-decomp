@@ -556,7 +556,7 @@ typedef struct ShadeSetup {
     int*   last;                /* [ebp-0x08] = &keys[n-1].idx */
 } ShadeSetup;                   /* 0x1c; y is the bare [ebp-4] */
 
-// WIP-FUNCTION: LEGOLAND 0x00428860  (254/254i, 765/771B, 175/254=68.9%, 0x70; zrow-vs-shl residual)
+// WIP-FUNCTION: LEGOLAND 0x00428860  (254/254i, 765/771B, 176/254=69.3%, 0x70; zrow-before-crow + nshade-eax)
 void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge* edges)
 {
     ShadeInterp ed[4];
@@ -596,11 +596,12 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
     g_span_tmask = (1 << (bit0 + bit1)) - 1;
     g_zb_polys++;
     keys[*(int volatile*)&nkeys].y = edges[*s.last].y1;
-    py = s.pitch * y;
+    /* Volatile pitch pins imul so volatile zrow cannot hoist past it. */
+    py = *(int volatile*)&s.pitch * y;
     c = s.crow;
+    z = *(short* volatile*)&s.zrow;
     py <<= 1;
     s.crow = (short*)((char*)c + py);
-    z = *(short* volatile*)&s.zrow;
     s.zrow = (short*)((char*)z + py);
     nshade = g_shade_count;
     if (nshade > 0) {
