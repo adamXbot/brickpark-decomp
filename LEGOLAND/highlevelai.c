@@ -25,6 +25,7 @@ typedef struct Cell {
         unsigned short flags;    /* +0x0c */
         unsigned char  flag0;    /* +0x0c  case 0 / case 3 byte tests */
     } f;
+    char           pad0e[6];     /* 0x14-byte cell; CellAt is row+x*20 */
 } Cell;
 typedef struct Map {
     char           pad00[0x14];
@@ -280,11 +281,9 @@ void Visitor_WaveThenResume(Bloke* b)
 }
 
 /* Plan 0x0d: find an unreserved CAFE BROLLY, walk there, reserve, wait, leave.
- * Floor at i19: original `test dl,1`; ours hoists `mov ebx,1` / `test bl,dl`.
- * Case 3 CellAtEdi keeps act in dl and uses ebx as the width scratch, but the
- * loop `& 1` across GetNext still parks 1 in ebx. Empty-walk stays `je` to the
- * shared tail, not `jne again` + inline NewLongTermAction(6). */
-// WIP-FUNCTION: LEGOLAND 0x0044fe80  (79.7%, i19 ebx=1 hoist / empty-walk je)
+ * Cell is 0x14 bytes (row+x*20). i19 is still `mov ebx,1` / `test bl,dl`
+ * versus `test dl,1`; empty-walk stays `je` to the shared plan-6 tail. */
+// WIP-FUNCTION: LEGOLAND 0x0044fe80  (90.7%, i19 ebx=1 hoist / empty-walk je)
 void Visitor_ReserveCafeBrolly(Bloke* b)
 {
     unsigned char act;
@@ -301,13 +300,12 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
             NewLongTermAction(b, 6);
             break;
         }
-    again:
-        cls = ((Elem*)cell->obj)->cls;
-        if (!(cell->f.flag0 & 1))
-            goto found;
-        cell = GetNextObjectMatching(cell, g_cafe_brolly_elem);
-        if (cell)
-            goto again;
+        do {
+            cls = ((Elem*)cell->obj)->cls;
+            if (!(cell->f.flag0 & 1))
+                goto found;
+            cell = GetNextObjectMatching(cell, g_cafe_brolly_elem);
+        } while (cell);
         NewLongTermAction(b, 6);
         return;
     found:
@@ -331,10 +329,12 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
         case 3:
             b->state = 4;
             break;
-        case 5:
-            b->target.x = out->x;
-            b->target.y = out->y;
-            a = (unsigned char)(CalcMoveLine(*world, b->target, b->path) + 0x10);
+        case 5: {
+            Pos t;
+            t.y = leg.y;
+            t.x = leg.x;
+            b->target = t;
+            a = (unsigned char)(CalcMoveLine(*world, t, b->path) + 0x10);
             b->state = 6;
             b->new_dir = a;
             NewDirForAction(b, (unsigned char)((a >> 5) + 3));
@@ -343,10 +343,13 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
             else
                 b->action = 2;
             break;
-        case 4:
-            b->target.x = out->x;
-            b->target.y = out->y;
-            a = (unsigned char)(CalcMoveLine(*world, b->target, b->path) + 0x10);
+        }
+        case 4: {
+            Pos t;
+            t.y = leg.y;
+            t.x = leg.x;
+            b->target = t;
+            a = (unsigned char)(CalcMoveLine(*world, t, b->path) + 0x10);
             b->state = 6;
             b->new_dir = a;
             NewDirForAction(b, (unsigned char)((a >> 5) + 3));
@@ -355,6 +358,7 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
             else
                 b->action = 1;
             break;
+        }
         }
         break;
     }

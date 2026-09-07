@@ -1,7 +1,7 @@
 # Scope AE — high-level AI table handlers
 
 NEW-FUNCTION `LEGOLAND/highlevelai.c`. Six of seven live group-13 handlers
-are `audit [OK]`; plan 0x0d is an honest floor. DEAD 0x004511e0..0x00451550
+are `audit [OK]`; plan 0x0d is still WIP. DEAD 0x004511e0..0x00451550
 not touched.
 
 ## Table
@@ -14,7 +14,7 @@ not touched.
 | 0x00450330 | `Worker_ResumeIdle` | 43 | [OK] | `FUNCTION` |
 | 0x004503a0 | `FaceClassRect` | 87 | [OK] | `FUNCTION` |
 | 0x00450450 | `Visitor_FaceAndMark` | 48 | [OK] | `FUNCTION` |
-| 0x0044fe80 | `Visitor_ReserveCafeBrolly` | 337 | no (79.7% matchfull; first diverge i19) | `WIP-FUNCTION` |
+| 0x0044fe80 | `Visitor_ReserveCafeBrolly` | 337 | no (90.7% matchfull; first diverge i19) | `WIP-FUNCTION` |
 
 Reached by: 0x004b83c4 plan 0x17, 0x004b839c plan 0x0d, 0x004b83a0 plan 0x0e,
 0x004b83b8 plan 0x14, 0x004b83a4 plan 0x0f; `FaceClassRect` is the 0x00450450
@@ -37,31 +37,27 @@ callee; `SelectBloke` is gameframe 0x00458ee0 (icon types 0x306..0x308).
   `(rand()&0x1f)+10`, increment that class's visit counter, plan 6.
 - `Visitor_ReserveCafeBrolly` — plan 0x0d: CAFE BROLLY at 0x006661c0.
 
-## `Visitor_ReserveCafeBrolly` residual (floor)
+## `Visitor_ReserveCafeBrolly` residual
 
 First diverge remains i19: original `test dl,1` / `je found`; ours
-`mov ebx,1` / `test bl,dl`. Prefix through i18 is exact (`sub esp,8;
-push ebx; … mov dl,[esi+0x60]; … GetFirst; mov dl,[eax+0xc]`). Same
-CFG intent (79.7% matchfull; audit 337/337 insns, 943B vs 928B).
+`mov ebx,1` / `test bl,dl`. Prefix through i18 is exact. 90.7%
+matchfull; audit 337/337 insns, 943B vs 928B (the two extra `mov ebx,1`
+sites — loop + case 2 — plus empty-walk polarity).
 
-The named lever does not close it. Case 3 `CellAtEdi(g_map, x, y)` plus
-a byte `flag0 & 0x80` test keeps **act in dl** and gives the original
-width shape (`xor ebx,ebx; mov bx,[edi+14h]; inc dl`). Shared `CellAt`
-on cases 2/4 keeps the edi-width form. Those are the right case-3
-registers; they do not free ebx in case 0. The walk's `& 1` across
-`GetNextObjectMatching` is enough on its own to park 1 in the already-
-pushed ebx (`mov bl,1` even after every other literal 1 in cases 1/2/4
-is removed). Outlining case 3, `unsigned short` width locals (act moves
-to bl), bitfields, `flag0 % 2` (signed rem), and a volatile flags load
-all leave i19 as a hoisted 1 or regress the prefix.
+**Cell is 0x14 bytes.** The earlier 16-byte layout emitted
+`shl eax,4` / `add` (stride 16) instead of `lea edx,[eax+eax*4]` /
+`lea ecx,[ecx+edx*4]` (stride 20). Padding `pad0e[6]` is load-bearing;
+79.7% → 90.7%. Case 3 `CellAtEdi` still keeps act in dl and the
+`xor ebx,ebx; mov bx,[edi+14h]` width scratch.
 
-ebx is unused in the original case-0 walk (found-path x is `xor edx,edx;
-mov dl,[eax+4]`). Occupying it there to block the hoist adds a live
-value the original never emits. Empty-walk stays `je` to the shared
-plan-6 tail; the original is `jne again` plus an inline one-call copy.
-SuggestNextMove `lea eax/ecx/edi` and `dest.y = (by + stand_y)<<8` match
-once aligned. Ruled out earlier: one-`Pos` entrance global (wrong
-relocs), `switch(act)` (spills to `[esp+8]`).
+The walk's `& 1` across `GetNextObjectMatching` still parks 1 in ebx
+even with the correct stride and with every other literal 1 removed.
+`do/while` + `goto found` is the right CFG (`je found`) but empty-walk
+stays `je` to the shared plan-6 tail. Case 1 `Pos t; t.y; t.x;
+b->target=t; CalcMoveLine(*world, t, path)` is closer (y/x temps)
+but still loads `[esp+0xc]` then `[esp+0x10]` vs original y then x.
+Function-scope width ints move act to bl. A `cafe` local takes edi,
+not ebx, and 1 still hoists into bl.
 
 ## Levers
 
@@ -89,6 +85,10 @@ relocs), `switch(act)` (spills to `[esp+8]`).
   kind <= 3)` success-inline (`jl`/`jg` to the OR-8 / plan 0x0e arm).
 - **Compare-chain plans 0x14 / 0x0f / 0x17** are written `case 0,1,2`
   (or `0,1`); the last case is the inline arm.
+- **Map `Cell` is 0x14 bytes.** `CellAt` is `&g_map_rows[y][x]` with
+  stride 20 (`lea [eax+eax*4]` / `lea [ecx+edx*4]`). A 16-byte cell
+  (missing `pad0e[6]`) is `shl eax,4` and costs the cafe-brolly body
+  ~11 matchfull points.
 
 ## Relocs / W3
 
