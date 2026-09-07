@@ -86,20 +86,18 @@ on `!copy` together. Name: keep **`AddScriptString`**.
 
 ## Priority B — size-exact / high % with clear next lever
 
-### LL3 — `Raster_ClipPoly` `0x0041ef60` (15/19 scope)
+### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `3db23e0b` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `58c2dcca` |
 
-**80i / 193/194B**, 44 mism (~86%). Default is `return count` (not `v`).
-Cases 2–3 already emit unmerged `add ecx,OFF`. Case 1’s `p = g; p+4` blocks
-tail merge but colors `g` in eax (the missing byte). `r = count` + `break`
-gives original `dec/jne default` layout but hoists count into eax. Need
-case-1 ecx **and** that layout together.
+**77i / 259/259B**, matchfull **84%**, audit **42** mism. Pre-call `p = rt` puts
+rt in eax; `acc = 0.0f` after `*mass = 0` homes sum in dead power slot
+(`fstp [esp+0x88]`). Volatile reload into `q` keeps mass in ebp.
 
-### LL3 — `Route_GetMassAndPower` `0x0041db90`
+Residual: `mov ebx,eax / add ebx,0x70` vs `lea ebx,[eax+0x70]`; `q` load after
+`add esp,4` not before; eax vs edx for reload; hist ecx/edx swap.
 
-**70%**, 77i, 255/259B. Unchanged. **rt in ebp.** Acc `fstp`s over the rt arg
-slot, not power `[esp+0x88]`. Root-copy / comma eval-at did not move it.
+(`Raster_ClipPoly` closed via `if (1) { switch (flags) … } return count`.)
 
 ### LL7 — `Track_StepAlong` `0x00429f30` (14/17 scope)
 
@@ -202,9 +200,9 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 1. **LL2 UpdateCommon** — `lea` vs `add`; silent v0 uses DCE or cost an insn.
 2. **LL8 AddScriptString** — fail-tail shared allocation (floored unless new coloring).
-3. **LL3 ClipPoly** — 193→194B; case-1 ecx vs default `return count` layout.
+3. **LL3 MassAndPower** — size-exact 42 mism; lea ebx vs add; q-load schedule.
 4. **LL7 StepAlong** — size-exact 11 mism; t0↔len2 two-attractor schedule.
-5. **LL3 MassAndPower** — rt ebp / fstp slot.
+5. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
 6. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
 7. **LL4 Span family / LL7 Slope+ShadeFill / LL3 Trace+ClipPlane** — last.
 
@@ -219,14 +217,14 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | 5/6 | `7bea1842` | `logflume9.c` |
-| LL3 | 15/19 | `3db23e0b` | `coaster11.c` |
+| LL3 | 16/19 | `58c2dcca` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
 | LL7 | 14/17 | `d9f05413` | `coaster13.c` |
 | LL8 | 12/13 | `f8c1f002` | `gameframe2.c` |
 
-**WIP count in this wave:** 0+1+4+5+0+2+3+1 = **16 bodies**.
+**WIP count in this wave:** 0+1+3+5+0+2+3+1 = **15 bodies**.
 
 ---
 
