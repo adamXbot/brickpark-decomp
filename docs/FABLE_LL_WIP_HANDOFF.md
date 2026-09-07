@@ -184,7 +184,12 @@ Original control flow (2026-09-08 disasm pass):
 - ENTER: `k` spilled, delta in ebp. LEAVE: emit prev first, `k` in ebp, delta spilled.
 
 Variants that grew frame (0x28/0x38) or forced `in++`/`fld`/signed classify alone
-stayed **2/179**. **Next lever: `ebx = n` before the `*cursor` deref.**
+stayed **2/179**. **ebx=n wave (did not land):** long-lived dest always wins
+ebx; n→esi/edi. Homing dest moves deref to eax but prev_abs/out take ebx.
+`--n` live across `__ftol` blocks ebx reuse (n → spill left → next_abs).
+**Next:** n’s live range must **die at the left home** before abs is computed,
+and dest must not be a callee-save candidate at the same time. Tip shape has
+in++/fld/classify; still ~9%/0x24.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -197,7 +202,7 @@ the west tail→loop and the original register ranking.
 ## Suggested Fable attack order
 
 1. **LL4 IntegrateSimpson** — last residual: `fstp fa` before `add esp,4` after `fn(a)` (80/81).
-2. **LL3 Span_ClipPlane** — force `ebx=n` before `*cursor`; then fld bit-abs + in++ latch.
+2. **LL3 Span_ClipPlane** — n dies at left-home before abs; dest must not take ebx.
 3. **LL4 Span_Fill*** — ZBuffer-class; only after Simpson or with a new frame lever.
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
 
