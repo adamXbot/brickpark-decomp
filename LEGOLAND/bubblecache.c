@@ -11,7 +11,7 @@
  * render5.c (ExpireCachedText), popup2.c (PrintCachedText caller).
  */
 
-#pragma intrinsic(strlen, strcpy, strcmp)
+#pragma intrinsic(strlen, strcpy, strcmp, memset)
 
 /* ---- local types -------------------------------------------------------- */
 
@@ -134,6 +134,7 @@ __declspec(dllimport) int           __stdcall DrawTextA(void* dc, const char* s,
 extern unsigned int strlen(const char* s);
 extern char*        strcpy(char* d, const char* s);
 extern int          strcmp(const char* a, const char* b);
+extern void*        memset(void* d, int c, unsigned n);
 
 extern void        DBPrintf(const char* fmt, ...);                          /* 0x00453a20 */
 extern void*       HeapAlloc_w(unsigned int size);                          /* 0x0049e4ff */
@@ -151,6 +152,15 @@ extern TextEntry*  FindCachedText(const char* text, int font, int format, int in
 extern void        RenderBlock(int x, int y, int w, int h, int colour);     /* 0x004890c0 */
 
 void DrawCachedTextSprite(SpriteRec* s);
+
+/* Ink pair inverted so the inlined schedule lands paper-then-ink (CC05). */
+static __inline void SetEntryInk(TextEntry* e, int paper, int ink, int font)
+{
+    e->ink = ink;
+    e->paper = paper;
+    e->font = font;
+}
+
 
 /* =========================================================================
  *  FindCachedEntryBySprite — look a cache entry up by its function-sprite
@@ -211,9 +221,11 @@ TextEntry* FindCachedTextBox(const char* text, int w, int h, int font,
  * append.  The text is HeapAlloc_w'd + strcpy'd; the sprite is
  * CreateFunctionBasedSprite(DrawCachedTextSprite, w, h) with flags |= 0x40
  * (on top of the 0x30 CreateFunctionBasedSprite already stores).
+ * format is re-read volatile so its load wins eax and the store sits
+ * before strlen's xor eax (w/h then sink into the scasb setup).
  */
 
-// WIP-FUNCTION: LEGOLAND 0x00455bb0  (87.8%, format/w/h + paper/ink store schedule)
+// FUNCTION: LEGOLAND 0x00455bb0
 TextEntry* RasterizeText(const char* text, int w, int h, int font,
                          int format, int ink, int paper)
 {
@@ -224,15 +236,16 @@ TextEntry* RasterizeText(const char* text, int w, int h, int font,
         ExpireCachedText(1);
     e = &g_text_cache[g_text_cache_count];
     g_text_cache_count++;
-    *(volatile int*)&e->format = format;
-    e->w = w;
-    e->h = h;
+    {
+        int f = *(volatile int*)&format;
+        e->format = f;
+        e->w = w;
+        e->h = h;
+    }
     copy = (char*)HeapAlloc_w(strlen(text) + 1);
     e->text = copy;
     strcpy(copy, text);
-    *(volatile int*)&e->paper = paper;
-    e->ink = ink;
-    e->font = font;
+    SetEntryInk(e, paper, ink, font);
     e->sprite = CreateFunctionBasedSprite(DrawCachedTextSprite, w, h);
     e->sprite->flags |= 0x40;
     return e;
@@ -328,14 +341,12 @@ void UnloadBubbleHelpGFX(void)
  * (fp_w or fp_h <= 0) succeeds.
  */
 
-// WIP-FUNCTION: LEGOLAND 0x00457970  (90.2%, elem homed in dead x arg — no push ecx)
+// WIP-FUNCTION: LEGOLAND 0x00457970  (90.2%, elem in dead x-arg; original push ecx)
 int FootprintClearanceTest(int x, int y)
 {
     int oy;
     int xx;
     int yy;
-    /* Aggregate so the out-pointer sits at the top of the frame (push ecx)
-     * and is not homed in the dead x-argument slot. */
     void* elem;
     Cell* cell;
 
@@ -380,23 +391,23 @@ success:
  * (hdc reuses the dead sprite-argument slot), fills the paper with a
  * solid brush of GetNearestColor(ink), DrawTextA's the entry, then
  * SetColorKey's the sprite surface to GetNearestColour of that ink.
+ * rc.left is a plain 0; memset of the remaining 12 bytes (RC08) splits
+ * the four-zero web so eax stays the zero and edi is not hoisted.
  */
 
-// WIP-FUNCTION: LEGOLAND 0x00455a50  (87.7%, edi zero-web in prologue)
+// FUNCTION: LEGOLAND 0x00455a50
 void DrawCachedTextSprite(SpriteRec* s)
 {
+    SpriteRec*   p;
     TextEntry*   e;
     WinRect      rc;
     DDColorKey   ck;
     unsigned int nearest;
-    SpriteRec*   sprite;
 
-    sprite = s;
+    p = s;
     rc.left = 0;
-    rc.top = 0;
-    rc.right = 0;
-    *(volatile long*)&rc.bottom = 0;
-    e = FindCachedEntryBySprite(sprite, 0);
+    memset(&rc.top, 0, 12);
+    e = FindCachedEntryBySprite(p, 0);
     if (e == 0)
         return;
     {
@@ -433,15 +444,14 @@ void DrawCachedTextSprite(SpriteRec* s)
  * ========================================================================= */
 
 /* gameframe.c's hit 0x306 (a visitor) calls this with GetVisitorName and
- * sub_482cb0's mood code.  A non-zero icon leaves a 40-pixel pad on the
- * right of the text box and PrintSprites g_bubble_icons[icon] (1-based,
- * the ten LoadBubbleHelpGFX faces) centred on the pad.  Unlike
- * HTBubbleHelp the text is DrawTextA'd onto the video surface rather than
- * blitted from the cache; the cache is only consulted for the measured
- * size (and filled on a miss, same RasterizeText path).
+ * sub_482cb0's mood code.  A non-zero icon leaves a 40-pixel pad; the box
+ * grows by pad/2 and PrintSprites g_bubble_icons[icon] at box.x1 - pad/2.
+ * Screen width is g_map->w.  Unlike HTBubbleHelp the text is DrawTextA'd
+ * onto the video surface; the cache is size-only (same RasterizeText miss
+ * path).
  */
 
-// WIP-FUNCTION: LEGOLAND 0x00455fc0  (63.7%, HTBubbleHelp+icon draft; esi/ebx zero)
+// FUNCTION: LEGOLAND 0x00455fc0
 void VisitorBubbleHelp(HelpRect* r, char* text, int font, int icon)
 {
     TextEntry* ent;
@@ -451,8 +461,9 @@ void VisitorBubbleHelp(HelpRect* r, char* text, int font, int icon)
     int        tw;
     int        bx;
     int        pad;
+    int        half;
     HelpRect   box;
-    void*      dc;
+    void*      hdc;
     void*      oldfont;
 
     rc.left = 0;
@@ -468,13 +479,15 @@ void VisitorBubbleHelp(HelpRect* r, char* text, int font, int icon)
     rc.right = 200;
     ent = FindCachedText(text, font, 0x10, 0x96c6da, 0);
     if (ent == 0) {
+        void* dc;
+        void* old;
         dc = CreateCompatibleDC(0);
         SetBkMode(dc, 1);
-        oldfont = SelectFont(dc, font);
+        old = SelectFont(dc, font);
         h = DrawTextA(dc, text, strlen(text), &rc, 0x410);
         rc.top = r->y0;
         rc.bottom = h + rc.top;
-        SelectObject(dc, oldfont);
+        SelectObject(dc, old);
         DeleteDC(dc);
         ent = RasterizeText(text, rc.right - rc.left, h, font, 0x10, 0x96c6da, 0);
     } else {
@@ -496,7 +509,8 @@ void VisitorBubbleHelp(HelpRect* r, char* text, int font, int icon)
         rc.left = 0;
     else if (rc.right + pad >= (int)g_map->w)
         rc.left = g_map->w - tw - pad;
-    rc.right = rc.left + tw + pad;
+    half = pad / 2;
+    rc.right = rc.left + tw + half;
     if (r->y0 < rc.bottom - rc.top + 8) {
         rc.top = r->y1 + 6;
         rc.bottom = rc.top + h;
@@ -514,14 +528,14 @@ void VisitorBubbleHelp(HelpRect* r, char* text, int font, int icon)
     RenderBlock(box.x0, box.y0, 1, box.y1 - box.y0, 0);
     RenderBlock(box.x1, box.y0, 1, box.y1 - box.y0, 0);
     if (icon != 0)
-        PrintSprite(g_bubble_icons[icon], rc.left + tw + (pad >> 1) - 20,
-                    (box.y0 + box.y1) / 2 - 20, 0, 0);
+        PrintSprite(g_bubble_icons[icon], box.x1 - half,
+                    (box.y0 + box.y1) / 2 - 0x14, 0, 0);
     PushRenderingStatusAndUnlockVideoSurface();
-    g_draw_surface->vtbl->GetDC(g_draw_surface, &dc);
-    SetBkMode(dc, 1);
-    oldfont = SelectFont(dc, font);
-    DrawTextA(dc, text, strlen(text), &rc, 0x10);
-    SelectObject(dc, oldfont);
-    g_draw_surface->vtbl->ReleaseDC(g_draw_surface, dc);
+    g_draw_surface->vtbl->GetDC(g_draw_surface, &hdc);
+    SetBkMode(hdc, 1);
+    oldfont = SelectFont(hdc, font);
+    DrawTextA(hdc, text, strlen(text), &rc, 0x10);
+    SelectObject(hdc, oldfont);
+    g_draw_surface->vtbl->ReleaseDC(g_draw_surface, hdc);
     PopRenderingStatus();
 }
