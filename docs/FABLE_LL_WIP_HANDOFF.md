@@ -83,20 +83,24 @@ Trace NG22 / ClipPlane ESCAPES unchanged. Park Mass until a new fuse lever.
 | Branch / file | `scope/LL6` · `LEGOLAND/coaster12.c` |
 | Tip | `00779571` |
 | Notes | `docs/lanes/scope-ll6.md` |
-| Score | **87/87i, 232/232B, 34 mism (~83%)** — Grok FLOOR |
+| Score | **87/87i, 232/232B, 34 mism (~83%)** — **FLOOR** (ICF + layout) |
 
 Pending `did_match` keeps closed/tail as `jne loop`. Second `return 0` always
-ICF-merges into fail1 (head stays `je fail1 / jmp loop`). Helpers stay
-ch-then-tail (LIFO). `goto match_tail` undoes latches. Needs a fail2 that
-survives ICF **and** tail-then-ch helper order.
+ICF-merges into fail1 (identical `pop/xor/ret` bytes). Helpers stay
+ch-then-tail (LIFO). `goto match_tail` undoes latches.
 
-Ruled out: empty `__asm {}` on fail2 (LL4 Simpson pattern) — frame lever only,
-**64/89 = 71.9%**; main has no sibling that keeps two `pop/xor/ret` copies.
+**Nest probe:** `if (1) { whole head walk }` can emit a real fail2
+fall-through, but then head-empty cannot `je fail1` — the two goals
+fight (91i/237B or retarget). Need fail2 distinct **and** head-loop
+fall-through **and** head-empty → fail1.
+
+Ruled out: empty `__asm {}` on fail2 — **64/89 = 71.9%**; noinline/volatile
+second epilogue after helpers; `#pragma optimize("g", off)`.
 **Do not** use `if (0) { match_tail: … }` outlining — drops to ~11%.
 
 ### LL6 — `Raster_AddSpanRecord` `0x00423200`
 
-**61/61i, 175/175B, 35 mism (~61%)** — Grok FLOOR.
+**61/61i, 175/175B, 35 mism (~61%)** — Grok FLOOR (rechecked 37/61).
 `push ecx` / cursor in ecx landed. Residual: count in **esi not ebx**; no
 `mov edx,ecx` (y from `[ecx+4]`); keys-1 IV (`lea edx,[keys-8]`) vs
 `add edx,8` / `[edx-8]`; `dec edi` not `dec ebx`. Dropping volatile home
@@ -169,11 +173,11 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 ## Suggested Fable attack order
 
-1. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
-2. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors (Mass parked dest-coalesce).
-3. **LL4 Span family** — ZBuffer-class Span_Fill*.
-4. **LL7 ShadeFill** — parked source-level nshade/edx web floor (16/17).
-5. **LL3 MassAndPower** — parked; VC6 fills lea delay slot with mov/add sink.
+1. **LL3 Trace / ClipPlane** — NG22 / ESCAPES (only with a new phase/frame lever).
+2. **LL4 Span family** — ZBuffer-class Span_Fill* / Simpson.
+3. **LL6 GetTrackSegment** — parked; fail2 fall-through vs head-empty `je fail1` fight.
+4. **LL7 ShadeFill** — parked nshade/edx web floor (16/17).
+5. **LL3 MassAndPower** / **LL6 AddSpanRecord** — parked dest-coalesce / IV floors.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
 Do **not** merge partial scopes yourself.
@@ -189,7 +193,7 @@ Do **not** merge partial scopes yourself.
 | LL3 | 16/19 | `43064ba2` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
-| LL6 | 22/24 | `00779571` | `coaster12.c` |
+| LL6 | 22/24 | `b533c24f` | `coaster12.c` |
 | LL7 | 16/17 | `cef28f27` | `coaster13.c` |
 | LL8 | **13/13** | merged `main` | `gameframe2.c` |
 

@@ -11,7 +11,7 @@ F/G/H partials, LONG appraisal, and SEH WinMain.
 | LL3 | `scope/LL3` | 3 | 19 | 1091 | `coaster11.c` | 16/19 — Mass FLOOR (dest-coalesce); Trace+Clip WIP |
 | LL4 | `scope/LL4` | 4 | 8 | 797 | `coastershade2.c` | 3/8 — 5 floors; parked |
 | LL5 | `scope/LL5` | 5 | 3 | 130 | `castletrack2.c` | DONE 3/3 merged |
-| LL6 | `scope/LL6` | 6 | 24 | 771 | `coaster12.c` | 22/24 — 2 floors; parked |
+| LL6 | `scope/LL6` | 6 | 24 | 771 | `coaster12.c` | 22/24 — GetTrackSegment fail1/fail2 fight; park |
 | LL7 | `scope/LL7` | 7 | 17 | 999 | `coaster13.c` | 16/17 — FillPoly FLOOR (nshade eax vs edx web); park |
 | LL8 | `scope/LL8` | 12+13+14 | 13 | 514 | `gameframe2.c` | DONE 13/13 merged |
 
