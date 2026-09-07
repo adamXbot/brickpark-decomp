@@ -80,7 +80,12 @@ extern void SetPersonPosition(void*, int, int);     /* 0x00440190 */
 extern void SetPersonDirection(void*, int);         /* 0x004400b0 */
 extern Offset GetRenderOffsetForLayer(void*, int);  /* 0x00441ee0 */
 extern void* GetSpriteForLayer(void*, int);         /* 0x00441ec0 */
-extern void* g_copters_postable;                   /* 0x00830f98; +0x24 = anim slots */
+typedef struct SprHdr { char pad[0x14]; short dim; } SprHdr;
+typedef struct PosTable { char pad[0x24]; float** slots; } PosTable;
+extern PosTable* g_copters_postable;               /* 0x00830f98; +0x24 = per-anim POS frame arrays */
+
+/* In-place float*k -> int through the game's masked-FPU fistp (no __ftol). */
+#define FSCALEF(x, k) __asm { fld x } __asm { fmul k } __asm { fistp x }
 
 extern int g_copter_ord_a[3];                       /* 0x004b42a0 = {0,1,2} */
 extern int g_copter_ord_b[3];                       /* 0x004b42ac = {0,2,1} */
@@ -245,108 +250,93 @@ void SpaceTower_UpdateRiders(TowerRec* rec)
  * bake a signed fixed-point 3x3 into person+0x58 from the POS matrix.
  *
  * Jump table (NOT identity): 0->(3,0xd7) 1->(0,0xeb) 2->(4,0xe1)
- * 3->(1,0xe6) 4->(2,0xe6).
+ * 3->(1,0xe6) 4->(2,0xe6).  The POS slot for an anim is an array of
+ * 12-float frames (pos, a, b, n); the frame's normal is rebuilt as b x a
+ * before the bake, and the bake reads vector 1+oa of the frame.
  *
- * Levers recovered:
- *  - `*(CopterSeat* volatile*)&rec = seat` keeps seat in [ebp+8]
- *  - `sel = *(volatile int*)&index` + mode via `*(volatile*)&index`
- *    yields ebx=anim, [ebp+0xc]=mode, jmp [eax*4], esi=layer
- *  - residual: prologue wants `lea edi,[ecx+eax+0x18]` with early def
- *    load; volatile seat store currently splits the lea. Plain assign
- *    raises LCS (~20-24%) but steals anim into edi. */
+ * WIP (86/168 strict; audit normalised below).  Structure, jump table,
+ * frame size, both loops and every call sequence match.  Residual is one
+ * allocation decision plus its fallout: the original does NOT enregister
+ * `seat` -- it spills at the def (`mov [ebp+8],edi`, the dead `rec` slot),
+ * keeps edi through the pre-loop code, and reloads `mov edi,[ebp+8]` at the
+ * head of every inner iteration, giving esi to `oa` and ebx to `anim`; this
+ * build keeps seat in esi and spills `oa` instead.  A single extra inner-loop
+ * store (`m[j*3+1] = 0`) flips the build to the original's whole register
+ * picture (seat edi+spill, anim ebx, scale at [ebp-0xc]) at 113/174, so the
+ * decision is a near tie the original's source breaks with something that
+ * emits no code.  Measured inert: register/unsigned/volatile qualifiers,
+ * declaration order, parameter reassignment (`void* rec`, punned SEAT),
+ * `*(T* volatile*)&rec` store (homes seat but splits the lea and duplicates
+ * the load), explicit inner `mp` cursor, pointer-walked `ip` outer loop
+ * (swaps seat/anim to edi/ebx but changes the loop), Vec3 struct spellings,
+ * inline cross-product helpers, single-block asm, union for f.  The FP
+ * operand order of products 2/3 (`fld [eax+0x20]` first) is a separate
+ * value-numbering phase issue: `while (0) { mode++; }` before the FP block
+ * shifts it one step (fp 00 -> 10) with no emitted code; do/while(0) and
+ * if(0) blocks are inert. */
 // WIP-FUNCTION: LEGOLAND 0x00404630
 void Copters_UpdateCarRider(CoptersRec* rec, int index)
 {
+    CopterSeat* seat = &rec->seat[index];
     Offset screen;
     Offset layer_ofs;
-    Offset lift;
+    Offset ofs;
     Offset pos;
-    CoptersRec* inst;
-    void* sprite;
+    SprHdr* sprite;
     void* person;
-    float* kf;
+    float* kf1;
     float scale;
+    float f;
     int anim;
+    int mode;
     int layer;
-    void** slots;
-    int* out_base;
-    int* ord;
-    typedef struct SprHdr { char pad[0x14]; short dim; } SprHdr;
-#define SEAT ((CopterSeat*)rec)
+    float* kf;
+    int i, j;
+    int* m;
+    int oa;
 
-    inst = rec;
-    *(CopterSeat* volatile*)&rec = &inst->seat[index];
-    screen = GetScreenCoordsForObject(inst, g_copters_def);
-    if (SEAT->rider == 0)
+    screen = GetScreenCoordsForObject(rec, g_copters_def);
+    if (seat->rider == 0)
         return;
 
-    layer = SEAT->ride_layer;
-    {
-        int sel = *(volatile int*)&index;
-        anim = 1;
-        switch (sel) {
-        case 1: anim = 0; *(volatile int*)&index = 0xeb; break;
-        case 3: anim = 1; *(volatile int*)&index = 0xe6; break;
-        case 4: anim = 2; *(volatile int*)&index = 0xe6; break;
-        case 0: anim = 3; *(volatile int*)&index = 0xd7; break;
-        case 2: anim = 4; *(volatile int*)&index = 0xe1; break;
-        }
+    layer = seat->ride_layer;
+    anim = 1;
+    switch (index) {
+    case 1: anim = 0; mode = 0xeb; break;
+    case 3: anim = 1; mode = 0xe6; break;
+    case 4: anim = 2; mode = 0xe6; break;
+    case 0: anim = 3; mode = 0xd7; break;
+    case 2: anim = 4; mode = 0xe1; break;
     }
 
     layer_ofs = GetRenderOffsetForLayer(g_copters_layers, layer);
-    sprite = GetSpriteForLayer(g_copters_layers, layer);
+    sprite = (SprHdr*)GetSpriteForLayer(g_copters_layers, layer);
     AdjustOffsetForViewMode(&layer_ofs);
 
-    slots = *(void***)((char*)g_copters_postable + 0x24);
-    kf = (float*)((char*)slots[anim] + SEAT->frame * 0x30);
-    lift.oy = (int)kf[1] + index;
-    AdjustOffsetForViewMode(&lift);
-
-    pos.ox = screen.ox + layer_ofs.ox + (((SprHdr*)sprite)->dim >> 1);
-    pos.oy = screen.oy + layer_ofs.oy + lift.oy;
+    kf1 = (float*)((char*)g_copters_postable->slots[anim] + seat->frame * 0x30);
+    ofs.oy = (int)kf1[1] + mode;
+    AdjustOffsetForViewMode(&ofs);
+    ofs.ox = sprite->dim >> 1;
+    pos.ox = layer_ofs.ox + screen.ox + ofs.ox;
+    pos.oy = layer_ofs.oy + screen.oy + ofs.oy;
     AdjustBlokePosition(&pos);
-    person = SEAT->rider->person;
+    person = seat->rider->person;
     SetPersonPosition(person, pos.ox, pos.oy);
 
     scale = 65536.0f;
-    kf = (float*)((char*)slots[anim] + SEAT->frame * 0x30);
-    {
-        float a = kf[5] * kf[7];
-        float b = kf[8] * kf[4];
-        kf[9] = a - b;
-        a = kf[8] * kf[3];
-        b = kf[6] * kf[5];
-        kf[10] = a - b;
-        a = kf[6] * kf[4];
-        b = kf[3] * kf[7];
-        kf[11] = a - b;
-    }
+    kf = (float*)((char*)g_copters_postable->slots[anim] + seat->frame * 0x30);
+    kf[9] = kf[5] * kf[7] - kf[8] * kf[4];
+    kf[10] = kf[8] * kf[3] - kf[6] * kf[5];
+    kf[11] = kf[6] * kf[4] - kf[3] * kf[7];
 
-    ord = g_copter_ord_a;
-    out_base = (int*)((char*)person + 0x58);
-    while (ord < g_copter_ord_b) {
-        int oa = *ord;
-        int* out = out_base;
-        int off;
-        for (off = 0; off < 0xc; off += 4) {
-            int idx, v;
-            float f;
-            idx = (oa + SEAT->frame * 4 + 1) * 3
-                + *(int*)((char*)g_copter_ord_b + off);
-            f = ((float*)slots[anim])[idx];
-            *(float*)&index = f;
-            *(float*)&index = *(float*)&index * scale;
-            __asm {
-                fld dword ptr [index]
-                fistp dword ptr [index]
-            }
-            v = index;
-            *out = *(int*)((char*)g_copter_sign_a + off)
-                 * g_copter_sign_b[oa] * v;
-            out += 3;
+    m = (int*)((char*)person + 0x58);
+    for (i = 0; i < 3; i++) {
+        oa = g_copter_ord_a[i];
+        for (j = 0; j < 3; j++) {
+            f = g_copters_postable->slots[anim][(oa + seat->frame * 4 + 1) * 3 + g_copter_ord_b[j]];
+            FSCALEF(f, scale);
+            m[j * 3] = g_copter_sign_a[j] * g_copter_sign_b[oa] * *(int*)&f;
         }
-        ord++;
-        out_base++;
+        m++;
     }
-#undef SEAT
 }
