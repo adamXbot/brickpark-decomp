@@ -48,15 +48,8 @@ typedef struct RepLine {
     int   value;     /* +0x1c */
     int   mark;      /* +0x20  the goal, where the bar's marker goes */
     int   range;     /* +0x24  the bar's full scale */
-    int   f28;       /* +0x28 */
-    int   f2c;
-    int   f30;
-    int   f34;
-    int   f38;
-    int   f3c;
-    int   f40;
-    int   f44;
-    int   f48;
+    int   nids;      /* +0x28  how many extra string ids follow */
+    int   ids[8];    /* +0x2c..+0x48 */
 } RepLine;
 
 extern int     g_report_pages;                              /* 0x006660a0 */
@@ -86,6 +79,37 @@ extern int   CountCastles(void);                            /* 0x00444320 */
 extern int   CountLogFlumes(void);                          /* 0x00444350 */
 extern int   CountJungleCruises(void);                      /* 0x00444380 */
 extern int   MapCellCount(void);                            /* 0x004636c0 */
+extern void  BlitAppraisalSprite(int x, int y, int kind, int step);           /* 0x00444b70 */
+extern void  DrawAppraisalBar(AppraisalBox box, int value, int range, int mark); /* 0x00444a70 */
+extern void  LoadAppraisalTickSprites(void);                /* 0x004449b0 */
+/* The original pushes one argument here; appraisal.c declares this helper
+ * void(void).  The push and its matching `add esp,4` are in the original, so
+ * this file has to declare the parameter. */
+extern void  LoadAppraisalScreenSprites(int page);          /* 0x00445190 */
+extern void  UnlightAppraisalPageButtons(void);             /* 0x00445100 */
+extern void  FreeAppraisalScreenSprites(void);              /* 0x00445000 */
+extern int   PrintSprite(Sprite* s, int x, int y, int mode, void* ctx);       /* 0x004853a0 */
+extern void  PushRenderingStatusAndLockVideoSurface(void);  /* 0x00463fc0 */
+extern void  PopRenderingStatus(void);                      /* 0x004641f0 */
+extern void  NewPrintColoured(const char* text, int font, AppraisalBox rc, unsigned long colour); /* 0x00454d80 */
+extern void  NewPrintCent(const char* text, int font, AppraisalBox rc, char white); /* 0x00491d60 */
+extern void  RenderIcons2(unsigned short g1, unsigned short g2, unsigned short g3); /* 0x0046f010 */
+extern void  ResetHitInfo(void);                            /* 0x00485ef0 */
+extern void  SetPointer(int shape);                         /* 0x00463850 */
+extern void  ProcessFrontEndHelp(void);                     /* 0x0046d080 */
+extern void  UpdateFocussedIconPtr(void);                   /* 0x004700a0 */
+extern char  CheckFocussedIcon(void);                       /* 0x0046f4c0 */
+extern int   RenderingComplete(void);                       /* 0x00466500 */
+extern void  UpdateHelpBar(void);                           /* 0x0046d110 */
+extern int   IsNarrationPlaying(void);                      /* 0x00498cf0 */
+extern void  PauseCurrentTrack(void);                       /* 0x00498920 */
+extern void  ResumeCurrentTrack(void);                      /* 0x00498b00 */
+extern void  SetInGameIconHandlers(void);                   /* 0x00474880 */
+extern void  sub_498b40(void);                              /* 0x00498b40 */
+
+extern Sprite* g_backdrop;                                  /* 0x00810148 */
+extern int     g_report_open;                               /* 0x0081c038 */
+extern void*   g_focussed_icon;                             /* 0x006687d0 */
 
 #define FLAGS g_appraisal_flags
 
@@ -124,7 +148,7 @@ extern int   MapCellCount(void);                            /* 0x004636c0 */
     lines[n].value = 0;                                                   \
     lines[n].mark = 0;                                                    \
     lines[n].range = 0;                                                   \
-    lines[n].f28 = 0;                                                     \
+    lines[n].nids = 0;                                                     \
     n++;                                                                  \
     y += 0x18;
 
@@ -141,15 +165,17 @@ extern int   MapCellCount(void);                            /* 0x004636c0 */
     lines[n].value = (VALUE);                                             \
     lines[n].mark = (MARKV);                                              \
     lines[n].range = (RANGE);                                             \
-    lines[n].f28 = 0;                                                     \
+    lines[n].nids = 0;                                                     \
     n++;                                                                  \
     y += 0x18;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (973/8085 insns emitted, first diverging index 0, frame 0x2170 vs 0x23d4; only report sections 1-2 written)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (1286/8085 insns emitted, first diverging index 5, frame 0x2190 vs 0x23d4; report sections 1-2 plus the render and input loops)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
     char  namebuf[0x80];
+    /* The 0x200-byte line buffer at frame offset 0x1ec4; the report section
+     * that sprintf()s into it (0x0044a75d) is not transcribed yet. */
     char  textbuf[0x200];
     int   narr[196];
     AppraisalBox box;
@@ -166,12 +192,20 @@ int RunAppraisalScreen(void)
     int v;
     int nattr, vattr;
     int i;
+    int x;
+    int nclose;
+    int nnarr, narr_cur;
+    AppraisalBox title;
 
+    (void)textbuf;      /* until the section at 0x0044a75d is written */
     n = 0;
     page_start = 0;
     indent = 0;
     all_total = 0;
     all_passed = 0;
+    nclose = 0;
+    nnarr = 0;
+    narr_cur = 0;
     failmask = 0;
     if (ScriptRunning())
         return 0;
@@ -282,11 +316,102 @@ sect2:
         all_total = total;
     }
 
-    /* TEMPORARY keep-alive for the frame while the tail is unwritten. */
-    sprintf(namebuf, "%d", narr[all_passed]);
-    sprintf(textbuf, "%d", narr[all_total]);
-    PlayNarrationFile(namebuf);
-    PlayNarrationFile(textbuf);
+    /* ================================================================== */
+    /* Put the screen up and run it.                                      */
+    /* ================================================================== */
+
+    if (nclose == 0)
+        n--;
+    cur.bottom = y + 0x16;
+    cur.left = indent + 0x20;
+    cur.right = 0x1a4;
+    g_report_pages++;
+    LoadAppraisalScreenSprites(g_report_pages);
+    LoadAppraisalTickSprites();
+
+    while (g_report_open) {
+        sub_498b40();
+        SetPointer(5);
+        ReadGameButtons();
+        ResetHitInfo();
+        PushRenderingStatusAndLockVideoSurface();
+        PrintSprite(g_backdrop, 0, 0, 0, 0);
+        UnlightAppraisalPageButtons();
+        RenderIcons2(1, 0, 0);
+        title.left = 0x28;
+        title.top = 0x45;
+        title.right = 0x1a4;
+        title.bottom = 0x6d;
+        NewPrintCent(GetString(0x228), 3, title, 0);
+
+        cur.left = box.left;
+        cur.top = box.top;
+        cur.right = box.right;
+        cur.bottom = box.bottom;
+
+        i = 0;
+        while (i < n && lines[i].page != g_report_page)
+            i++;
+        if (g_report_page_turned) {
+            narr_cur = 0;
+            nnarr = 0;
+        }
+        while (i < n && lines[i].page == g_report_page) {
+            if (g_report_page_turned && lines[i].nids != 0) {
+                narr[nnarr++] = lines[i].ids[0];
+                if (lines[i].nids > 1) narr[nnarr++] = lines[i].ids[1];
+                if (lines[i].nids > 2) narr[nnarr++] = lines[i].ids[2];
+                if (lines[i].nids > 3) narr[nnarr++] = lines[i].ids[3];
+                if (lines[i].nids > 4) narr[nnarr++] = lines[i].ids[4];
+                if (lines[i].nids > 5) narr[nnarr++] = lines[i].ids[5];
+                if (lines[i].nids > 6) narr[nnarr++] = lines[i].ids[6];
+                if (lines[i].nids > 7) narr[nnarr++] = lines[i].ids[7];
+            }
+            if (lines[i].ok == -2)
+                x = lines[i].indent + 0x28;
+            else
+                x = lines[i].indent + 0x50;
+            cur.left = x;
+            BlitAppraisalSprite(x - 0x28, cur.top, lines[i].ok, lines[i].step);
+            cur.right = 0x1a4;
+            cur.bottom = cur.top + 0x16;
+            NewPrintColoured(lines[i].text, 2, cur, lines[i].colour);
+            if (lines[i].bar) {
+                box.left = 0x126;
+                box.top = cur.top;
+                box.right = 0x1a4;
+                box.bottom = cur.top + 8;
+                DrawAppraisalBar(box, lines[i].value, lines[i].range, lines[i].mark);
+            }
+            cur.top += 0x18;
+            i++;
+        }
+
+        if (g_report_page_turned)
+            g_report_page_turned = 0;
+        if (narr_cur < nnarr) {
+            if (!IsNarrationPlaying() && narr[narr_cur] != -1) {
+                sprintf(namebuf, "TEXT%04d.WAV", narr[narr_cur]);
+                narr_cur++;
+                PauseCurrentTrack();
+                PlayNarrationFile(namebuf);
+                ResumeCurrentTrack();
+            }
+        } else if (!IsNarrationPlaying())
+            UpdateHelpBar();
+
+        ProcessFrontEndHelp();
+        UpdateFocussedIconPtr();
+        PopRenderingStatus();
+        if (g_focussed_icon)
+            SetPointer(6);
+        CheckFocussedIcon();
+        RenderingComplete();
+    }
+    FreeAppraisalScreenSprites();
+    PopRenderingStatus();
+    PauseCurrentTrack();
+    SetInGameIconHandlers();
     for (i = 0; i < n; i++) {
         if (lines[i].ok == 0)
             return 0;
