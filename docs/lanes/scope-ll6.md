@@ -117,6 +117,15 @@ See the first commit for the exact stubs. New this wave:
   (DoorTileStep) drops the xor; a distinct string load would be
   `movzx` not xor. Intra-function fold of the identical 4-insn
   epilogue plus LIFO ch-then-tail is the combined floor.
+  **2026-09-08 nest probe:** original fail1/fail2 are identical four
+  bytes. Wrapping the whole head walk in `if (1)` is the first shape
+  that emits a real fail2 fall-through (`jne loop` + second epilogue),
+  but then head-empty cannot share fail1 — extra inline `return 0`
+  (91i/237B) or closed-empty retargets to the later copy. Head-empty
+  `je fail1` and fail2 fall-through fight; cannot hold both. Volatile
+  store / noinline pair puts a second xor-ret after the helpers.
+  `#pragma optimize("g", off)` still ~11–72%. `if (0)` outlining not
+  retried. AddSpanRecord rechecked 37/61 — unchanged.
 - `Raster_AddSpanRecord`: FLOOR 61/61, 175/175, 35 mismatch (~61%).
   Count-before-cursor gives `push ecx` / `mov ecx,[cursor]` /
   `lea eax,[ecx+0x10]` / `jbe` vs `0x004e3870`. `keep=0` is the
