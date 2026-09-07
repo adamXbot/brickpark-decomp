@@ -174,7 +174,7 @@ Do **not** merge partial scopes yourself.
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
-| LL7 | 16/17 | `7e90ae76` | `coaster13.c` |
+| LL7 | 16/17 | `ecbbc085` | `coaster13.c` |
 | LL8 | **13/13** | merged `main` | `gameframe2.c` |
 
 **WIP count in this wave:** 0+0+3+5+0+2+1+0 = **11 bodies**.
