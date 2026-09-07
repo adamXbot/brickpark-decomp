@@ -13,7 +13,7 @@ Branch `scope/AA`. File `LEGOLAND/goalstate.c`. Object prefix `/tmp/saa_`.
 | 0x0044dc70 | SetLevelGoalState | 9 | 100 | [OK] | FUNCTION |
 | 0x0044ebf0 | BlokeAction_EnterPark | 92 | 100 | [OK] | FUNCTION |
 | 0x0044ed00 | FormatBlokeMessage | 32 | 100 | [OK] | FUNCTION |
-| 0x0044ed70 | BlokeAction_LeavePark | 328 | ~89 | REJECT | WIP-FUNCTION |
+| 0x0044ed70 | BlokeAction_LeavePark | 328 | 100 | [OK] | FUNCTION |
 | 0x0044f170 | BlokeAction_SetState4 | 3 | 100 | [OK] | FUNCTION |
 | 0x0044f180 | PosOnObjectFootprint | 201 | 100 | [OK] | FUNCTION |
 | 0x0044f3d0 | CountBlokesAtRideID | 15 | 100 | [OK] | FUNCTION |
@@ -21,8 +21,8 @@ Branch `scope/AA`. File `LEGOLAND/goalstate.c`. Object prefix `/tmp/saa_`.
 | 0x0044f4a0 | JoinSeatList | 121 | 100 | [OK] | FUNCTION |
 | 0x0044f610 | BlokeAction_PickRide | 699 | ~70 | REJECT | WIP-FUNCTION |
 
-**12 / 14 exact.** LeavePark ~89% WIP; PickRide ~70% WIP (honest residuals
-below). Both large LT handlers remain WIP-FUNCTION so audit still PASSes.
+**13 / 14 exact.** LeavePark closed (328/328, three residuals, three levers
+below). PickRide WIP (honest residuals below) so audit still PASSes.
 
 ## Mechanics
 
@@ -78,29 +78,33 @@ below). Both large LT handlers remain WIP-FUNCTION so audit still PASSes.
 
 ## Remaining / blocked
 
-### 0x0044ed70 BlokeAction_LeavePark (~89%, §6B)
+### 0x0044ed70 BlokeAction_LeavePark — CLOSED 328/328 (audit [OK])
 
-Same insn count (328) as original; three structural residuals after the
-bigsim-style CalcMoveLine rewrite:
+The three residuals of the previous pass, and what closed each:
 
-1. **Stuck counter (+0x82)** — original `mov dl,[stuck] / inc dl / mov al,dl /
-   store / cmp al,8`. Ours uses `al` throughout and cmps before the store.
-   Likely wants the JT index kept live in eax so stuck prefers `dl`. Keep-live
-   `else if (r > 5)` and pointer-through-stuck both failed / regressed.
-2. **PTP action `(f64&1) ? 6 : 0xa`** — ternary
-   `0xa + ((f64&1) ? -4 : 0)` emits `neg dl / sbb dl,dl` correctly but then
-   `and edx,0xfc` instead of `and dl,0xfc`. Forms that get `and dl,0xfc` drop
-   the `sbb`. No spelling found that yields both.
-3. **Case 11/12 shared CalcMoveLine** — duplicate tails give post-codegen
-   cross-jump into the *earlier* arm (case 12 `jmp` back to case 11's call).
-   Original is layout-last: case 11 `jmp` forward into the call after case
-   12's prefix. Source `goto` shared tail gets the forward layout but flushes
-   cdecl cleanup (`add esp,4` per call + `add esp,0x1c` instead of one
-   `add esp,0x20`). Empty-else direction flip is an if/else lever; not yet
-   transferred onto this jump-table pair.
-
-Stop grinding without a new lever for (1)–(3). WIP body retained for the next
-pass.
+1. **Stuck counter (+0x82) in `dl`** — an `unsigned char lim = 5` local used
+   as the inner switch bound (`if ((unsigned)r > lim) return; switch (r)`)
+   and as the `action = lim` store value keeps 5 live in `ecx` across the
+   jump table, so the `mov [action],cl` stores appear and `++b->stuck == 8`
+   lowers to `mov dl,[stuck] / inc dl / mov al,dl / mov [stuck],dl / cmp al,8`.
+2. **PTP action mask** — the plain ternary `(f64 & 1) ? 6 : 0xa` (not
+   `0xa + (… ? -4 : 0)`) is what emits `and dl,1 / neg dl / sbb dl,dl /
+   and dl,0xfc / add dl,0xa` byte-wide. The additive spelling widened the
+   `and` to `edx`.
+3. **Case 11/12 shared CalcMoveLine tail, layout-LAST host** — the two arms
+   must end in `break;`, not `return;`. With `return` VC6 gives each arm an
+   inline epilogue copy first, the IR tails are then no longer identical
+   suffixes of a common `jmp exit`, and only the post-codegen cross-jump
+   fires (into the EARLIER block: case 12 `jmp` back to case 11's call).
+   With `break` both arms end in the same `jmp` to the switch exit, the
+   IR-level suffix merge hosts the tail in the layout-last arm (case 12),
+   case 11 jumps forward into the call, the epilogue is expanded once in the
+   survivor, and the deferred `add esp,0x20` (CalcMoveLine 0x14 + NewDir 8 +
+   pending 4 from GetFirstObjectMatching / RateBlokeOnLeaving) survives.
+   `goto` in either direction flushes the pending 4 (`add esp,4` +
+   `add esp,0x1c`). Textually swapping cases 12/11 moves the layout too.
+   **Lever: `break` vs `return` in a void switch arm is a tail-merge phase
+   selector**, even though both reach the same exit block.
 
 ### 0x0044f610 BlokeAction_PickRide (~70%, §6B)
 

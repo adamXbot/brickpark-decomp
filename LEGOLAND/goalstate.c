@@ -310,13 +310,15 @@ void FormatBlokeMessage(const char* text)
  * local `out`, then CalcMoveLine(b->world, out, path) so VC6 keeps edi as
  * &world and interleaves the target.y store into the arg pushes.
  *
-/* Residual (~89%): stuck counter uses al not dl (missing mov al,dl); PTP
- * (f64&1)?6:0xa emits and edx,0xfc not and dl,0xfc after sbb dl,dl; case
- * 11/12 share the CalcMoveLine call via post-codegen cross-jump into the
- * earlier arm (backward jmp) instead of the original forward jmp into a
- * layout-last shared call. Goto shared-tail kills deferred add esp,0x20.
- * See docs/lanes/scope-aa.md. */
-// WIP-FUNCTION: LEGOLAND 0x0044ed70
+ * Case 1: `lim = 5` byte local keeps the JT bound in ecx so stuck prefers dl
+ * and `mov [action],cl`; `++b->stuck == 8` gives inc/mov al,dl/store/cmp.
+ * Case 5: ternary `(f64&1) ? 6 : 0xa` yields and dl,1/neg/sbb/and dl,0xfc/
+ * add dl,0xa. Cases 11/12 end in `break` (not `return`): the IR-level suffix
+ * merge then hosts the CalcMoveLine tail in the layout-LAST arm (case 11 jmps
+ * forward) and keeps the deferred `add esp,0x20`; with `return` the arms get
+ * inline epilogues and only the post-codegen cross-jump fires (backward jmp
+ * into case 11). */
+// FUNCTION: LEGOLAND 0x0044ed70
 void BlokeAction_LeavePark(Bloke* b)
 {
     Pos out;
@@ -332,23 +334,24 @@ void BlokeAction_LeavePark(Bloke* b)
         b->stuck = 0;
         b->action = 1;
         /* fallthrough */
-    case 1:
-        r = SuggestNextMove(&b->world, (Pos*)&g_entrance_x, &out);
-        switch (r + 3) {
+    case 1: {
+        unsigned char lim = 5;
+        r = SuggestNextMove(&b->world, (Pos*)&g_entrance_x, &out) + 3;
+        if ((unsigned)r > lim)
+            return;
+        switch (r) {
         case 1: /* SuggestNextMove == -2 */
-            b->action = 5;
+            b->action = lim;
             return;
         case 0:
         case 2:
-        case 3: /* -3 / -1 / 0 */
-            a = b->stuck;
+        case 3: /* -3 / -1 / 0 */ {
             b->state = 4;
-            a++;
             b->action = 2;
-            b->stuck = a;
-            if (a == 8)
-                b->action = 5;
+            if (++b->stuck == 8)
+                b->action = lim;
             return;
+        }
         case 5: /* == 2 */
             b->target.x = out.x;
             b->target.y = out.y;
@@ -379,6 +382,7 @@ void BlokeAction_LeavePark(Bloke* b)
             return;
         }
         return;
+    }
     case 2:
         b->flags |= 8;
         b->action = 1;
@@ -396,8 +400,8 @@ void BlokeAction_LeavePark(Bloke* b)
             b->state = 0xb;
             b->f73 = a;
             NewDirForAction(b, (unsigned char)((a >> 5) + 3));
-            /* Prefer sbb dl,dl (ternary -4); and stays edx-wide — residual. */
-            b->action = (unsigned char)(0xa + ((b->f64 & 1) ? -4 : 0));
+            /* Ternary 6:0xa (not 0xa+(-4)) yields and dl,0xfc after sbb. */
+            b->action = (unsigned char)((b->f64 & 1) ? 6 : 0xa);
             return;
         case 1:
             b->target.x = out.x;
@@ -442,7 +446,7 @@ void BlokeAction_LeavePark(Bloke* b)
         b->f73 = a;
         NewDirForAction(b, (unsigned char)((a >> 5) + 3));
         b->action++;
-        return;
+        break;
     case 12:
         RateBlokeOnLeaving(b->mood);
         b->target.x += g_leave_dx;
@@ -452,7 +456,7 @@ void BlokeAction_LeavePark(Bloke* b)
         b->f73 = a;
         NewDirForAction(b, (unsigned char)((a >> 5) + 3));
         b->action++;
-        return;
+        break;
     case 13:
         DBPrintf(g_fmt_kill_minifig, b);
         DestroyBloke(b);
