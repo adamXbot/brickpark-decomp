@@ -1,7 +1,6 @@
 # Scope AA — report / goal-state table tier (inventory group 12) (2026-09-07)
 
-> **Status: DONE — 12 of 14 exact, merged into `main` 2026-09-07.** Two
-> honest WIPs: `BlokeAction_LeavePark`, `BlokeAction_PickRide`. Branch
+> **Status: DONE — 14 of 14 exact, closed into `main` 2026-09-07.** Branch
 > `scope/AA`. Notes: `docs/lanes/scope-aa.md`. Object prefix `/tmp/saa_`.
 > Cut from inventory group 12 (`tools/inventory.py` / `docs/lanes/scope-n.md`).
 

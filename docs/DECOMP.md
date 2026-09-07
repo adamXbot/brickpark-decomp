@@ -438,9 +438,13 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
     `world`/`dest`/`out` pointers — mirror `Garderner_Repair`
     (`SuggestNextMove(&b->world, &b->dest, &leg); target = leg;
     CalcMoveLine(b->world, leg, path)`).
-  - **AA:** AppraisalDueTick nested guards; FormatBlokeMessage indexed for
-    with signed `jl`; JoinSeatList intrinsic memset + `unsigned short flags`.
-    LeavePark/PickRide: `and dl` vs `and edx` residual family — leave WIP.
+  - **AA (closed 14/14):** AppraisalDueTick nested guards; FormatBlokeMessage
+    indexed for with signed `jl`; JoinSeatList intrinsic memset +
+    `unsigned short flags`. LeavePark: `unsigned char lim`, plain
+    `(f64&1)?6:0xa`, case 11/12 CML arms end in `break` not `return`.
+    PickRide: plain f64 value ternaries; duplicated case-10 mood arms with
+    `break`; `default: if (b->action >= 0) goto done;` late-folds so `ja`
+    shares the epilogue.
 
 - **SCOPE AF (closed 2026-09-07, 8 of 8 exact; evidence in
   `docs/lanes/scope-af.md`).** Bubble-help / text-cache helpers
