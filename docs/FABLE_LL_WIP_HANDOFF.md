@@ -157,27 +157,41 @@ edx is live; any IR that makes nshade live during the adds steals
 `g_zb_polys++` into ebx. Park until a new lever (not more C spellings of the
 same window).
 
+### LL3 — `Span_ClipPlane` `0x0041f050`
+
+**9% ESCAPES**, 179i, 597/593B, frame **0x24** (want **0x2c**). Reconstruct.
+
+Original control flow (2026-09-08 disasm pass):
+- Close `in[n]=in[0]`, then `cmp n,1 / jl` to a **trailing** early epilogue.
+- Then `in++`, `left=n` (homes in dead `n` slot), `jmp` into body so continue
+  reloads abs/sign.
+- Latch: `in += 4; dec left; jne` (not `in[i+1]`).
+- Classify: signed `sar 1 / and 0x40000000 / or next_sign` as `cls` (also next
+  prev_sign). Tests `0x80000000` enter, `0xC0000000` both-in, `0x40000000` leave.
+- Divide uses **`fld` of bit-abs** (`and 0x7fffffff` then load those bits), not
+  `fild` / `(float)abs` — current C stays ~1–2/179 without that.
+- Prologue coloring: load **cursor, then `n` into ebx, then `*cursor` into edx**.
+  If `*cursor` takes ebx first, dst steals the callee-save and **0x2c homes never
+  appear**. `t` in dead `in` arg; in-cursor in dead `n` arg; prev_abs at `+0x24`.
+- ENTER: `k` spilled, delta in ebp. LEAVE: emit prev first, `k` in ebp, delta spilled.
+
+Variants that grew frame (0x28/0x38) or forced `in++`/`fld`/signed classify alone
+stayed **2/179**. **Next lever: `ebx = n` before the `*cursor` deref.**
+
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
 **FLOOR (NG22).** 130i/339B byte-exact, 105 mism. Same phase-order allocation
 as `JungleCruise_TraceRoute` (see LEVERS NG22). No source spelling has both
 the west tail→loop and the original register ranking.
 
-### LL3 — `Span_ClipPlane` `0x0041f050`
-
-**9% ESCAPES**, 179i, 597/593B. Need 0x2c frame (have 0x24), `in++` in latch,
-three-way sign classify on `(prev_sign>>1)|next_sign` vs
-`0x80000000 / 0xC0000000 / 0x40000000`. Large reconstruct — not a polish job.
-
 ---
 
 ## Suggested Fable attack order
 
-1. **LL3 Trace / ClipPlane** — NG22 / ESCAPES (only with a new phase/frame lever).
-2. **LL4 Span family** — ZBuffer-class Span_Fill* / Simpson.
-3. **LL6 GetTrackSegment** — parked; fail2 fall-through vs head-empty `je fail1` fight.
-4. **LL7 ShadeFill** — parked nshade/edx web floor (16/17).
-5. **LL3 MassAndPower** / **LL6 AddSpanRecord** — parked dest-coalesce / IV floors.
+1. **LL3 Span_ClipPlane** — force `ebx=n` before `*cursor`; then fld bit-abs + in++ latch.
+2. **LL4 IntegrateSimpson** — jg for-latch + separate `add esp,4` (in flight).
+3. **LL4 Span_Fill*** — ZBuffer-class; only after Simpson or with a new frame lever.
+4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
 Do **not** merge partial scopes yourself.
@@ -190,7 +204,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `43064ba2` | `coaster11.c` |
+| LL3 | 16/19 | `30afb5ac` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
