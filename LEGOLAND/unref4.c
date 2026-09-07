@@ -355,9 +355,10 @@ extern Pos g_gfx_point;                 /* 0x00813a44  the mouse point */
 extern int g_slider_grabbed;            /* 0x0062fea4 */
 
 /* Draws the slider track and its red 3-pixel marker, then returns the value
- * the pointer is asking for: `value` unless the slider is grabbed. */
+ * the pointer is asking for: `value` unless the slider is grabbed.  `step`
+ * is a DEAD parameter -- RunListPicker passes 0x10 and it is never read. */
 // FUNCTION: LEGOLAND 0x0043e930
-int Slider_Track(Box* r, int lo, int hi, int value)
+int Slider_Track(Box* r, int lo, int hi, int value, int step)
 {
     int h = r->bottom - r->top;
     int pos = h * value / (hi - lo);
@@ -493,4 +494,198 @@ LLElem* PickLLIDBElement(const char* title, void* backdrop, IRect* r,
     KillSprite(spr_happy);
     KillSprite(spr_poor);
     return result;
+}
+
+/* One list row's box, in list-content coordinates: left/right are the text
+ * column, top/bottom the row's vertical extent before scrolling. */
+typedef struct Row { int left, top, right, bottom; } Row;
+
+extern int  g_mouse_btn_a;              /* 0x00813ad4  bit 0 = pressed */
+extern int  g_mouse_btn_b;              /* 0x00813acc  bit 0 = pressed */
+extern int  g_scroll_offset;            /* 0x0062fea0  shared by every picker */
+
+extern void RenderBox(int x, int y, int w, int h, int colour);   /* 0x00489410 */
+extern void GetClipping(Box* out);                               /* 0x0048a630 */
+extern void SetClipping(Box* r);                                 /* 0x0048a5c0 */
+
+/* The modal scrolling list.  `items` is a NULL-terminated array of strings;
+ * every row is laid out by MeasureWrappedText at the current column width
+ * (minimum 8 pixels, plus a 4-pixel gap), and if the whole list is taller
+ * than the box the column is narrowed by 16 pixels ONCE and re-laid out to
+ * make room for the scrollbar.  Returns the index the user clicked, or -1.
+ *
+ * `icons`, `a7` and `a8` are DEAD parameters -- PickLLIDBElement builds the
+ * icon array and passes 0x2e/0x28, and none of the three is ever read.
+ *
+ */
+// WIP-FUNCTION: LEGOLAND 0x0043ea30  (98.5%, 392/398 aligned, 6 residual)
+//   The frame loop's `ret = sel` (the -1 the abort paths return) must live in
+//   ESI across the whole iteration and be REMATERIALISED at the loop header,
+//   because ESI is reused as the row cursor in the draw loop.  We get the
+//   value into esi but VC6 still ROTATES the loop, so the header's
+//   `mov esi,[sel]` + ProcessSystemEvents test are duplicated at the latch
+//   where the original has a bare `jmp` back.  Everything else -- every
+//   block, both epilogues, every frame slot (including `n` spilled into the
+//   dead `r` argument slot and `rows` into `keep_scroll`'s) -- is identical.
+//   Ruled out: while/do-while/goto loop forms, ret as a literal vs a copy of
+//   sel, moving `tp++` into the for-increment, all 24 sbar store orders.
+int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
+                  void (*overlay)(int sel), void** icons, int a7, int a8,
+                  int keep_scroll)
+{
+    int  sel;
+    int  shrunk;
+    int  i;
+    int  textw;
+    int  visible;
+    char** tp;
+    int  overflow;
+    Box  box;
+    Box  sbar;
+    Box  savedclip;
+    Row* rows;
+    int  n;
+    int  y;
+    int  k;
+    int  my;
+    int  ret;
+
+    sel = -1;
+    box.left = r->x + 8;
+    box.top = r->y + 0x20;
+    box.right = r->x + r->w - 9;
+    box.bottom = r->y + r->h - 9;
+    shrunk = 0;
+    g_slider_grabbed = 0;
+    if (keep_scroll == 0)
+        g_scroll_offset = 0;
+    n = 0;
+    if (items[0] != 0) {
+        char** p = items;
+
+        do {
+            n++;
+            p++;
+        } while (*p != 0);
+    }
+    rows = (Row*)HeapAlloc_w(n * 16);
+    visible = box.bottom - box.top + 1;
+    for (;;) {
+        textw = box.right - box.left - 1;
+        y = 0;
+        if (n > 0) {
+            char** p = items;
+            Row*   q = rows;
+
+            for (i = n; i != 0; i--) {
+                int h;
+
+                q->top = y;
+                h = MeasureWrappedText(*p, 2, textw);
+                if (h < 8)
+                    h = 8;
+                else if (h < 0)
+                    h = 0;
+                y += h;
+                q->bottom = y;
+                p++;
+                q++;
+                y += 4;
+            }
+        }
+        if (shrunk == 0 && y > visible) {
+            shrunk = 1;
+            box.right -= 0x10;
+            continue;
+        }
+        break;
+    }
+    overflow = y - visible;
+    if (n > 0) {
+        Row* q = rows;
+
+        i = n;
+        do {
+            q->left = 0;
+            q->right = textw;
+            q++;
+            i--;
+        } while (i);
+    }
+    sbar.left = r->x + r->w - 0x14;
+    sbar.top = box.top;
+    sbar.right = r->x + r->w - 5;
+    sbar.bottom = box.bottom;
+    for (;;) {
+        ret = sel;
+        if (!ProcessSystemEvents())
+            break;
+        ReadGameButtons();
+        if (g_mouse_btn_a & 1)
+            break;
+        if (g_mouse_btn_b & 1)
+            break;
+        if (g_gfx_point.x >= box.left && g_gfx_point.x <= box.right
+            && g_gfx_point.y >= box.top && g_gfx_point.y <= box.bottom) {
+            my = g_gfx_point.y - box.top + g_scroll_offset;
+            for (k = 0; k < n; k++) {
+                if (my >= rows[k].top && my <= rows[k].bottom) {
+                    sel = k;
+                    if (g_slider_grabbed == 0 && (g_mouse_ev2 & 2))
+                        return k;
+                    break;
+                }
+            }
+            if (k == n)
+                sel = ret;
+        } else {
+            sel = ret;
+        }
+        PushRenderingStatusAndLockVideoSurface();
+        PrintSprite(backdrop, 0, 0, 0, 0);
+        if (overlay != 0)
+            overlay(sel);
+        RenderBlock(r->x, r->y, r->w, r->h, GetNearestColour(0xef, 0xef, 0xef));
+        RenderThickBox(r->x, r->y, r->w, r->h, 2, 0);
+        RenderBlock(r->x + 2, r->y + 2, r->w - 4, 0x18,
+                    GetNearestColour(0, 0x3f, 0x7f));
+        PrintLimitedText(r->x + 2, r->y + 2, r->w - 4, title, 0, 0xefefef, 0);
+        if (shrunk != 0)
+            g_scroll_offset = Slider_Track(&sbar, 0, overflow, g_scroll_offset,
+                                           0x10);
+        GetClipping(&savedclip);
+        SetClipping(&box);
+        for (k = 0; k < n; k++) {
+            if (rows[k].bottom >= g_scroll_offset)
+                break;
+        }
+        if (k < n) {
+            tp = &items[k];
+            for (; k < n; k++) {
+                if (rows[k].top >= g_scroll_offset + visible)
+                    break;
+                if (sel == k) {
+                    RenderBlock(box.left + rows[k].left,
+                                box.top + rows[k].top - g_scroll_offset,
+                                rows[k].right - rows[k].left + 1,
+                                rows[k].bottom - rows[k].top + 1,
+                                GetNearestColour(0x7f, 0x7f, 0xef));
+                } else {
+                    RenderBox(box.left + rows[k].left,
+                              box.top + rows[k].top - g_scroll_offset,
+                              rows[k].right - rows[k].left + 1,
+                              rows[k].bottom - rows[k].top + 1,
+                              GetNearestColour(0xcf, 0xcf, 0xcf));
+                }
+                DrawWrappedText(box.left + rows[k].left,
+                                box.top - g_scroll_offset + rows[k].top,
+                                *tp, 2, textw);
+                tp++;
+            }
+        }
+        SetClipping(&savedclip);
+        RenderingComplete();
+        PopRenderingStatus();
+    }
+    return ret;
 }
