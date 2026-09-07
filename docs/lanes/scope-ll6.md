@@ -7,12 +7,12 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 
 | address | name | insns | % | audit | marker |
 | --- | --- | ---: | ---: | --- | --- |
-| 0x00423200 | Raster_AddSpanRecord | 61 | ~61 | WIP | WIP (push ecx; esi vs ebx) |
+| 0x00423200 | Raster_AddSpanRecord | 61 | ~61 | FLOOR | WIP (35 mism; esi/edx/keys IV) |
 | 0x00423940 | TrackNode_InitStationJoints | 8 | 100 | [OK] | FUNCTION |
 | 0x00423970 | TrackNode_SetStationHeights | 6 | 100 | [OK] | FUNCTION |
 | 0x00423990 | Castle_GetCurveA | 2 | 100 | [OK] | FUNCTION |
 | 0x00423f40 | GetTrackSegmentPiece | 86 | 100 | [OK] | FUNCTION |
-| 0x00424050 | GetTrackSegment | 87 | ~83 | WIP | WIP (fail2 / call order) |
+| 0x00424050 | GetTrackSegment | 87 | ~83 | FLOOR | WIP (34 mism; fail2 / call order) |
 | 0x00425da0 | Vec3f_Equal | 25 | 100 | [OK] | FUNCTION |
 | 0x00426190 | Mat4_Transpose | 21 | 100 | [OK] | FUNCTION |
 | 0x004263a0 | ProjectVertsToRect | 72 | 100 | [OK] | FUNCTION |
@@ -97,22 +97,29 @@ See the first commit for the exact stubs. New this wave:
   `cursor+0x10` and `0x004e3870`; loop does `idx = keys->idx; keys++`
   then `*48`, y from `keys[-1]`, and `lea ecx,[edx+ecx*8+8]` after
   `xor ecx,ecx / test ne / jle` so a negative ne still advances by 8.
-- `GetTrackSegment`: 87/87, 232/232, 34 mismatch (~83%). Shared
+- `GetTrackSegment`: FLOOR 87/87, 232/232, 34 mismatch (~83%). Shared
   `did_match` after head keeps the tail-match call pending, so closed
   and tail are the original `jne loop` fall-through latches and
-  head-empty `je`s back to fail1. Residual: head exhaust still
-  `je fail1 / jmp loop` because the two `return 0`s merge (fail2 does
-  not survive); the two helper sites are ch-then-tail (original is
-  tail-then-ch, link+p1 first). A single-predecessor `goto match_tail`
-  inlines the tail call between tail and head and undoes both latches.
-- `Raster_AddSpanRecord`: 61/61, 175/175, 35 mismatch (~61%). Count
-  loaded before cursor gives `push ecx` / `mov ecx,[cursor]` /
+  head-empty `je`s back to fail1. Fail2 is unreachable: every second
+  `return 0` (local zero, `nxt-n`, `TrackSegFail2` inline, `for(;;)`
+  inner return, `fail1` moved to the end) ICF-merges into fail1 and
+  the head latch stays `je fail1 / jmp loop`. Helper layout is
+  ch-then-tail because LIFO pops the last-pushed head/closed target
+  first; `if (!from_tail) goto match_ch` still specialises to that
+  order. A single-predecessor `goto match_tail` inlines the tail call
+  between tail and head and undoes both latches. Volatile `from_tail`
+  would force tail-first via a runtime test the original does not have.
+- `Raster_AddSpanRecord`: FLOOR 61/61, 175/175, 35 mismatch (~61%).
+  Count-before-cursor gives `push ecx` / `mov ecx,[cursor]` /
   `lea eax,[ecx+0x10]` / `jbe` vs `0x004e3870`. `keep=0` is the
-  `xor / test ne / jle` so a negative ne still advances by 8; the
-  volatile `&saved` is the 4-byte home. Residual: count in esi not
-  ebx, no `mov edx,ecx` copy (y store uses `[ecx+4]`), keys-1 IV
-  (`lea edx,[keys-8]` / y from `[edx]` vs `add edx,8` / `[edx-8]`),
-  `dec edi` not `dec ebx`.
+  `xor / test ne / jle`; volatile `&saved` is the 4-byte home.
+  Residual: count in esi not ebx (push-ecx frame skips ebx; no
+  bl/bh use in the original either), `saved=cur` CSE's so y is
+  `[ecx+4]` not `mov edx,ecx` / `[edx+4]`, keys-1 IV
+  (`lea edx,[keys-8]` / `[edx]` vs `add edx,8` / `[edx-8]`),
+  `dec edi` not `dec ebx`. Dropping the volatile home yields
+  `dec ebx` but loses the frame (58i, cursor in edi). `int yy=y`
+  and an early `ebase=edges` do not create the edx copy.
 
 ## Extern-type divergences
 
