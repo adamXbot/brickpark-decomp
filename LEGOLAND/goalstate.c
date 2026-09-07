@@ -32,13 +32,22 @@ extern void SetLevelEndSequence(int which, const char* s); /* 0x004597e0 */
 extern int  sprintf(char* buf, const char* fmt, ...);      /* 0x0049e573 */
 extern void DBPrintf(const char* fmt, ...);                /* 0x00453a20 */
 
+typedef struct Pos {
+    int x;
+    int y;
+} Pos;
+
 typedef struct Bloke {
     char           pad00[0x04];
     void*          person;         /* +0x04 */
     char           pad08[0x0e - 0x08];
     unsigned short state;          /* +0x0e  low-level AI state */
     unsigned short step;           /* +0x10 */
-    char           pad12[0x35 - 0x12];
+    char           pad12[0x14 - 0x12];
+    void*          current_item;   /* +0x14 */
+    char           pad18[0x24 - 0x18];
+    Pos            target;         /* +0x24 */
+    char           pad2c[0x35 - 0x2c];
     unsigned char  b35;            /* +0x35 */
     char           pad36[0x58 - 0x36];
     int            seat_arg;       /* +0x58  third JoinSeatList arg */
@@ -47,14 +56,12 @@ typedef struct Bloke {
     char           pad61;
     unsigned short flags;          /* +0x62 */
     char           pad64[0x68 - 0x64];
-    int            x;              /* +0x68  world x (24.8) */
-    int            y;              /* +0x6c */
+    Pos            world;          /* +0x68 */
+    char           pad70[0x72 - 0x70];
+    unsigned char  new_dir;        /* +0x72 */
+    char           pad73[0x98 - 0x73];
+    unsigned char  path[0x14];     /* +0x98  CalcMoveLine scratch */
 } Bloke;
-
-typedef struct Pos {
-    int x;
-    int y;
-} Pos;
 
 typedef struct SeatSlot {
     struct SeatSlot* next;         /* +0x00 */
@@ -68,7 +75,10 @@ typedef struct SeatSlot {
 typedef struct SeatOwner {
     char      pad00[0x2e];
     short     rider_capacity;      /* +0x2e */
-    char      pad30[0x78 - 0x30];
+    char      pad30[0x44 - 0x30];
+    int       off_x;               /* +0x44  entrance approach offset */
+    int       off_y;               /* +0x48 */
+    char      pad4c[0x78 - 0x4c];
     const char* name;              /* +0x78 */
     char      pad7c[0xc4 - 0x7c];
     void*     elem;                /* +0xc4 */
@@ -116,6 +126,11 @@ extern unsigned short GetObjectUID(Pos* wpos, SeatOwner* def);       /* 0x0048a3
 extern void PutBlokeInList(SeatOwner* owner, SeatSlot* slot);        /* 0x0044f430 */
 extern void* memset(void*, int, unsigned);                          /* 0x004a0320 */
 #pragma intrinsic(memset)
+extern void NewLongTermAction(Bloke* b, int action);                 /* 0x0044e760 */
+extern void PushLongTermAction(Bloke* b);                            /* 0x0044ebb0 */
+extern int  CalcMoveLine(Pos from, Pos to, void* path);              /* 0x00480740 */
+extern int  g_enter_off_x;                                           /* 0x004b8318 */
+extern int  g_enter_off_y;                                           /* 0x004b831c */
 
 /* movie3.c ResetLevelGlobals zeroes the sim counter at 0x00832b9c. */
 // FUNCTION: LEGOLAND 0x0044db20
@@ -290,7 +305,7 @@ int JoinSeatList(Bloke* bloke, SeatOwner* owner, int seat_arg)
                 *(unsigned char*)&slot->seat = cell->x;
                 *((unsigned char*)&slot->seat + 1) = cell->y;
             } else {
-                slot->seat = GetObjectUID((Pos*)&bloke->x, owner);
+                slot->seat = GetObjectUID(&bloke->world, owner);
             }
 
             x = *(unsigned char*)&slot->seat;
@@ -313,4 +328,44 @@ int JoinSeatList(Bloke* bloke, SeatOwner* owner, int seat_arg)
     }
     DBPrintf(g_fmt_no_alloc, owner->name);
     return 0;
+}
+
+/* Long-term action table slot 0x02: walk to the park entrance, then join its
+ * seat list and hand off to LT action 5. */
+// FUNCTION: LEGOLAND 0x0044ebf0
+void BlokeAction_EnterPark(Bloke* b)
+{
+    MapCell* cell;
+    SeatOwner* def;
+    unsigned char dir;
+
+    switch (b->action) {
+    case 0:
+        cell = GetFirstObjectMatching(g_entrance_elem);
+        def = (SeatOwner*)g_entrance_elem->data;
+        b->flags |= 8;
+        b->target.x = (cell->x + def->off_x + 6) << 8;
+        b->target.y = (cell->y + def->off_y - 5) << 8;
+        b->world.x = b->target.x + g_enter_off_x;
+        b->world.y = b->target.y + g_enter_off_y;
+        dir = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
+        dir = (unsigned char)((dir >> 5) + 3);
+        b->state = 7;
+        b->new_dir = dir;
+        b->action++;
+        break;
+    case 1:
+        b->current_item = g_entrance_elem;
+        if (JoinSeatList(b, (SeatOwner*)g_entrance_elem->data, 0)) {
+            b->action++;
+            PushLongTermAction(b);
+            NewLongTermAction(b, 5);
+            g_map_dirty |= 0x40;
+        }
+        break;
+    case 2:
+        b->flags &= ~8;
+        NewLongTermAction(b, 6);
+        break;
+    }
 }

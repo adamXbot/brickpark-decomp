@@ -11,7 +11,7 @@ Branch `scope/AA`. File `LEGOLAND/goalstate.c`. Object prefix `/tmp/saa_`.
 | 0x0044db80 | ClearAppraisalState | 4 | 100 | [OK] | FUNCTION |
 | 0x0044db90 | AppraisalDueTick | 60 | 100 | [OK] | FUNCTION |
 | 0x0044dc70 | SetLevelGoalState | 9 | 100 | [OK] | FUNCTION |
-| 0x0044ebf0 | — | 92 | — | — | pending |
+| 0x0044ebf0 | BlokeAction_EnterPark | 92 | 100 | [OK] | FUNCTION |
 | 0x0044ed00 | FormatBlokeMessage | 32 | 100 | [OK] | FUNCTION |
 | 0x0044ed70 | — | 328 | — | — | pending |
 | 0x0044f170 | BlokeAction_SetState4 | 3 | 100 | [OK] | FUNCTION |
