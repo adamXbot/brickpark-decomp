@@ -689,3 +689,183 @@ int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
     }
     return ret;
 }
+
+/* =========================================================================
+ * 0x0043f0b0 -- the FILE BROWSER built on the list picker: enumerate the
+ * directory the path spec points at, sort directories before files and
+ * everything alphabetically inside those groups, and let the user walk into
+ * subdirectories until they pick a file.
+ * ========================================================================= */
+
+/* One directory entry, kept in a singly-linked list while enumerating. */
+typedef struct FileEnt {
+    struct FileEnt* next;       /* +0x00 */
+    char*           name;       /* +0x04 */
+    unsigned int    attrib;     /* +0x08  _finddata_t.attrib; 0x10 = _A_SUBDIR */
+} FileEnt;
+
+struct _finddata_t {
+    unsigned int  attrib;
+    long          time_create;
+    long          time_access;
+    long          time_write;
+    unsigned long size;
+    char          name[260];
+};
+
+extern long   _findfirst(const char* spec, struct _finddata_t* fd);  /* 0x0049e9ed */
+extern int    _findnext(long h, struct _finddata_t* fd);             /* 0x0049eab7 */
+extern int    _findclose(long h);                                    /* 0x0049eb7c */
+extern char*  _getcwd(char* buf, int len);                           /* 0x0049edcc */
+extern int    _chdir(const char* path);                              /* 0x0049ebff */
+extern void   _splitpath(const char* p, char* drive, char* dir,
+                         char* fname, char* ext);                    /* 0x0049ec85 */
+extern int    sprintf(char* dest, const char* fmt, ...);             /* 0x0049e573 */
+
+#pragma intrinsic(strcpy)
+extern char*  strcpy(char* d, const char* s);
+
+/* The name the browser hands back (and the directory it walks into). */
+extern char g_browse_name[];    /* 0x0081c8e0 */
+
+// WIP-FUNCTION: LEGOLAND 0x0043f0b0  (60.7%, 190/313 aligned; 313i/958B vs
+//   313i/944B -- the instruction COUNT is exact and every call, every block
+//   and both epilogues line up.  Two frame defects account for the residual:
+//   (1) our frame is 0x64c, the original's 0x650 -- the original spills one
+//   more 4-byte scalar than we do (its twelve slots are n, list, names,
+//   isdir, icons, spr_file, spr_folder, pass, spr_drive, head, drive[3] and
+//   the `diff` temp; we produce eleven), so EVERY [esp+x] is 4 off;
+//   (2) `dir` and `fname` (both char[0x100]) are swapped in the frame --
+//   the original puts `dir` at the top (E-0x100) and `fname` below `cwd`,
+//   and declaration order does not move them.
+//   Ruled out: drive[4]/[8], fd.name[264], pattern[0x108] (each fixes the
+//   frame SIZE but shifts every scalar instead); swapped/j/node hoisted to
+//   function scope; a single vs duplicated HeapAlloc_w in the append.)
+char* BrowseForFile(const char* title, void* backdrop, IRect* r,
+                    const char* pathspec)
+{
+    char       fname[0x100];
+    char       ext[0x100];
+    char       cwd[0x104];
+    char       dir[0x100];
+    char       pattern[0x104];
+    struct _finddata_t fd;
+    char       drive[3];
+    int        diff;
+    FileEnt*   head;
+    void*      spr_drive;
+    int        pass;
+    void*      spr_folder;
+    void*      spr_file;
+    void**     icons;
+    int        isdir;
+    char**     names;
+    FileEnt**  list;
+    int        n;
+    FileEnt*   prev;
+    long       h;
+    char*      result;
+    int        i;
+    int        sel;
+
+    prev = 0;
+    spr_drive = LoadSprite("Drive.bmp", 0);
+    spr_folder = LoadSprite("Folder.bmp", 0);
+    spr_file = LoadSprite("File.bmp", 0);
+    _getcwd(cwd, 0x104);
+    _splitpath(pathspec, drive, dir, fname, ext);
+    _chdir(dir);
+    sprintf(pattern, "%s%s", fname, ext);
+    isdir = 0;
+    n = 0;
+    h = _findfirst(pattern, &fd);
+    while (h != -1) {
+        do {
+            if (prev != 0) {
+                prev->next = (FileEnt*)HeapAlloc_w(12);
+                prev = prev->next;
+            } else {
+                head = (FileEnt*)HeapAlloc_w(12);
+                prev = head;
+            }
+            n++;
+            prev->name = (char*)HeapAlloc_w(strlen(fd.name) + 1);
+            strcpy(prev->name, fd.name);
+            prev->attrib = fd.attrib;
+        } while (_findnext(h, &fd) != -1);
+        _findclose(h);
+        prev->next = 0;
+        names = (char**)HeapAlloc_w(n * 4 + 4);
+        icons = (void**)HeapAlloc_w(n * 4);
+        list = (FileEnt**)HeapAlloc_w(n * 4);
+        names[n] = 0;
+        if (n > 0) {
+            FileEnt** p = list;
+            FileEnt*  node = head;
+
+            for (i = n; i != 0; i--) {
+                *p = node;
+                node = node->next;
+                p++;
+            }
+        }
+        for (pass = 0; pass < n - 1; pass++) {
+            int j;
+            int swapped = 0;
+
+            for (j = n - 2; j >= pass; j--) {
+                diff = ((list[j]->attrib ^ list[j + 1]->attrib) >> 4) & 1;
+                if (diff != 0) {
+                    if (list[j + 1]->attrib & 0x10) {
+                        FileEnt* t = list[j + 1];
+
+                        list[j + 1] = list[j];
+                        list[j] = t;
+                        swapped = 1;
+                    }
+                } else if (NameCompare(list[j + 1]->name, list[j]->name) < 0) {
+                    FileEnt* t = list[j + 1];
+
+                    list[j + 1] = list[j];
+                    list[j] = t;
+                    swapped = 1;
+                }
+            }
+            if (!swapped)
+                break;
+        }
+        for (i = 0; i < n; i++) {
+            names[i] = list[i]->name;
+            if (list[i]->attrib & 0x10)
+                icons[i] = spr_folder;
+            else
+                icons[i] = spr_file;
+        }
+        sel = RunListPicker(names, title, backdrop, r, 0, icons, 0x1c, 0x18, 0);
+        if (sel != -1) {
+            if (list[sel]->attrib & 0x10)
+                isdir = 1;
+            result = strcpy(g_browse_name, names[sel]);
+        } else {
+            result = 0;
+        }
+        HeapFree_w(names);
+        HeapFree_w(icons);
+        for (i = 0; i < n; i++)
+            HeapFree_w(list[i]);
+        HeapFree_w(list);
+        if (isdir == 0) {
+            KillSprite(spr_drive);
+            KillSprite(spr_folder);
+            KillSprite(spr_file);
+            _chdir(cwd);
+            return result;
+        }
+        _chdir(g_browse_name);
+        isdir = 0;
+        prev = 0;
+        n = 0;
+        h = _findfirst(pattern, &fd);
+    }
+    return 0;
+}
