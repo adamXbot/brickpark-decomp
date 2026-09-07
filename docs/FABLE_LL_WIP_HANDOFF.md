@@ -171,16 +171,21 @@ same window).
 
 **33.9%** (64/189), 179i, **606**/593B, frame **0x2c**, ESCAPES. Tip `781f84e0`.
 
-**Six KEPT held:** 0x2c; ebx=n/cmp/jl; latch; loop and-ebx (destrel-before-fild);
-je-ENTER/BOTH/LEAVE nest; fld from prev_abs.i. Shared `*cursor=dst` after
-`n>=1` (early-out stores dest; no xor-eax skip).
+**Six KEPT held.** Shared `*cursor=dst` after `n>=1`.
 
-**Open:** `[ecx+src]` lerp walk vs `lea edi`. **destrel-pin** alone → 593B +
-ESCAPES cleared but steals dest=edi / and-ebx (**22.8%**) — not landed. bits
-still `fstp` to n-slot not `[esp+0x2c]`.
+**FLOOR on `[ecx+src]` via address-taken destrel:** dest must stay live in
+**edi** through fild for `and ebx`; that CSE’s `destrel+src` → dest →
+`lea edi` walk. Volatile destrel reload emits `[ecx+src]` / can clear ESCAPES
+at 593B but frees dest and kills and-ebx. Dual-live dest+destrel is the right
+shape, but the walk pin **cannot be address-taken** if dest remains edi.
 
-**Next:** `[ecx+src]` and/or bits@[esp+0x2c] and/or clear ESCAPES **without**
-losing and-ebx (find a pin that does not free dest from edi).
+**Near-miss:** n-slot occupied by `in` walk moves bits off `0x40` → `0x14`
+with KEEP held (~55% claimed transient); dest homes that push bits to
+`0x2c` steal ebx=n. Not landed.
+
+**Next:** (1) recover bits home / n-slot←in without stealing ebx=n;
+(2) clear ESCAPES without address-taken destrel; (3) non-address-taken
+dual-live for `[ecx+src]` if possible.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -192,7 +197,7 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — 34%; `[ecx+src]`/bits/ESCAPES without losing and-ebx.
+1. **LL3 Span_ClipPlane** — bits/n-slot + ESCAPES without address-taken destrel; keep and-ebx.
 2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
 3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
