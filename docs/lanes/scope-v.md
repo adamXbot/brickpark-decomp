@@ -1,14 +1,21 @@
-# Scope V — the event tick handlers (kinds 2..37) and the goal checks: 58 of 62 exact
+# Scope V — event tick handlers and goal checks: 61 of 62 exact
 
-**Status: complete, four bodies held at WIP with their residual stated.**
-Branch `scope/V`, baseline `origin/main` `221dbe3e` (2026-09-06, after scope
-T). Two new files: `LEGOLAND/eventgoal.c` (16 functions, 311 instructions,
-all `[OK]`) and `LEGOLAND/eventtick.c` (46 functions, 1,260 instructions;
-42 `[OK]`, 813 instructions exact; four `// WIP-FUNCTION:` bodies, 447
-instructions, all at the original's instruction count, three of them at its
-byte count too). `/W3` clean on both; `relocs.py` 0 `MISMATCH` (62 of 62 and
-107 of 107 resolved positions agree; the unresolved lines are string
-literals). No existing file was edited. Objects under `/tmp/sv_*`.
+**Status: in progress, 2026-09-07.** Recovered the interrupted session's
+three saved exact fixes (`EventTick_Lookat`, `EventTick_Connect`, and
+`EventTick_Link`). A fresh whole-file audit reports 61 exact functions and
+one WIP, `EventTick_Clear` (172i/560B versus 177i/577B, 120 strict mismatches).
+The two files compile cleanly at `/W3`. Relocation checks resolve 62 positions
+in `eventgoal.c` and 125 in the 45 exact `eventtick.c` bodies, all agreeing;
+ten eventtick references remain unresolved (literals, a local jump table,
+and the annotated function-pointer array that the parser does not recognize).
+No new Clear variant has passed the authoritative gate, and none has replaced
+the saved baseline. This scope is not complete and has not been integrated.
+
+The three recovered levers are documented beside their exact bodies: one
+non-escaping Pos for LOOKAT's projected offsets, a shared Pos for CONNECT's
+instance bytes, and LINK's shared three-int aggregate with the reused byte
+temporary assigned before each coordinate's delta and sum. Scratch probes
+for CLEAR are in `/tmp/v_finish`; they are local experiments, not deliverables.
 
 ## Per function
 
@@ -71,7 +78,7 @@ one shape (`if (HintTimerDue() && !ShowGoalHint(e)) { h = NewTimedEvent(K,
 | 0x0046a350 | `EventTick_Capacitycap` | 9 / 29 | OK | first try |
 | 0x0046a370 | `EventTick_Entrancefee` | 5 / 20 | OK | first try (`(short)e->f1c`) |
 | 0x0046a390 | `EventTick_Endlevel` | 8 / 25 | OK | first try |
-| 0x0046a3b0 | `EventTick_Lookat` | 37 / 105 vs 37 / 106 | **WIP** | 28 → 24: see below |
+| 0x0046a3b0 | `EventTick_Lookat` | 37 / 106 | OK | recovered shared projected-offset Pos; see source |
 | 0x0046a420 | `EventTick_Themeicon` | 9 / 26 | OK | first try (byte second argument) |
 | 0x0046a440 | `EventTick_Addflag` | 9 / 26 | OK | first try |
 | 0x0046a460 | `EventTick_Bridges` | 9 / 26 | OK | first try |
@@ -82,9 +89,9 @@ one shape (`if (HintTimerDue() && !ShowGoalHint(e)) { h = NewTimedEvent(K,
 | 0x0046a4f0 | `EventTick_Need` | 29 / 67 | OK | 16 → 0: nest the failure, trailing `return 1` |
 | 0x0046a540 | `EventTick_Needat` | 43 / 108 | OK | 23 → 0: the bounds test written inline (lazy y read) |
 | 0x0046a5b0 | `EventTick_Needin` | 87 / 221 | OK | 77 → 0: volatile view of `g_map_rows` at the lookup (below) |
-| 0x0046a690 | `EventTick_Connect` | 68 / 158 | **WIP** | 56 → 20: see below |
+| 0x0046a690 | `EventTick_Connect` | 68 / 158 | OK | recovered shared base-coordinate Pos; see source |
 | 0x0046a730 | `IsLinkableClass` | 12 / 32 | OK | 9 → 0: one `||` condition; brief's `sub_46a730` |
-| 0x0046a750 | `EventTick_Link` | 165 / 430 | **WIP** | 148 → 14: see below |
+| 0x0046a750 | `EventTick_Link` | 165 / 430 | OK | recovered shared coordinate/byte temporary; see source |
 
 Renames: `RefreshThemeElements` → `CountNewThemeElem`, `RefreshThemeMenu` →
 `MarkElemNew` (it clears flag 2, sets 0x10000 and counts the class under its

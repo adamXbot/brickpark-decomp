@@ -393,16 +393,15 @@ int ClearSfxFade(void* sample)
  * flag-0x10 menu, then the rest of the unpowered ones, then everything --
  * each through the destroy cursor, which is saved and restored around it.
  *
- * Residual (docs/lanes/scope-v.md): the frame (0x1854, with the four-int
- * footprint rect and the never-stored `next` home) and every block are the
- * original's; the callee-saved assignment is rotated -- the original keeps
- * `next` in ebx, the cell in edi and the base x in ebp (moving it there
- * after the byte load), ours gives `next` edi and therefore spills it
- * around the two cursor copies (5 instructions more). Twelve spellings
- * tried (do-while conditions, Rect/inline/scalar footprints, block scopes,
- * declaration orders, byte-local types); the `default:` form of the third
- * case moves the cell into edi but drops the original's uninitialised
- * `next` read. */
+ * Residual (docs/lanes/scope-v.md): the frame is the original 0x1854, but
+ * allocation differs from instruction 19. The original keeps next in ebx,
+ * the cell in edi and base x in ebp; ours spills next around the cursor
+ * copies and keeps base y in the byte-addressable ebx. The footprint and
+ * save block consequently differ too: the complete candidate is five
+ * instructions and 17 bytes short, not five instructions longer. The
+ * original stores sq.y before the first copy and sq.x after it, with a
+ * byte reload of sq.y before the selected-position stores. None of the
+ * tested source variants yet reproduces the whole body. */
 // WIP-FUNCTION: LEGOLAND 0x00469c80  (172 of 177 instructions, 120 strict; callee-saved rotation next/c/bx = edi/ebp/edx against ebx/edi/ebp forces a spill of `next` around the rep movsd copies)
 int EventTick_Clear(ScriptEvent* e)
 {
@@ -694,27 +693,26 @@ int EventTick_Endlevel(ScriptEvent* e)
 /* LOOKAT x y: scroll so the tile is centred (isometric: (x - y) across,
  * (x + y) down, in 24.8 fixed point).
  *
- * Residual (docs/lanes/scope-v.md): same 37 instructions and shape; the
- * original forms both sums before either product (`lea ecx,[edi+esi]` for
- * x + y with x - y in eax and g_map in edx) where VC6 here sinks x + y to
- * its multiply (`add edi,esi`) and rotates g_map into eax. Twelve
- * spellings (statement order, named products, inline helpers with the
- * products or the sums as arguments, a Pos copy, pointer reads) compile to
- * this same body; `* 256` for the final `<< 8` is load-bearing (`<< 8`
+ * The two projected offsets must be members of one non-escaping Pos: as
+ * plain ints VC6 forward-substitutes them into the stores, evaluates the
+ * `g_map->view_w >> 1` operand first and sinks x + y to its multiply
+ * (`add edi,esi`, g_map in eax). Aggregate members keep their own webs,
+ * so both sums form first (`sub eax,esi` / `lea ecx,[edi+esi]`) and g_map
+ * rotates to edx. `* 256` for the final `<< 8` is load-bearing too (`<< 8`
  * lets VC6 fold `>> 9 << 8` into `sar 1 / and`). */
-// WIP-FUNCTION: LEGOLAND 0x0046a3b0  (37 of 37 instructions, 24 strict; x + y sunk to its imul and the eax/edx roles of x - y and g_map swapped)
+// FUNCTION: LEGOLAND 0x0046a3b0
 int EventTick_Lookat(ScriptEvent* e)
 {
     int w, h;
-    int dx, sum;
+    Pos s;
     int y = e->pos.y;
     int x = e->pos.x;
 
     GetTileDimensions(&w, &h);
-    dx = x - y;
-    sum = x + y;
-    g_scroll_x = (((dx * w) >> 9) - (g_map->view_w >> 1)) * 256;
-    g_scroll_y = (((sum * h) >> 9) - (g_map->view_h >> 1)) * 256;
+    s.x = ((x - y) * w) >> 9;
+    s.y = ((x + y) * h) >> 9;
+    g_scroll_x = (s.x - (g_map->view_w >> 1)) * 256;
+    g_scroll_y = (s.y - (g_map->view_h >> 1)) * 256;
     return 1;
 }
 
@@ -830,27 +828,25 @@ int EventTick_Needin(ScriptEvent* e)
  * path. The path test is `!cell->flags & 0x10` -- the original's precedence
  * slip (it reads as `(!flags) & 0x10`, always false), reproduced.
  *
- * Residual (docs/lanes/scope-v.md): 68 of 68 instructions, every one the
- * same but for one register pair -- the original holds the instance
- * cursor in ecx and the y sum in edx, ours the reverse (and the fail-path
- * pushes follow). Fourteen spellings (loop forms, sum operand orders, byte
- * locals of both widths, a Pos local, a Pos* helper, the bounds test as
- * gotos, re-reading e->elem) all give this assignment. */
-// WIP-FUNCTION: LEGOLAND 0x0046a690  (68 of 68 instructions, 20 strict = the ecx/edx roles of the instance cursor and the y sum swapped)
+ * The instance's two bytes go through one non-escaping Pos (`b`): as two
+ * scalar locals (int or unsigned char, or read inline) the y sum wins ecx
+ * over the loop cursor and the cursor lands in edx, dragging the fail-path
+ * pushes with it; the shared aggregate lets the cursor keep ecx. */
+// FUNCTION: LEGOLAND 0x0046a690
 int EventTick_Connect(ScriptEvent* e)
 {
     LLElem* elem = e->elem;
     ObjDef* d = elem->data;
     Inst*   o;
     Cell*   cell;
-    int     ox, oy;
+    Pos     b;
     int     x, y;
 
     for (o = d->insts; o; o = o->next) {
-        ox = o->x;
-        oy = o->y;
-        x = ox + d->dx;
-        y = oy + d->dy;
+        b.x = o->x;
+        b.y = o->y;
+        x = b.x + d->dx;
+        y = b.y + d->dy;
         cell = CellAt(x, y);
         if (!cell)
             goto fail;
@@ -880,23 +876,24 @@ int IsLinkableClass(ObjDef* d)
  * CONNECT hint wins), an unjoined path as "not linked". Same `!flags & 0x10`
  * slip as CONNECT.
  *
- * Residual (docs/lanes/scope-v.md): 165 of 165 instructions and 430 of
- * 430 bytes; the 14 strict misses are the registers of the two link-square
- * sums in both loops -- the original loads d->dx into eax and accumulates
- * there (`add eax,ecx` with the byte in ecx), ours accumulates into the
- * byte's register with d->dx in ecx/edx. Both operand orders, int and
- * byte locals, `& 0xff`, and pre-read dx/dy compile to ours. */
-// WIP-FUNCTION: LEGOLAND 0x0046a750  (165 of 165 instructions, 430 of 430 bytes, 14 strict = the accumulator register of the two link-square sums, both loops)
+ * The link square is built in a non-escaping aggregate whose byte member is
+ * assigned BEFORE its coordinate: that order loads both instance bytes ahead
+ * of either sum (`mov cl,[esi+0xe]`, `mov dl,[esi+0xf]`, then `add eax,ecx`)
+ * and leaves the pos.x store between the d->dy load and the y sum, which is
+ * what stops VC6 folding that delta into `add ecx,[edi+0x10]`. Plain int
+ * locals hoist both deltas instead, and building each sum coordinate-first
+ * hands the two counters the opposite callee-saved pair. */
+// FUNCTION: LEGOLAND 0x0046a750
 int EventTick_Link(ScriptEvent* e)
 {
     int     missing = 0;
     int     outside = 0;
     Pos     pos;
+    struct { int x, y; int z; } t;
     ObjDef* d;
     Inst*   o;
     Cell*   c;
     Cell*   cell;
-    int     ox, oy;
 
     if (e->elem) {
         d = ((LLElem*)e->elem)->data;
@@ -904,10 +901,14 @@ int EventTick_Link(ScriptEvent* e)
         if (!o)
             return 1;
         for (; o; o = o->next) {
-            ox = o->x;
-            oy = o->y;
-            pos.x = d->dx + ox;
-            pos.y = d->dy + oy;
+            t.z = o->x;
+            t.x = d->dx;
+            t.x += t.z;
+            t.z = o->y;
+            t.y = d->dy;
+            t.y += t.z;
+            pos.x = t.x;
+            pos.y = t.y;
             cell = CellAt(pos.x, pos.y);
             if (cell && !(!cell->flags & 0x10)) {
                 if (!TileJoinsPathNetwork(&pos))
@@ -922,10 +923,14 @@ int EventTick_Link(ScriptEvent* e)
             d = c->obj->def;
             if (!IsLinkableClass(d))
                 continue;
-            ox = c->x;
-            oy = c->y;
-            pos.x = d->dx + ox;
-            pos.y = d->dy + oy;
+            t.z = c->x;
+            t.x = d->dx;
+            t.x += t.z;
+            t.z = c->y;
+            t.y = d->dy;
+            t.y += t.z;
+            pos.x = t.x;
+            pos.y = t.y;
             cell = CellAt(pos.x, pos.y);
             if (cell && !(!cell->flags & 0x10)) {
                 if (!TileJoinsPathNetwork(&pos))
