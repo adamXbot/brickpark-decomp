@@ -218,6 +218,35 @@ def export_rvas():
     return _EXPORT_RVAS
 
 
+def _seh_scope_table(insns):
+    """The scope table VA of a VC6 SEH frame, or None. The prologue is
+    `push ebp / mov ebp, esp / push -1 / push <scopetable> /
+    push __except_handler3 / mov eax, fs:[0]`."""
+    head = insns[:8]
+    for k in range(len(head) - 3):
+        a, b, c, e = head[k:k + 4]
+        if (a.mnemonic == "push" and a.op_str == "-1"
+                and b.mnemonic == "push" and c.mnemonic == "push"
+                and e.mnemonic == "mov" and e.op_str.startswith("eax, dword ptr fs:[0]")):
+            m = re.match(r"^0x([0-9a-f]+)$", b.op_str.strip())
+            if m:
+                return int(m.group(1), 16)
+    return None
+
+
+def _seh_targets(d, secs, table, level):
+    """(filter, handler) of scope-table entry `level` -- each entry is
+    {EnclosingLevel, FilterFunc, HandlerFunc}. Nothing when the entry is not
+    well-formed (EnclosingLevel must be -1 or an outer level)."""
+    off = rva2off(secs, table - IMAGE_BASE + 12 * level)
+    if off is None or off + 12 > len(d):
+        return ()
+    enclosing, flt, hnd = struct.unpack_from("<iII", d, off)
+    if enclosing != -1 and not (0 <= enclosing < level):
+        return ()
+    return (flt, hnd)
+
+
 def _table_targets(d, secs, op_str, lo, hi):
     """Case targets of an indirect `jmp dword ptr [reg*4 + TABLE]` in the exe.
 
@@ -300,6 +329,15 @@ def true_extent(d, secs, rva):
             return True
         return False
 
+    # A VC6 SEH frame's filter and handler blocks are reached only through
+    # the scope table in .rdata, so a straight-line `__try` body ends in a
+    # `jmp` over them that nothing branches past: WinMain (0x00453d10) walked
+    # 31i/93B of its 48i/143B and could never print [OK]. Entering trylevel K
+    # is `mov dword ptr [ebp - 4], K`, which makes entry K's filter and handler
+    # reachable -- treat them as branch targets. Reading only the levels the
+    # body enters bounds the table (the next SEH function's table follows it).
+    seh_table = _seh_scope_table(insns)
+
     furthest = va
     for i, x in enumerate(insns):
         if nxt is not None and x.address >= nxt:
@@ -326,6 +364,12 @@ def true_extent(d, secs, rva):
             end = insns[j].address if j < len(insns) else x.address + x.size
             if end % 16 == 0 or end == nxt:
                 return i, sum(k.size for k in insns[:i])
+        if seh_table is not None and x.mnemonic == "mov":
+            m = re.match(r"^dword ptr \[ebp - 4\], (0x[0-9a-f]+|\d+)$", x.op_str)
+            if m and int(m.group(1), 0) < 0x100:
+                for t in _seh_targets(d, secs, seh_table, int(m.group(1), 0)):
+                    if not external(t):
+                        furthest = max(furthest, t)
         if x.mnemonic.startswith("j"):
             m = re.match(r"^0x([0-9a-f]+)$", x.op_str.strip())
             if m:
