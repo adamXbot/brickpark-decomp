@@ -62,7 +62,7 @@ dies after the add and before the y load**, without an extra insn.
 | | |
 | --- | --- |
 | Branch / file | `scope/LL8` · `LEGOLAND/gameframe2.c` |
-| Tip | `94632422` |
+| Tip | `f8c1f002` |
 | Notes | `docs/lanes/scope-ll8.md` |
 | Score | 91i, **267/264B**, **6 mism** — FLOOR |
 
@@ -73,10 +73,13 @@ exact one-string EDX store).
 - Drop `!copy` volatile → loses one-string EDX (74/91)
 - Drop only `!a` volatile → early `pop edi`, flips eax/ecx and store order (83/91)
 - `count = n + 1` / `-~n` → `lea`, moves `!copy`’s `a` into EDX (73/91)
+- Out-of-line helpers → `call` (77/91); inlined twins still share allocator
+- Per-edge volatiles → best 86/92 (+extra base load)
+- `return count++` on `!a` → **86/91 exact 264B** but won’t combine with EDX `!copy`
+- Early live `n`, `register`, decl order, sibling push-sink: inert or first-break
 
 Still need `mov ecx,eax / pop esi / inc ecx` on `!a` **and** `mov edx,[count]`
-on `!copy` together. Name: keep **`AddScriptString`** (`0x00468910` is
-`NewScriptEvent`).
+on `!copy` together. Name: keep **`AddScriptString`**.
 
 ---
 
@@ -215,7 +218,7 @@ Do **not** merge partial scopes yourself.
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
 | LL7 | 14/17 | `0f653d1e` | `coaster13.c` |
-| LL8 | 12/13 | `94632422` | `gameframe2.c` |
+| LL8 | 12/13 | `f8c1f002` | `gameframe2.c` |
 
 **WIP count in this wave:** 0+1+5+5+0+2+3+1 = **17 bodies**.
 
