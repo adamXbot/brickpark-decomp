@@ -55,7 +55,7 @@ on `!copy` together. Name: keep **`AddScriptString`**.
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `58c2dcca` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `c0317e2b` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — FLOOR notes.
 
@@ -64,7 +64,7 @@ Need / have:
 - `mov edx,[esp+0x84]` then `add esp,4` / reverse (`q` in eax)
 - hist `edx=*mass`, `ecx=i&0x3f` / swapped
 
-`eax` stays live for `[eax+0x24]` after `mov ebx,eax` — sink-vs-fuse, not missing live use. Comma/`char*+0x70`/helpers, early `n`, named `end`, hist `i++`, restore copies → same 65/77. `q` in edx + hist ecx only with extra volatiles (**80i**). Volatile `fr.f24` moves the add earlier but breaks call-arg `rep movsd` interleave (64/77).
+`eax` stays live for `[eax+0x24]` after `mov ebx,eax` — sink-vs-fuse, not missing live use. LL2 `Fst` RTL does **not** transfer (that closes 3-scratch SIB lea, not `reg+disp8` dest-coalesce onto callee-saved `p`). Transparent helpers / two-web `t`/`n` / `Mass_End` fold to 65/77. Volatile `head` spills frame; `fr.f24` makes mov/add adjacent but not `lea`.
 
 (`Raster_ClipPoly` closed via `if (1) { switch (flags) … } return count`.)
 Trace NG22 / ClipPlane ESCAPES unchanged.
@@ -169,7 +169,7 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 ## Suggested Fable attack order
 
 1. **LL8 AddScriptString** — fail-tail shared allocation; LL2 RTL Fst inert here.
-2. **LL3 MassAndPower** — size-exact 42 mism; lea ebx vs add; q-load schedule.
+2. **LL3 MassAndPower** — size-exact 42 mism; dest-coalesce sink; LL2 RTL Fst inert.
 3. **LL7 StepAlong** — size-exact 11 mism; RTL Fst pins out_t but does not emit `push esi`.
 4. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
 5. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
@@ -186,7 +186,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `58c2dcca` | `coaster11.c` |
+| LL3 | 16/19 | `c0317e2b` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
