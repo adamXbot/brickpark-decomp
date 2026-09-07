@@ -130,11 +130,6 @@ extern int      g_narr_a;              /* 0x0079a7d8  ring A read cursor */
 extern int      g_narr_b;              /* 0x0079a7dc  ring A write cursor */
 extern int      g_narr_c;              /* 0x0079a7e0  blocks queued */
 extern int      g_narr_queue[20];      /* 0x0079a7e4  encoded bytes per block */
-/* The queue shift in NarrRingA_Available is a 19-int STRUCT ASSIGNMENT, not a
- * memcpy: VC6 does not treat its own rep-movsd struct copy as a kill, which is
- * what lets the original re-use the (zero) queue[0] it tested before the
- * shift both as the queue[19] store and as the cap after it. */
-typedef struct NarrQueueShift { int n[19]; } NarrQueueShift;
 /* First named here: bit 4 = the source may be rewound (looped) when it runs
  * dry, bit 8 = it has been rewound at least once. Nothing in this scope
  * clears either. */
@@ -408,7 +403,14 @@ int NarrRingA_Contiguous(void)
 
 /* Bytes readable in total, capped at what is left of the current source
  * block. A block whose count has hit zero is retired first (the queue is
- * shifted down and the count decremented). */
+ * shifted down and the count decremented).
+ *
+ * ORIGINAL QUIRK reproduced: queue[0] is read ONCE, before the shift, so on
+ * the frame a block retires the cap is the stale zero and the function
+ * returns 0 (the original re-uses the tested register both for the
+ * queue[19] = 0 store and for the cap; a fresh read after the shift is one
+ * instruction and nine bytes longer). Declaring `cur` before `avail` is
+ * what puts the read cursor in edi (the other order gives esi). */
 // FUNCTION: LEGOLAND 0x00497fb0
 int NarrRingA_Available(void)
 {
@@ -416,7 +418,7 @@ int NarrRingA_Available(void)
     int avail = (g_narr_b - g_narr_a) & 0xffff;
 
     if (cur == 0) {
-        *(NarrQueueShift*)g_narr_queue = *(NarrQueueShift*)(g_narr_queue + 1);
+        memcpy(g_narr_queue, g_narr_queue + 1, 19 * sizeof(int));
         g_narr_queue[19] = 0;
         if (g_narr_c)
             g_narr_c--;
@@ -662,6 +664,103 @@ int PumpNarration(void)
 /* ========================================================================
  *  String table
  * ======================================================================== */
+
+/* The next byte of the loaded file, or 0 at its end (pos is NOT advanced
+ * then). Inlined at every site in the original. */
+#define NEXT_CHAR() (pos < size ? buf[pos++] : 0)
+
+/* Load .\strings\stab.str into the string table.
+ *
+ * THE FORMAT IT HONOURS (runtime spec): a free-form text of tokens. A run of
+ * digits sets the CURRENT ID (atoi). A token starting with a letter or
+ * punctuation character is a string: it is copied into `str` up to the
+ * second unpaired '"' -- so `"..."` yields the text between the quotes, a
+ * doubled `""` inside yields one '"', and the last char before the second
+ * quote is not stored -- and AddString(str, id) files it under the current
+ * id. Anything else (whitespace) is skipped. The whole file is read into
+ * one heap buffer first, sized by a feof/ferror read loop.
+ *
+ * ORIGINAL BUGS reproduced: a missing stab.str is exit(1); a string that
+ * never closes its quotes runs past the end of the buffer (NEXT_CHAR yields
+ * 0 forever) and off the end of `str`; more than three digits overflow the
+ * four-byte `num`; a number that ends AT the end of the file backs `pos`
+ * up onto its own last digit (the "unread the terminator" step does not
+ * know no terminator was read) and the parse loops forever; an unquoted
+ * string can never see a second quote; `id` is used before any number has
+ * been seen; a failed _chdir back leaks the buffer. */
+// FUNCTION: LEGOLAND 0x00498d00
+void LoadStrings(void)
+{
+    /* Declaration order is a lever here: `buf` declared before `size` is
+     * what gives buf the loop register (edi) and leaves size in its frame
+     * slot; the other way round swaps them (34-line residual). */
+    char* buf;
+    int size = 0;
+    int pos = 0;
+    char cwd[0x100];
+    char str[0xf0] = { 0 };
+    char num[4];
+    int id;
+    FILE* f;
+    char c;
+    int n;
+    int quotes;
+
+    if (!_getcwd(cwd, 0x100))
+        return;
+    f = fopen(kStabPath, kModeR);
+    if (!f)
+        exit(1);
+    while (!feof(f)) {
+        n = fread(str, 1, 0xf0, f);
+        if (ferror(f))
+            break;
+        size += n;
+    }
+    buf = (char*)malloc(size + 1);
+    fseek(f, 0, 0);
+    fread(buf, 1, size, f);
+    fclose(f);
+    if (_chdir(cwd))
+        return;
+
+    for (;;) {
+        c = NEXT_CHAR();
+        if (!c)
+            break;
+        if (isdigit(c)) {
+            n = 0;
+            while (isdigit(c)) {
+                num[n++] = c;
+                c = NEXT_CHAR();
+            }
+            if (pos)
+                pos--;
+            num[n] = 0;
+            id = atoi(num);
+        } else if (isalpha(c) | ispunct(c)) {
+            n = 0;
+            quotes = 0;
+            for (;;) {
+                if (c == '"') {
+                    c = NEXT_CHAR();
+                    if (c == '"')
+                        c = '"';        /* doubled quote: a literal '"' (the
+                                         * no-op store is a layout lever) */
+                    else
+                        quotes++;
+                }
+                if (quotes == 2)
+                    break;
+                str[n++] = c;
+                c = NEXT_CHAR();
+            }
+            str[n] = 0;
+            AddString(str, id);
+        }
+    }
+    free(buf);
+}
 
 /* Allocate a node for (id, text) and push it on its id % 10 bucket. */
 // FUNCTION: LEGOLAND 0x00498f80
