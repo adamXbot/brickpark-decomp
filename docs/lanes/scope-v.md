@@ -1246,3 +1246,24 @@ No flag set produces the original's colouring or byte reload.
   the copy all keep the flipped colouring (first difference 79; 76–79 strict,
   or 39 at 177 instructions with both stores killed). The kill decides the
   byte source, never the colouring.
+
+### Research round — external projects and the service-pack diagnostic (2026-09-07)
+
+- **Compiler build is not the variable.** The decomp.me `win32` packages
+  `msvc6.0` (C2 12.00.8168, RTM), `msvc6.4` (12.00.8799, SP4) and `msvc6.5`
+  (12.00.8966, SP5) were fetched beside the gate's `msvc6.3` (12.00.8447,
+  SP3) and the retained body, `vy_c`, the plain row-four body and the
+  byte-local body were compiled under each with `/O2 /Gy /Gd`: every back end
+  gives byte-identical output (24 / 72 / 111 / 82 strict respectively). The
+  allocator decision behind CLEAR is stable across all four VC6 builds.
+- **Loop form** (isledecomp/racers' lever: `while`/`do-while` put the loop
+  variable in ebx, `for (;;)`+`break` frees it): `for(;;)`+`break` in two
+  spellings, `while`+`break`, `do-while`, a `next`-tested latch and a `goto`
+  latch all compile identically to the `for` for the plain, `vy_c` and
+  retained bodies. VC6 canonicalises the loop here; `next`'s register is
+  decided by the coordinates' byte needs alone.
+- Cross-project levers reviewed (isledecomp/racers `CLAUDE.md`, MSVC 6.0
+  codegen patterns): "byte reads promote through two locals", "statement
+  position flips two-register mirrors", "mutate address-taken out-params",
+  "named index local", "loop form" — all consistent with this project's
+  corpus; none names the store/byte-reload split CLEAR needs.
