@@ -106,17 +106,22 @@ slot, not power `[esp+0x88]`. Root-copy / comma eval-at did not move it.
 | | |
 | --- | --- |
 | Branch / file | `scope/LL7` · `LEGOLAND/coaster13.c` |
-| Tip | `6b38c36a` |
+| Tip | `d9f05413` |
 | Notes | `docs/lanes/scope-ll7.md` |
 | Score | 70i, **232/232B**, audit **11** mism |
 
-Live-across `org = origin` + early `t0` closed the 6-byte gap (was 226B / 47
-mism). Loop exact (`hi = geom->t1`). Placeholder is `tol`; `t0` dword-moves
-into dead `from`. Residual schedule split: `mov esi, out_t` matches, but
-`push esi` is batched **7 insns late** with `push tol`; `g_step_len = step`
-is **2 insns late** (after `fld st/fmul`). Early-push spellings raise
-matchfull ~90% but hoist `fstp`/`fadd` (audit 21). Comma / helper / volatile
-/ dword-`t0bits` / from-puns inert or worse. **Not a floor.**
+Live-across `org = origin` + early `t0` closed the 6-byte gap. Loop exact.
+Original order after `rep movsd`:
+`geom, esi=out_t, push esi, t0, eax=step, fstp len2, fld/fadd, …, push tol, g_step_len, fld/fmul`
+
+Two attractors — no tested spelling emits that order:
+
+- **A (kept, 11 mism):** `t0` before `len2` — correct FP; `push esi` 7 late, `g_step_len` 2 late.
+- **B (21 mism, ~90%):** `g`; `len2`; `t0` — early push + correct len; `fstp`/`fadd` hoist.
+
+Also ruled out: finished pre-call `t0` (batches push with tol), helper/comma hi,
+empty `__asm` (EBP), Joust `H(&ot,out_t)`, union/`unsigned` t0bits (71i),
+`g->t0` as call arg, `sol = g_track_solver`. Sticky schedule split; not formally floored.
 
 ### LL6 — `GetTrackSegment` `0x00424050` (22/24 scope)
 
@@ -198,7 +203,7 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 1. **LL2 UpdateCommon** — `lea` vs `add`; silent v0 uses DCE or cost an insn.
 2. **LL8 AddScriptString** — fail-tail shared allocation (floored unless new coloring).
 3. **LL3 ClipPoly** — 193→194B; case-1 ecx vs default `return count` layout.
-4. **LL7 StepAlong** — size-exact 11 mism; push `out_t` 7 late / `g_step_len` 2 late.
+4. **LL7 StepAlong** — size-exact 11 mism; t0↔len2 two-attractor schedule.
 5. **LL3 MassAndPower** — rt ebp / fstp slot.
 6. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
 7. **LL4 Span family / LL7 Slope+ShadeFill / LL3 Trace+ClipPlane** — last.
@@ -218,7 +223,7 @@ Do **not** merge partial scopes yourself.
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
-| LL7 | 14/17 | `6b38c36a` | `coaster13.c` |
+| LL7 | 14/17 | `d9f05413` | `coaster13.c` |
 | LL8 | 12/13 | `f8c1f002` | `gameframe2.c` |
 
 **WIP count in this wave:** 0+1+4+5+0+2+3+1 = **16 bodies**.
