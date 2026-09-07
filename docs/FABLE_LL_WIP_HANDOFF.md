@@ -35,28 +35,19 @@ otherwise stay on the scope branch tip.
 | | |
 | --- | --- |
 | Branch / file | `scope/LL2` · `LEGOLAND/logflume9.c` |
-| Tip | `7bea1842` |
+| Tip | `061f85c8` |
 | Notes | `docs/lanes/scope-ll2.md` |
-| Score | 151i, **519/520B**, **3 mism** — FLOOR |
+| Score | 151i, **520/520B**, **1 mism** — SIB only |
 
 ```
-need: lea edx,[eax+ecx] / mov ecx,[y] / mov [esp],edx
-have: add ecx,eax       / mov [esp],ecx / mov ecx,[y]
+orig: lea edx,[eax+ecx] ; 8D 14 08
+ours: lea edx,[ecx+eax] ; 8D 14 01
 ```
 
-The intervening ecx load is **`g_mapref.y`**, not v1. Two mutually exclusive
-149/151 floors:
-
-- **Index 121 (kept):** `Pos o` + direct `r.left = o.x + v[0]` + volatile v1 —
-  v0 stays in ecx; dest-coalesces to `add ecx,eax` / store immediately.
-- **Index 120:** named/`left = ox+v0` then store later — correct y-before-store
-  schedule but v0 lands in edx (`add edx,eax`).
-
-People block already runs **after** `pop edi / pop esi` (3-scratch lea is
-possible). Silent post-add v0 uses DCE to index-120 edx coloring; observable
-uses add an insn (`if (v0);` → `test`, 139/151). Still need a non-DCE’d v0
-use in the add→y window with zero extra insn, or a dest-symbol that forces
-3-address lea under post-pop allocation.
+Schedule is exact (`lea` → y-load → store) via two-def `o.y` (v0 then
+`g_mapref.y`) + `unsigned left` stored after the overwrite. VC6 uses the
+last-loaded addend as lea base — need ox in eax as **base**, v0 as index.
+Operand-order / pointer tries so far did not flip it. **One byte from exact.**
 
 ### LL8 — `AddScriptString` `0x004689f0` (12/13 scope)
 
@@ -104,7 +95,7 @@ Residual: `mov ebx,eax / add ebx,0x70` vs `lea ebx,[eax+0x70]`; `q` load after
 | | |
 | --- | --- |
 | Branch / file | `scope/LL7` · `LEGOLAND/coaster13.c` |
-| Tip | `d9f05413` |
+| Tip | `afd8951d` |
 | Notes | `docs/lanes/scope-ll7.md` |
 | Score | 70i, **232/232B**, audit **11** mism |
 
@@ -119,7 +110,7 @@ Two attractors — no tested spelling emits that order:
 
 Also ruled out: finished pre-call `t0` (batches push with tol), helper/comma hi,
 empty `__asm` (EBP), Joust `H(&ot,out_t)`, union/`unsigned` t0bits (71i),
-`g->t0` as call arg, `sol = g_track_solver`. Sticky schedule split; not formally floored.
+`g->t0` as call arg, `sol = g_track_solver`. Sticky schedule split; not formally floored. Ideas 1–6 (g+comma-lo, held-off step2, volatile out_tp, split lo/hi2, home reorder, MeasureDistance/Bisect copy) stayed on A or worse; homes not swapped.
 
 ### LL6 — `GetTrackSegment` `0x00424050` (22/24 scope)
 
@@ -198,13 +189,13 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 ## Suggested Fable attack order
 
-1. **LL2 UpdateCommon** — `lea` vs `add`; silent v0 uses DCE or cost an insn.
+1. **LL2 UpdateCommon** — one mism: SIB `[eax+ecx]` vs `[ecx+eax]`.
 2. **LL8 AddScriptString** — fail-tail shared allocation (floored unless new coloring).
 3. **LL3 MassAndPower** — size-exact 42 mism; lea ebx vs add; q-load schedule.
-4. **LL7 StepAlong** — size-exact 11 mism; t0↔len2 two-attractor schedule.
+4. **LL7 StepAlong** — size-exact 11 mism; t0↔len2 two-attractor (ideas 1–6 ruled out).
 5. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
 6. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
-7. **LL4 Span family / LL7 Slope+ShadeFill / LL3 Trace+ClipPlane** — last.
+7. **LL4 Span family / LL7 Slope+ShadeFill** — last.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
 Do **not** merge partial scopes yourself.
@@ -216,12 +207,12 @@ Do **not** merge partial scopes yourself.
 | scope | exact | tip (approx) | file |
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
-| LL2 | 5/6 | `7bea1842` | `logflume9.c` |
+| LL2 | 5/6 | `061f85c8` | `logflume9.c` |
 | LL3 | 16/19 | `58c2dcca` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
-| LL7 | 14/17 | `d9f05413` | `coaster13.c` |
+| LL7 | 14/17 | `afd8951d` | `coaster13.c` |
 | LL8 | 12/13 | `f8c1f002` | `gameframe2.c` |
 
 **WIP count in this wave:** 0+1+3+5+0+2+3+1 = **15 bodies**.
