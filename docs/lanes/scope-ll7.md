@@ -18,14 +18,14 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 | 0x00429af0 | TrackCurve_MakeBasis | 39 | 100 | [OK] | FUNCTION |
 | 0x004298a0 | TrackFitSpanGeom | 41 | 100 | [OK] | FUNCTION |
 | 0x00429e20 | Track_Bisect | 76 | 100 | [OK] | FUNCTION |
+| 0x0042a1b0 | Track_MeasureDistance | 92 | 100 | [OK] | FUNCTION |
+| 0x0042a680 | TrackCursorPair_Draw | 82 | 100 | [OK] | FUNCTION |
 | 0x00429560 | TrackRunSetSlope | 90 | 92 | 7 (eax/edx) | WIP |
 | 0x00429cf0 | Track_StepObjective | 93 | — | 61 | WIP |
 | 0x00429f30 | Track_StepAlong | 70 | — | 58 | WIP |
-| 0x0042a1b0 | Track_MeasureDistance | 92 | — | — | not started |
-| 0x0042a680 | — | 82 | — | — | not started |
 | 0x00428860 | — | 254 | — | — | not started |
 
-**11 / 17 exact.** `/W3` clean. `relocs.py` 0 MISMATCH on the 11 FUNCTION bodies.
+**13 / 17 exact.** `/W3` clean. `relocs.py` 0 MISMATCH on the 13 FUNCTION bodies.
 
 ## Names
 
@@ -40,6 +40,8 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **Track_AbsDerivative** 0x0042a150: pointer inside 0x0042a1b0.
 - **Track_Bisect** 0x00429e20: default `[0x004b63fc]` hook.
 - **Track_StepObjective** 0x00429cf0 / **Track_StepAlong** 0x00429f30: the 30-unit backward stepper RouteCar_SetPosition calls.
+- **Track_MeasureDistance** 0x0042a1b0: name from Coaster_StationDerivative (coaster7.c).
+- **TrackCursorPair_Draw** 0x0042a680: wheels at the first cursor; then first→second copy.
 
 ## Mechanics
 
@@ -55,6 +57,8 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **TrackFitSpanGeom**: named `head_opp` / `tail_opp`. Nested Opposite calls split `add esp` (70%).
 - **Track_Bisect**: `*(unsigned*)&pa ^ *(unsigned*)&pb` (pa first in the xor) lands the original `edx=[esp+0x14], ecx=[esp+0x10]`. A `pm` local is required so the mid-sample does not reuse `pb`'s slot (reuse dropped to 85%).
 - **TrackRunSetSlope**: body is instruction- and byte-identical except the loop prelude's eax/edx swap (`edx=steps, eax=0` vs the reverse). Ruled out: named `zed`/`k`, `zed=steps` then 0, `volatile` reload of steps, splitting `count` for the `1/steps` fild, chained `a=b=c=0` (reverses the +0x40/+0x48 stores). Still open: a free volatile or one extra IR temporary that gives the zero eax.
+- **Track_MeasureDistance**: extra `g_dist_at = &cur` before the loop integrate and the final `[t0, t]` integrate (equal path sets it to `from`). 0.01f is `0x3c23d70a`.
+- **TrackCursorPair_Draw**: interleave `s=sin; m[0]=s; c=cos; m[2]=c; m[8]=-c; m[10]=s` so the leftover sin is `fst` then later `fstp`. Computing both trigs first emitted `fld st(1)`. Mat slots are 0/2/8/10 (not 1/2/8/10). `#pragma intrinsic(sin, cos)`.
 
 ## Extern-type divergences
 

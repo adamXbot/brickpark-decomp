@@ -15,10 +15,11 @@
 #include <math.h>
 #include <string.h>
 
-#pragma intrinsic(memcpy, memset, sqrt)
+#pragma intrinsic(memcpy, memset, sqrt, sin, cos)
 
 typedef struct Vec3f { float x, y, z; } Vec3f;
 typedef struct Mat3 { Vec3f r[3]; } Mat3;
+typedef struct Mat4 { float m[16]; } Mat4;
 typedef struct PhysVec { int n; float v[20]; } PhysVec;
 
 typedef struct RouteGeom RouteGeom;
@@ -50,6 +51,11 @@ struct RoutePos {
     RouteGeom*  geom;           /* +0x04 */
     Vec3f       pos;            /* +0x08 */
 };                              /* 0x14 */
+
+typedef struct TrackCursor {
+    float    t;
+    RoutePos at;
+} TrackCursor;                  /* 0x18 */
 
 typedef struct TrackJoint {
     int        dir;             /* +0x00 */
@@ -133,6 +139,18 @@ extern void  TrackCurve_EvaluatePosition(RoutePos* at, int mode, float t,
 extern void  TrackCurve_EvaluateUp(RoutePos* at, int mode, float t,
                                    Vec3f* out);                           /* 0x00429b90 */
 extern void  TrackCursor_RetreatGeometry(RoutePos* p);                    /* 0x0041f880 */
+extern void  TrackCursor_AdvanceGeometry(RoutePos* p);                    /* 0x0041f850 */
+extern void  TrackCursor_Evaluate(TrackCursor* c, int mode, Vec3f* out);  /* 0x0042a640 */
+extern float Track_Integrate(float (*fn)(float), float a, float b, float tol); /* 0x00420200 */
+extern void  Coaster3D_SetCarClipDepth(void);                             /* 0x00425c40 */
+extern void  Coaster3D_DrawModel(void* mesh, void* tex, const Vec3f* pos,
+                                 const Mat3* rot, int mode);              /* 0x00420e90 */
+extern void  Mat3_ToMat4(const Mat3* src, Mat4* dst);                     /* 0x00426490 */
+extern void  Mat4_ToMat3(Mat3* dst, const Mat4* src);                     /* 0x00426460 */
+extern void  MatIdentity(Mat4* m);                                        /* 0x004260f0 */
+extern void  MatMul(const Mat4* a, const Mat4* b, Mat4* out);             /* 0x00426120 */
+extern void* g_wheel_a;                                                   /* 0x00616000 */
+extern void* g_wheel_b;                                                   /* 0x00616004 */
 
 extern RoutePos* g_curve_at;     /* 0x00615f84 */
 extern int       g_curve_mode;   /* 0x00615f90 */
@@ -407,4 +425,73 @@ void Track_StepAlong(Vec3f* origin, float step, RoutePos* from, float t,
         } while (!g_track_solver(Track_StepObjective, t0, cur.geom->t1, out_t));
     }
     *out = cur;
+}
+
+/* Track distance from (to, t2) walking forward to (from, t). Same-piece
+ * path integrates once; otherwise sum the tail of `to`, each full geom,
+ * and the head of `from`. mode/offset stash the AbsDerivative cursor. */
+// FUNCTION: LEGOLAND 0x0042a1b0
+float Track_MeasureDistance(RoutePos* from, float t, RoutePos* to, float t2,
+                            int mode, float offset)
+{
+    RoutePos cur;
+    float sum;
+
+    g_dist_mode = mode;
+    g_dist_offset = offset;
+    if (RoutePos_Equal(from, to)) {
+        g_dist_at = from;
+        return Track_Integrate(Track_AbsDerivative, t2, t, 0.01f);
+    }
+    cur = *to;
+    g_dist_at = &cur;
+    sum = Track_Integrate(Track_AbsDerivative, t2, cur.geom->t1, 0.01f);
+    TrackCursor_AdvanceGeometry(&cur);
+    while (!RoutePos_Equal(&cur, from)) {
+        g_dist_at = &cur;
+        sum += Track_Integrate(Track_AbsDerivative, cur.geom->t0, cur.geom->t1, 0.01f);
+        TrackCursor_AdvanceGeometry(&cur);
+    }
+    g_dist_at = &cur;
+    sum += Track_Integrate(Track_AbsDerivative, cur.geom->t0, t, 0.01f);
+    return sum;
+}
+
+/* Draw the two wheel models at the pair's first cursor, modes 0 and 1,
+ * each rolled by roll[i] + GetRollDelta. Then copy the first cursor onto
+ * the second slot. */
+// FUNCTION: LEGOLAND 0x0042a680
+void TrackCursorPair_Draw(TrackCursorPair* p)
+{
+    Mat3 basis;
+    Mat4 world;
+    Mat4 ident;
+    Mat4 product;
+    Mat3 drawn;
+    Vec3f pos;
+    int i;
+
+    Coaster3D_SetCarClipDepth();
+    TrackCurve_EvaluateBasis(&p->at0, p->t0, &basis);
+    Mat3_ToMat4(&basis, &world);
+    for (i = 0; i <= 1; i++) {
+        float* roll = &p->roll0 + i;
+        float s;
+        float c;
+
+        *roll += TrackCursorPair_GetRollDelta(p, i);
+        TrackCursor_Evaluate((TrackCursor*)p, i, &pos);
+        MatIdentity(&ident);
+        s = (float)sin(*roll);
+        ident.m[0] = s;
+        c = (float)cos(*roll);
+        ident.m[2] = c;
+        ident.m[8] = -c;
+        ident.m[10] = s;
+        MatMul(&world, &ident, &product);
+        Mat4_ToMat3(&drawn, &product);
+        Coaster3D_DrawModel(g_wheel_a, g_wheel_b, &pos, &drawn, 0);
+    }
+    p->t1 = p->t0;
+    p->at1 = p->at0;
 }
