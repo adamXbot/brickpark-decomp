@@ -33,7 +33,7 @@ Brief: `docs/SCOPE_LL6_raster_map_track.md`.
 | 0x00428840 | LowestSetBitIndex | 10 | 100 | [OK] | FUNCTION |
 
 **21 / 24 exact.** All 24 have bodies. `audit.py` PASS, `relocs.py` zero
-MISMATCH (4 UNRESOLVED float literals 0.5 / -2.0 on GetTrackSegmentPiece),
+MISMATCH (UNRESOLVED float literals 0.0 / 0.5 / -2.0),
 `/W3` clean.
 
 ## Names

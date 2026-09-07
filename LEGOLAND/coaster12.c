@@ -547,35 +547,39 @@ int TrackPiece_FindIndex(TrackNode* node)
 // WIP-FUNCTION: LEGOLAND 0x00423200  (61i/61i, register/offset allocation)
 void Raster_AddSpanRecord(int ne, int y, SortKey* keys, SpanEdge* edges)
 {
+    int home;
     char* cur = (char*)g_span_cursor;
-    char* saved = cur;
-    int step;
-    g_span_count = g_span_count + 1;
-    if ((unsigned)(cur + 0x10) > (unsigned)0x004e3870) {
+    int count = g_span_count;
+    home = (int)cur;
+    count++;
+    g_span_count = count;
+    if ((unsigned)(home + 0x10) > (unsigned)0x004e3870) {
         g_span_overflow = 1;
         return;
     }
     if (ne == 0)
         return;
-    *(int*)cur = ne;
-    *(int*)(saved + 4) = y;
-    step = 0;
-    if (ne > 0) {
-        char* dst = saved + 0xa;
-        int left = ne;
-        do {
-            int idx = keys->idx;
-            SpanEdge* e;
-            keys++;
-            e = (SpanEdge*)((char*)edges + idx * 48);
-            *(short*)(dst - 2) = (short)(e->a[0] >> 16);
-            *(int*)(dst + 2) = e->d[0];
-            *(short*)dst = (short)keys[-1].y;
-            if (e->dir == 1)
-                *(short*)dst = (short)-(*(short*)dst);
-            dst += 8;
-        } while (--left);
-        step = ne;
+    *(int*)home = ne;
+    *(int*)(home + 4) = y;
+    {
+        int keep = 0;
+        if (ne > 0) {
+            char* dst = (char*)home + 0xa;
+            int left = ne;
+            keep = ne;
+            do {
+                int idx = keys->idx;
+                SpanEdge* e;
+                keys++;
+                e = (SpanEdge*)((char*)edges + idx * 48);
+                *(short*)(dst - 2) = (short)(e->a[0] >> 16);
+                *(int*)(dst + 2) = e->d[0];
+                *(short*)dst = (short)keys[-1].y;
+                if (e->dir == 1)
+                    *(short*)dst = (short)-(*(short*)dst);
+                dst += 8;
+            } while (--left);
+        }
+        g_span_cursor = (char*)home + 8 + keep * 8;
     }
-    g_span_cursor = saved + 8 + step * 8;
 }
