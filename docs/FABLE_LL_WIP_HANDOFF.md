@@ -173,19 +173,16 @@ same window).
 
 **Six KEPT held.** Shared `*cursor=dst` after `n>=1`.
 
-**FLOOR on `[ecx+src]` via address-taken destrel:** dest must stay live in
-**edi** through fild for `and ebx`; that CSE’s `destrel+src` → dest →
-`lea edi` walk. Volatile destrel reload emits `[ecx+src]` / can clear ESCAPES
-at 593B but frees dest and kills and-ebx. Dual-live dest+destrel is the right
-shape, but the walk pin **cannot be address-taken** if dest remains edi.
+**Floors / negatives:**
+- Address-taken destrel → `[ecx+src]` + ESCAPES clear @593B but kills and-ebx
+- Dest live edi CSE’s walk to `lea edi`; dual-live walk pin cannot be AT
+- n-slot←`in` is KEEP-stable but **55/189 (29%)** — worse than tip; bits→`0x14`
+  not `0x2c`; dest homes to slide bits steal ebx=n
+- Goto-shared epilogue still ESCAPES
 
-**Near-miss:** n-slot occupied by `in` walk moves bits off `0x40` → `0x14`
-with KEEP held (~55% claimed transient); dest homes that push bits to
-`0x2c` steal ebx=n. Not landed.
-
-**Next:** (1) recover bits home / n-slot←in without stealing ebx=n;
-(2) clear ESCAPES without address-taken destrel; (3) non-address-taken
-dual-live for `[ecx+src]` if possible.
+**Park** further ClipPlane churn until a new lever (non-AT `[ecx+src]`, or
+bits@0x2c without dest home, or ESCAPES-only extent fix). Do not re-land
+n-slot←in or AT destrel.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -197,10 +194,10 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — bits/n-slot + ESCAPES without address-taken destrel; keep and-ebx.
-2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
-3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
-4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
+1. **LL3 MassAndPower** — try byte-store / callee-save force for `lea ebx,[eax+0x70]` (ClipPlane lever).
+2. **LL4 IntegrateSimpson** — parked 80/81 fstp/esp glue; only with new codegen lever.
+3. **LL3 Span_ClipPlane** — parked 34%; AT destrel / n-slot←in / bits@0x2c floors.
+4. **LL4 Span_Fill*** / **LL6** / **LL7** / **Trace** — documented floors.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
 Do **not** merge partial scopes yourself.
