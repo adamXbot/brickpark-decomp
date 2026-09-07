@@ -55,29 +55,23 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `2ed3aa5b` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `d2f2b70e` |
 
-**77i / 260/259B**, matchfull **66/77 = 85.7%**, audit **52** mism.
+**77i / 259/259B**, matchfull **65/77 = 84%**, audit **42** mism — **FLOOR**.
 
-**Landed:** `lea ebx,[eax+0x70]` in the original pos-copy delay slot via
-ClipPlane-style **imm8 store** after the snapshot:
+Dest-coalesce `mov ebx,eax` / sunk `add ebx,0x70` vs `lea ebx,[eax+0x70]`.
 
-```c
-n = &p->head;
-fr.pos = p->pos;
-fr.f24 = p->f24;
-*(volatile unsigned char*)&p->head = 0;
-```
+**Coupled lea probe (reverted):** ClipPlane-style
+`*(volatile unsigned char*)&p->head = 0` after the snapshot forces delay-slot
+`lea ebx,[eax+0x70]` (66/77, eax live for `[eax+0x24]`), but always emits
+extra `mov [ebx],0`. Every spelling that drops the store dest-coalesces
+again (65/77). Known-zero / dead-alias / `n-0x70` / SetTrainAt / Fst / commas
+CSE or steal edx. **Cannot exact with the store; cannot lea without it.**
 
-Emits `lea edi,[esp+0x14] / lea ebx,[eax+0x70] / rep movsd / mov ecx,[eax+0x24]`.
-Byte **load** / `|=0` steals edx → dest-coalesce (57/77). Store must be imm8.
+Also sticky: q after `add esp,4`; hist ecx/edx swap. Interleave wave without
+the store still 65/77. Park until a lea force that does not write.
 
-**Residual:** extra `mov byte ptr [ebx],0` (not in orig); q after `add esp,4`;
-hist ecx/edx swap. Earlier interleave wave without the store stayed at
-dest-coalesce **65/77**.
-
-**Next:** keep `lea ebx` without emitting the imm8 store; q before `add esp,4`;
-hist `edx=*mass`. ClipPoly closed; Trace NG22 / ClipPlane parked 34%.
+Trace NG22 / ClipPlane parked 34%. ClipPoly closed.
 
 ### LL6 — `GetTrackSegment` `0x00424050` (22/24 scope)
 
@@ -197,9 +191,9 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 MassAndPower** — lea ebx landed; drop imm8 store; q before add esp; hist.
-2. **LL3 Span_ClipPlane** — parked 34%; AT destrel / n-slot←in / bits@0x2c floors.
-3. **LL4 IntegrateSimpson** — parked 80/81 fstp/esp glue.
+1. **LL4 IntegrateSimpson** — parked 80/81 fstp/esp; only with new codegen lever.
+2. **LL3 Span_ClipPlane** — parked 34%; AT destrel / bits floors.
+3. **LL3 MassAndPower** — parked; lea ebx coupled to imm8 store (reverted).
 4. **LL4 Span_Fill*** / **LL6** / **LL7** / **Trace** — documented floors.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
@@ -213,7 +207,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `2ed3aa5b` | `coaster11.c` |
+| LL3 | 16/19 | `d2f2b70e` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
