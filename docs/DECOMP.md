@@ -424,6 +424,17 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **SCOPE AI (closed 2026-09-07, 18 of 18 exact; evidence in
+  `docs/lanes/scope-ai.md`).** MIDI + path-square / class companions
+  (`music2.c`, `pathobj2.c`):
+  - **LoadObjectClassSibling:** `tok = buf` before `strcpy` so `tok` lives
+    across `rep movs` in ebp; with four callee-saved occupied, literal `4`
+    stays immediate (not hoisted to ebx). Unsigned index over the group
+    table for `jb` cursor.
+  - **FindPathSquareRoute:** top-tested `while (count != 0)` with
+    `count = 1` — VC6 folds/bottom-tests and shares the `return 0`
+    epilogue (`do`/`while` exiles it).
+
 - **SCOPE AK (closed 2026-09-07, 20 of 20 exact; evidence in
   `docs/lanes/scope-ak.md`).** Narration / sample / LoadStrings
   (`narration2.c`):

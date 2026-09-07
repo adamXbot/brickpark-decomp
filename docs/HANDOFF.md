@@ -1,8 +1,8 @@
 # Handoff — LEGOLAND matching decompilation
 
 **Integration checkpoint: 2026-09-07 — Z, Y, AB, AC, AF, AD, AE, AA, AH, AJ,
-AK closed exact.** Written for the next session to pick up cold. Earlier dated
-environment and wave notes are retained below; use §1 for current scope
+AK, AI closed exact.** Written for the next session to pick up cold. Earlier
+dated environment and wave notes are retained below; use §1 for current scope
 ownership and progress.
 
 Read this, then `docs/DECOMP.md` (the living codegen playbook),
@@ -92,18 +92,20 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **70.0% exact, 81.3% with partials** |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2869 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **70.3% exact, 81.7% with partials** |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2887 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F own part of this list; use `tools/inventory.py` for game-code targets. |
 | partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 79 |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
 
-**Scope AK closed exact (2026-09-07): 20 of 20; coverage 69.5% -> 70.0% exact
-(81.3% with partials).** Exact count **2869**; **79** WIPs.
-`narration2.c` (group 18; LoadStrings via decl-order tie-break + quote then-arm).
-Relocs 0 MISMATCH; `/W3` clean. Parallel still open: AI, FGH, V, Codex-F,
-AG, AC remainders.
+**Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.0% -> 70.3% exact
+(81.7% with partials).** Exact count **2887**; **79** WIPs.
+`music2.c` + `pathobj2.c` (group 16). Relocs 0 MISMATCH; `/W3` clean.
+Parallel still open: FGH, V, Codex-F, AG, AC remainders.
+
+**Scope AK closed exact (2026-09-07): 20 of 20; coverage 69.5% -> 70.0% exact.**
+`narration2.c` (group 18).
 
 **Scope AJ closed exact (2026-09-07): 27 of 27; coverage 69.1% -> 69.5% exact.**
 `frontend2.c` + `resaudio2.c` (group 17).
