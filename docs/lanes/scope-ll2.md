@@ -69,6 +69,29 @@ y-first struct layout, `Pos s` member dest.
 Need a spelling that keeps ox-first loads *and* treats ox as the lea
 base, without a second ox load. No such form found.
 
+2026-09-08 SIB pass (still 150/151, body unchanged). Confirmed the two
+150/151 residuals still do not combine. Extra measurements after the
+unsigned-`left` / two-def `o.y` lea:
+
+- Commuting `o.y + o.x`, pointer-typed `o.x` / `char *p` copy after v0,
+  `&p[i]`, `left` as `char*`, union `{int; char*}`, empty-if, `left +=`,
+  `ox - (-v0)`, assignment-in-expr, `__inline p+i` / param+global /
+  RTL `H(v0,(char*)ox)`, address-taken `o.x`, `*(int*volatile)&o.x`
+  after v0: same `[ecx+eax]` (forwarded; no extra insn).
+- `o.y = v[0]; o.x = g_mapref.x; left = o.x + o.y` (and comma-hoist
+  variants that DCE): correct SIB, swapped loads (`mov ecx,[v0]` first).
+- Track `v[0] + g_mapref.x` without both addends as named regs: dest-
+  coalesces (`add edx,ecx` / `add edx,eax`), 140–149/151. REG+MEM
+  loses the lea; both addends must stay register symbols.
+- Clean `char *px` / pointer-struct without `Pos o.x` drops to 149
+  (`add edx,eax`). Second ox load or `o.x =` after the lea shuffles
+  the later rect (141).
+
+`LFTrack_Update`'s `[eax+ecx]` is mem+mem RTL (`v[0]+g_mapref.x`)
+under saved ebx/esi/edi. The two-def that produces the 3-scratch lea
+here turns that add into reg+reg and flips the SIB. Still no spelling
+that keeps ox-first moffs32 loads *and* ox as lea base.
+
 2026-09-08 earlier floors (still true of spellings that drop the two-def
 `o.y` / unsigned `left` pair):
 
