@@ -145,6 +145,55 @@ extern void  PopRenderingStatus(void);                            /* 0x004641f0 
 #define DT_MEASURE_WRAPPED 0x450
 #define DT_DRAW_WRAPPED    0x050
 
+/* ============================== the tilehelp.c neighbourhood ============ */
+
+/* The map header (bigrender.c / bubblecache.c / tilehelp.c agree on these). */
+typedef struct MapHdr {
+    unsigned short screen_w;    /* +0x00  viewport size in pixels */
+    unsigned short screen_h;    /* +0x02 */
+    char           pad04[0x14 - 0x04];
+    unsigned short cells_w;     /* +0x14  map size in cells */
+    unsigned short cells_h;     /* +0x16 */
+    char           pad18[0x20 - 0x18];
+    unsigned short origin_x;    /* +0x20  viewport origin in pixels */
+    unsigned short origin_y;    /* +0x22 */
+} MapHdr;
+
+/* legoland.h's Cell (20 bytes); only the RF flags byte is read here. */
+typedef struct Cell {
+    char          pad00[0x10];
+    unsigned char rf;           /* +0x10 */
+    char          pad11[0x14 - 0x11];
+} Cell;
+
+typedef struct SpriteRec {
+    char  pad00[0x16];
+    short h;                    /* +0x16 */
+} SpriteRec;
+
+/* sweep4.c's 16-byte clip window (0x004bdea0 g_clip): position and size. */
+typedef struct ClipRect {
+    int x;    /* +0x00 */
+    int y;    /* +0x04 */
+    int w;    /* +0x08 */
+    int h;    /* +0x0c */
+} ClipRect;
+
+extern MapHdr*    g_map;                /* 0x004bcbf4 */
+extern Cell**     g_map_rows;           /* 0x00801400 */
+extern SpriteRec* g_tile_sprites[];     /* 0x00805f60 */
+extern int        g_default_tile;       /* 0x00667ca4 */
+extern int        g_tileset_id3;        /* 0x00805f48 */
+extern int*       g_basic_tiles_data;   /* 0x00801a6c -> "BASIC TILES 1" desc, +0 = base slot */
+extern int        g_scroll_x;           /* 0x00667cb4  8.8 fixed point */
+extern int        g_scroll_y;           /* 0x00667cb8 */
+
+extern void SetClipping(ClipRect* r);                                 /* 0x0048a5c0 */
+extern int  PrintSprite(SpriteRec* s, int x, int y, int mode, void* ctx); /* 0x004853a0 */
+
+/* The overlay's tint, as mapbuild2.c recorded it. */
+#define TILE_OVERLAY_COLOUR 0xff6868
+
 /* ---- this file's own callees (text/help) ------------------------------- */
 
 /* ---- this file's own callees ------------------------------------------- */
@@ -504,4 +553,130 @@ TextEntry* FindCachedTextByString(const char* text)
 // FUNCTION: LEGOLAND 0x00466070
 void PresentNoOp(void)
 {
+}
+
+/* =========================================================================
+ *  0x0045ade0 -- paint the RF-bit-1 overlay over every visible map tile
+ * =========================================================================
+ * tilehelp.c's GetTileCentre neighbourhood, and the map-editor debug overlay
+ * mapbuild2.c described from the outside.  The clip window is set to the map
+ * header's viewport, the tile size comes from the DEFAULT ground sprite
+ * (h = sprite->h, w = 2h, exactly as GetTileCentre reads it), and the scroll
+ * position is split into a whole-tile part (the starting cell) and a
+ * remainder inside the tile.
+ *
+ * The four-way switch is the sub-tile correction: the remainder (rx, ry)
+ * places the scroll origin in one of the diamond's four triangles, and each
+ * arm nudges the starting cell by one step along the corresponding diagonal
+ * if the point falls outside the diamond.  q is 1..4, so VC6 subtracts one
+ * before the jump table; the case ORDER is the block order.
+ *
+ * Then two interleaved diagonal scans per screen row -- the second offset by
+ * half a tile on both axes -- copy each in-range cell out of g_map_rows (a
+ * whole 20-byte Cell, rep movsd) and stamp the "blocked" tile sprite over it
+ * when RF bit 1 is set.  Out-of-range cells get only their RF byte zeroed:
+ * the rest of the local Cell is left holding the PREVIOUS cell's bytes.
+ * That is the original's behaviour and is harmless because nothing but rf is
+ * read; reproduced.
+ * ========================================================================= */
+
+// WIP-FUNCTION: LEGOLAND 0x0045ade0  (58%, 122/291 strict, rb 118, ob 69, first diverging index 29: spill-slot permutation)
+void DrawTileDebugOverlay(void)
+{
+    ClipRect clip;
+    Cell     cell;
+    short    h;
+    short    w;
+    int      hh, hw;
+    int      sx, sy;
+    int      qx, qy, rx, ry;
+    int      col, row;
+    int      savecol, saverow;
+    int      q;
+    int      x, y;
+
+    clip.x = g_map->origin_x;
+    clip.y = g_map->origin_y;
+    clip.w = g_map->screen_w;
+    clip.h = g_map->screen_h;
+    SetClipping(&clip);
+
+    h = g_tile_sprites[g_default_tile]->h;
+    w = (short)(h + h);
+    hh = (h + 1) >> 1;
+    hw = (w + 1) >> 1;
+    sx = g_scroll_x >> 8;
+    sy = (g_scroll_y >> 8) - hh;
+    qx = sx / w;
+    rx = sx % w;
+    qy = sy / h;
+    ry = sy % h;
+    col = qy + qx - 3;
+    row = qy - qx;
+
+    q = (rx >= hw) + 1;
+    if (ry > hh)
+        q += 2;
+    switch (q) {
+    case 1:
+        if (rx < hw - 2 * ry) {
+            rx += hw;
+            col--;
+            ry += hh;
+        }
+        break;
+    case 2:
+        if (rx >= hw + 2 * ry) {
+            rx -= hw;
+            row--;
+            ry += hh;
+        }
+        break;
+    case 3:
+        if (rx < hw + 2 * (ry - h)) {
+            row++;
+            rx += hw;
+            ry -= hh;
+        }
+        break;
+    case 4:
+        if (rx >= hw + 2 * (h - ry)) {
+            col++;
+            rx -= hw;
+            ry -= hh;
+        }
+        break;
+    }
+
+    for (y = clip.y - 2 * h - ry; y < h * 2 + clip.h; y += h) {
+        savecol = col;
+        saverow = row;
+        for (x = clip.x - 2 * w - rx; x < w * 2 + clip.w; x += w) {
+            if (col >= 0 && col < g_map->cells_w && row >= 0 && row < g_map->cells_h)
+                cell = g_map_rows[row][col];
+            else
+                cell.rf = 0;
+            if (cell.rf & 2)
+                PrintSprite(g_tile_sprites[(g_tileset_id3 & 0xff) + *g_basic_tiles_data],
+                            x, y, TILE_OVERLAY_COLOUR, 0);
+            col++;
+            row--;
+        }
+        savecol++;
+        col = savecol;
+        row = saverow;
+        for (x = clip.x - 2 * w - rx; x < w * 2 + clip.w; x += w) {
+            if (col >= 0 && col < g_map->cells_w && row >= 0 && row < g_map->cells_h)
+                cell = g_map_rows[row][col];
+            else
+                cell.rf = 0;
+            if (cell.rf & 2)
+                PrintSprite(g_tile_sprites[(g_tileset_id3 & 0xff) + *g_basic_tiles_data],
+                            x + hw, y + hh, TILE_OVERLAY_COLOUR, 0);
+            col++;
+            row--;
+        }
+        col = savecol;
+        row = saverow + 1;
+    }
 }
