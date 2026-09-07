@@ -23,7 +23,7 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 | 0x00429cf0 | Track_StepObjective | 93 | 100 | [OK] | FUNCTION |
 | 0x00429560 | TrackRunSetSlope | 90 | 92 | 7 (eax/edx) | WIP |
 | 0x00429f30 | Track_StepAlong | 70 | 62 | 58 | WIP |
-| 0x00428860 | TrackShade_FillPoly | 254 | — | — | not started |
+| 0x00428860 | TrackShade_FillPoly | 254 | 38 | 243 (frame 0x6c vs 0x70) | WIP |
 
 **14 / 17 exact.** `/W3` clean. `relocs.py` 0 MISMATCH on the 14 FUNCTION bodies.
 
@@ -51,7 +51,7 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 - **TrackNode** piece is 0xa4: RouteGeom at +0x4c, parameter range at +0x90/+0x94.
 - **TrackRunSetSlope** builds one ramp geom from the span's world endpoints (square-to-world + `g_joint_world[dir]`, half-offset `g_joint_half[i0]`) and stamps it on every piece with `t` ranges `[i/n, (i+1)/n]`. z/dz only place the endpoints.
 - **Track_Bisect**: same-sign endpoints return 0 (`xor` of the float bits, test `0x80000000`); else midpoint of the final 0.005-wide bracket. Stats at 0x00615fc4 / 0x00615fc8; max iterations at 0x00615fec.
-- **0x00428860** is a shaded z-buffer span filler: EBP frame `sub esp,0x70`, increments `edge[key[n-1].idx].ylast`, calls 0x00420780 (table at 0x004d89c8) and 0x00428840 (lowest-set-bit). Sibling of ZBuffer_FillPoly. Inner span is `__asm` (`xchg ebx,eax`, `add ebx,1`).
+- **TrackShade_FillPoly** 0x00428860: `SpanFiller(tag, grad, nkeys, keys, edges)` from Raster_SubmitPoly. Increments `edges[keys[n-1].idx].y1`, looks up `g_coaster_tab_c[tag]` (0x00420780), bit-scans the two header dwords (0x00428840), writes colour into `g_raster_bits` and depth into `g_zb_base`. Inner span is `__asm`. Best draft 254/254i, 748/771B, frame 0x6c vs 0x70, matchfull ~38%. A dummy `dead` local dropped the count to 252i. `ne` is a MASM reserved word (jne) — the parameter is `nkeys`. Same residual class as ZBuffer_FillPoly (homes + mixed asm).
 - **g_step_lo2** is `(step-tol)²`, not `(t-tol)²`. hi2 is `(step+tol)²`.
 
 ## Levers
@@ -69,3 +69,4 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 
 - `TrackCurve_EvaluateOffset` / `EvaluateDerivative` / `EvaluatePosition` / `EvaluateUp` take `float t` here; coaster9.c uses `int t` on some of these.
 - `g_curve_offset` 0x00615fd4 is the rail offset AND the stepper tolerance (RouteCar_SetPosition passes 4.8 for both).
+- `CoasterTex_Get` 0x00420780 / `BitLowestSet` 0x00428840 are owned by LL4 / LL6; declared here for the shaded filler only.

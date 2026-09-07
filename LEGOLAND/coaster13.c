@@ -152,6 +152,34 @@ extern void  MatMul(const Mat4* a, const Mat4* b, Mat4* out);             /* 0x0
 extern void* g_wheel_a;                                                   /* 0x00616000 */
 extern void* g_wheel_b;                                                   /* 0x00616004 */
 
+extern void* CoasterTex_Get(int tag);                                     /* 0x00420780 */
+extern int   BitLowestSet(int mask);                                      /* 0x00428840 */
+extern void* g_raster_bits;                                               /* 0x004b5b20 */
+extern short* g_zb_base;                                                  /* 0x004b5b24 */
+extern int    g_zb_pitch;                                                 /* 0x004b5b28 */
+extern int    g_zb_polys;                                                 /* 0x0060f900 */
+extern int    g_shade_count;                                              /* 0x0060f904 */
+extern void*  g_shade_tab[];                                              /* 0x00829c60 */
+extern int    g_span_mask;                                                /* 0x0061195c */
+extern short  g_span_lut[];                                               /* 0x00611960 */
+extern int    g_span_dshade;                                              /* 0x00612160 */
+extern int    g_span_dv;                                                  /* 0x00612164 */
+extern int    g_span_dz;                                                  /* 0x0061216c */
+extern int    g_span_tmask;                                               /* 0x00612174 */
+
+typedef struct SortKey {
+    int y;
+    int idx;
+} SortKey;
+
+typedef struct SpanEdge {
+    short y0;               /* +0x00 */
+    short y1;               /* +0x02 */
+    int   dir;              /* +0x04 */
+    int   a[5];             /* +0x08 */
+    int   d[5];             /* +0x1c */
+} SpanEdge;                 /* 0x30 */
+
 extern RoutePos* g_curve_at;     /* 0x00615f84 */
 extern int       g_curve_mode;   /* 0x00615f90 */
 extern float     g_curve_offset; /* 0x00615fd4 */
@@ -292,7 +320,7 @@ float Track_AbsDerivative(float t)
 /* Build one ramp geom from the span's world endpoints and stamp it onto
  * every piece with parameter ranges [i/n, (i+1)/n]. z/dz only place the
  * endpoints; the per-piece +0x90/+0x94 slots are the parameter, not height. */
-// WIP-FUNCTION: LEGOLAND 0x00429560  (unverified)
+// WIP-FUNCTION: LEGOLAND 0x00429560  (90/90i, 302/302B, 7 eax/edx)
 void TrackRunSetSlope(TrackNode* n, TrackNode* e, int steps, float z, float dz)
 {
     RouteGeom geom;
@@ -400,7 +428,7 @@ float Track_StepObjective(float t)
 
 /* Walk backward along the track until |pos - origin| == step. First try
  * the current geom's [t0, t]; then retreat and try each prior [t0, t1]. */
-// WIP-FUNCTION: LEGOLAND 0x00429f30  (unverified)
+// WIP-FUNCTION: LEGOLAND 0x00429f30  (70/70i, 227/232B, solver push schedule)
 void Track_StepAlong(Vec3f* origin, float step, RoutePos* from, float t,
                      float tol, RoutePos* out, float* out_t)
 {
@@ -493,4 +521,172 @@ void TrackCursorPair_Draw(TrackCursorPair* p)
     }
     p->t1 = p->t0;
     p->at1 = p->at0;
+}
+
+/* Shaded z-buffer span filler (table 0x004b5f50). Sibling of
+ * ZBuffer_FillPoly (schoolcar6.c): EBP frame, `xchg ebx,eax`, `add ebx,1`.
+ * Raster_SubmitPoly calls this as shader[mode](tag, grad, ne, keys, edges).
+ * 0x00420780 / 0x00428840 are owned by LL4 / LL6.
+ *
+ * Frame is 0x70: four 0x14 interpolant records plus the eight setup dwords
+ * (y, last-key, two shifts, ylast, pitch, zrow, crow). */
+typedef struct ShadeInterp {
+    int x;
+    int rest[4];
+} ShadeInterp;                  /* 0x14 */
+
+// WIP-FUNCTION: LEGOLAND 0x00428860  (254/254i, 748/771B, frame 0x6c vs 0x70; mixed C+__asm)
+void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge* edges)
+{
+    ShadeInterp ed[4];
+    int         y;
+    int         ylast;
+    int         pitch;
+    int         shift0;
+    int         shift1;
+    SortKey*    last;
+    short*      zrow;
+    short*      crow;
+    char*       tex;
+    int         bit0;
+    int         bit1;
+    int         nshade;
+    short*      yp;
+    char*       lut;
+
+    y = keys[0].y;
+    last = &keys[nkeys - 1];
+    yp = &edges[last->idx].y1;
+    (*yp)++;
+    ylast = edges[last->idx].y1;
+    crow = (short*)g_raster_bits;
+    zrow = g_zb_base;
+    pitch = g_zb_pitch;
+    tex = (char*)CoasterTex_Get(tag);
+    if (tex == 0)
+        return;
+    bit0 = BitLowestSet(*(int*)tex);
+    bit1 = BitLowestSet(((int*)tex)[1]);
+    tex += 8;
+    tag = (int)tex;
+    shift0 = 8 - bit0;
+    shift1 = shift0 - bit1 + 8;
+    g_span_mask = (int)0xff000000 >> shift0;
+    g_span_dshade = grad[1] >> shift0;
+    g_span_dv = (grad[2] << 8) >> shift1;
+    g_span_dz = grad[3];
+    g_zb_polys++;
+    g_span_tmask = (1 << (bit0 + bit1)) - 1;
+    keys[nkeys].y = ylast;
+    crow += pitch * y;
+    zrow += pitch * y;
+    nshade = g_shade_count;
+    if (nshade > 0) {
+        void** src = g_shade_tab;
+        short* dst = g_span_lut;
+        int    idx = grad[0];
+
+        do {
+            *dst++ = ((short*)*src++)[idx];
+        } while (--nshade);
+    }
+    lut = (char*)g_span_lut;
+    do {
+        SpanEdge* e = &edges[keys->idx];
+
+        keys++;
+        if (e->dir) {
+            ed[3].x = e->d[0];
+            ed[2].x = e->a[0] - e->d[0];
+        } else {
+            ed[1].x = e->d[0];
+            ed[0].x = e->a[0] - e->d[0];
+            ed[1].rest[2] = e->d[1];
+            ed[0].rest[2] = e->a[1] - e->d[1];
+            ed[1].rest[3] = e->d[2];
+            ed[0].rest[3] = e->a[2] - e->d[2];
+            ed[1].rest[1] = e->d[3];
+            ed[0].rest[1] = e->a[3] - e->d[3];
+        }
+        while (y < keys->y) {
+            int span;
+
+            y++;
+            ed[0].x += ed[1].x;
+            ed[2].x += ed[3].x;
+            span = ed[2].x - ed[0].x;
+            if (span >= 0x8000) {
+                __asm {
+                    mov  eax, ed[0]
+                    mov  ebx, ed[40]
+                    sar  eax, 16
+                    sar  ebx, 16
+                    mov  edi, crow
+                    mov  esi, zrow
+                    xchg ebx, eax
+                    sub  ebx, eax
+                    lea  edi, [edi + eax*2]
+                    lea  esi, [esi + eax*2]
+                    push ebx
+                    mov  eax, ed[12]
+                    mov  edx, ed[16]
+                    mov  ebx, ed[8]
+                    add  eax, ed[32]
+                    add  edx, ed[36]
+                    add  ebx, ed[28]
+                    mov  ed[12], eax
+                    mov  ed[16], edx
+                    mov  ed[8], ebx
+                    mov  ecx, shift1
+                    shl  edx, 8
+                    shr  edx, cl
+                    mov  ecx, shift0
+                    sar  eax, cl
+                    push ebp
+                    sub  esp, 8
+                    mov  ecx, esi
+                    sub  ecx, dword ptr tag
+                    mov  dword ptr [esp + 4], ecx
+                    mov  ecx, esi
+                    sub  ecx, dword ptr lut
+                    sar  ecx, 1
+                    mov  dword ptr [esp], ecx
+                    mov  ebp, ebx
+                    mov  ebx, dword ptr [esp + 0xc]
+                pix:
+                    mov  ecx, ebp
+                    sar  ecx, 16
+                    cmp  cx, word ptr [esi + ebx*2]
+                    jb   skip
+                    mov  word ptr [esi + ebx*2], cx
+                    mov  ecx, g_span_mask
+                    and  ecx, edx
+                    or   ecx, eax
+                    shr  ecx, 16
+                    and  ecx, g_span_tmask
+                    sub  ecx, dword ptr [esp + 4]
+                    mov  cl, byte ptr [esi + ecx]
+                    and  ecx, 0xff
+                    sub  ecx, dword ptr [esp]
+                    mov  cx, word ptr [esi + ecx*2]
+                    mov  word ptr [edi + ebx*2], cx
+                skip:
+                    add  eax, g_span_dshade
+                    add  edx, g_span_dv
+                    add  ebp, g_span_dz
+                    add  ebx, 1
+                    jle  pix
+                    add  esp, 8
+                    pop  ebp
+                    add  esp, 4
+                }
+            } else {
+                ed[0].rest[2] += ed[1].rest[2];
+                ed[0].rest[3] += ed[1].rest[3];
+                ed[0].rest[1] += ed[1].rest[1];
+            }
+            crow += pitch;
+            zrow += pitch;
+        }
+    } while (y < ylast);
 }
