@@ -518,7 +518,12 @@ void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 /* Adaptive Simpson quadrature. Track_MeasureDistance (0x0042a1b0) drives
  * this. s holds fa+fb+4*odds+2*evens; approx is s*h; the return scales by
  * 1/3. The empty __asm forces the original's EBP frame so every temporary
- * stays in the 0x28 home list. */
+ * stays in the 0x28 home list. `#pragma optimize("g", off)` is load-bearing:
+ * it restores the jmp-to-test `jg` for, the two `add esp,4` cleanups, the
+ * integer push of x, and the global-first fmul forms. The assign-expression
+ * `x = a + (h = half*h)` is the `fst` / `fadd a` chain. Residual vs original
+ * is only `call fn(a)` / `add esp,4` / `fstp fa` instead of `fstp` then
+ * `add esp,4` — Og-off always cleans before the float store. */
 typedef struct SimpsonFrame {
     float fa;
     int   i;
@@ -532,7 +537,8 @@ typedef struct SimpsonFrame {
     float s;
 } SimpsonFrame;
 
-// WIP-FUNCTION: LEGOLAND 0x00420200  (81/81i, 251/258B, 61 mismatch; add esp merged, for-latch is jle not jg)
+#pragma optimize("g", off)
+// WIP-FUNCTION: LEGOLAND 0x00420200  (81/81i, 258/258B, 2 mismatch; fn(a) add esp,4 / fstp fa swapped)
 float IntegrateSimpson(float (*fn)(float), float a, float b, float tol)
 {
     volatile SimpsonFrame f;
@@ -549,8 +555,7 @@ float IntegrateSimpson(float (*fn)(float), float a, float b, float tol)
         f.s = f.s - g_two * f.odd;
         f.odd = 0.0f;
         f.step = f.h;
-        f.h = g_half * f.h;
-        f.x = a + f.h;
+        f.x = a + (f.h = g_half * f.h);
         for (f.i = 1; f.i <= f.n; f.i = f.i + 1) {
             f.odd += fn(f.x);
             f.x += f.step;
@@ -558,9 +563,10 @@ float IntegrateSimpson(float (*fn)(float), float a, float b, float tol)
         f.s = f.s + g_four * f.odd;
         f.approx = f.s * f.h;
         f.n = f.n + f.n;
-    } while ((float)fabs(f.approx - f.old) > tol * (float)fabs(f.old));
+    } while (fabs(f.approx - f.old) > tol * fabs(f.old));
     return g_third * f.approx;
 }
+#pragma optimize("", on)
 
 /* 4-level Romberg combine. Route_GetMassAndPower (0x0041db90) calls this
  * with the 0x0041db20 callback, the 0x004d8270 PhysOps block, the live

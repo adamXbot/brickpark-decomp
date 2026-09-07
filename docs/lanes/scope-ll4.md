@@ -13,11 +13,12 @@ Brief: `docs/SCOPE_LL4_coaster_shades.md`.
 | 0x0041fba0 | Span_FillFlatZ | 136 | ~63 | WIP | 136/136i, 398/399B, 62 mismatch |
 | 0x0041fd80 | Span_FillShade | 162 | ~74 | WIP | 162/162i, 507/505B, 106 mismatch |
 | 0x0041ff80 | Span_FillShadeZ | 202 | ~71 | WIP | 202/202i, 633/633B, 62 mismatch |
-| 0x00420200 | IntegrateSimpson | 81 | ~68 | WIP | 81/81i, 251/258B, 61 mismatch |
+| 0x00420200 | IntegrateSimpson | 81 | 98.8 | WIP | 81/81i, 258/258B, 2 mismatch; fstp/add esp swap |
 | 0x00420780 | GetCoasterTexture | 3 | 100 | [OK] | FUNCTION |
 
-**3 / 8 exact.** All five WIPs are at instruction-count equality and at
-floor after the targeted home/latch/cleanup levers. `audit.py` PASS;
+**3 / 8 exact.** The four span fillers are still at the ZBuffer-class
+floor. IntegrateSimpson is now byte-exact (258/258) and count-exact
+(81/81) with one adjacent-instruction swap. `audit.py` PASS;
 `relocs.py` zero MISMATCH on the three FUNCTION bodies (UNRESOLVED
 float-pool literals on Romberg); `/W3` clean.
 
@@ -33,13 +34,13 @@ or `{dead,row}` aggregate scalarises back into arg slots (still `0x58` /
 flip leaves the n slot). The four-field sl-struct is the only spelling
 that grew the frame, and it cost bytes (ruled out).
 
-IntegrateSimpson's volatile `0x28` frame is required. `fn(a)`/`fn(b)`
-cleanup merges to `add esp,8`; the counted loop latches `jle`/`inc`
-instead of jmp-to-test `add ecx,1` / `jg`. Pulling `fa` out of the
-struct, a goto latch, a block-local pfn, and an address-taken
-non-volatile frame all shift the home list or stay inert. The `jg` form
-needs a non-volatile spilled `i`; that slot is the hole at `[ebp-0x24]`
-inside the volatile aggregate.
+IntegrateSimpson is 80/81 matchfull (98.8%), 258/258B, audit 2 mismatch.
+`#pragma optimize("g", off)` plus `x = a + (h = half*h)` lands the
+jmp-to-test `jg` for, both `add esp,4`, integer `push x`, global-first
+fmuls, `fsubr`, and the `fst`/`fadd a` chain. Residual: Og-off emits
+`call fn(a)` / `add esp,4` / `fstp fa`; the original stores then cleans.
+Og-on restores that store order but re-merges `add esp,8` and inverts
+the for. Inline-asm `call` saves esi/ebx/edi and drops to 75.9%.
 
 ## Names
 
@@ -97,9 +98,11 @@ Globals first named here: `g_one_sixth` (0x004b5610), `g_span_ramp`
 - Empty `__asm {}` forces Simpson's EBP frame. A volatile `SimpsonFrame`
   plus the exe float-pool globals (`g_half` / `g_two` / `g_three` /
   `g_four` / `g_third`) puts n at `[ebp-0x18]` and stops `2.0` becoming
-  `fadd st,st`. Residual: sibling `fn(a)`/`fn(b)` merge to `add esp,8`;
-  the counted loop latches with `jle`/`inc` instead of `jmp`-to-`jg` /
-  `add ecx,1`.
+  `fadd st,st`. `#pragma optimize("g", off)` is required for the
+  jmp-to-test `jg` for, split `add esp,4`, integer push of x, and
+  global-first fmul. `x = a + (h = half*h)` is the `fst h` / `fadd a`
+  chain (plain `h = half*h; x = a+h` is `fstp` / `fld a` / `fadd h` and
+  261B). Residual: `add esp,4` before `fstp fa` after `fn(a)`.
 - Span interpolant array `ed[4]` of 0x14 is load-bearing (ZBuffer_FillPoly
   rule). FlatZ parks z at +8; Shade parks shade at +4. Residuals are the
   same class as ZBuffer_FillPoly: row/ylast homes swapped with argument
@@ -122,4 +125,9 @@ Globals first named here: `g_one_sixth` (0x004b5610), `g_span_ramp`
   non-volatile frame (`lea eax, f`) → 55.4%. Goto latch (same as `for`)
   → inert 67.8%. Block-scoped pfn for `fn(a)` → inert 67.8%, still
   `add esp,8`. `fa` as a separate (volatile or not) local + 9-field
-  struct → 31%, homes shift, still `add esp,8`.
+  struct → 31%, homes shift, still `add esp,8`. Og-on + assign-expr
+  body → 69.4%, still `add esp,8`. Inline-asm first call → 75.9%
+  (esi/ebx/edi saved). Og-on `__inline` helper for `fn(a)` is re-optimized
+  in the Og-off caller (still `add esp,4` then `fstp`). `float t` for
+  the `h` chain grows the frame (0x34). `#pragma optimize("p", on)`
+  → 58.6%. Non-volatile struct + Og-off → 94.0%.
