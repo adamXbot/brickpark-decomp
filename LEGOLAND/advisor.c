@@ -120,20 +120,23 @@ void InitAdvisorBmi(void);
 void AdvisorMovieTick(void);
 void StartAdvisorClip(AdvisorClip* clip);
 
-/* Open one advisor .AVI (video stream only) into a 0x28-byte clip record. */
-// WIP-FUNCTION: LEGOLAND 0x00443bd0
+/* Open one advisor .AVI (video stream only) into a 0x28-byte clip record.
+ * Declaration order mirrors OpenMovie without the audio = 0 home: only
+ * video = 0, so ebx is the shared zero / video carrier. frames/fps/w/h stay
+ * uninitialized (OpenMovie precedent). +0x18 (audio) is never written. */
+// FUNCTION: LEGOLAND 0x00443bd0
 AdvisorClip* LoadAdvisorMovie(const char* path)
 {
     void*         pfile;
-    void*         video = 0;
+    int           fps;
     int           i;
     void*         stream;
     AVISTREAMINFO si;
     AVIFILEINFO   fi;
-    int           frames = 0;
-    int           fps = 0;
-    int           w = 0;
-    int           h = 0;
+    void*         video = 0;
+    int           frames;
+    int           w;
+    int           h;
     AdvisorClip*  clip;
 
     if (g_avi_open_count == 0)
