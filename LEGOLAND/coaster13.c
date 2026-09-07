@@ -427,13 +427,15 @@ float Track_StepObjective(float t)
 }
 
 /* Walk backward along the track until |pos - origin| == step. First try
- * the current geom's [t0, t]; then retreat and try each prior [t0, t1]. */
-// WIP-FUNCTION: LEGOLAND 0x00429f30  (70/70i, 232/232B, 11; push out_t 7 late)
+ * the current geom's [t0, t]; then retreat and try each prior [t0, t1].
+ * Named `step2` CSE'd the square into a live local and batched push esi
+ * with push tol; `g_step_len2 = step * step` after t0 keeps prologue
+ * fld/fmul on ST and emits the early out_t push. */
+// FUNCTION: LEGOLAND 0x00429f30
 void Track_StepAlong(Vec3f* origin, float step, RoutePos* from, float t,
                      float tol, RoutePos* out, float* out_t)
 {
     RoutePos cur;
-    float step2 = step * step;
     float t0;
     float hi;
     Vec3f* org;
@@ -442,7 +444,7 @@ void Track_StepAlong(Vec3f* origin, float step, RoutePos* from, float t,
     cur = *from;
     hi = tol;
     t0 = cur.geom->t0;
-    g_step_len2 = step2;
+    g_step_len2 = step * step;
     g_step_origin = org;
     g_step_len = step;
     g_curve_offset = hi;
