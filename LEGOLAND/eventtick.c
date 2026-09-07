@@ -406,6 +406,10 @@ int ClearSfxFade(void* sample)
  * (`mov ecx, ebp`) and g_sel_bpos.b.y from a reload of sq.y's home slot;
  * this body has those two roles the other way round, because the volatile
  * read below is the only spelling found that puts base x in ebp at all.
+ * A byte re-read of a local's home needs a memory kill between the store
+ * and the read, and VC6 has only three: a call, a volatile access, or a
+ * store through a pointer it cannot resolve. The original's group contains
+ * none of them, and the last two cost instructions it does not have.
  * See docs/lanes/scope-v.md for the levers and the bounded negatives.
  * This is a full body ending in ret, not a truncated comparison. */
 // WIP-FUNCTION: LEGOLAND 0x00469c80  (177i/576B vs 177i/577B, 24 strict; cursor-setup byte sources differ)

@@ -682,3 +682,148 @@ use of base x that VC6 does not treat as a register-class constraint on x
 itself, paired with a plain (non-volatile) memory read of `sq.y`'s low
 byte. Scratch for this pass is `/tmp/svclear2_*` (`svclear2_gen.py`,
 `svclear2_gen[A-H].py`, `svclear2_probe.py`).
+
+## CLEAR clean-sheet pass: the forwarding mechanism, measured — 2026-09-07
+
+Third pass, reconstructed from the disassembly without inheriting the earlier
+passes' C shape. It did not close CLEAR: the state is unchanged at **177
+instructions / 576 bytes against the original 177 / 577, 24 strict
+differences, first at instruction 110**, whole-file audit PASS with 45 `[OK]`
+in `eventtick.c` (plus CLEAR as WIP) and 16 in `eventgoal.c`, `tools/relocs.py`
+zero MISMATCH, `/W3` clean. What it did buy is the *mechanism* behind
+`mov dl, byte ptr [esp+0x1c]` at 0x00469ddf, established on scratch functions
+rather than inferred from the body, and it **corrects a lever** that the
+earlier passes and the levers index both relied on.
+
+### The corrected lever
+
+"A store to ANY global kills CSE of an unrelated load" ([LEVERS.md](../LEVERS.md)
+Reads, from D-era evidence) is true for a re-load of a GLOBAL or of a field of
+an address-taken struct. It is **false for store-to-load forwarding of a
+local's own stored value**: VC6 SP3 forwards a local's stored register to a
+later narrowing read across any number of ordinary global stores. So the
+hypothesis that the original's asymmetry (x's byte from `cl`, a register copy;
+y's byte from a reload of `sq.y`'s home) falls out of a symmetric source plus
+the position of the global stores is **excluded by direct measurement**.
+
+`/tmp/svclear3_probe.c`, `probe2..probe6.c`, each function a five-to-ten line
+scratch shape compiled `/O2 /Gy /Gd` and read instruction by instruction:
+
+- **Global stores do not kill it.** Zero, one and three global stores between
+  `sq.y = v` and `g_b.y = (unsigned char)sq.y` all forward (`P_A`, `P_B`,
+  `P_C`); so does a store to a `volatile`-qualified global (`P_T1`, `P_T2`) and
+  a store of a pointer into a global (`g_sel_def = d` before the read, all 162
+  such full-body variants below). Address-taken or not makes no difference
+  (`P_D`).
+- **The 6196-byte copy does not kill it.** Struct assignment, intrinsic
+  `memcpy` of a struct, `memcpy` of a local `char[6196]` through decayed
+  pointers, `*sp = g_big` through a pointer variable, and `saved = *g_bigp`
+  from an opaque global pointer all forward (`P_E`, `P_J`, `P_Q1`..`P_Q7`).
+  VC6 will even sink the `rep movsd` *below* the byte store when nothing stops
+  it.
+- **No access-path spelling kills it.** Store through a `Pos*` alias and read
+  the field; store the field and read through the alias; read through a
+  differently-tagged struct pointer; store through an `int*` to the field;
+  union int-member store with a named byte-member read; a byte-quartet struct
+  written with an `int` store; `*(unsigned char*)&sq.y`; the escape
+  established *before* the store; the read used twice — ten shapes, all
+  forward (`P_R1`..`P_R10`). This reproduces the earlier passes' ten negatives
+  from a different direction.
+- **Three things do kill it**, and each emits the original's exact
+  instruction:
+  1. a **call** between the store and the read while the aggregate's address
+     escapes (`P_K` → `mov dl, byte ptr [esp+8]`);
+  2. a **volatile** access (`P_L`) — the retained body's probe;
+  3. a **store through a pointer VC6 cannot resolve** (`P_T3`, `P_T5`:
+     `*g_ip = v` with `g_ip` a global `int*`). `P_T5` reproduces the
+     original's asymmetry exactly and with no `volatile` anywhere: x's byte
+     comes from the register (`mov byte ptr [..], cl`) and y's from
+     `mov dl, byte ptr [esp+4]`.
+- **The new kill does not survive address propagation** (`P_U1`..`P_U6`):
+  `Pos* q = &g_o; q->y = v;` folds to `mov [<abs>], eax` and forwards again,
+  as does a pointer to a global scalar, a pointer into `sq` itself, and a
+  second address-taken local. So mechanism 3 always costs the pointer load
+  (`mov reg, [g_ptr]`) that the original's group does not contain — the group
+  at 0x00469db9..0x00469df8 has only stack stores, absolute stores and the
+  `rep movsd`. That is why the residual survives: the original needs a kill
+  where no reachable construct puts one.
+
+### Steps 1-3: the symmetric family, 486 variants (`/tmp/svclear3_gen3.py`)
+
+`{by | sq.y | chained}` for `origin.y` x `{bx | sq.x | chained}` for
+`origin.x` x `{bx | sq.x | memory}` for the x byte x `{by | sq.y | memory}`
+for the y byte x `sq.y`'s store before/after the copy x `g_sel_def` before /
+between / after the two byte stores.
+
+| family | n | strict | shape |
+| --- | ---: | ---: | --- |
+| both bytes plain (any spelling, any order) | 216 | **108** | 174i/570B, first diff 19, no byte load |
+| x byte from memory, y plain | 108 | 59 | 176i/574B, first diff 112 |
+| y byte from memory, x plain | 108 | 69 | 176i/574B, first diff 79 |
+| both bytes from memory | 54 | 35 | 177i/578B, two byte loads |
+
+The first row is the informative one: **all 216 plain variants compile to
+byte-identical code.** Origin spelling, chaining, which symbol each byte store
+names, `sq.y`'s store position and `g_sel_def`'s position are all inert once
+both bytes are register-sourced; the two byte needs alone drive the allocation
+to `next=ebp`, x and y into `edx`/`ebx` (loaded with `xor ebx,ebx / mov bl,
+[edi+5]`), and the footprint block breaks 19 instructions earlier. This
+confirms the first pass's byte-need lever from an independent starting point.
+
+**Emitted store order is not source order here.** In every plain variant VC6
+regroups the group's stores by REGISTER — all of one coordinate's stores, then
+the other's — and hoists one coordinate's stack store above the `rep movsd`
+itself. With `sq.y` written first in source it hoists `sq.x`. So the
+original's `mov [esp+0x1c], edx` at 0x00469dd1, above the copy, is the
+scheduler's choice and is not evidence that the source stores `sq.y` before
+`saved = g_destroy_cursor`. Measured directly: hoisting `sq.y` in the SOURCE
+costs 2 strict (26 against 24).
+
+### Steps 3+5: the aggregate-origin family, 324 + 216 variants
+
+`/tmp/svclear3_gen4.py` (byte sources x store positions x `g_sel_def` position
+x `g_sel_bpos` spelling x copy spelling) and `/tmp/svclear3_gen5.py` (byte
+store ORDER and the memory read's placement).
+
+- **`g_sel_bpos` must be two field stores.** Filling a local `BPosW` and
+  assigning it whole gives one word store: best 64 strict, 581 bytes, against
+  27 for the same 162 configurations written as two byte fields.
+- **The copy spelling is completely inert.** `saved = g_destroy_cursor` and
+  `memcpy(&saved, &g_destroy_cursor, sizeof(saved))` — with or without
+  `#pragma intrinsic(memcpy)` — compile byte-identically (24 strict either
+  way). `/O2` already implies `/Oi`.
+- **The struct TAG is inert.** `sq` declared as a distinct `struct SqPos {
+  int x, y; }` with casts at `d->query` and `RemoveObjectPathTiles` is
+  byte-identical at 24 strict. A union of `Pos` with a named byte field at
+  offset 4, read as the y byte, drops to 108 (no byte load).
+- **Both sq stores after the copy** beats hoisting `sq.y` (24 vs 26), and
+  **the memory read placed before the origin store** beats placing it at its
+  use (24 vs 27).
+- **`g_sel_def`'s position** is worth at most one: 24 before both byte stores,
+  24 between them, 25 after both.
+- **The byte-store order is inert at the optimum**: x-byte-first and
+  y-byte-first both reach 24.
+- **Byte-typed temps coalesce** and do not manufacture the original's
+  `mov ecx, ebp` split: `unsigned char yb = (unsigned char)sq.y` defined
+  before the copy and used after it (so its range crosses the copy and
+  interferes with `by`) still forwards, in all eight shapes tried
+  (`/tmp/svclear3_gen2.py`).
+
+### Outcome
+
+Nothing beat the retained body, and the best non-volatile spelling in this
+pass is 105 strict, so the body committed by the previous pass stands
+unchanged: 24 strict, 177i/576B, footprint block exact, one `volatile` byte
+probe on `sq.x`. The floor statement from the second pass is unchanged but its
+reason is now sharper and is a general rule rather than a property of this
+body: **the group needs a memory-kill between `sq.y`'s store and its byte
+read, and VC6 SP3 provides exactly three, all of which cost either an
+instruction the original does not have (a call, an unresolvable pointer store)
+or a qualifier the source cannot plausibly carry.** Anyone reopening CLEAR
+should start by finding a fourth kill, not by permuting statements: the
+statement space is now measured flat.
+
+Scratch for this pass is `/tmp/svclear3_*` (`svclear3_probe.py` scorer,
+`svclear3_harness.py`, `svclear3_gen[1-6].py`, `svclear3_probe[2-6].c`,
+`svclear3_dump.py`). No binaries, assets or extracted disassembly are
+committed.
