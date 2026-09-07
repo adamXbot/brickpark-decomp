@@ -548,3 +548,137 @@ Scratch for this session is `/tmp/svclear_*` (generators `svclear_gen*.py`,
 scorers `svclear_probe2.py`, `svclear_sbs.py`, `svclear_bytes.py`,
 `svclear_alloc2.py`, `svclear_hasload.py`). No binaries, assets or extracted
 disassembly are committed.
+
+## CLEAR reconstruction hypotheses, second pass — 2026-09-07
+
+The first pass varied one C shape ~10,000 ways and plateaued at 24 strict.
+This pass changed the reconstruction hypothesis instead and measured five
+candidate readings of the source. All five are negative for the byte reload
+at instruction 114; the state is unchanged at **177i/576B, 24 strict, first
+difference at 110**, whole-file audit PASS, 45 exact in `eventtick.c` plus
+16 in `eventgoal.c`. What the pass did buy is a sharp statement of why the
+group cannot close with any construct in the levers index, and two new
+structural facts about the group (see the last two subsections).
+
+### H1 — asymmetric source symbols: negative
+
+If the two byte stores named different objects, x's byte could come from a
+register and y's from the aggregate's home. Swept every combination of
+which object each byte store reads (`bx` / `sq.x`, `by` / `sq.y`) crossed
+with which side of `saved = g_destroy_cursor` each `sq` field store falls
+on, both origin spellings and both tail orders: 144 variants
+(`/tmp/svclear2_A.c`) plus 128 more with the copy spelling swept
+(`/tmp/svclear2_B.c`). **Zero of the 272 emit any byte load from the stack
+in the group**, and moving either `sq` store above the copy breaks the
+footprint block (19 of 24 differ, total 106-111 strict). VC6 propagates
+`sq.y`'s stored value to the byte store regardless of which symbol the
+source names, so the two stores naming different objects is not what
+produces the asymmetry.
+
+### H2 — `sq` genuinely address-taken across the copy: negative
+
+`&sq` does escape, but only *after* the group: `lea ecx, [esp+0x18]` at
+0x00469e04 for `d->query(d->inst, &sq)` and `lea eax, [esp+0x18]` at
+0x00469e35 for `RemoveObjectPathTiles`. Both are downstream of the byte
+reload at 0x00469ddf, so no callee can be making memory canonical for
+`sq.y` at that point, and no callee in the group receives a pointer into
+`sq`. Modelling the copy as something VC6 must treat as writing through
+pointers does not help either: `memcpy(&saved, &g_destroy_cursor,
+sizeof(saved))` with `#pragma intrinsic(memcpy)`, `cp = &g_destroy_cursor;
+saved = *cp;`, and `sp = &saved; *sp = g_destroy_cursor;` — crossed with
+matched and unmatched restore spellings — all emit the same `mov ecx, 0x60d
+/ lea edi / rep movsd` and all still forward the byte (128 variants,
+`/tmp/svclear2_B.c`). The escape reading is excluded, so the volatile probe
+cannot be replaced by an escape.
+
+### H3 — the copy is a different type than assumed: negative
+
+The copied extent is pinned and matches the retained layout: `mov ecx,
+0x60d` is 1549 dwords = 6196 = 0x1834 bytes, exactly `sizeof(Cursor)` as
+declared, and `origin` at +0x1404 is inside that extent, so
+`saved = g_destroy_cursor` copies the whole cursor including its origin and
+the origin stores that follow are genuine re-writes. Origin-as-its-own
+aggregate, origin written through a `Pos*` alias, a `union { Pos p;
+unsigned char b[8]; int w[2]; }` view of `sq` with the byte read as `b[4]`,
+filling `sq` by aggregate copy from a register-resident `Pos t`, and an
+inlined `PosLoY(const Pos*)` helper were all tested (13 hand-written cases
+`/tmp/svclear2_D.c`, plus 256 origin spellings `/tmp/svclear2_E.c`). None
+produces a stack byte load; the union and aggregate-copy paths compile
+identically to the plain field assignment.
+
+### H4 — destination widths and the register pool: negative
+
+The destination widths are already right (`Pos` of ints for `origin`, byte
+pair for `g_sel_bpos`) and the `dword`-then-`byte` store order follows the
+source. The stronger form of this hypothesis — that the coordinates are CSE
+temps of `c->x` / `c->y` handed registers out of the temp pool after `next`
+takes ebx, rather than enregistered named locals — was swept exhaustively:
+for each of the four x use sites and four y use sites independently, name
+the local or re-read the cell, crossed with assignment and tail order, 1024
+variants (`/tmp/svclear2_C.c`). Result: 128 variants do reach `x=ebp`, but
+all of them are the ones whose x *byte* re-reads `c->x`, and all cost 158
+strict and 584 bytes because `c` lives in edi, which the `rep movsd`
+clobbers, so VC6 spills and reloads it. No variant in the batch emits a
+stack byte load, and none reaches a clean footprint block.
+
+### H5 — identical-arm join and dead uses: negative
+
+`if (d) g_sel_bpos.b.x = (unsigned char)bx; else g_sel_bpos.b.x =
+(unsigned char)bx;`, the ternary `sx = d ? bx : bx;`, and dead round trips
+(`sx = bx; ... bx = sx;`) all fold to byte-identical code with the plain
+form — 573 bytes, 111 strict, the same register assignment. VC6 collapses
+identical arms before allocation, so the trick has no purchase here (14
+cases, `/tmp/svclear2_F.c`).
+
+### The two structural facts this pass did establish
+
+1. **One coordinate always goes through a temp, and it is the one whose
+   `sq` store lands *after* the copy.** In the original that is x: `mov
+   ecx, ebp` at 112 and then ecx serves `sq.x`(115), `origin.x`(116) and
+   `bpos.x`(117), while y is stored straight from its own register at 110
+   and 113. The retained body has the same one-temp shape with the roles
+   swapped — `mov esi, edx` and esi serving the y stores. The role follows
+   the volatile probe: whichever field is read out of memory has its store
+   hoisted above the copy and keeps its own register.
+
+2. **The original writes `sq` and `origin` field by field, y pair first.**
+   Stores 110 / 113 / 115 / 116 are `sq.y`, `origin.y`, `sq.x`,
+   `origin.x` — an interleaving that a chained assignment reproduces
+   exactly: `g_destroy_cursor.origin.y = sq.y = by;` then
+   `g_destroy_cursor.origin.x = sq.x = bx;`. With that spelling the
+   save-block residual drops to 10 of 21, its best value yet, and
+   instructions 110-111 and 118 land exactly (252 variants,
+   `/tmp/svclear2_G.c`). But field-wise stores need no aggregate temp, so
+   the copy at 112 disappears and the body comes out 176 instructions,
+   shifting the whole tail. Aggregate origin buys the copy and loses the
+   order; chained origin buys the order and loses the copy.
+
+### The floor, stated precisely
+
+Every mechanism that makes a coordinate's byte come out of memory also
+moves that coordinate into ebp. Volatile casts, a `volatile Pos sq`
+declaration, a `struct { int x; volatile int y; }` local, and
+`((volatile Pos*)&sq)->y` all produce the original's exact `mov ?l, byte
+ptr [esp+0x1?]` instruction, and in all of them the volatile-read
+coordinate takes ebp and the other takes edx (138 variants,
+`/tmp/svclear2_H.c`). The original needs the opposite pairing: ebp holds
+the coordinate whose byte *is* wanted in a byte register — which is exactly
+why it must spend `mov ecx, ebp` — and edx holds the coordinate whose byte
+comes from memory even though dl was available. The inversion reproduced
+from four independent directions (byte-need counting, reference counting,
+volatile placement, and store hoisting), so it is a property of this
+compiler under every spelling reachable here, not a scheduling accident.
+
+Two variants beat 24 on raw count and were rejected: `struct { int x;
+volatile int y; }` for `sq` with the chained origin reaches 23 strict but
+breaks the footprint block (9 of 24 differ) and needs a fabricated type
+with a volatile field, and the chained-origin/volatile-x body reaches
+save-block residual 10 but 176 instructions. The committed body keeps the
+footprint block exact and the instruction count right, which is the more
+reusable evidence.
+
+Closing CLEAR needs a construct outside the current levers index: a byte
+use of base x that VC6 does not treat as a register-class constraint on x
+itself, paired with a plain (non-volatile) memory read of `sq.y`'s low
+byte. Scratch for this pass is `/tmp/svclear2_*` (`svclear2_gen.py`,
+`svclear2_gen[A-H].py`, `svclear2_probe.py`).
