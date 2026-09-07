@@ -21,7 +21,10 @@ typedef struct Cell {
     void*          obj;          /* +0x00  LLIDB element */
     TileKey        xy;           /* +0x04 packed owner */
     char           pad06[6];
-    unsigned short flags;        /* +0x0c */
+    union {
+        unsigned short flags;    /* +0x0c */
+        unsigned char  flag0;    /* +0x0c  case 0 / case 3 byte tests */
+    } f;
 } Cell;
 typedef struct Map {
     char           pad00[0x14];
@@ -87,6 +90,15 @@ void FaceClassRect(Bloke* b, Rect* r);
 static __inline Cell* CellAt(int x, int y)
 {
     if (x >= 0 && x < g_map->width && y >= 0 && y < g_map->height)
+        return &g_map_rows[y][x];
+    return 0;
+}
+
+/* Case 3: Map* first so g_map lands in edi and width uses ebx
+ * (`xor ebx,ebx; mov bx,[edi+14h]`), not the case-2 edi-width shape. */
+static __inline Cell* CellAtEdi(Map* m, int x, int y)
+{
+    if (x >= 0 && x < m->width && y >= 0 && y < m->height)
         return &g_map_rows[y][x];
     return 0;
 }
@@ -268,11 +280,11 @@ void Visitor_WaveThenResume(Bloke* b)
 }
 
 /* Plan 0x0d: find an unreserved CAFE BROLLY, walk there, reserve, wait, leave.
- * First diverge i19: original `test dl,1` vs hoisted `mov ebx,1` / `test bl,dl`
- * (the already-pushed ebx steals the reservation mask). Loop-empty arm is
- * `jne again` + inline NewLongTermAction; ours still `je` to the shared tail.
- * SuggestNextMove leas and dest.y = by+stand_y match when aligned. */
-// WIP-FUNCTION: LEGOLAND 0x0044fe80  (76.7%, i19 ebx=1 hoist / loop polarity)
+ * Floor at i19: original `test dl,1`; ours hoists `mov ebx,1` / `test bl,dl`.
+ * Case 3 CellAtEdi keeps act in dl and uses ebx as the width scratch, but the
+ * loop `& 1` across GetNext still parks 1 in ebx. Empty-walk stays `je` to the
+ * shared tail, not `jne again` + inline NewLongTermAction(6). */
+// WIP-FUNCTION: LEGOLAND 0x0044fe80  (79.7%, i19 ebx=1 hoist / empty-walk je)
 void Visitor_ReserveCafeBrolly(Bloke* b)
 {
     unsigned char act;
@@ -289,16 +301,16 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
             NewLongTermAction(b, 6);
             break;
         }
-        for (;;) {
-            cls = ((Elem*)cell->obj)->cls;
-            if (!(cell->flags & 1))
-                break;
-            cell = GetNextObjectMatching(cell, g_cafe_brolly_elem);
-            if (cell)
-                continue;
-            NewLongTermAction(b, 6);
-            return;
-        }
+    again:
+        cls = ((Elem*)cell->obj)->cls;
+        if (!(cell->f.flag0 & 1))
+            goto found;
+        cell = GetNextObjectMatching(cell, g_cafe_brolly_elem);
+        if (cell)
+            goto again;
+        NewLongTermAction(b, 6);
+        return;
+    found:
         b->owner = cell->xy;
         b->dest.x = (cls->stand_x + cell->xy.b.x) << 8;
         b->dest.y = (cell->xy.b.y + cls->stand_y) << 8;
@@ -346,17 +358,19 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
         }
         break;
     }
-    case 2:
+    case 2: {
+        unsigned short fl;
         cell = CellAt(b->owner.b.x, b->owner.b.y);
-        if (cell->obj != g_cafe_brolly_elem || !(cell->flags & 0x80)) {
+        fl = cell->f.flags;
+        if (cell->obj != g_cafe_brolly_elem || !(fl & 0x80)) {
             NewLongTermAction(b, 6);
             break;
         }
-        if (cell->flags & 1) {
+        if (fl & 1) {
             b->action = 0;
             break;
         }
-        cell->flags |= 1;
+        cell->f.flags = (unsigned short)(fl | 1);
         b->flags |= 8;
         b->target.x = b->dest.x - 0x80;
         b->target.y = b->dest.y;
@@ -367,9 +381,14 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
         b->elapsed = 0;
         b->action++;
         break;
+    }
     case 3:
-        cell = CellAt(b->owner.b.x, b->owner.b.y);
-        if (cell->obj != g_cafe_brolly_elem || !(cell->flags & 0x80)) {
+        cell = CellAtEdi(g_map, b->owner.b.x, b->owner.b.y);
+        if (cell->obj != g_cafe_brolly_elem) {
+            NewLongTermAction(b, 6);
+            break;
+        }
+        if (!(cell->f.flag0 & 0x80)) {
             NewLongTermAction(b, 6);
             break;
         }
@@ -378,11 +397,11 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
         break;
     case 4:
         cell = CellAt(b->owner.b.x, b->owner.b.y);
-        if (cell->obj != g_cafe_brolly_elem || !(cell->flags & 0x80)) {
+        if (cell->obj != g_cafe_brolly_elem || !(cell->f.flags & 0x80)) {
             NewLongTermAction(b, 6);
             break;
         }
-        cell->flags &= ~1;
+        cell->f.flags &= 0xfffe;
         b->target.x = b->dest.x + 0x80;
         b->target.y = b->dest.y;
         a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
