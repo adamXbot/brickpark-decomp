@@ -888,3 +888,165 @@ int PhysVec_Derivative4(void (*fn)(float, PhysVec*), PhysOps* ops,
     ops->free(tmp, 2);
     return 1;
 }
+
+/* =========================================================================
+ * 0x0041fa10 -- THE SHADED, Z-BUFFERED SPAN FILLER
+ * =========================================================================
+ * The dead twin of schoolcar6.c's ZBuffer_FillPoly (0x00423350).  Same
+ * two-chain scanline filler, same key/edge arrays, same pre-biased 16.16
+ * chains, same half-pixel span test -- and the same hand-written assembly
+ * region, on all three of schoolcar6.c's proofs: an EBP frame in an /O2
+ * file, `xchg ebx,eax` for a register swap, `add ebx,1` where VC6 emits
+ * `inc ebx`, and the `cmp ecx,8000h / jns wide / jmp done` pair where a
+ * single `js done` would do.
+ *
+ * What this one adds over its live twin:
+ *   * it PAINTS instead of clearing: the pixel value is one entry of one of
+ *     the 0x400 shade ramps at 0x00829c60, picked by the ramp index
+ *     (argument 1) and the shade level (`src[0]`);
+ *   * the LEFT chain carries a second interpolant, a 16.16 depth, whose
+ *     value and step live at +0x08 of the same 0x14-byte records; and
+ *   * it writes BOTH targets: the colour goes to 0x004b5b20 (the global
+ *     schoolcar6.c's ZBuffer_FillPoly copies and never reads -- so THIS is
+ *     what it is: the 16-bit colour target's base) and the depth, taken from
+ *     the left chain and stepped by `src[1]` per pixel, goes to the z-buffer
+ *     at 0x004b5b24.  Both rows advance by `pitch * 2` bytes, which VC6
+ *     hoists into the dead `n` argument slot.
+ * ========================================================================= */
+
+typedef struct ZKey { int y; int idx; } ZKey;   /* 8 */
+
+typedef struct ZEdge {
+    short         f00;          /* +0x00 */
+    short         ylast;        /* +0x02 */
+    int           side;         /* +0x04  non-zero = the right-hand chain */
+    int           x;            /* +0x08  16.16 */
+    int           z;            /* +0x0c  16.16 */
+    unsigned char pad10[0x1c - 0x10];
+    int           step;         /* +0x1c */
+    int           zstep;        /* +0x20 */
+    unsigned char pad24[0x30 - 0x24];
+} ZEdge;                        /* 0x30 */
+
+/* One span-edge interpolant record: five ints, of which this fill uses the
+ * first (x) and the third (z).  The `__asm` block addresses them by BYTE
+ * offset, because MSVC's inline assembler does not scale a bracketed index
+ * by the element size. */
+typedef struct ZInterp { int x; int rest[4]; } ZInterp;   /* 0x14 */
+
+extern short*          g_zb_colour;              /* 0x004b5b20 */
+extern short*          g_zb_base;                /* 0x004b5b24 */
+extern int             g_zb_pitch;               /* 0x004b5b28 */
+extern int             g_zb_polys;               /* 0x0060f900 */
+extern unsigned short* g_shade_tab[0x400];       /* 0x00829c60 */
+
+/* WIP: 134/134 instructions and 393/393 bytes, 31 strict mismatches, first
+ * divergence at index 22.  The whole hand-written region is index-for-index
+ * exact, as is the entire set-up down to the two row bases and the outer
+ * loop's key walk.  The residual is two things and nothing else:
+ *
+ *  1. TWELVE frame homes: the original keeps `row`, `zrow`, `pitch` and
+ *     `ylast` in the frame at -0x14/-0x10/-0xc/-8 and gives the three dead
+ *     argument slots to `colour` (+8), the z step (+0xc) and VC6's own
+ *     hoisted `pitch*2` (+0x10).  We get `colour` at +8 right, but VC6 hands
+ *     the two POINTERS the other two argument slots and pushes the z step and
+ *     the hoisted stride into the frame instead.  Measured and inert: all
+ *     seven declaration orders of the five scalars (schoolcar6.c records the
+ *     same negative for its twin), `int` vs `short` for the colour, and
+ *     making the z step reuse the `src` parameter's own home by declaring
+ *     that parameter `int` and assigning into it -- that DOES move the z step
+ *     to +0xc but pushes `colour` out of +8, for the same total of 43 before
+ *     the base-load fix and no better after it.
+ *  2. FOURTEEN instructions in the per-key edge switch: the original hoists
+ *     `e->x` into the block above the branch and loads `e->step` inside each
+ *     arm; VC6 hoists `e->step` for us.  All six orderings of the two arms'
+ *     stores are inert (VC6 reorders the adjacent stores anyway), and naming
+ *     the hoisted value (`int ex = e->x;`) makes it worse, not better -- 55
+ *     with the steps-first arms, 70 values-first, 103 with both named.
+ *
+ * The set-up's own scheduling WAS reachable and is worth recording: writing
+ * the two row pointers as `zrow = g_zb_base; row = g_zb_colour;` immediately
+ * after `pitch`, and adding `pitch * y` to them at the END of the set-up,
+ * takes the body from 105 strict to 31.  Computing them in one statement
+ * each (`row = g_zb_colour + pitch * y;`) leaves both base loads at the
+ * bottom where the original has them at the top, and costs 74. */
+// WIP-FUNCTION: LEGOLAND 0x0041fa10  (134/134 insns, 393/393 B, 31 strict; frame homes + one CSE hoist)
+void ZBuffer_FillShadedPoly(int ramp, const int* src, int n,
+                            ZKey* key, ZEdge* edge)
+{
+    ZInterp ed[4];
+    short*  row;
+    short*  zrow;
+    int     pitch;
+    int     ylast;
+    int     y;
+    short   colour;
+    int     zstep;
+
+    y = key[0].y;
+    edge[key[n - 1].idx].ylast++;
+    ylast = edge[key[n - 1].idx].ylast;
+    pitch = g_zb_pitch;
+    zrow = g_zb_base;
+    row  = g_zb_colour;
+    zstep = src[1];
+    g_zb_polys++;
+    colour = g_shade_tab[ramp][src[0]];
+    key[n].y = edge[key[n - 1].idx].ylast;
+    row  += pitch * y;
+    zrow += pitch * y;
+    do {
+        ZEdge* e = &edge[key->idx];
+
+        key++;
+        if (e->side) {
+            ed[2].x = e->x - e->step;
+            ed[3].x = e->step;
+        } else {
+            ed[0].x = e->x - e->step;
+            ed[0].rest[1] = e->z - e->zstep;
+            ed[1].x = e->step;
+            ed[1].rest[1] = e->zstep;
+        }
+        while (y < key->y) {
+            y++;
+            __asm {
+                mov  eax, ed[0]                 /* left.x             */
+                mov  edx, ed[8]                 /* left.z             */
+                mov  ebx, ed[40]                /* right.x            */
+                add  eax, ed[20]                /* += left.step       */
+                add  edx, ed[28]                /* += left.zstep      */
+                add  ebx, ed[60]                /* += right.step      */
+                mov  ed[0], eax
+                mov  ed[8], edx
+                mov  ed[40], ebx
+                mov  ecx, ebx
+                sub  ecx, eax
+                cmp  ecx, 8000h                 /* half a pixel?      */
+                jns  wide
+                jmp  done
+            wide:
+                sar  eax, 16
+                sar  ebx, 16
+                mov  edi, row
+                mov  esi, zrow
+                xchg ebx, eax
+                sub  ebx, eax                   /* left - right, <= 0 */
+                lea  edi, [edi + eax*2]         /* &row[right]        */
+                lea  esi, [esi + eax*2]
+                mov  ax, colour
+            fill:
+                mov  ecx, edx
+                mov  word ptr [edi + ebx*2], ax
+                add  edx, zstep
+                sar  ecx, 16
+                mov  word ptr [esi + ebx*2], cx
+                add  ebx, 1
+                jle  fill
+            done:
+            }
+            row  += pitch;
+            zrow += pitch;
+        }
+    } while (y < ylast);
+}
