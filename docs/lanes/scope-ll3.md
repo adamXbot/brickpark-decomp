@@ -25,7 +25,7 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041ef60 | Raster_ClipPoly | 80 | 100 | [OK] | FUNCTION |
 | 0x0041db90 | Route_GetMassAndPower | 77 | 84 | 42 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
-| 0x0041f050 | Span_ClipPlane | 179 | 25.3 | latch jne; ebx=n; and ebx abs; frame 0x2c; 609B | WIP |
+| 0x0041f050 | Span_ClipPlane | 179 | 33.2 | latch jne; ebx=n; and ebx abs; frame 0x2c; 611B | WIP |
 
 **16 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
@@ -210,7 +210,7 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Hist `edx=*mass; ecx=i&0x3f`: named `m`/`i`/`slot` become `fld`/`fstp`
   (64/77); int-bitcast, post-inc, and SetSlope do-while keep the ecx/edx
   swap. Best remains 65/77. Trace / ClipPlane not touched.
-- **Span_ClipPlane** (WIP): 48/190 (25.3%), latch jne-to-header, frame **0x2c**,
+- **Span_ClipPlane** (WIP): 62/187 (33.2%), latch jne-to-header, frame **0x2c**,
   ebx=n held, loop abs `and ebx,0x7fffffff`. Reconstruct
   notes (2026-09-08): trailing early-out after `in[n]=in[0]`; `in++` then
   `left=n` with latch `in+=4; dec left; jne`; signed classify
@@ -337,3 +337,11 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   so it does not force ebx. Later destrel-only-at-lerp without an edx occupant
   loses `and ebx`. Tip C restored (destrel-before-fild still the and-ebx
   occupant; dest edi / nxt esi / sign ebp). Mass/Trace not touched.
+  **2026-09-08 je-arm + prev_abs fld.** Nested
+  `cls != ENTER { cls != BOTH { LEAVE } else BOTH } else ENTER` emits
+  orig `je ENTER / je BOTH / jne-cont / LEAVE` fallthrough. LEAVE `k=0`
+  outside the vtx guard (still spills, not `xor ebp`). fld first operand
+  from `prev_abs.i` (`[esp+0x34]`) while pa/na copies stay for colouring.
+  Byte-n store dropped: `mov ebx,n / cmp ebx,1 / jl` and `and ebx` still
+  hold. 62/187 (33.2%), 611/593B, still ESCAPES. dest edi / nxt esi /
+  sign ebp. Mass/Trace not touched.

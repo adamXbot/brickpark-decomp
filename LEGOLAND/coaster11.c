@@ -810,7 +810,6 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
     if (n >= 1) {
         cls = prev_sign;
         in++;
-        *(volatile unsigned char*)&left = (unsigned char)n;
         left = n;
         do {
             prev_sign = cls;
@@ -841,8 +840,40 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                 cls |= next_sign;
                 pa.i = *(volatile int*)&prev_abs.i;
                 na.i = n;
-                if (cls == (int)0x80000000) {
-                    float t = na.f / (pa.f + na.f);
+                /* je ENTER / je BOTH / fallthrough LEAVE */
+                if (cls != (int)0x80000000) {
+                    if (cls != (int)0xc0000000) {
+                        if (cls == (int)0x40000000) {
+                            float t = *(float*)&prev_abs.i / (pa.f + na.f);
+                            int k = 0;
+                            *(void**)out_v = prev;
+                            out_v = (char*)out_v + 4;
+                            if ((int)g_span_vtx >= 0) {
+                                int* src = (int*)prev;
+                                int delta = (char*)nxt - (char*)prev;
+                                int dest = (char*)dst - (char*)prev;
+                                do {
+                                    int dword = src[0];
+                                    {
+                                        int dlt = *(int*)((char*)src + delta) - dword;
+                                        *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
+                                    }
+                                    src++;
+                                    k++;
+                                } while (k <= (int)g_span_vtx);
+                            }
+                            *(void**)out_v = dst;
+                            out_v = (char*)out_v + 4;
+                            dst = (char*)dst + g_span_vtx_stride;
+                            out_n += 2;
+                        }
+                    } else {
+                        *(void**)out_v = prev;
+                        out_v = (char*)out_v + 4;
+                        out_n++;
+                    }
+                } else {
+                    float t = na.f / (*(float*)&prev_abs.i + na.f);
                     {
                         int k = 0;
                         if ((int)g_span_vtx >= 0) {
@@ -864,33 +895,6 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                     out_v = (char*)out_v + 4;
                     dst = (char*)dst + g_span_vtx_stride;
                     out_n++;
-                } else if (cls == (int)0xc0000000) {
-                    *(void**)out_v = prev;
-                    out_v = (char*)out_v + 4;
-                    out_n++;
-                } else if (cls == 0x40000000) {
-                    float t = pa.f / (pa.f + na.f);
-                    *(void**)out_v = prev;
-                    out_v = (char*)out_v + 4;
-                    if ((int)g_span_vtx >= 0) {
-                        int* src = (int*)prev;
-                        int delta = (char*)nxt - (char*)prev;
-                        int dest = (char*)dst - (char*)prev;
-                        int k = 0;
-                        do {
-                            int dword = src[0];
-                            {
-                                int dlt = *(int*)((char*)src + delta) - dword;
-                                *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
-                            }
-                            src++;
-                            k++;
-                        } while (k <= (int)g_span_vtx);
-                    }
-                    *(void**)out_v = dst;
-                    out_v = (char*)out_v + 4;
-                    dst = (char*)dst + g_span_vtx_stride;
-                    out_n += 2;
                 }
             }
             in++;
