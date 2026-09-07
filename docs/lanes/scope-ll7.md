@@ -22,10 +22,10 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 | 0x0042a680 | TrackCursorPair_Draw | 82 | 100 | [OK] | FUNCTION |
 | 0x00429cf0 | Track_StepObjective | 93 | 100 | [OK] | FUNCTION |
 | 0x00429f30 | Track_StepAlong | 70 | 100 | [OK] | FUNCTION |
-| 0x00429560 | TrackRunSetSlope | 90 | 92 | 7 (eax/edx) **floor** | WIP |
+| 0x00429560 | TrackRunSetSlope | 90 | 100 | [OK] | FUNCTION |
 | 0x00428860 | TrackShade_FillPoly | 254 | 38 | 243 **ZBuffer floor** | WIP |
 
-**15 / 17 exact.** SetSlope and FillPoly remain at their floors. `/W3` clean. `relocs.py` 0 MISMATCH on the 15 FUNCTION bodies.
+**16 / 17 exact.** FillPoly remains at its ZBuffer floor. `/W3` clean. `relocs.py` 0 MISMATCH on the 16 FUNCTION bodies.
 
 ## Names
 
@@ -58,7 +58,7 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 
 - **TrackFitSpanGeom**: named `head_opp` / `tail_opp`. Nested Opposite calls split `add esp` (70%).
 - **Track_Bisect**: `*(unsigned*)&pa ^ *(unsigned*)&pb` (pa first in the xor) lands the original `edx=[esp+0x14], ecx=[esp+0x10]`. A `pm` local is required so the mid-sample does not reuse `pb`'s slot (reuse dropped to 85%).
-- **TrackRunSetSlope**: **at its floor** (90i/302B, 7 eax↔edx). The `--steps` IV always wins eax; the loop zero always lands in edx. This session also ruled out: named `w0`/`w1`/`half` pointers (59%, 70 mismatch); `volatile int zed` (57%, +16B); `zed` live across the call via `steps+zed` (folded, same 7); named `dir0`/`jw0` values (ESCAPES, 34%); `if (*(volatile*)&steps > 0) { remain = steps; }` (0 *does* win eax but a second load of steps, 308B, 27 mismatch); volatile `remain` definition (same 7); `if ((remain = steps) > zed)` (same 7). No remaining one-temp or volatile spelling flipped the IV/zero pair at identical bytes.
+- **TrackRunSetSlope**: **exact** (90i/302B). The 7 eax↔edx residual was the latch spelling, not a volatile/remain floor. `if (steps > 0) { do { … } while (--steps); }` colours the `--steps` IV into eax and the loop zero into edx. `for (; steps > 0; steps--)` emits the same 90 instructions / 302 bytes but flips the pair (`edx=steps`, `eax=0`, `dec edx`). Operand swap (`0 < steps`), goto-skip, `return 0` coalescing (+1 xor), entry `remain`, and a post-ramp `remain = steps` did not. The earlier one-temp/volatile sweep still stands as negatives for that do-while shape.
 - **Track_MeasureDistance**: extra `g_dist_at = &cur` before the loop integrate and the final `[t0, t]` integrate (equal path sets it to `from`). 0.01f is `0x3c23d70a`.
 - **TrackCursorPair_Draw**: interleave `s=sin; m[0]=s; c=cos; m[2]=c; m[8]=-c; m[10]=s` so the leftover sin is `fst` then later `fstp`. Computing both trigs first emitted `fld st(1)`. Mat slots are 0/2/8/10 (not 1/2/8/10). `#pragma intrinsic(sin, cos)`.
 - **Track_StepObjective**: `if ((dist2 = x*x+y*y+z*z) > hi2)` (assignment-in-condition) lands `fld st / fcomp hi2`. A named `dist2 = sum; if (dist2 > hi2)` emitted `fcom [home]`.

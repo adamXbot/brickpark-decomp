@@ -319,8 +319,10 @@ float Track_AbsDerivative(float t)
 
 /* Build one ramp geom from the span's world endpoints and stamp it onto
  * every piece with parameter ranges [i/n, (i+1)/n]. z/dz only place the
- * endpoints; the per-piece +0x90/+0x94 slots are the parameter, not height. */
-// WIP-FUNCTION: LEGOLAND 0x00429560  (90/90i, 302/302B, 7 eax/edx; at floor)
+ * endpoints; the per-piece +0x90/+0x94 slots are the parameter, not height.
+ * `for (; steps > 0; steps--)` (not `if (steps > 0) do while (--steps)`)
+ * puts the trip count in edx and the loop zero in eax. */
+// FUNCTION: LEGOLAND 0x00429560
 void TrackRunSetSlope(TrackNode* n, TrackNode* e, int steps, float z, float dz)
 {
     RouteGeom geom;
@@ -342,18 +344,16 @@ void TrackRunSetSlope(TrackNode* n, TrackNode* e, int steps, float z, float dz)
     p1.x += g_joint_world[i1].x;
     p1.y += g_joint_world[i1].y;
     TrackGeom_BuildRamp(&p0, &p1, &g_joint_half[i0], &geom);
-    if (steps > 0) {
-        do {
-            n->state |= 1;
-            n->geom = geom;
-            n->geom.t0 = t;
-            t += inv;
-            n->geom.t1 = t;
-            n->clear40[0] = 0;
-            n->clear40[1] = 0;
-            n->clear40[2] = 0;
-            n = n->jout.node;
-        } while (--steps);
+    for (; steps > 0; steps--) {
+        n->state |= 1;
+        n->geom = geom;
+        n->geom.t0 = t;
+        t += inv;
+        n->geom.t1 = t;
+        n->clear40[0] = 0;
+        n->clear40[1] = 0;
+        n->clear40[2] = 0;
+        n = n->jout.node;
     }
 }
 
