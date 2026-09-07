@@ -1223,3 +1223,15 @@ non-identical phis are now bounded negatives. Final gates: `eventtick.c`
 PASS with 45 `[OK]` plus CLEAR `[WIP]`, `eventgoal.c` PASS with 16 `[OK]`,
 `/W3` clean, and relocations 125 matched / 0 mismatched (the same ten
 documented unresolved references).
+
+### Compiler-flag diagnostic (integrator, 2026-09-07)
+
+Not a lever (the gate is `/O2 /Gy /Gd`), but it rules out "this file was
+built with different flags": over the retained body, `vy_c` and the plain
+row-four body, `/O1`, `/Ox`, `/Os`, `/Ot`, `/Oa`, `/Ow`, `/Op`, `/Ob0`,
+`/Ob2`, `/Oy-`, `/G3`/`/G4`/`/G5`/`/G6`/`/GB`, `/Gf`, `/Gs`, `/Gr`, `/Zp1`,
+dropping `/Gy`, and the expanded `/Og /Oi /Ot|/Os /Oy /Ob1 /Gs` sets either
+leave the group byte-identical to `/O2` or damage the function elsewhere
+(`/Os`/`/O1` call `memcpy`; `/Ob0` un-inlines; `/Oy-` adds a frame; `/G6`
+reorders the footprint loads and is worse; `/Gr` changes the convention).
+No flag set produces the original's colouring or byte reload.
