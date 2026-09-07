@@ -1239,3 +1239,10 @@ No flag set produces the original's colouring or byte reload.
   before the byte read or after the copy, as a range hint on the coordinates,
   on `sq.x`, or wrapping a volatile read (which it elides), it changes nothing
   in seven placements. It is not a boundary of any kind for VC6 SP3.
+- **The fourth-kill layout combined with the other levers** (`struct { Pos
+  sq; Cursor saved; } L`): x's reads through `L.sq.x`, a union byte view
+  `L.sq.b[4]` for the y byte (and for both bytes), `saved_def` folded into
+  the same aggregate, the aggregate origin read, and both `sq` stores before
+  the copy all keep the flipped colouring (first difference 79; 76–79 strict,
+  or 39 at 177 instructions with both stores killed). The kill decides the
+  byte source, never the colouring.
