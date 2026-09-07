@@ -375,3 +375,33 @@ reached 22 index mismatches but added a non-original `and 0xff`, changed the
 stack homes and remained four bytes too long; that score alone is not grounds
 to prefer them. No probe produced a complete exact match. Scratch generators,
 variants and comparisons remain local under `/tmp/v_finish/`.
+
+## Japanese demo follow-up — 2026-09-07
+
+The Japanese demo also contains the complete CLEAR instruction structure:
+one unique masked-prefix match at `0x00469c00`, independently bounded using
+the demo's own export addresses, gives 177 instructions / 577 bytes. Its
+normalized instructions, instruction widths and internal branch offsets
+match the English reference at `0x00469c80`. External calls and global
+addresses were normalized; this is not a claim of full runtime equivalence.
+The demo executable's SHA-256 is
+`31f54cb742518a494df1683a67e3da6ca44c0d7329d123a682261d252d489e73`.
+
+The shifted CLEAR address must not be inferred from the unchanged addresses
+reported for the eight F/G/H targets. English remains the sole matching
+reference. No source or usable symbols were recovered in the media review.
+The reported Japanese text-input and demo-screen differences remain separate
+research leads, not changes to V's assigned functions.
+
+Follow-up probes tested qualified small-coordinate copies (96 candidates)
+and inline byte-position conversion helpers (108 candidates), starting from
+the older and retained C forms. Neither family improved the saved 32 strict
+differences or produced a complete exact match. The code checkpoint remains
+`11edace8`: 61 of 62 functions exact, with CLEAR held at WIP. No additional
+C change resulted from this follow-up.
+
+Local evidence is `/tmp/v_finish/japanese-demo/STATUS.md`,
+`compare_clear.py`, `Clear-cross-versions.json`, and the paired listings;
+the new probe families are `gen42.py` / `gen43.py` under `/tmp/v_finish/`.
+This committed summary contains no game binary, asset, installer, extracted
+disassembly, or F/G/H-owned research file.
