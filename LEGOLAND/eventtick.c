@@ -393,16 +393,13 @@ int ClearSfxFade(void* sample)
  * flag-0x10 menu, then the rest of the unpowered ones, then everything --
  * each through the destroy cursor, which is saved and restored around it.
  *
- * Residual (docs/lanes/scope-v.md): the frame is the original 0x1854, but
- * allocation differs from instruction 19. The original keeps next in ebx,
- * the cell in edi and base x in ebp; ours spills next around the cursor
- * copies and keeps base y in the byte-addressable ebx. The footprint and
- * save block consequently differ too: the complete candidate is five
- * instructions and 17 bytes short, not five instructions longer. The
- * original stores sq.y before the first copy and sq.x after it, with a
- * byte reload of sq.y before the selected-position stores. None of the
- * tested source variants yet reproduces the whole body. */
-// WIP-FUNCTION: LEGOLAND 0x00469c80  (172 of 177 instructions, 120 strict; callee-saved rotation next/c/bx = edi/ebp/edx against ebx/edi/ebp forces a spill of `next` around the rep movsd copies)
+ * Residual (docs/lanes/scope-v.md): 177 instructions / 576 bytes versus
+ * the original 177 / 577, with 32 strict differences. The frame and next/c
+ * registers now agree (ebx/edi); the first difference is at instruction 79.
+ * Base x remains in edx and y in ebp, opposite the original ebp/edx. That
+ * changes the footprint and cursor setup, plus a few later register choices.
+ * This is a full body ending in ret, not a truncated comparison. */
+// WIP-FUNCTION: LEGOLAND 0x00469c80  (177i/576B vs 177i/577B, 32 strict; base-coordinate registers and cursor setup differ)
 int EventTick_Clear(ScriptEvent* e)
 {
     Cursor   saved;
@@ -414,6 +411,7 @@ int EventTick_Clear(ScriptEvent* e)
     ObjDef*  d;
     Rect     f;
     int      bx, by;
+    unsigned char py;
     void*    sfx;
 
     sfx = PlayInstanceOfSample(g_clear_sfx, 1, 1, 0);
@@ -443,20 +441,29 @@ int EventTick_Clear(ScriptEvent* e)
                 d = c->obj->def;
                 bx = c->x;
                 by = c->y;
-                f.top = d->top + by;
-                f.bottom = d->bottom + by;
-                f.left = d->left + bx;
-                f.right = d->right + bx;
+                /* Separate field loads and offsets keep the two footprint
+                 * spills and the render-list registers close to the original. */
+                f.bottom = d->bottom;
+                f.top = d->top;
+                f.left = d->left;
+                f.top += by;
+                f.right = d->right;
+                f.bottom += by;
+                f.left += bx;
+                f.right += bx;
                 if (f.left <= e->area.right && f.right >= e->area.left &&
                     f.top <= e->area.bottom && f.bottom >= e->area.top) {
                     saved_def = g_sel_def;
                     saved = g_destroy_cursor;
-                    sq.x = bx;
                     sq.y = by;
+                    sq.x = bx;
+                    /* The original reloads the low byte from sq.y here.
+                     * Keep that memory read distinct from the base coordinate. */
+                    py = *(volatile unsigned char*)&sq.y;
                     g_destroy_cursor.origin = sq;
-                    g_sel_bpos.b.x = (unsigned char)bx;
+                    g_sel_bpos.b.x = (unsigned char)sq.x;
                     g_sel_def = d;
-                    g_sel_bpos.b.y = (unsigned char)by;
+                    g_sel_bpos.b.y = py;
                     d->query(d->inst, &sq);
                     BuildCursorPtr(&g_destroy_cursor, 0, 0);
                     if (CursorIsValid(&g_destroy_cursor)) {

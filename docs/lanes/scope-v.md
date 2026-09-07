@@ -3,13 +3,14 @@
 **Status: in progress, 2026-09-07.** Recovered the interrupted session's
 three saved exact fixes (`EventTick_Lookat`, `EventTick_Connect`, and
 `EventTick_Link`). A fresh whole-file audit reports 61 exact functions and
-one WIP, `EventTick_Clear` (172i/560B versus 177i/577B, 120 strict mismatches).
+one WIP, `EventTick_Clear` (177i/576B versus 177i/577B, 32 strict mismatches).
 The two files compile cleanly at `/W3`. Relocation checks resolve 62 positions
 in `eventgoal.c` and 125 in the 45 exact `eventtick.c` bodies, all agreeing;
 ten eventtick references remain unresolved (literals, a local jump table,
 and the annotated function-pointer array that the parser does not recognize).
-No new Clear variant has passed the authoritative gate, and none has replaced
-the saved baseline. This scope is not complete and has not been integrated.
+CLEAR now retains a closer full-body candidate: 120 strict differences reduced
+to 32, with the original instruction count and one byte still missing. Its WIP
+marker remains. This scope is not complete and has not been integrated.
 
 The three recovered levers are documented beside their exact bodies: one
 non-escaping Pos for LOOKAT's projected offsets, a shared Pos for CONNECT's
@@ -59,7 +60,7 @@ one shape (`if (HintTimerDue() && !ShowGoalHint(e)) { h = NewTimedEvent(K,
 | 0x00469bd0 | `PlaceScriptObject` | 35 / 111 | OK | first try |
 | 0x00469c40 | `EventTick_Place` | 9 / 26 | OK | first try |
 | 0x00469c60 | `ClearSfxFade` | 7 / 18 | OK | first try; brief's `sub_469c60` (the CLEAR sample's fade callback) |
-| 0x00469c80 | `EventTick_Clear` | 172 / 560 vs 177 / 577 | **WIP** | 139 → 120: see below |
+| 0x00469c80 | `EventTick_Clear` | 177 / 576 vs 177 / 577 | **WIP** | 120 → 32 strict differences; see latest checkpoint below |
 | 0x00469ed0 | `EventTick_Unglue` | 29 / 76 | OK | first try |
 | 0x00469f20 | `EventTick_Glue` | 29 / 74 | OK | first try |
 | 0x00469f70 | `EventTick_Extendpark` | 5 / 14 | OK | first try |
@@ -106,11 +107,12 @@ primitives are declared with our reading of their bodies: `HintTimerDue`
 `QueueConnectHint` 0x00468dc0, `QueueLinkHint` 0x00468e00 — one rename each
 for the integrator if X chooses otherwise.
 
-## The four WIP bodies (all at the original's instruction count)
+## Historical residuals before the 61-function checkpoint
 
-Each is a register-allocation residual with the code shape already the
-original's; every spelling the disassembly could justify was measured and
-none moved the assignment. They are worth a fresh eye, not more permutation.
+The interrupted session recorded the following residuals. LOOKAT, CONNECT
+and LINK have since been recovered as exact; the current CLEAR residual is
+described in the latest checkpoint below. These notes preserve earlier probes
+and must not be read as proof that other source forms cannot match.
 
 - **`EventTick_Clear`** (172/177 instructions): the frame is exact (0x1854 —
   the four-int footprint `Rect f` with only `top`/`bottom` ever stored is
@@ -275,14 +277,14 @@ memory.
 
 ```sh
 $PY tools/audit.py LEGOLAND/eventgoal.c   # 16 x [OK], PASS
-$PY tools/audit.py LEGOLAND/eventtick.c   # 42 x [OK], 4 x [WIP ], PASS
+$PY tools/audit.py LEGOLAND/eventtick.c   # 45 x [OK], 1 x [WIP ], PASS
 $PY tools/relocs.py LEGOLAND/eventgoal.c  # 0 MISMATCH
 $PY tools/relocs.py LEGOLAND/eventtick.c  # 0 MISMATCH (10 UNRESOLVED literals)
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" "$LEGOLAND_CL" /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/sv_w3.obj LEGOLAND/eventgoal.c
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" "$LEGOLAND_CL" /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/sv_w3.obj LEGOLAND/eventtick.c
 ```
 
-## Resumption notes — 2026-09-07
+## Earlier resumption checkpoint — 2026-09-07 (`45eb4d3c`)
 
 The recovered 61 exact functions were committed before further work on CLEAR.
 Its unmodified 172i/560B candidate remains the retained WIP; no experimental
@@ -315,3 +317,61 @@ address: `ResetAppraisalDeadline` (0x0044db40), `GoalCheck_Need`
 (0x00468d80), `GoalCheck_Connect` (0x00468dc0), and `GoalCheck_Link`
 (0x00468e00). Their caller-side types are preserved. The older rename and
 residual discussions above are historical.
+
+
+## Latest CLEAR checkpoint and version evidence — 2026-09-07
+
+The retained body now has **177 instructions / 576 bytes, 32 strict
+mismatches**, versus the English original's 177 / 577. The former retained
+body had 172 / 560 and 120 mismatches. A disassembly of the complete COFF
+function confirms that the new body ends at its own `ret`; the count is not
+a prefix trimmed from a longer function.
+
+Separate footprint-field loads and offset additions preserve the original
+`next` / current-cell register pair (ebx / edi) and both footprint spills.
+A distinct low-byte read of `sq.y`, into a byte local after filling `sq`,
+retains the reload seen in the original. The first strict difference is now
+instruction 79: x stays in edx and y in ebp, whereas the original transfers
+x to ebp and keeps y in edx. The cursor setup and a few later register choices
+still differ. The WIP marker states that residual; it is not ready to merge.
+
+Fresh whole-file audits report 16 exact goal functions and 45 exact tick
+functions, plus CLEAR as WIP. Both files compile cleanly with `/W3` and the
+required `/O2 /Gy /Gd`. Exact-body relocation checks still give 62 + 125
+resolved references, zero mismatches, and the same ten unresolved tick
+references described at the top. Logs are in `/tmp/v_finish/retained-*.txt`.
+Only CLEAR and its explanatory notes changed in this checkpoint.
+
+The additional-media reports in the F/G/H integration worktree were read
+without changing its owned files or repeating its extraction work. A separate
+CLEAR-specific comparison located one matching prologue in each reviewed
+executable, then independently bounded the complete routine using that
+executable's own export boundaries:
+
+| Reviewed executable | CLEAR address | Complete body | Normalized instructions / widths / internal branch offsets |
+| --- | --- | --- | --- |
+| English reference | `0x00469c80` | 177i / 577B | reference |
+| Dutch copy | `0x00469ff0` | 177i / 577B | identical |
+| Czech copy | `0x00469cd0` | 177i / 577B | identical |
+
+Input SHA-256 values:
+
+- English: `c50865b60bfcb26c0a7329a75fb772b10ae234af324f669901906e5abb0e2bd9`
+- Dutch: `e7012b899a75049a666d6f7b473cee84e95bceb58e7518a92fca89145ddf2683`
+- Czech: `8b4f8c2f800046d07b71fe1c6f8e22c1853152c5b313c13a032f021b08aa8557`
+
+This comparison masks external call/global addresses; it establishes the same
+instruction structure, not full runtime equivalence of the builds. English
+remains the sole acceptance reference. The local script, result metadata and
+paired listings are `/tmp/v_finish/cross_versions.py`,
+`Clear-cross-versions.json`, and `Clear-{english,dutch,czech}.txt`. No game
+binary, asset, extracted media or F/G/H research file is part of this commit.
+
+Additional bounded probes covered aggregate-return helpers; byte-coordinate
+views and integer types; footprint load/add interleavings; separate byte
+reload timing; and reuse of coordinate temporaries in non-escaping aggregates.
+The retained recipe is `batch34.c` / `Clear1097`. Later grouped-temporary probes
+reached 22 index mismatches but added a non-original `and 0xff`, changed the
+stack homes and remained four bytes too long; that score alone is not grounds
+to prefer them. No probe produced a complete exact match. Scratch generators,
+variants and comparisons remain local under `/tmp/v_finish/`.
