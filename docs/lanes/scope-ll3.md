@@ -321,3 +321,19 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   spilled before __ftol. destrel-before-fild plus dest increment after
   __ftol forces dest into edi — that conflicts with dest-as-edx. Cursor-first
   / dest-smash / fild-order not reused. Tip restored. Mass/Trace not touched.
+  **2026-09-08 dest-edx / nxt-edi rebuild (did not land).** Drop destrel-before-fild
+  and rebuild toward orig scratches (dest edx through seed, nxt edi, sign esi,
+  loop and-ebx by another lever). Best transient **43/193 (22.3%)** / 41/192
+  (21.4%) — below tip 25.3%. nxt never edi with ebx=n + latch + 0x2c.
+  Cursor-first / `int nn=n` / dest-before-in either steal ebx=n (dest→ebx,
+  n→edx) or still colour dest **edi** because `in` wins edx as the hot pointer.
+  dest_mem + dest=0 after seed fild CSE back: dest stays edi through lerp
+  destrel / stride (`mov ecx,edi` at ENTER). `void* volatile dest_mem` does
+  put seed dest in ecx (a scratch) and homes it, but nxt stays esi and sign
+  becomes edi; loop abs is edx. `prev_sign=0` / `prev_sign=nn` before nxt
+  DCE. A volatile sign seed (`pad=nn; prev_sign=*pad`) knocks ebx=n
+  (cursor→ebx, n→eax). Named `out` spills (`mov [esp+0x3c],eax`) and does
+  not take esi. Byte-abs in the loop uses cl when bits is already a scratch,
+  so it does not force ebx. Later destrel-only-at-lerp without an edx occupant
+  loses `and ebx`. Tip C restored (destrel-before-fild still the and-ebx
+  occupant; dest edi / nxt esi / sign ebp). Mass/Trace not touched.
