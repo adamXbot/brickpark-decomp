@@ -154,43 +154,163 @@ int FindAltNameIndex(char* list, char* name)
 /* Place one 3D rider: clamp frame, sample the seat track into person->matrix
  * (column-major 3x3 via the four channel tables), then SetPersonPosition.
  *
- * WIP: 81i/221B exact size, ~34 normalized mismatches. Prologue through the
- * RiderTrackToScreen call matches except track lands in ESI not EDI; that
- * register choice cascades through the nested loops (si/base_i/col). Counted
- * for-i outer matches size; pointer-walk outer SRs dest against chan. */
+ * FLOOR: 81i/221B size-exact, 34 mism. Index loads into ESI then track reuses
+ * ESI (`mov esi,[edx+esi*4]`) instead of EDI; that permutation cascades the
+ * nested-loop regs (si/base_i/col). Counted for-i is size-exact; pointer-walk
+ * outer SRs dest against chan. idx-live / volatile-sink / rebuild-after-call
+ * probes all broke size or homes without flipping the EDI choice. */
 // WIP-FUNCTION: LEGOLAND 0x00441980  (58%, 81i/221B; track in ESI not EDI)
 void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
                          PersonXY* person, int screen_x, int screen_y)
 {
+    float* track;
+    Pos    out;
+    Pos    base;
+    int    i;
+
     if (frame < 0)
         frame = 0;
     if (frame >= anim->frame_count)
         frame = anim->frame_count - 1;
-    {
-        float* track;
-        Pos    out;
-        Pos    base;
-        int    i;
-
-        track = (float*)((char*)anim->seat_tracks[index] + frame * 48);
-        RiderTrackToScreen(anim, (Vec2f*)track, &base);
-        out.x = base.x + screen_x;
-        out.y = base.y + screen_y;
-        *(float*)&screen_y = 65536.0f;
-        for (i = 0; i < 3; i++) {
-            int  si = g_ride_mtx_chan[i];
-            int* dest = &person->matrix[i];
-            int  j;
-            for (j = 0; j < 3; j++) {
-                *(float*)&frame = track[g_ride_mtx_row[j] + si * 3 + 3];
-                __asm {
-                    fld   dword ptr frame
-                    fmul  dword ptr screen_y
-                    fistp dword ptr frame
-                }
-                dest[j * 3] = g_ride_mtx_sign_a[j] * g_ride_mtx_sign_b[si] * frame;
+    track = (float*)anim->seat_tracks[index];
+    track = (float*)((char*)track + frame * 48);
+    RiderTrackToScreen(anim, (Vec2f*)track, &base);
+    out.x = base.x + screen_x;
+    out.y = base.y + screen_y;
+    *(float*)&screen_y = 65536.0f;
+    for (i = 0; i < 3; i++) {
+        int  si = g_ride_mtx_chan[i];
+        int* dest = &person->matrix[i];
+        int  j;
+        for (j = 0; j < 3; j++) {
+            *(float*)&frame = track[g_ride_mtx_row[j] + si * 3 + 3];
+            __asm {
+                fld   dword ptr frame
+                fmul  dword ptr screen_y
+                fistp dword ptr frame
             }
+            dest[j * 3] = g_ride_mtx_sign_a[j] * g_ride_mtx_sign_b[si] * frame;
         }
-        SetPersonPosition(person, out.x, out.y);
     }
+    SetPersonPosition(person, out.x, out.y);
+}
+
+/* Load altman/altwoman name lists and map visitor.txt rows onto the outfit
+ * tables for one sex. ctx is unused (caller still passes the anim context).
+ * The alt file layout matches LookupTextureName's two-section pack.
+ *
+ * FLOOR: 229i exact, sub esp 0x3c0 via path/line/name/pad struct; ~78 mism /
+ * −4B. countB unread on !text/!countA (original `mov ebp,[esp+0x14]` uninit
+ * home). Fail-path countA is `xor ebx,ebx` vs `mov ebx,[text]`. Residual is
+ * scalar-home permutation + tolower esi/edi swap. */
+// WIP-FUNCTION: LEGOLAND 0x00442980  (72%, 229i/748B; 78 mism)
+void LoadAltTextures(const char* alt, const char* base, const char* dir,
+                     int sex, void* ctx)
+{
+    struct {
+        char path[0x100];
+        char line[0x200];
+        char name[0x60];
+        char pad[0x24];
+    } buf;
+    char*  text;
+    char*  text2;
+    char*  listA;
+    char*  listB;
+    char*  titleB;
+    int    countA;
+    int    countB;
+    void** tabA;
+    void** tabB;
+    int*   palA;
+    int*   palB;
+    void*  file;
+    int    index;
+    int    a, b, c, d, e;
+    char*  p;
+    char*  q;
+    int    n;
+
+    (void)ctx;
+    index = 0;
+    text = LoadTextFile(dir, alt);
+    if (text) {
+        text2 = text;
+        q = text + strlen(text) + 1;
+        countA = *(int*)q;
+        listA = q + 4;
+        if (countA) {
+            q = listA;
+            do {
+                q += strlen(q) + 1;
+            } while (strlen(q) != 0);
+            q++;
+            titleB = q;
+            q = q + strlen(q) + 1;
+            countB = *(int*)q;
+            listB = q + 4;
+        }
+    } else {
+        countA = (int)text;
+    }
+    (void)text2;
+    sprintf(buf.path, kAltTexPathFmt, dir, base);
+    if (!sex) {
+        g_outfitA_n0 = countA;
+        g_outfitA_tab0 = (void**)HeapAlloc_w(countA * 4);
+        g_outfitB_n0 = countB;
+        g_outfitB_tab0 = (void**)HeapAlloc_w(countB * 4);
+        tabA = g_outfitA_tab0;
+        tabB = g_outfitB_tab0;
+        palB = (int*)&g_outfitB_pal0;
+        palA = (int*)&g_outfitA_pal0;
+    } else {
+        g_outfitA_n1 = countA;
+        g_outfitA_tab1 = (void**)HeapAlloc_w(countA * 4);
+        g_outfitB_n1 = countB;
+        g_outfitB_tab1 = (void**)HeapAlloc_w(countB * 4);
+        tabA = g_outfitA_tab1;
+        tabB = g_outfitB_tab1;
+        palB = (int*)&g_outfitB_pal1;
+        palA = (int*)&g_outfitA_pal1;
+    }
+    file = RES_OpenFile(buf.path);
+    if (file) {
+        ReadAltLine(file, buf.line, 0x200);
+        ReadAltLine(file, buf.line, 0x200);
+        if (ReadAltLine(file, buf.line, 0x200)) {
+            do {
+                p = buf.line;
+                q = buf.path;
+                for (;;) {
+                    n = tolower(*p);
+                    p++;
+                    if ((char)n == '.')
+                        n = 0;
+                    *q = (char)n;
+                    q++;
+                    if (!(char)n)
+                        break;
+                }
+                sscanf(p, kAltTexLineFmt, buf.name, &a, &b, &c, &d, &e);
+                if (NameCompare(text, buf.path) == 0)
+                    *palA = index;
+                else if (NameCompare(titleB, buf.path) == 0)
+                    *palB = index;
+                if (countA) {
+                    n = FindAltNameIndex(listA, buf.path);
+                    if (n != -1)
+                        tabA[n] = (void*)index;
+                }
+                if (countB) {
+                    n = FindAltNameIndex(listB, buf.path);
+                    if (n != -1)
+                        tabB[n] = (void*)index;
+                }
+                index++;
+            } while (ReadAltLine(file, buf.line, 0x200));
+        }
+    }
+    RES_CloseFile(file);
+    HeapFree_w(text);
 }
