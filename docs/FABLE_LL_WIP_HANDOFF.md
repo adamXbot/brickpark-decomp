@@ -79,7 +79,7 @@ Trace NG22 / ClipPlane ESCAPES unchanged.
 | | |
 | --- | --- |
 | Branch / file | `scope/LL7` · `LEGOLAND/coaster13.c` |
-| Tip | `637f8231` |
+| Tip | `7c7640a4` |
 | Notes | `docs/lanes/scope-ll7.md` |
 | Score | 70i, **232/232B**, audit **11** mism |
 
@@ -94,7 +94,7 @@ Two attractors — no tested spelling emits that order:
 
 Also ruled out: finished pre-call `t0` (batches push with tol), helper/comma hi,
 empty `__asm` (EBP), Joust `H(&ot,out_t)`, union/`unsigned` t0bits (71i),
-`g->t0` as call arg, `sol = g_track_solver`. Sticky schedule split; not formally floored. Ideas 1–6 (g+comma-lo, held-off step2, volatile out_tp, split lo/hi2, home reorder, MeasureDistance/Bisect copy) stayed on A or worse; homes not swapped. Last-arg/hi-comma / PinOt / Joust / volatile-g also A or wreck prologue `fmul`; union-C puts `push esi` one slot late (+insn). Coupling: finished `t0` batches out_t push with `push tol`; call-before-t0 needs len2/fadd spilled first.
+`g->t0` as call arg, `sol = g_track_solver`. Sticky schedule split; not formally floored. Ideas 1–6 (g+comma-lo, held-off step2, volatile out_tp, split lo/hi2, home reorder, MeasureDistance/Bisect copy) stayed on A or worse; homes not swapped. Last-arg/hi-comma / PinOt / Joust / volatile-g also A or wreck prologue `fmul`; union-C puts `push esi` one slot late (+insn). Coupling: finished `t0` batches out_t push with `push tol`; call-before-t0 needs len2/fadd spilled first. LL2 `Fst(a,b)` RTL pins out_t before t0 but inlined helper args become temps — no missing `push esi`. Best non-A ~81% still batches both pushes after `fadd`.
 
 ### LL6 — `GetTrackSegment` `0x00424050` (22/24 scope)
 
@@ -175,7 +175,7 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 1. **LL8 AddScriptString** — fail-tail shared allocation (floored unless new coloring).
 2. **LL3 MassAndPower** — size-exact 42 mism; lea ebx vs add; q-load schedule.
-3. **LL7 StepAlong** — size-exact 11 mism; t0↔len2 two-attractor (ideas 1–6 ruled out).
+3. **LL7 StepAlong** — size-exact 11 mism; RTL Fst pins out_t but does not emit `push esi`.
 4. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
 5. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
 6. **LL4 Span family / LL7 Slope+ShadeFill** — last.
@@ -195,7 +195,7 @@ Do **not** merge partial scopes yourself.
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
-| LL7 | 14/17 | `637f8231` | `coaster13.c` |
+| LL7 | 14/17 | `7c7640a4` | `coaster13.c` |
 | LL8 | 12/13 | `f8c1f002` | `gameframe2.c` |
 
 **WIP count in this wave:** 0+0+3+5+0+2+3+1 = **14 bodies**.
