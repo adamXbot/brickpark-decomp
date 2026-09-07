@@ -73,7 +73,10 @@ typedef struct SeatSlot {
 } SeatSlot;
 
 typedef struct SeatOwner {
-    char      pad00[0x2e];
+    char      pad00[0x0c];
+    int       base_x;              /* +0x0c  footprint origin */
+    int       base_y;              /* +0x10 */
+    char      pad14[0x2e - 0x14];
     short     rider_capacity;      /* +0x2e */
     char      pad30[0x44 - 0x30];
     int       off_x;               /* +0x44  entrance approach offset */
@@ -85,6 +88,11 @@ typedef struct SeatOwner {
     char      padc8[0xcc - 0xc8];
     SeatSlot* head;                /* +0xcc */
 } SeatOwner;
+
+typedef struct MapObj {
+    char  pad00[0x0c];
+    void* cls;                     /* +0x0c  ObjDef* / SeatOwner* */
+} MapObj;
 
 typedef struct MapCell {
     void*          obj;            /* +0x00 */
@@ -327,6 +335,74 @@ int JoinSeatList(Bloke* bloke, SeatOwner* owner, int seat_arg)
         return 0;
     }
     DBPrintf(g_fmt_no_alloc, owner->name);
+    return 0;
+}
+
+/* True when world tile (pos>>8) is the footprint origin of an instance of
+ * def, found by probing the four orthogonal neighbour cells. Called from
+ * sub_44f610.
+ *
+ * Residual: flat four-probe form is ~46% (register/landing-pad differences
+ * vs the original's g_map reload pads between probes). Nested above/below
+ * (GetObjectUID shape) dropped to 33%. Needs the same probe-entry g_map
+ * landing-pad treatment recorded on GetObjectUID in objmap2.c. */
+// WIP-FUNCTION: LEGOLAND 0x0044f180  (46%, g_map landing pads between probes)
+int PosOnObjectFootprint(Pos* pos, SeatOwner* def)
+{
+    int x = pos->x >> 8;
+    int y = pos->y >> 8;
+    MapCell* c;
+    MapObj* obj;
+    Pos p;
+
+    if (x >= 0 && x < g_map->width && y - 1 >= 0 && y - 1 < g_map->height) {
+        c = &g_map_rows[y - 1][x];
+        if (c && (c->flags & 0x80) && c->obj) {
+            obj = (MapObj*)c->obj;
+            if (obj->cls == def) {
+                p.x = c->x + def->base_x;
+                p.y = c->y + def->base_y;
+                if (p.x == x && p.y == y)
+                    return 1;
+            }
+        }
+    }
+    if (x >= 0 && x < g_map->width && y + 1 >= 0 && y + 1 < g_map->height) {
+        c = &g_map_rows[y + 1][x];
+        if (c && (c->flags & 0x80) && c->obj) {
+            obj = (MapObj*)c->obj;
+            if (obj->cls == def) {
+                p.x = c->x + def->base_x;
+                p.y = c->y + def->base_y;
+                if (p.x == x && p.y == y)
+                    return 1;
+            }
+        }
+    }
+    if (x - 1 >= 0 && x - 1 < g_map->width && y >= 0 && y < g_map->height) {
+        c = &g_map_rows[y][x - 1];
+        if (c && (c->flags & 0x80) && c->obj) {
+            obj = (MapObj*)c->obj;
+            if (obj->cls == def) {
+                p.x = c->x + def->base_x;
+                p.y = c->y + def->base_y;
+                if (p.x == x && p.y == y)
+                    return 1;
+            }
+        }
+    }
+    if (x + 1 >= 0 && x + 1 < g_map->width && y >= 0 && y < g_map->height) {
+        c = &g_map_rows[y][x + 1];
+        if (c && (c->flags & 0x80) && c->obj) {
+            obj = (MapObj*)c->obj;
+            if (obj->cls == def) {
+                p.x = c->x + def->base_x;
+                p.y = c->y + def->base_y;
+                if (p.x == x && p.y == y)
+                    return 1;
+            }
+        }
+    }
     return 0;
 }
 
