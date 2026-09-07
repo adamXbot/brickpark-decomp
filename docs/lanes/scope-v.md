@@ -3,7 +3,8 @@
 **Status: in progress, 2026-09-07.** Recovered the interrupted session's
 three saved exact fixes (`EventTick_Lookat`, `EventTick_Connect`, and
 `EventTick_Link`). A fresh whole-file audit reports 61 exact functions and
-one WIP, `EventTick_Clear` (177i/576B versus 177i/577B, 32 strict mismatches).
+one WIP, `EventTick_Clear` (177i/576B versus 177i/577B, 24 strict mismatches
+as of the `scope/V-clear` checkpoint at the end of this file; 32 before it).
 The two files compile cleanly at `/W3`. Relocation checks resolve 62 positions
 in `eventgoal.c` and 125 in the 45 exact `eventtick.c` bodies, all agreeing;
 ten eventtick references remain unresolved (literals, a local jump table,
@@ -60,7 +61,7 @@ one shape (`if (HintTimerDue() && !ShowGoalHint(e)) { h = NewTimedEvent(K,
 | 0x00469bd0 | `PlaceScriptObject` | 35 / 111 | OK | first try |
 | 0x00469c40 | `EventTick_Place` | 9 / 26 | OK | first try |
 | 0x00469c60 | `ClearSfxFade` | 7 / 18 | OK | first try; brief's `sub_469c60` (the CLEAR sample's fade callback) |
-| 0x00469c80 | `EventTick_Clear` | 177 / 576 vs 177 / 577 | **WIP** | 120 → 32 strict differences; see latest checkpoint below |
+| 0x00469c80 | `EventTick_Clear` | 177 / 576 vs 177 / 577 | **WIP** | 120 → 32 → 24 strict differences, first at insn 110; see the register-assignment checkpoint at the end |
 | 0x00469ed0 | `EventTick_Unglue` | 29 / 76 | OK | first try |
 | 0x00469f20 | `EventTick_Glue` | 29 / 74 | OK | first try |
 | 0x00469f70 | `EventTick_Extendpark` | 5 / 14 | OK | first try |
@@ -321,7 +322,11 @@ residual discussions above are historical.
 
 ## Latest CLEAR checkpoint and version evidence — 2026-09-07
 
-The retained body now has **177 instructions / 576 bytes, 32 strict
+*(Superseded by the register-assignment checkpoint at the end of this file,
+which took the same body from 32 to 24 strict mismatches; the notes below
+describe the 32-strict state.)*
+
+The retained body then had **177 instructions / 576 bytes, 32 strict
 mismatches**, versus the English original's 177 / 577. The former retained
 body had 172 / 560 and 120 mismatches. A disassembly of the complete COFF
 function confirms that the new body ends at its own `ret`; the count is not
@@ -405,3 +410,141 @@ Local evidence is `/tmp/v_finish/japanese-demo/STATUS.md`,
 the new probe families are `gen42.py` / `gen43.py` under `/tmp/v_finish/`.
 This committed summary contains no game binary, asset, installer, extracted
 disassembly, or F/G/H-owned research file.
+
+## CLEAR register-assignment checkpoint — 2026-09-07 (`scope/V-clear`)
+
+`EventTick_Clear` is still WIP, but the residual is now half the block it
+was: **177 instructions / 576 bytes against the original 177 / 577, 24
+strict differences, first at instruction 110** (was 32 strict, first at
+instruction 79). `tools/matchfull.py` reports 156/177 = 88.1%, up from
+148/177 = 83.6%. Whole-file audit is PASS with 45 exact in `eventtick.c`
+and 16 exact in `eventgoal.c` (61 of 62), `/W3` clean, `tools/relocs.py`
+zero MISMATCH.
+
+Everything from the prologue through the footprint overlap test is now
+instruction-for-instruction exact, including the parts that were the whole
+point of the earlier residual: `next` in ebx, the render-list cell in edi,
+base x in ebp loaded through edx and moved (insns 77-79), base y kept in
+edx (80-81), and both footprint spills at `[esp+0x24]` / `[esp+0x2c]`.
+Register-blind the whole body is 5 instructions off; register- *and*
+offset-blind it is 3.
+
+### What the original's cursor-setup group does
+
+Instructions 110-119, with `sq` at `[esp+0x18]` (x) / `[esp+0x1c]` (y) and
+`g_query_block` = `g_destroy_cursor.origin` at `0x811564` / `0x811568`:
+
+```
+110  mov [esp+0x1c], edx      sq.y = by            (hoisted above the copy)
+111  rep movsd                saved = g_destroy_cursor
+112  mov ecx, ebp             base x into a byte-capable register
+113  mov [0x811568], edx      origin.y from y's own register
+114  mov dl, [esp+0x1c]       y's byte RELOADED from sq.y's home
+115  mov [esp+0x18], ecx      sq.x from the copy
+116  mov [0x811564], ecx      origin.x from the copy
+117  mov [0x667c54], cl       g_sel_bpos.b.x from the copy's low byte
+118  mov [0x667c58], eax      g_sel_def = d
+119  mov [0x667c55], dl       g_sel_bpos.b.y from the reloaded byte
+```
+
+So the original serves x's byte from a *register copy* even though x lives
+in ebp, which has no byte form, and serves y's byte from a *memory reload*
+even though y lives in edx, which does. The retained body has those two
+roles exactly the other way round; that is the entire remaining residual,
+plus the register renames it forces on instructions 134-153 and 163-167 and
+the one byte it costs (original `mov ecx, [0x667c58]` at 134 is 6 bytes,
+ours `mov eax, ...` is 5 — the 576-vs-577 deficit is that single encoding).
+
+### Levers discovered, with evidence
+
+1. **Which coordinate carries a byte need decides the whole assignment.**
+   Taking one coordinate's `g_sel_bpos` byte out of memory instead of out of
+   the base coordinate removes that coordinate's byte need, and VC6 then
+   hands out `ebx` / `ebp` / `edx` so that the byte-needing coordinate gets
+   the byte-capable `edx` and `next` gets `ebx`. Measured over 224 variants
+   (`/tmp/svclear_Q.c`): the byte-free coordinate always lands in ebp.
+   - byte-free x (`px = *(volatile unsigned char*)&sq.x`) → `next=ebx
+     x=ebp y=edx`, footprint block exact, 24 strict. **This is the body now
+     committed.**
+   - byte-free y → `next=ebx x=edx y=ebp`, 30-33 strict, footprint broken.
+   - neither byte-free (two byte needs) → `next=ebp`, 109-112 strict; the
+     two coordinates take ebx/edx and `next` is pushed onto ebp.
+
+2. **The order of `bx = c->x` / `by = c->y` swaps which coordinate gets edx
+   and which gets ebx** in the two-byte-need case (128 variants,
+   `/tmp/svclear_P.c`): `bx` first gives `x=edx y=ebx`, `by` first gives
+   `x=ebx y=edx`. Declaration order (`int bx, by` vs `int by, bx`) has no
+   effect. With a byte-free coordinate present the lever is inert.
+
+3. **The footprint statement order is load-bearing and now pinned**:
+   `f.top`, `f.bottom`, `f.left`, `f.top += by`, `f.right`,
+   `f.bottom += by`, `f.left += bx`, `f.right += bx`. The previously
+   committed `f.bottom` / `f.top` opening reorders insns 82-89.
+
+4. **Aggregate vs field-wise origin store trades the copy against the
+   ordering.** `g_destroy_cursor.origin = sq;` makes VC6 emit exactly one
+   register copy in the group (177 instructions, the original's count) but
+   groups the two stack stores before the two absolute stores. Writing
+   `origin.y` / `origin.x` as separate fields reproduces the original's
+   interleaving — `sq.y`(110), `origin.y`(113), `bpos.x`(117),
+   `g_sel_def`(118) all land exactly — but drops the copy, giving 176
+   instructions / 575 bytes (best save-block residual 9 of 20, total 59).
+   Sweeps: 1860 variants `/tmp/svclear_R.c`, 3240 `/tmp/svclear_S.c`.
+
+5. **The footprint field order of `ObjDef` is pinned without relying on the
+   struct comment.** `d[0x3c]` is added to the ebp coordinate and compared
+   `<=` against `e->area[0x30]`, and `d[0x44]` is compared `>=` against
+   `e->area[0x28]`; with the area layout fixed by the exact UNGLUE / NEEDIN
+   bodies this forces `d[0x3c]` = left, `d[0x44]` = right, `d[0x40]` = top,
+   and therefore ebp = x, edx = y. Any reading that swaps x and y in this
+   body is excluded.
+
+### Bounded negatives added by this session
+
+- **No non-volatile spelling produces the byte reload at 114.** Ten
+  spellings tested (`/tmp/svclear_X.c`): `(unsigned char)sq.y`,
+  `((BPos*)&sq.y)->x`, `((unsigned char*)&sq)[4]`,
+  `*(unsigned char*)((char*)&sq + 4)`, a `unsigned char*` variable indexed
+  at `[4]` and at `[0]`, a `Pos*` variable dereferenced before and after the
+  stores, and the plain `&sq.y` byte cast. All forward the stored register
+  and emit `mov [0x667c55], dl` with no load. Only a volatile-qualified
+  access emits `mov dl, byte ptr [esp+0x1c]`, which is the original's exact
+  instruction — but volatile on the y side moves y into ebp.
+- **Forwarding is not distance-limited**: with six statements between the
+  `sq.y` store and the `(unsigned char)sq.y` read VC6 still forwards.
+- **The `saved = g_destroy_cursor` aggregate copy does not kill forwarding**
+  either, so putting the `sq.y` store above the `rep movsd` does not buy the
+  reload (8 variants, `/tmp/svclear_N0.c`; it also breaks the footprint).
+- **Carrier temps do not create the `mov ecx, ebp` split.** `int sx = bx;`
+  coalesces when `bx` has no later use, and when a later use of `bx` is
+  added to block coalescing the reference count moves the wrong way, so the
+  assignment never reaches `x=ebp` (168 variants `/tmp/svclear_W.c`, 192
+  `/tmp/svclear_Y.c`, 2592 `/tmp/svclear_O.c` — none produced `x=ebp`).
+- **Mirroring the whole save block to match the original's *kind* sequence**
+  (stack store, copy, absolute store, byte load, stack store, absolute
+  store, byte store, absolute store, byte store) reaches save-block residual
+  10 of 20 but again loses the copy, 176 instructions / 575 bytes (56
+  variants, `/tmp/svclear_Z.c`).
+- Byte source read back from the just-stored global
+  (`(unsigned char)g_destroy_cursor.origin.x`) behaves exactly like reading
+  the coordinate: the byte need lands on the coordinate, not on a temp.
+- Re-reading `c->x` in the save block is not viable: `c` is in edi, which
+  the `rep movsd` clobbers, and VC6 does not re-materialise it (≈158 strict).
+
+### Measured floor
+
+Across roughly 10,000 generated variants this session the best reachable
+state is 24 strict with the footprint block exact, and every variant that
+fixes the two byte roles loses either the ebp assignment or the copy. To
+close CLEAR, the next pass needs a construct that gives base x a byte use
+which VC6 does **not** treat as a register constraint on x itself — so that
+x can still be handed ebp and the byte need is settled by a split copy —
+while y's byte comes out of `sq.y`'s home slot without a volatile
+qualifier. Nothing in the levers index currently produces that pair; the
+two known ways to get a byte out of memory (volatile access) and to get a
+non-coalescing copy (interference) both move the assignment the wrong way.
+
+Scratch for this session is `/tmp/svclear_*` (generators `svclear_gen*.py`,
+scorers `svclear_probe2.py`, `svclear_sbs.py`, `svclear_bytes.py`,
+`svclear_alloc2.py`, `svclear_hasload.py`). No binaries, assets or extracted
+disassembly are committed.
