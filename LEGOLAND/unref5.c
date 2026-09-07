@@ -680,3 +680,62 @@ void DrawTileDebugOverlay(void)
         row = saverow + 1;
     }
 }
+
+/* =========================================================================
+ *  0x00453c20 -- a DirectDraw HRESULT switch whose arms are all empty
+ * =========================================================================
+ * memdb.c's __DEBUG_FREE neighbourhood.  Twenty instructions of pure switch
+ * skeleton: a binary search over MAKE_DDHRESULT codes (0x88760000 | n) with
+ * every arm -- and the default -- reaching the same bare `ret`.  Everything
+ * below was READ OUT of the original, not guessed:
+ *
+ *   - the byte index table at 0x00453c70 is 0x51 entries wide with base
+ *     0x88760014, i.e. it covers DDERR codes 20..100 decimal, and its
+ *     bucket-0 entries sit at indices 0, 0x14, 0x23, 0x4b and 0x50 --
+ *     decimal 20, 40, 55, 95 and 100.  Those are exactly
+ *     DDERR_CANNOTDETACHSURFACE(20), DDERR_CURRENTLYNOTAVAIL(40),
+ *     DDERR_EXCEPTION(55), DDERR_INCOMPATIBLEPRIMARY(95) and
+ *     DDERR_INVALIDCAPS(100).  Bucket 1 is the default.
+ *   - the two dword entries at 0x00453c68 BOTH hold 0x00453c66, the `ret`.
+ *   - the compare chain adds singletons at 430 (DDERR_SURFACEBUSY),
+ *     222 (DDERR_NODIRECTDRAWSUPPORT) and 110 (DDERR_INVALIDCLIPLIST), plus
+ *     a `cmp eax,0x8876000a / jle` boundary at 10
+ *     (DDERR_CANNOTATTACHSURFACE).
+ *   - `lea ecx,[eax-0x88760078]` at 0x00453c60 is a DEAD index computation
+ *     for a second cluster based at decimal 120 (DDERR_INVALIDMODE) whose
+ *     dispatch VC6 folded away entirely.
+ *
+ * The only source shape that keeps the skeleton at all is a function whose
+ * arms each `return` the switch value itself: `void`, `break`-only, `goto`
+ * and dead-store arms are all deleted outright by VC6 at /O2 (measured), and
+ * `return 0` arms leave a `xor eax,eax` the original does not have.  With
+ * `return hr` the whole body folds to the bare `ret` the original ends on.
+ *
+ * What is NOT recovered is the membership of the 120.. cluster: it decides
+ * how VC6 splits the search, and without it the emitted tree comes out as one
+ * table plus a different set of compares.  With only the codes above, VC6
+ * builds ONE table over 10..55 and no singletons (61 bytes, 20 instructions,
+ * 16 of 20 strict).  Rather than invent case values to buy a number, the
+ * decoded set is committed as-is and the residual is the split.
+ * ========================================================================= */
+
+#define DDERR(n) (long)(0x88760000 | (n))
+
+// WIP-FUNCTION: LEGOLAND 0x00453c20  (20%, 16/20 strict, first diverging index 4: the unrecovered 120.. cluster changes the search split)
+long DDrawErrorPassThrough(long hr)
+{
+    switch (hr) {
+    case DDERR(10):    /* DDERR_CANNOTATTACHSURFACE */
+    case DDERR(20):    /* DDERR_CANNOTDETACHSURFACE */
+    case DDERR(40):    /* DDERR_CURRENTLYNOTAVAIL */
+    case DDERR(55):    /* DDERR_EXCEPTION */
+    case DDERR(95):    /* DDERR_INCOMPATIBLEPRIMARY */
+    case DDERR(100):   /* DDERR_INVALIDCAPS */
+    case DDERR(110):   /* DDERR_INVALIDCLIPLIST */
+    case DDERR(222):   /* DDERR_NODIRECTDRAWSUPPORT */
+    case DDERR(430):   /* DDERR_SURFACEBUSY */
+        return hr;
+    default:
+        return hr;
+    }
+}
