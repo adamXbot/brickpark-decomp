@@ -8,7 +8,7 @@ F/G/H partials, LONG appraisal, and SEH WinMain.
 | --- | --- | --- | ---: | ---: | --- | --- |
 | LL1 | `scope/LL1` | 1 | 22 | 861 | `logflume8.c` | DONE 22/22 merged |
 | LL2 | `scope/LL2` | 2 | 6 | 602 | `logflume9.c` | 5/6 — UpdateCommon floor; parked |
-| LL3 | `scope/LL3` | 3 | 19 | 1091 | `coaster11.c` | 13/19 — parked (Trace/ClipPlane floors) |
+| LL3 | `scope/LL3` | 3 | 19 | 1091 | `coaster11.c` | 14/19 — TestSquare closed; 5 WIPs parked |
 | LL4 | `scope/LL4` | 4 | 8 | 797 | `coastershade2.c` | 3/8 — 5 floors; parked |
 | LL5 | `scope/LL5` | 5 | 3 | 130 | `castletrack2.c` | DONE 3/3 merged |
 | LL6 | `scope/LL6` | 6 | 24 | 771 | `coaster12.c` | 22/24 — 2 floors; parked |

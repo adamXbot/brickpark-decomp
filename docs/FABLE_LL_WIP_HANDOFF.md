@@ -35,77 +35,71 @@ otherwise stay on the scope branch tip.
 | | |
 | --- | --- |
 | Branch / file | `scope/LL2` · `LEGOLAND/logflume9.c` |
-| Tip | `a4d4ba3c` |
+| Tip | `d76dd00e` |
 | Notes | `docs/lanes/scope-ll2.md` |
-| Score | 151i, **519/520B**, **3 mism** |
-
-First **120** instructions match (v0 in ecx). Only residual is people-rect **left**:
+| Score | 151i, **519/520B**, **3 mism** — FLOOR notes |
 
 ```
 need: lea edx,[eax+ecx] / mov ecx,[y] / mov [esp],edx
 have: add ecx,eax       / mov [esp],ecx / mov ecx,[y]
 ```
 
-VC6 coalesces left with dead v0 into ecx. Named-sum spellings flip to the
-older index-120 residual. Ruled out: Pos, volatile, one-temp, pointer-add,
-Track_Update operand order, helper-local Rect. **Need a spelling that forces
-`lea` without moving v0 out of ecx.**
+The intervening ecx load is **`g_mapref.y`**, not v1. Two mutually exclusive
+149/151 floors:
+
+- **Index 121 (kept):** `Pos o` + direct `r.left = o.x + v[0]` + volatile v1 —
+  v0 stays in ecx; dest-coalesces to `add ecx,eax` / store immediately.
+- **Index 120:** named/`left = ox+v0` then store later — correct y-before-store
+  schedule but v0 lands in edx (`add edx,eax`).
+
+`LFTrack_Update` emits the exact `lea` from four plain assigns (still has
+ebx/esi/edi saved). After this function’s `pop edi / pop esi` the same
+spelling dest-coalesces or takes the edx coloring. **Need a use of v0 that
+dies after the add and before the y load**, without an extra insn.
 
 ### LL8 — `AddScriptString` `0x004689f0` (12/13 scope)
 
 | | |
 | --- | --- |
 | Branch / file | `scope/LL8` · `LEGOLAND/gameframe2.c` |
-| Tip | `a3d2dbb6` |
+| Tip | `94632422` |
 | Notes | `docs/lanes/scope-ll8.md` |
-| Score | 91i, **267/264B**, **6 mism** |
+| Score | 91i, **267/264B**, **6 mism** — FLOOR |
 
-Both-string and one-string paths are exact. Residuals on fail edges only:
+Both-string and one-string paths stay exact. The two fail tails **share
+allocation**: lea/CSE/volatile flips that fix one recolor the other (or the
+exact one-string EDX store).
 
-- `!a`: need `mov ecx,eax / pop esi / inc ecx` (not `mov ecx,[count] / inc`)
-- `!copy`: count index must be **EDX**, not EAX (`a` stays in ECX for the bump)
+- Drop `!copy` volatile → loses one-string EDX (74/91)
+- Drop only `!a` volatile → early `pop edi`, flips eax/ecx and store order (83/91)
+- `count = n + 1` / `-~n` → `lea`, moves `!copy`’s `a` into EDX (73/91)
 
-Ruled out: live `z=0`, inline helpers, `read_count()`, `t=n; t++`→`lea`,
-using proven-zero `copy` as EAX holder. Need real coloring: count in EDX,
-EAX→ECX, `pop esi` before `inc ecx`.
-
-Name note: address was declared `NewScriptEvent` in places; `0x00468910`
-already owns that name — keep **`AddScriptString`**.
-
-### LL3 — `TrackPlace_TestSquare` `0x0041ee40` (13/19 scope)
-
-| | |
-| --- | --- |
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` |
-| Tip | `e3d22b4c` |
-| Notes | `docs/lanes/scope-ll3.md` |
-| Score | **96%**, 79i, **191/192B**, 60 mism |
-
-Need `mov esi,eax / add esi,edx` for `x = sx+x0`; have fused `add esi,eax`
-(after loading x0). Ruled out: extra temps, nested x0/x1, `ctx->x0`,
-`lim = sx; lim += x1`, volatile x0, Pos wrapper.
+Still need `mov ecx,eax / pop esi / inc ecx` on `!a` **and** `mov edx,[count]`
+on `!copy` together. Name: keep **`AddScriptString`** (`0x00468910` is
+`NewScriptEvent`).
 
 ---
 
 ## Priority B — size-exact / high % with clear next lever
 
-### LL3 — `Raster_ClipPoly` `0x0041ef60`
+### LL3 — `Raster_ClipPoly` `0x0041ef60` (14/19 scope)
 
-**75%**, 71i/160B vs 80i/194B. Cases 1 and 2 (`planes=2`) share one
-`ClipAgainstPlanes` tail; original duplicates all three. `mask==0xf` early-out
-is `je` vs original `jne` fall-through. Goto / if-chain / char nibbles tried
-(worse or still `je`).
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `c098897e` |
 
-### LL3 — `Route_GetMassAndPower` `0x0041db90`
-
-**70%**, 77i, 255/259B. `{f24, pos, sample[21]}` restores 0x6c frame. **rt in
-ebp vs eax.** Heading sum-of-squares should `fstp` over dead `power` arg slot
-`[esp+0x88]`.
+**80i / 193/194B**, 43 mis (~82%). Three call tails un-merged via distinct
+plane-pointer locals. Need `add ecx,OFF` on each copy without re-merging.
+(Earlier: cases 1–2 shared one `ClipAgainstPlanes` tail; that is past.)
 
 ### LL3 — `LFQueue_StepRider` `0x00411fa0`
 
-**72%**, 74i, 180/177B. CalcMoveLine: to.y from live shl then reload to.x.
-Clamp is `dec ax` on count, not `dec cx` on index.
+**74i / 174/177B**, 55 mis (matchfull 89%). Path lea and `dec ax` clamp landed.
+Still shl y-then-x; target stores interleave with CalcMoveLine pushes. Need
+both stores first, then `mov eax,ecx / reload to.x`.
+
+### LL3 — `Route_GetMassAndPower` `0x0041db90`
+
+**70%**, 77i, 255/259B. Unchanged. **rt in ebp.** Acc `fstp`s over the rt arg
+slot, not power `[esp+0x88]`. Root-copy / comma eval-at did not move it.
 
 ### LL7 — `Track_StepAlong` `0x00429f30` (14/17 scope)
 
@@ -191,11 +185,11 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 ## Suggested Fable attack order
 
-1. **LL2 UpdateCommon** — single-byte `lea` vs `add` with ecx already correct.
-2. **LL8 AddScriptString** — 6 mism on fail edges only.
-3. **LL3 TestSquare** — 191→192B fused add.
+1. **LL2 UpdateCommon** — `lea` vs `add`; y-before-store vs v0-in-ecx mutually exclusive.
+2. **LL8 AddScriptString** — fail-tail shared allocation (floored unless new coloring).
+3. **LL3 ClipPoly** — 193→194B; three distinct plane-pointer tails.
 4. **LL7 StepAlong** — 6-byte placeholder/t0 gap (not floored).
-5. **LL3 ClipPoly / MassAndPower / StepRider** — structural but named.
+5. **LL3 StepRider / MassAndPower** — structural but named.
 6. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
 7. **LL4 Span family / LL7 Slope+ShadeFill / LL3 Trace+ClipPlane** — last.
 
@@ -209,15 +203,15 @@ Do **not** merge partial scopes yourself.
 | scope | exact | tip (approx) | file |
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
-| LL2 | 5/6 | `a4d4ba3c` | `logflume9.c` |
-| LL3 | 13/19 | `e3d22b4c` | `coaster11.c` |
+| LL2 | 5/6 | `d76dd00e` | `logflume9.c` |
+| LL3 | 14/19 | `c098897e` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `8c5eb5f5` | `coaster12.c` |
 | LL7 | 14/17 | `0f653d1e` | `coaster13.c` |
-| LL8 | 12/13 | `a3d2dbb6` | `gameframe2.c` |
+| LL8 | 12/13 | `94632422` | `gameframe2.c` |
 
-**WIP count in this wave:** 0+1+6+5+0+2+3+1 = **18 bodies**.
+**WIP count in this wave:** 0+1+5+5+0+2+3+1 = **17 bodies**.
 
 ---
 
