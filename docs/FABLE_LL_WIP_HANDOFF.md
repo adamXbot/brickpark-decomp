@@ -36,7 +36,7 @@ Contract: `docs/PARALLEL_CONTRACT.md`. Index: `docs/SCOPE_LL_WAVE.md`.
 **EDX**. Volatile shims / `return count++` / LL2 `Fst` could not hold both
 tails at once.
 
-### LL7 — `Track_StepAlong` `0x00429f30` + `TrackRunSetSlope` `0x00429560` (exact on `scope/LL7`; scope **16/17**, tip `7e90ae76`)
+### LL7 — `Track_StepAlong` `0x00429f30` + `TrackRunSetSlope` `0x00429560` (exact on `scope/LL7`; scope **16/17**, tip pitch-volatile FillPoly)
 
 **StepAlong:** Named `float step2 = step * step` was the wall. Write the square
 only at the store after t0: `t0 = cur.geom->t0; g_step_len2 = step * step;`
@@ -45,9 +45,9 @@ only at the store after t0: `t0 = cur.geom->t0; g_step_len2 = step * step;`
 `if (steps > 0) do { … } while (--steps)`) gets the 7 eax↔edx homes.
 Same 90i/302B either way; only the IV/zero colouring differs.
 
-Still open: `TrackShade_FillPoly` — **254/254i, 765/771B, 68.9%** (tip `7e90ae76`).
-Frame 0x70; g_zb_polys/y homes landed. Residual: zrow-load vs `shl`/nshade
-schedule after crow store.
+Still open: `TrackShade_FillPoly` — **254/254i, 765/771B, 69.3%** (tip stripped
+from `514073c5`). Pitch-volatile pin landed shl+adds. Residual: crow/zrow
+base loads swapped; nshade still eax before crow store (want edx).
 
 ---
 
@@ -124,19 +124,18 @@ probes exhausted by Grok.
 
 ### LL7 — `TrackShade_FillPoly` `0x00428860`
 
-**Improved, still WIP** on tip `7e90ae76` (16/17). Sibling of `ZBuffer_FillPoly`
-(schoolcar6.c). **254/254i, 765/771B, frame 0x70**, matchfull **175/254 = 68.9%**
-(was 748B/0x6c/~38%, then 61%).
+**Improved, still WIP** (16/17). Sibling of `ZBuffer_FillPoly` (schoolcar6.c).
+**254/254i, 765/771B, frame 0x70**, matchfull **176/254 = 69.3%**.
 
-Landed: `last = &keys[n-1].idx`; sentinel via `edges[*last].y1`; reversed
-`ShadeSetup`; split `y` out of setup + late volatile `y` bump; volatile
-`nkeys`/`keys` for eax `g_zb_polys++` and `imul [ebp-4]`; named `py` for
-product/`shl`.
+Landed through pitch-volatile pin: `last`/ShadeSetup/`y` split; eax
+`g_zb_polys++`; `imul [ebp-4]`; `py = *(int volatile*)&s.pitch * y` then
+volatile zrow so zrow cannot hoist past the product — `shl` + both `add`s.
 
-**Residual:** three-slot schedule around zrow — volatile zrow after crow store
-is the 68.9% attractor (exact through insn 86); before-store hoists load and
-slides imul; plain `c`/`z` hoist crow into edi before sentinel. Need zrow load
-vs `shl eax,1` / nshade-in-eax after the crow store.
+**Residual:** original window is `imul` → `edx=[crow]` → `ecx=[zrow]` → `shl`
+→ both `add`s → store crow → **nshade in edx** → `test` → store zrow. Ours
+still has crow/zrow loads swapped and nshade in eax before the crow store.
+Ordinary `c`/`z` parks crow in edi; comma-nshade on crow store swaps the add
+regs (66.9%); volatile crow delays `push edi`.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
