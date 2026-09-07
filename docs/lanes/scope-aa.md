@@ -13,16 +13,16 @@ Branch `scope/AA`. File `LEGOLAND/goalstate.c`. Object prefix `/tmp/saa_`.
 | 0x0044dc70 | SetLevelGoalState | 9 | 100 | [OK] | FUNCTION |
 | 0x0044ebf0 | BlokeAction_EnterPark | 92 | 100 | [OK] | FUNCTION |
 | 0x0044ed00 | FormatBlokeMessage | 32 | 100 | [OK] | FUNCTION |
-| 0x0044ed70 | — | 328 | — | — | not started |
+| 0x0044ed70 | BlokeAction_LeavePark | 328 | ~89 | REJECT | WIP-FUNCTION |
 | 0x0044f170 | BlokeAction_SetState4 | 3 | 100 | [OK] | FUNCTION |
-| 0x0044f180 | PosOnObjectFootprint | 201 | ~46 | WIP | WIP-FUNCTION |
+| 0x0044f180 | PosOnObjectFootprint | 201 | 100 | [OK] | FUNCTION |
 | 0x0044f3d0 | CountBlokesAtRideID | 15 | 100 | [OK] | FUNCTION |
 | 0x0044f400 | SeatListFull | 14 | 100 | [OK] | FUNCTION |
 | 0x0044f4a0 | JoinSeatList | 121 | 100 | [OK] | FUNCTION |
 | 0x0044f610 | — | 699 | — | — | not started |
 
-**11 / 14 exact.** Three remain: PosOnObjectFootprint (WIP ~46%), plus the
-two large jump-table LT handlers 0x0044ed70 (328) and 0x0044f610 (699).
+**12 / 14 exact.** LeavePark ~89% WIP (honest residual below). Largest LT
+handler 0x0044f610 still not started.
 
 ## Mechanics
 
@@ -34,11 +34,14 @@ two large jump-table LT handlers 0x0044ed70 (328) and 0x0044f610 (699).
 - **BlokeAction_SetState4**: LT table 0x01; `state = 4`.
 - **BlokeAction_EnterPark**: LT table 0x02; walk to entrance, JoinSeatList,
   hand off to LT 5; case 2 clears flag 8 and starts LT 6.
+- **BlokeAction_LeavePark** (WIP): LT table 0x03; SuggestNextMove /
+  PTPSuggestNextMove toward `g_entrance_x`, wander / exit seat list /
+  RateBlokeOnLeaving / DestroyBloke.
 - **CountBlokesAtRideID / SeatListFull**: seat-list count vs capacity.
 - **JoinSeatList**: malloc 20-byte slot, stamp ride_id, `flags |= 4`
   (unguarded null-or bug), PutBlokeInList, dirty 0x20.
-- **PosOnObjectFootprint** (WIP): four-neighbour footprint origin test;
-  same family as GetObjectUID's UidHit probes.
+- **PosOnObjectFootprint**: four flat neighbour footprint probes; coords as
+  `pos->x>>8` expressions; `FootCell(y,x)` order; Pos-local hit sums.
 
 ## Levers
 
@@ -50,24 +53,54 @@ two large jump-table LT handlers 0x0044ed70 (328) and 0x0044f610 (699).
 - **JoinSeatList**: intrinsic `memset(slot, 0, 0x14)`; spill x/y into `xy[]`
   before bounds test; `unsigned short flags` with `cell->flags |= 4` emits
   `or byte ptr [eax+0xc],4`. Fail arms nested after success return.
-- **PosOnObjectFootprint**: blocked on g_map reload landing pads between
-  probes (same family as GetObjectUID's residual in objmap2.c). Flat probes
-  ~46%; nested above/below ~33%.
+- **PosOnObjectFootprint**: flat four probes (not GetObjectUID nested);
+  `FootCell(int y, int x)` for x-first `sar`; FootHit via Pos local so both
+  sums before either `cmp`; no int x/y locals — use `pos->x>>8` at each use.
+- **LeavePark CalcMoveLine arms**: mirror `Garderner_Repair` — 
+  `target.x/y = out; CalcMoveLine(b->world, out, path)` keeps `edi` as
+  `&b->world` from SuggestNextMove and interleaves the target.y store into
+  the by-value pushes. PTP case order `2,1,0` for sub/dec/dec dispatch.
+  Duplicate case 11/12 tails so deferred `add esp,0x20` survives (pending
+  GetFirstObjectMatching / RateBlokeOnLeaving both +4).
 
 ## Remaining / blocked
 
-- **0x0044f180**: needs GetObjectUID-style `mov esi,[g_map]` landing pads at
-  probe entries; do not grind flat vs nested without that lever.
-- **0x0044ed70** (328): jump-table on `action` 0..0xd; calls SuggestNextMove,
-  CalcMoveLine, NewDirForAction, FormatBlokeMessage. Leave until f180 lands
-  or take as its own pass.
-- **0x0044f610** (699): jump-table on `action` 0..0xa; publishes
-  `g_cur_bloke_f81`, calls BuildObjInfoList / ride-code helpers /
-  FormatBlokeMessage / PosOnObjectFootprint. Largest; last by design.
+### 0x0044ed70 BlokeAction_LeavePark (~89%, §6B)
+
+Same insn count (328) as original; three structural residuals after the
+bigsim-style CalcMoveLine rewrite:
+
+1. **Stuck counter (+0x82)** — original `mov dl,[stuck] / inc dl / mov al,dl /
+   store / cmp al,8`. Ours uses `al` throughout and cmps before the store.
+   Likely wants the JT index kept live in eax so stuck prefers `dl`. Keep-live
+   `else if (r > 5)` and pointer-through-stuck both failed / regressed.
+2. **PTP action `(f64&1) ? 6 : 0xa`** — ternary
+   `0xa + ((f64&1) ? -4 : 0)` emits `neg dl / sbb dl,dl` correctly but then
+   `and edx,0xfc` instead of `and dl,0xfc`. Forms that get `and dl,0xfc` drop
+   the `sbb`. No spelling found that yields both.
+3. **Case 11/12 shared CalcMoveLine** — duplicate tails give post-codegen
+   cross-jump into the *earlier* arm (case 12 `jmp` back to case 11's call).
+   Original is layout-last: case 11 `jmp` forward into the call after case
+   12's prefix. Source `goto` shared tail gets the forward layout but flushes
+   cdecl cleanup (`add esp,4` per call + `add esp,0x1c` instead of one
+   `add esp,0x20`). Empty-else direction flip is an if/else lever; not yet
+   transferred onto this jump-table pair.
+
+Stop grinding without a new lever for (1)–(3). WIP body retained for the next
+pass.
+
+### 0x0044f610 (699) — not started
+
+Jump-table on `action` 0..0xa at `0x44fdcc`. Publishes `g_cur_bloke_f81` from
+`b[+0x81]` first. Callees include BuildObjInfoList / CalculateRideCodes /
+ShuffleObjKeys / Calc_Item_Attractiveness / FormatBlokeMessage /
+PosOnObjectFootprint / SuggestNextMove / PTPSuggestNextMove / JoinSeatList /
+SeatListFull / GetObjectUID / AdjustMood / etc. Do after LeavePark or as its
+own focused pass.
 
 ## Names
 
 - `GetSim832b9c`, `AppraisalDueTick`, `FormatBlokeMessage`,
-  `BlokeAction_SetState4`, `BlokeAction_EnterPark`, `CountBlokesAtRideID`,
-  `SeatListFull`, `JoinSeatList`, `PosOnObjectFootprint`,
-  `BumpSlotCounter` (0x00489f90), `RunAppraisalScreen`.
+  `BlokeAction_SetState4`, `BlokeAction_EnterPark`, `BlokeAction_LeavePark`,
+  `CountBlokesAtRideID`, `SeatListFull`, `JoinSeatList`,
+  `PosOnObjectFootprint`, `BumpSlotCounter` (0x00489f90), `RunAppraisalScreen`.

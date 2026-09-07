@@ -55,11 +55,17 @@ typedef struct Bloke {
     unsigned char  action;         /* +0x60  short-term action */
     char           pad61;
     unsigned short flags;          /* +0x62 */
-    char           pad64[0x68 - 0x64];
+    unsigned char  f64;            /* +0x64 */
+    char           pad65[0x68 - 0x65];
     Pos            world;          /* +0x68 */
     char           pad70[0x72 - 0x70];
-    unsigned char  new_dir;        /* +0x72 */
-    char           pad73[0x98 - 0x73];
+    unsigned char  new_dir;        /* +0x72  EnterPark stores shrunk dir */
+    unsigned char  f73;            /* +0x73  LeavePark raw angle scratch */
+    char           pad74[0x7a - 0x74];
+    short          mood;           /* +0x7a */
+    char           pad7c[0x82 - 0x7c];
+    unsigned char  stuck;          /* +0x82  SuggestNextMove fail streak */
+    char           pad83[0x98 - 0x83];
     unsigned char  path[0x14];     /* +0x98  CalcMoveLine scratch */
 } Bloke;
 
@@ -78,7 +84,8 @@ typedef struct SeatOwner {
     int       base_y;              /* +0x10 */
     char      pad14[0x2e - 0x14];
     short     rider_capacity;      /* +0x2e */
-    char      pad30[0x44 - 0x30];
+    char      pad30[0x40 - 0x30];
+    int       exit_oy;             /* +0x40  leave-walk y offset */
     int       off_x;               /* +0x44  entrance approach offset */
     int       off_y;               /* +0x48 */
     char      pad4c[0x78 - 0x4c];
@@ -137,8 +144,22 @@ extern void* memset(void*, int, unsigned);                          /* 0x004a032
 extern void NewLongTermAction(Bloke* b, int action);                 /* 0x0044e760 */
 extern void PushLongTermAction(Bloke* b);                            /* 0x0044ebb0 */
 extern int  CalcMoveLine(Pos from, Pos to, void* path);              /* 0x00480740 */
+extern int  SuggestNextMove(Pos* from, Pos* to, Pos* out);           /* 0x00482050 */
+extern int  PTPSuggestNextMove(Pos* from, Pos* to, Pos* out);        /* 0x004824d0 */
+extern int  NewDirForAction(Bloke* b, unsigned char dir);            /* 0x004833d0 */
+extern void DestroyBloke(Bloke* b);                                  /* 0x00483010 */
+extern void RateBlokeOnLeaving(int score);                           /* 0x004633f0 */
 extern int  g_enter_off_x;                                           /* 0x004b8318 */
 extern int  g_enter_off_y;                                           /* 0x004b831c */
+extern int  g_entrance_x;                                            /* 0x004b8320 Pos.x */
+extern int  g_leave_dx;                                              /* 0x004b8328 */
+extern int  g_leave_dy;                                              /* 0x004b832c */
+extern int  g_visitor_count;                                         /* 0x006661bc */
+extern const char g_fmt_stuck_ptp[];                                 /* 0x004b8434 */
+extern const char g_fmt_wandering[];                                 /* 0x004b8424 */
+extern const char g_fmt_kill_minifig[];                              /* 0x004b840c */
+
+int JoinSeatList(Bloke* bloke, SeatOwner* owner, int seat_arg);
 
 /* movie3.c ResetLevelGlobals zeroes the sim counter at 0x00832b9c. */
 // FUNCTION: LEGOLAND 0x0044db20
@@ -241,6 +262,164 @@ void FormatBlokeMessage(const char* text)
     dest = g_bloke_msg_slot[7];
     sprintf(dest, g_fmt_bloke_msg, g_cur_bloke_f81, text);
     DBPrintf(g_fmt_bloke_log, g_cur_bloke_f81, text);
+}
+
+/* Long-term action table slot 0x03: route toward the entrance, PTP when stuck,
+ * wander hand-off, join the exit seat list, walk out, rate, and destroy.
+ *
+ * CalcMoveLine arms mirror Garderner_Repair (bigsim.c): assign target from the
+ * local `out`, then CalcMoveLine(b->world, out, path) so VC6 keeps edi as
+ * &world and interleaves the target.y store into the arg pushes.
+ *
+/* Residual (~89%): stuck counter uses al not dl (missing mov al,dl); PTP
+ * (f64&1)?6:0xa emits and edx,0xfc not and dl,0xfc after sbb dl,dl; case
+ * 11/12 share the CalcMoveLine call via post-codegen cross-jump into the
+ * earlier arm (backward jmp) instead of the original forward jmp into a
+ * layout-last shared call. Goto shared-tail kills deferred add esp,0x20.
+ * See docs/lanes/scope-aa.md. */
+// WIP-FUNCTION: LEGOLAND 0x0044ed70
+void BlokeAction_LeavePark(Bloke* b)
+{
+    Pos out;
+    char msg[100];
+    MapCell* cell;
+    SeatOwner* def;
+    unsigned char a;
+    int r;
+
+    switch (b->action) {
+    case 0:
+        b->flags |= 8;
+        b->stuck = 0;
+        b->action = 1;
+        /* fallthrough */
+    case 1:
+        r = SuggestNextMove(&b->world, (Pos*)&g_entrance_x, &out);
+        switch (r + 3) {
+        case 1: /* SuggestNextMove == -2 */
+            b->action = 5;
+            return;
+        case 0:
+        case 2:
+        case 3: /* -3 / -1 / 0 */
+            a = b->stuck;
+            b->state = 4;
+            a++;
+            b->action = 2;
+            b->stuck = a;
+            if (a == 8)
+                b->action = 5;
+            return;
+        case 5: /* == 2 */
+            b->target.x = out.x;
+            b->target.y = out.y;
+            a = (unsigned char)(CalcMoveLine(b->world, out, b->path) + 0x10);
+            b->state = 6;
+            b->f73 = a;
+            NewDirForAction(b, (unsigned char)((a >> 5) + 3));
+            if (b->f64) {
+                b->state = 4;
+                b->action = 2;
+            } else {
+                b->action = 0xa;
+            }
+            return;
+        case 4: /* == 1 */
+            b->target.x = out.x;
+            b->target.y = out.y;
+            a = (unsigned char)(CalcMoveLine(b->world, out, b->path) + 0x10);
+            b->state = 6;
+            b->f73 = a;
+            NewDirForAction(b, (unsigned char)((a >> 5) + 3));
+            if (b->f64) {
+                b->state = 4;
+                b->action = 2;
+            } else {
+                b->action = 0;
+            }
+            return;
+        }
+        return;
+    case 2:
+        b->flags |= 8;
+        b->action = 1;
+        return;
+    case 5:
+        b->flags |= 8;
+        sprintf(msg, g_fmt_stuck_ptp);
+        FormatBlokeMessage(msg);
+        r = PTPSuggestNextMove(&b->world, (Pos*)&g_entrance_x, &out);
+        switch (r) {
+        case 2:
+            b->target.x = out.x;
+            b->target.y = out.y;
+            a = (unsigned char)(CalcMoveLine(b->world, out, b->path) + 0x10);
+            b->state = 0xb;
+            b->f73 = a;
+            NewDirForAction(b, (unsigned char)((a >> 5) + 3));
+            /* Prefer sbb dl,dl (ternary -4); and stays edx-wide — residual. */
+            b->action = (unsigned char)(0xa + ((b->f64 & 1) ? -4 : 0));
+            return;
+        case 1:
+            b->target.x = out.x;
+            b->target.y = out.y;
+            a = (unsigned char)(CalcMoveLine(b->world, out, b->path) + 0x10);
+            b->state = 0xb;
+            b->f73 = a;
+            NewDirForAction(b, (unsigned char)((a >> 5) + 3));
+            if (b->f64 & 1)
+                b->action = 6;
+            return;
+        case 0:
+            b->state = 4;
+            b->action = 6;
+            return;
+        }
+        return;
+    case 6:
+        sprintf(msg, g_fmt_wandering);
+        FormatBlokeMessage(msg);
+        b->state = 4;
+        b->action = 5;
+        return;
+    case 10:
+        if (JoinSeatList(b, (SeatOwner*)g_entrance_elem->data, 0)) {
+            a = b->action;
+            b->flags |= 8;
+            a++;
+            b->current_item = g_entrance_elem;
+            b->action = a;
+            PushLongTermAction(b);
+            NewLongTermAction(b, 5);
+        }
+        return;
+    case 11:
+        cell = GetFirstObjectMatching(g_entrance_elem);
+        def = (SeatOwner*)g_entrance_elem->data;
+        b->target.x = (cell->x + def->off_x + 6) << 8;
+        b->target.y = (cell->y + def->exit_oy + 8) << 8;
+        a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
+        b->state = 7;
+        b->f73 = a;
+        NewDirForAction(b, (unsigned char)((a >> 5) + 3));
+        b->action++;
+        return;
+    case 12:
+        RateBlokeOnLeaving(b->mood);
+        b->target.x += g_leave_dx;
+        b->target.y += g_leave_dy;
+        a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
+        b->state = 7;
+        b->f73 = a;
+        NewDirForAction(b, (unsigned char)((a >> 5) + 3));
+        b->action++;
+        return;
+    case 13:
+        DBPrintf(g_fmt_kill_minifig, b);
+        DestroyBloke(b);
+        g_visitor_count--;
+        return;
+    }
 }
 
 /* Long-term action table slot 0x01: set the bloke's low-level AI state to 4. */
