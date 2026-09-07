@@ -125,14 +125,22 @@ print path: `EnumPrintersA` [0x4ab344], `CreateDCA` [0x4ab0a8],
 - **TextOut Y is `pageH * 678 / pBmi->biHeight`**, not `bih.biHeight`.
   That is `idiv [pBmi+8]` and keeps pBmi live past `font1`, so those
   two no longer share a home (pBmi stays at 0x24, font1 at 0x14).
-- **StretchDIBits margin schedule is the residual.** The original
-  starts signed `pageH/64` (`cdq` / `and edx, 0x3f` / `add`) while
-  pageH is still in eax, immediately after `push SRCCOPY`, and
-  finishes `sar ecx, 6` after the src pushes; destW/destH are
-  `page - 2*margin`. Precomputing `xDest/yDest/destW/destH` is 96.5%.
-  Inlining the expressions into the call dropped to 94.6% — the
-  /64 split is a register-pressure schedule (pageH lives in ebp),
-  not a missing C local.
+- **StretchDIBits margin schedule is the residual.** After both
+  `GetDeviceCaps` (IAT cached in ebp, then `mov ebp, eax` = pageH)
+  the original `push SRCCOPY` / `cdq` / `and edx, 0x3f` / `push 0`
+  starts signed `pageH/64` while eax still holds pageH, finishes
+  `sar ecx, 6` after the bmi/bits/src pushes, then destH from ebp
+  and destW from reloaded xDest/pageW. Precomputing the four
+  named margins is 96.5% (pageW/8 first, both `sar` immediate).
+  Inlining all four expressions into the call emits that /64
+  opening and the delayed `sar ecx, 6`, but destW
+  (`pageW-2*(pageW/8)`) is finished from xDest-in-eax before
+  `mov edx, [pBmi]` (94.6%, 581/614). `0*destH` and `(pBmi, destW)`
+  were DCE'd to the same 94.6%; volatile pBmi 94.2%; volatile
+  `pageH` at the call 95.0% (reload, not live eax) or 86.4% on
+  the precomputed form. destW before the second GetDeviceCaps
+  94.5% (breaks the IAT pair). No C spelling delayed destW
+  without losing the split.
 
 ## Verification
 

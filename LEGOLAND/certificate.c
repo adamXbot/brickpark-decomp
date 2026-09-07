@@ -144,13 +144,14 @@ void KillControllers(void)
 /* Print `path` (an existing BMP) to the first local printer and stamp
  * `msg` / `stamp` in the Lego face. Non-zero on success.
  *
- * Residual: frame 0xb88 and the addressed run match (returned/pBits/needed
- * at 0x28/0x2c/0x30, DEVMODE 0x84, printers 0x118) once those three live in
- * one 16-byte struct with memdc. StretchDIBits still precomputes the signed
- * pageW/8 and pageH/64 margins instead of splitting the /64 across the
- * stdcall pushes (orig starts cdq/and while pageH is in eax, finishes
- * sar ecx,6 after the src pushes). Inlining the expressions dropped the
- * score (96.5 → 94.6). */
+ * Residual: frame 0xb88 and the addressed run match. StretchDIBits
+ * precomputes the four margins (96.5%). Inlining pageW/8 and pageH/64
+ * into the call emits the original /64 split (cdq/and after push SRCCOPY,
+ * sar ecx,6 after the src pushes) but then greedily finishes destW from
+ * xDest-in-eax before the pBmi/pBits loads (94.6%). destW depending on
+ * destH, comma/volatile pBmi barriers, and a volatile pageH read at the
+ * call were DCE'd or worse (95.0 / 86.4). No spelling delayed destW
+ * without losing the split. */
 // WIP-FUNCTION: LEGOLAND 0x00451740  (96.5%, StretchDIBits margin schedule; 22 residual)
 int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
 {
