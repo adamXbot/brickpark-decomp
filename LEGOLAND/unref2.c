@@ -14,6 +14,9 @@
  * defined LOCALLY (legoland.h is owned elsewhere).  See docs/lanes/scope-ll10.md.
  */
 
+#include <string.h>
+#pragma intrinsic(memset)
+
 typedef struct Pos { int x, y; } Pos;
 typedef struct Vec3f { float x, y, z; } Vec3f;
 
@@ -186,30 +189,36 @@ void Raster_DrawLine(const Pos* from, const Pos* to, int colour)
 }
 
 /* ==========================================================================
- * 0x004237a0 -- draw every edge of a wireframe object in white (-1).  The
- * object is {..., int edges (+8), Vertex* vert (+0x10), Edge* edge (+0x14)};
- * the vertex stride is 0x14 and the edge is a pair of dword indices.  The
- * edge count is re-read from the object after each call, because the call
+ * 0x004237a0 -- draw every EDGE of a mesh in white (-1): one line per entry
+ * of the mesh's +0x14 pair table, between the two vertices it names.  The
+ * pair count is re-read from the descriptor after each call, because the call
  * may alias it.
  * ======================================================================== */
-typedef struct WireVert { Pos at; int pad[3]; } WireVert;              /* 0x14 */
-typedef struct WireEdge { int a, b; } WireEdge;
-typedef struct WireObj {
-    int       pad00[2];
-    int       edges;            /* +0x08 */
-    int       pad0c;
-    WireVert* vert;             /* +0x10 */
-    WireEdge* edge;             /* +0x14 */
-} WireObj;
+/* schoolcar3.c's MeshDesc, whose two halves (Coaster3D_BuildTrackMesh
+ * 0x00428cb0 and Coaster3D_DrawMesh 0x004234e0) share this exact layout.  Its
+ * +0x08 is the PAIR count, not a vertex count: Coaster3D_BuildTrackMesh sets
+ * it to `18 * last + 6`, which is the pair stride, and every reader here and
+ * in 0x004237a0 uses it as the bound of the +0x14 array.  There is no vertex
+ * count field at all -- 0x004227c0 derives one by scanning the pairs. */
+typedef struct TrackVtx { int x, y, z, clip, shade; } TrackVtx;        /* 0x14 */
+typedef struct MeshDesc {
+    int        f00;             /* +0x00 */
+    int        maxvert;         /* +0x04 */
+    int        npairs;          /* +0x08 */
+    int        ntris;           /* +0x0c */
+    TrackVtx*  verts;           /* +0x10 */
+    int      (*pairs)[2];       /* +0x14 */
+    int      (*tris)[3];        /* +0x18 */
+} MeshDesc;                     /* 0x1c */
 
 // FUNCTION: LEGOLAND 0x004237a0
-void Raster_DrawWireframe(WireObj* obj)
+void Raster_DrawWireframe(MeshDesc* m)
 {
     int i;
 
-    for (i = 0; i < obj->edges; i++)
-        Raster_DrawLine(&obj->vert[obj->edge[i].a].at,
-                        &obj->vert[obj->edge[i].b].at, -1);
+    for (i = 0; i < m->npairs; i++)
+        Raster_DrawLine((const Pos*)&m->verts[m->pairs[i][0]],
+                        (const Pos*)&m->verts[m->pairs[i][1]], -1);
 }
 
 /* ==========================================================================
@@ -416,4 +425,241 @@ void Raster_BlitTextureShaded(int x, int y, int index, int shade)
         }
         Raster_RestoreState(&surface);
     }
+}
+
+/* ==========================================================================
+ * 0x004227c0 -- rebuild a mesh with its BACK-FACING triangles, and everything
+ * that only they used, removed.  Returns a freshly allocated MeshDesc whose
+ * header, pair table, triangle table and vertex array are ONE block, or null.
+ *
+ * Five passes over three mark arrays -- one flag per triangle, per pair and
+ * per vertex, all allocated and zeroed up front and all freed on the way out:
+ *
+ *  1. Mark every triangle whose 2D cross product `dy2*dx1 - dx2*dy1` is
+ *     NEGATIVE.  That is Coaster3D_DrawMesh's (schoolcar3.c 0x004234e0)
+ *     facing test with the sense flipped, and it is taken on the SIGN BIT of
+ *     the float rather than by comparing against zero, so -0.0 counts as
+ *     back-facing too.  The three vertex numbers come out of the pair table
+ *     through the same bit-31 seam encoding schoolcar3.c documents.
+ *  2. A pair used by a marked triangle is itself marked unless some UNMARKED
+ *     triangle also uses it (compared with `(a ^ b) & 0x7fffffff`, so the two
+ *     seam directions of one pair count as the same pair).
+ *  3. A vertex named by a marked pair is marked unless some unmarked pair
+ *     also names it.
+ *  4. Count the marked pairs and vertices, and size the new block:
+ *     28 + kept_pairs*8 + kept_tris*12 + kept_verts*20.
+ *  5. Compact.  Each mark array is REUSED as its own renumbering table: as an
+ *     item survives, its slot is overwritten with `old_index - new_index`, so
+ *     the later passes renumber with a subtraction.  Vertices are compacted
+ *     first because the pairs need their table, pairs next because the
+ *     triangles need theirs.
+ *
+ * ORIGINAL BUG, reproduced: the new descriptor's +0x08 (pair count) and +0x04
+ * are written as `kept - 1`, one short of the count every reader -- this
+ * function's own first pass, and Raster_DrawWireframe -- treats +0x08 as.  The
+ * triangle count at +0x0c has no such `- 1`.  The header's +0x00 is never
+ * written at all, so it keeps whatever the allocator left there.
+ *
+ * The three mark arrays are freed in a deliberately asymmetric shape: a null
+ * triangle mark skips its own free, and the other two are null-checked.
+ * ======================================================================== */
+extern void* HeapAlloc_w(unsigned int size);                    /* 0x0049e4ff */
+extern void  HeapFree_w(void* p);                               /* 0x0049e4d0 */
+
+/* RESIDUAL (495 of 517 aligned; audit 521i/1609B vs 521i/1613B -- the
+ * instruction COUNT already matches, and the strict mismatch of 391 is the
+ * four-byte shortfall re-indexing everything after it).
+ *
+ * FIRST DIVERGENCE at index 123, and 27 of the 29 real mismatches are the ONE
+ * block that computes the cross product.  The original loads all FOUR integer
+ * deltas onto the x87 stack in DEFINITION order and only then multiplies
+ * across it -- `fild dx1 / fild dy1 / fild dx2 / fild dy2 / fmul st(3) /
+ * fxch st(1) / fmul st(2) / fsubp st(1)` -- and pops the two survivors with a
+ * bare `fstp st(0)` pair, which is the signature of four x87-resident values
+ * whose live range ends there.  Our body evaluates the expression tree instead
+ * (`fild dy2 / fild dx1 / fmulp / fild dy1 / fild dx2 / fmulp / fsubp`), which
+ * is four instructions shorter, reads v[2] two instructions early, and folds
+ * the sign test into `test dword ptr [mem], 0x80000000` where the original
+ * loads it into eax first.
+ *
+ * RULED OUT by measurement (score out of 517 in brackets): float deltas [490]
+ * vs double [494] vs long double [494]; all six operand orders of the two
+ * products, with and without parentheses [490-494 -- VC6 canonicalises them];
+ * the four deltas as separate statements, as declaration initialisers, in an
+ * inner scope, at function scope [466], or as int locals converted at the use
+ * site [461]; two named product temporaries [486]; the accumulator spellings
+ * `dy2 *= dx1; dy2 -= dx2*dy1` [496, but a contrived source] and
+ * `dx1 *= dy2; dy1 *= dx2` [490]; a `static __inline float Cross2(...)` taking
+ * the four as float parameters [487, and it folds the products to `fimul`];
+ * the sign test as `*(int*)&area`, `*(unsigned*)&area`, a named int local, or
+ * a float/int union [489-490].  Naming the three vertex POINTERS is worth +24
+ * and, importantly, restores the whole body's ebx/esi/edi phase, so it stays.
+ *
+ * The remaining two mismatches are at index 374/376: the original computes the
+ * vertex copy's destination as `dst_offset += out->verts` (offset in edi, base
+ * in ecx) and ours as `out->verts += dst_offset`.  Both end in `add edi,ecx`
+ * with the two roles swapped.
+ */
+// WIP-FUNCTION: LEGOLAND 0x004227c0  (95.7%, 27 instructions in the cross-product block plus 2 in the vertex copy; first divergence at index 123)
+MeshDesc* Mesh_DropBackFaces(MeshDesc* m)
+{
+    MeshDesc* out = 0;
+    int*      trimark;
+    int*      pairmark;
+    int*      vertmark;
+    int       npairs = m->npairs;
+    int       nverts = 0;
+    int       deadtris = 0;
+    int       deadpairs = 0;
+    int       deadverts = 0;
+    int       i, j, k, n;
+
+    for (i = 0; i < m->ntris; i++) {
+        for (k = 0; k < 3; k++) {
+            const int* pr = m->pairs[m->tris[i][k] & 0x7fffffff];
+
+            if (pr[0] > nverts)
+                nverts = pr[0];
+            if (pr[1] > nverts)
+                nverts = pr[1];
+        }
+    }
+    nverts++;
+
+    trimark  = (int*)HeapAlloc_w(m->ntris * 4);
+    pairmark = (int*)HeapAlloc_w(npairs * 4);
+    vertmark = (int*)HeapAlloc_w(nverts * 4);
+    if (trimark) {
+        if (pairmark && vertmark) {
+            memset(trimark, 0, m->ntris * 4);
+            memset(pairmark, 0, npairs * 4);
+            memset(vertmark, 0, nverts * 4);
+            for (i = 0; i < m->ntris; i++) {
+                int        v[3];
+                double     dx1, dy1, dx2, dy2;
+                float      area;
+                TrackVtx*  a; TrackVtx* b; TrackVtx* c;
+
+                for (k = 0; k < 3; k++) {
+                    int e = m->tris[i][k];
+
+                    if (e & 0x80000000)
+                        v[k] = m->pairs[e & 0x7fffffff][1];
+                    else
+                        v[k] = m->pairs[e & 0x7fffffff][0];
+                }
+                a = &m->verts[v[0]];
+                b = &m->verts[v[1]];
+                c = &m->verts[v[2]];
+                dx1 = (double)(b->x - a->x);
+                dy1 = (double)(b->y - a->y);
+                dx2 = (double)(c->x - a->x);
+                dy2 = (double)(c->y - a->y);
+                area = (float)(dy2 * dx1 - dx2 * dy1);
+                if (*(int*)&area & 0x80000000) {
+                    trimark[i] = 1;
+                    deadtris++;
+                }
+            }
+            for (i = 0; i < m->ntris; i++) {
+                if (trimark[i]) {
+                    for (k = 0; k < 3; k++) {
+                        for (j = 0; j < m->ntris; j++) {
+                            if (trimark[j] == 0) {
+                                if (((m->tris[j][0] ^ m->tris[i][k]) & 0x7fffffff) == 0)
+                                    goto next_pair;
+                                if (((m->tris[j][1] ^ m->tris[i][k]) & 0x7fffffff) == 0)
+                                    goto next_pair;
+                                if (((m->tris[j][2] ^ m->tris[i][k]) & 0x7fffffff) == 0)
+                                    goto next_pair;
+                            }
+                        }
+                        pairmark[m->tris[i][k] & 0x7fffffff] = 1;
+next_pair: ;
+                    }
+                }
+            }
+            for (i = 0; i < npairs; i++) {
+                if (pairmark[i]) {
+                    const int* pv = m->pairs[i];
+
+                    for (k = 0; k < 2; k++) {
+                        for (j = 0; j < npairs; j++) {
+                            if (pairmark[j] == 0) {
+                                if (pv[k] == m->pairs[j][0])
+                                    goto next_vert;
+                                if (pv[k] == m->pairs[j][1])
+                                    goto next_vert;
+                            }
+                        }
+                        vertmark[pv[k]] = 1;
+next_vert: ;
+                    }
+                }
+            }
+            for (i = 0; i < npairs; i++)
+                if (pairmark[i])
+                    deadpairs++;
+            for (i = 0; i < nverts; i++)
+                if (vertmark[i])
+                    deadverts++;
+            out = (MeshDesc*)HeapAlloc_w(sizeof(MeshDesc) +
+                                         (m->ntris - deadtris) * 12 +
+                                         (npairs - deadpairs) * 8 +
+                                         (nverts - deadverts) * 20);
+            if (out) {
+                out->npairs = npairs - deadpairs - 1;
+                out->ntris = m->ntris - deadtris;
+                out->maxvert = nverts - deadverts - 1;
+                out->pairs = (int (*)[2])((char*)out + sizeof(MeshDesc));
+                out->tris = (int (*)[3])(out->pairs + (npairs - deadpairs));
+                out->verts = (TrackVtx*)(out->tris + (m->ntris - deadtris));
+                n = 0;
+                for (i = 0; i < nverts; i++) {
+                    if (vertmark[i] == 0) {
+                        out->verts[n] = m->verts[i];
+                        vertmark[i] = i - n;
+                        n++;
+                    }
+                }
+                for (i = 0, n = 0; i < npairs; i++) {
+                    if (pairmark[i] == 0) {
+                        out->pairs[n][0] = m->pairs[i][0] - vertmark[m->pairs[i][0]];
+                        out->pairs[n][1] = m->pairs[i][1] - vertmark[m->pairs[i][1]];
+                        pairmark[i] = i - n;
+                        n++;
+                    }
+                }
+                n = 0;
+                for (i = 0; i < m->ntris; i++) {
+                    if (trimark[i] == 0) {
+                        int e;
+
+                        e = m->tris[i][0];
+                        if (e & 0x80000000)
+                            out->tris[n][0] = (e - pairmark[e & 0x7fffffff]) | 0x80000000;
+                        else
+                            out->tris[n][0] = e - pairmark[e];
+                        e = m->tris[i][1];
+                        if (e & 0x80000000)
+                            out->tris[n][1] = (e - pairmark[e & 0x7fffffff]) | 0x80000000;
+                        else
+                            out->tris[n][1] = e - pairmark[e];
+                        e = m->tris[i][2];
+                        if (e & 0x80000000)
+                            out->tris[n][2] = (e - pairmark[e & 0x7fffffff]) | 0x80000000;
+                        else
+                            out->tris[n][2] = e - pairmark[e];
+                        n++;
+                    }
+                }
+            }
+        }
+        HeapFree_w(trimark);
+    }
+    if (pairmark)
+        HeapFree_w(pairmark);
+    if (vertmark)
+        HeapFree_w(vertmark);
+    return out;
 }
