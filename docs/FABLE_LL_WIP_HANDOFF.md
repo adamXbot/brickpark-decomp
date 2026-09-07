@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `95982b1a` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `af5077cd` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — FLOOR notes.
 
@@ -66,7 +66,7 @@ Need / have:
 
 `eax` stays live for `[eax+0x24]` after `mov ebx,eax` — sink-vs-fuse, not missing live use. LL2 `Fst` RTL does **not** transfer (that closes 3-scratch SIB lea, not `reg+disp8` dest-coalesce onto callee-saved `p`). Transparent helpers / two-web `t`/`n` / `Mass_End` fold to 65/77. Volatile `head` spills frame; `fr.f24` makes mov/add adjacent but not `lea`.
 
-**2026-09-08 probes (still 65/77):** `lea ebx,[eax+0x70]` is the **only** such encoding in `.text`. Early n-use emits adjacent `mov/add`, never lea. `n=&rt->head` + plain `q=rt` → `lea ebx,[ebp+0x70]` (wrong base). Live-eax lea sibling is **SetTrainAt** (`lea ebp,[eax+0x70]` after `mov ebx,[eax+0x158]` / immediate push of head) — not FindFreeSeat (that kills eax). Mini-morphs of SetTrainAt on Mass need an early use/push of `n` that the original body does not have; decls dest-coalesce or spill (`PlaceAndBind`, pipelined `nxt`, frame 0x70). Mass has no original call/push of `n` before `mov eax,[f24]`, so dest-coalesce stays the attractor. Need lea into callee-saved ebx with **p still in eax** without inventing an early use.
+**2026-09-08 probes (still 65/77):** `lea ebx,[eax+0x70]` is unique in `.text`. Live-eax lea sibling is **SetTrainAt** (needs early push/use of head — does not transfer). No-use-lea sibling is **CollectCarSample** (`lea esi,[eax+0x70]` between call pushes) — cannot host Mass’s head lea: Mass already has `lea edx,[eax+0xc]` in-slot and kills eax for f24 before `Span_EvalRange`. Named `&p->pos` + delayed `n` mutates eax (**58/78**). Dest-coalesce stays the attractor.
 
 (`Raster_ClipPoly` closed via `if (1) { switch (flags) … } return count`.)
 Trace NG22 / ClipPlane ESCAPES unchanged.
@@ -174,7 +174,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `95982b1a` | `coaster11.c` |
+| LL3 | 16/19 | `af5077cd` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
