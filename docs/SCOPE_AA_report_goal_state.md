@@ -1,8 +1,9 @@
 # Scope AA — report / goal-state table tier (inventory group 12) (2026-09-07)
 
-> **Status: IN PROGRESS (integrator cut 2026-09-07).** Branch `scope/AA`.
-> Notes: `docs/lanes/scope-aa.md`. Object prefix `/tmp/saa_`. Cut from
-> inventory group 12 (`tools/inventory.py` / `docs/lanes/scope-n.md`).
+> **Status: DONE — 12 of 14 exact, merged into `main` 2026-09-07.** Two
+> honest WIPs: `BlokeAction_LeavePark`, `BlokeAction_PickRide`. Branch
+> `scope/AA`. Notes: `docs/lanes/scope-aa.md`. Object prefix `/tmp/saa_`.
+> Cut from inventory group 12 (`tools/inventory.py` / `docs/lanes/scope-n.md`).
 
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
 here** — including the relocation step of the gate

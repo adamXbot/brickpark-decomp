@@ -1,8 +1,8 @@
 # Scope AE — high-level bloke AI table handlers (inventory group 13 live) (2026-09-07)
 
-> **Status: IN PROGRESS (integrator cut 2026-09-07 for Grok).** Branch
+> **Status: DONE — 6 of 7 exact, merged into `main` 2026-09-07.** One
+> honest WIP: `Visitor_ReserveCafeBrolly` (i19 `test dl,1` floor). Branch
 > `scope/AE`. Notes: `docs/lanes/scope-ae.md`. Object prefix `/tmp/sae_`.
-> Cut from inventory group 13 live members only (skip the 11 DEAD bodies).
 
 **Read `docs/PARALLEL_CONTRACT.md` first.** Relocation gate required.
 

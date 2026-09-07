@@ -1,8 +1,8 @@
 # Scope AD — SoftBlitRLE recolour/highlight painters + remaining blit helpers (2026-09-07)
 
-> **Status: IN PROGRESS (integrator cut 2026-09-07 for Grok).** Branch
-> `scope/AD`. Notes: `docs/lanes/scope-ad.md`. Object prefix `/tmp/sad_`.
-> Continues after scope AB's SoftBlitRLEPlain painters (`rlepaint.c`).
+> **Status: DONE — 8 of 9 exact, merged into `main` 2026-09-07.** One
+> honest WIP: `ShowCapacityOverlay`. Branch `scope/AD`. Notes:
+> `docs/lanes/scope-ad.md`. Object prefix `/tmp/sad_`.
 
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
 here** — including `$PY tools/relocs.py LEGOLAND/<file>.c` (zero MISMATCH).

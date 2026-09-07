@@ -424,6 +424,19 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **SCOPES AD / AE / AA (merged 2026-09-07; +26 exact).** Evidence in
+  `docs/lanes/scope-ad.md`, `scope-ae.md`, `scope-aa.md`.
+  - **AD Relock:** `dwSize = 0x6c` before `IntersectRect`; write
+    `rect.bottom = s->h - 1` before the status push so edx/eax/ecx rank.
+  - **AD RLE recolour/highlight:** naked asm twins of AB (mask & / >>1);
+    no `rep movsw` on literal runs.
+  - **AE:** `act = b->action; switch (b->action)` (goldrush); entrance tile
+    as two ints not one `Pos`. CafeBrolly floor: walk `&1` across GetNext
+    parks `mov ebx,1` / `test bl,dl` — leave WIP.
+  - **AA:** AppraisalDueTick nested guards; FormatBlokeMessage indexed for
+    with signed `jl`; JoinSeatList intrinsic memset + `unsigned short flags`.
+    LeavePark/PickRide: `and dl` vs `and edx` residual family — leave WIP.
+
 - **SCOPE AF (merged 2026-09-07, 7 of 8 exact; evidence in
   `docs/lanes/scope-af.md`).** Bubble-help / text-cache helpers
   (`bubblecache.c`):

@@ -1,6 +1,6 @@
 # Handoff — LEGOLAND matching decompilation
 
-**Integration checkpoint: 2026-09-07, scopes Z, Y, AB, AC, and AF merged.**
+**Integration checkpoint: 2026-09-07 — Z, Y, AB, AC, AF, AD, AE, AA merged.**
 Written for the next session to pick up cold. Earlier dated environment and
 wave notes are retained below; use §1 for current scope ownership and progress.
 
@@ -91,20 +91,25 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **67.3% exact, 78.7% with partials** |
-| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2779 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **68.1% exact, 80.1% with partials** |
+| functions matched exactly | `git ls-files 'LEGOLAND/*.c' \| xargs grep -h '^// FUNCTION: LEGOLAND' \| wc -l` | 2805 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and the separate 26-function Codex-F brief own part of this list; use `tools/inventory.py` for game-code targets. |
-| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 80 |
+| unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F own part of this list; use `tools/inventory.py` for game-code targets. |
+| partials (WIP markers) | `python3 tools/audit.py LEGOLAND/*.c` | 84 |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
+
+**Scopes AD, AE, and AA merged (2026-09-07): +26 exact (8+6+12);
+coverage 67.3% -> 68.1% exact (80.1% with partials).** Exact count
+**2805**; **84** WIPs. AD: `rlepaint2.c` + `blitmisc.c` (8/9; Capacity
+overlay WIP). AE: `highlevelai.c` (6/7; CafeBrolly floor). AA:
+`goalstate.c` (12/14; LeavePark + PickRide WIP). Relocs 0 MISMATCH on
+exact bodies; `/W3` clean. Parallel still open: FGH, V, Codex-F, AG.
 
 **Scope AF merged (2026-09-07): 7 of 8 exact; one honest WIP;
 coverage 67.0% -> 67.3% exact (78.7% with partials).**
 `LEGOLAND/bubblecache.c` closes the bubble-help / text-cache helpers
 (tip `7f71c4f2`). `FootprintClearanceTest` stays WIP at the FR02 dead-arg
-floor (83i/240B vs 85i/242B). Exact count **2779**; **80** WIPs. Relocs
-0 MISMATCH; `/W3` clean. Levers folded at the top of DECOMP. Parallel
-still open: FGH, V, Codex-F, AA, AD, AE, AG.
+floor (83i/240B vs 85i/242B).
 
 **Scope AC merged (2026-09-07): 13 of 15 exact; two honest mantex WIPs;
 coverage 66.8% -> 67.0% exact (78.4% with partials).** `LEGOLAND/advisor.c`
@@ -448,9 +453,9 @@ Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
 coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
-Open for assignment: none cut and idle — Codex-F, AA, AD, AE, AG are in
-progress; FGH and V remain in their own sessions. AB, AC, and AF are DONE
-and merged (AC/AF with honest WIPs). Of the seven
+Open for assignment: none cut and idle — Codex-F and AG are in progress;
+FGH and V remain in their own sessions. AD, AE, AA, AB, AC, AF are DONE
+and merged (several with honest WIPs). Of the seven
 script-tier briefs six are DONE and merged (R, S, T, U, W, X).
 V remains unmerged: its committed `scope/V` checkpoint is 58/62, but
 `.claude/worktrees/scope-v/LEGOLAND/eventtick.c` has three additional exact
