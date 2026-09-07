@@ -130,3 +130,144 @@ void CoasterRegions_UpdateClipCodes(void)
         p = p->next;
     }
 }
+
+/* ---- the track's map squares ------------------------------------------ */
+/* One entry of the track's square table: the piece type and the map square
+ * it occupies.  Eight bytes, the same shape coastermath.c's TrackNode has. */
+typedef struct TrackSquare {
+    int   type;     /* +0x00 */
+    short x;        /* +0x04 */
+    short y;        /* +0x06 */
+} TrackSquare;
+
+/* The blob the two .sav helpers below move: a self-describing image whose
+ * first dword is its own byte length, with the square table at +0x08/+0x0c. */
+typedef struct TrackBlob {
+    unsigned int size;      /* +0x00  total byte length, what WriteFile sends */
+    int          f04;       /* +0x04 */
+    int          count;     /* +0x08  number of squares */
+    TrackSquare* squares;   /* +0x0c */
+} TrackBlob;
+
+extern int   g_track_place_enabled;                     /* 0x004b55f4 */
+extern unsigned short* g_basic_tiles;                   /* 0x00829980 */
+extern char  g_coaster_save_path[];                     /* 0x004b5cf4 */
+extern char  g_alloc_tag[];                             /* 0x004d8bb0 */
+
+extern void  RestoreBaseMap(int x, int y);                      /* 0x0045da60 */
+extern void  SetMapTile(int x, int y, unsigned short tile);     /* 0x00461780 */
+extern void  DBPrintf(const char* fmt, ...);                    /* 0x00453a20 */
+extern void* AllocZeroed(unsigned int size, int a, void* tag, int c); /* 0x004775b0 */
+extern void  Free_w(void* p);                                   /* 0x004775d0 */
+
+__declspec(dllimport) int __stdcall CreateFileA(const char* name,
+                                                unsigned int access,
+                                                unsigned int share, void* sa,
+                                                unsigned int disp,
+                                                unsigned int flags,
+                                                void* tmpl);            /* [0x4ab258] */
+__declspec(dllimport) int __stdcall WriteFile(int h, const void* buf,
+                                              unsigned int n,
+                                              unsigned int* put,
+                                              void* ov);                /* [0x4ab254] */
+__declspec(dllimport) int __stdcall GetFileSize(int h, unsigned int* hi); /* [0x4ab25c] */
+__declspec(dllimport) int __stdcall CloseHandle(int h);                  /* [0x4ab260] */
+__declspec(dllimport) int __stdcall ReadFile(int h, void* buf, unsigned int n,
+                                             unsigned int* got, void* ov); /* [0x4ab264] */
+
+/* Every square of the piece plus its three neighbours to the right and below
+ * -- the 2x2 the track's own tiles cover -- is repainted from the base map. */
+// FUNCTION: LEGOLAND 0x00427570
+void Track_RestoreSquareBaseMap(const Pos16* sq)
+{
+    int x = sq->x;
+    int y = sq->y;
+
+    if (g_track_place_enabled) {
+        RestoreBaseMap(x, y);
+        RestoreBaseMap(x + 1, y);
+        RestoreBaseMap(x, y + 1);
+        RestoreBaseMap(x + 1, y + 1);
+    }
+}
+
+/* The inverse: stamp the 2x2 with the second tile of the "BASIC TILES 1"
+ * element Track_Create loaded (its first short plus one).  The global is
+ * re-read for every call because SetMapTile may write through it. */
+// FUNCTION: LEGOLAND 0x004274f0
+void Track_StampSquareTiles(const Pos16* sq)
+{
+    if (g_track_place_enabled) {
+        SetMapTile(sq->x, sq->y, (unsigned short)(*g_basic_tiles + 1));
+        SetMapTile(sq->x + 1, sq->y, (unsigned short)(*g_basic_tiles + 1));
+        SetMapTile(sq->x, sq->y + 1, (unsigned short)(*g_basic_tiles + 1));
+        SetMapTile(sq->x + 1, sq->y + 1, (unsigned short)(*g_basic_tiles + 1));
+    }
+}
+
+/* Debug dump of the square table; the format string is
+ * "Track %2x, Type %2x at (%2x, %2x)\n" at 0x004b5cd0. */
+// FUNCTION: LEGOLAND 0x00426be0
+void TrackBlob_Dump(const TrackBlob* b)
+{
+    int i;
+
+    for (i = 0; i < b->count; i++)
+        DBPrintf("Track %2x, Type %2x at (%2x, %2x)\n", i, b->squares[i].type,
+                 b->squares[i].x, b->squares[i].y);
+}
+
+/* Write the blob whole to RollerCoaster\RollerCoaster.sav.
+ * ORIGINAL BUG: the length is read out of the blob BEFORE the null test on
+ * the blob pointer, so the guard is dead for a null argument. */
+// FUNCTION: LEGOLAND 0x004272a0
+int Coaster_WriteSaveBlob(TrackBlob* b)
+{
+    int          h;
+    unsigned int put;
+    unsigned int n = b->size;
+
+    if (g_coaster_save_path && b) {
+        h = CreateFileA(g_coaster_save_path, 0x40000000, 0, 0, 2, 0x8000000, 0);
+        if (h != -1) {
+            WriteFile(h, b, n, &put, 0);
+            if (put != n) {
+                CloseHandle(h);
+                return 0;
+            }
+            CloseHandle(h);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Read it back whole into a fresh heap block. */
+// FUNCTION: LEGOLAND 0x00427310
+void* Coaster_ReadSaveBlob(void)
+{
+    int          h;
+    void*        p;
+    unsigned int n;
+    unsigned int got;
+
+    if (!g_coaster_save_path)
+        return 0;
+    h = CreateFileA(g_coaster_save_path, 0x80000000, 1, 0, 3, 0x8000000, 0);
+    if (h == -1)
+        return 0;
+    n = GetFileSize(h, 0);
+    p = AllocZeroed(n, 0, g_alloc_tag, 0);
+    if (!p) {
+        CloseHandle(h);
+        return 0;
+    }
+    ReadFile(h, p, n, &got, 0);
+    if (got != n) {
+        Free_w(p);
+        CloseHandle(h);
+        return 0;
+    }
+    CloseHandle(h);
+    return p;
+}
