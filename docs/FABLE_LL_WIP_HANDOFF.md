@@ -1,6 +1,6 @@
 # Fable handoff — LL-wave WIP residuals (2026-09-08)
 
-Grok closed what it could on **LL1–LL8**. **LL1 and LL5 are done and on `main`.**
+Grok closed what it could on **LL1–LL8**. **LL1, LL2, and LL5 are done and on `main`.**
 Everything below is still `// WIP-FUNCTION:` on the named branch. Prefer
 closing one body at a time; promote only when `audit.py` prints `[OK]`.
 
@@ -22,37 +22,13 @@ Gates: `audit.py` `[OK]`, `relocs.py` zero `MISMATCH`, `/W3` clean.
 Objects under `/tmp/sllN_*`. No `verify.py` / `progress.py` / `coverage.py`.
 Contract: `docs/PARALLEL_CONTRACT.md`. Index: `docs/SCOPE_LL_WAVE.md`.
 
-**Main tip when this was written:** post-LL1 merge (`0b24fc30` + docs bump).
+**Main tip when this was written:** post-LL2 merge (UpdateCommon RTL SIB close).
 Rebase/ff worktrees onto current `main` only if you need merged helpers;
 otherwise stay on the scope branch tip.
 
 ---
 
 ## Priority A — one mismatch / one byte / few mism (highest ROI)
-
-### LL2 — `LFPiece_UpdateCommon` `0x0040d6f0` (5/6 scope)
-
-| | |
-| --- | --- |
-| Branch / file | `scope/LL2` · `LEGOLAND/logflume9.c` |
-| Tip | `142842b2` |
-| Notes | `docs/lanes/scope-ll2.md` |
-| Score | 151i, **520/520B**, **1 mism** — SIB two-attractor |
-
-```
-orig: lea edx,[eax+ecx] ; 8D 14 08
-ours: lea edx,[ecx+eax] ; 8D 14 01
-```
-
-Schedule exact via two-def `o.y` + `unsigned left`. VC6 uses last-loaded
-addend as lea base — **two 150/151 floors that do not combine**:
-
-- ox then v0 → correct loads, wrong SIB (kept)
-- v0 then ox → correct SIB, swapped loads
-
-Commutes/pointers/Track mem+mem/RTL helpers stay `[ecx+eax]` or drop the lea.
-`LFTrack_Update`’s `[eax+ecx]` is mem+mem under saved ebx/esi/edi; the two-def
-that makes this 3-scratch lea turns the add into reg+reg and flips the SIB.
 
 ### LL8 — `AddScriptString` `0x004689f0` (12/13 scope)
 
@@ -197,13 +173,12 @@ three-way sign classify on `(prev_sign>>1)|next_sign` vs
 
 ## Suggested Fable attack order
 
-1. **LL2 UpdateCommon** — one mism: SIB `[eax+ecx]` vs `[ecx+eax]`.
-2. **LL8 AddScriptString** — fail-tail shared allocation (floored unless new coloring).
-3. **LL3 MassAndPower** — size-exact 42 mism; lea ebx vs add; q-load schedule.
-4. **LL7 StepAlong** — size-exact 11 mism; t0↔len2 two-attractor (ideas 1–6 ruled out).
-5. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
-6. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
-7. **LL4 Span family / LL7 Slope+ShadeFill** — last.
+1. **LL8 AddScriptString** — fail-tail shared allocation (floored unless new coloring).
+2. **LL3 MassAndPower** — size-exact 42 mism; lea ebx vs add; q-load schedule.
+3. **LL7 StepAlong** — size-exact 11 mism; t0↔len2 two-attractor (ideas 1–6 ruled out).
+4. **LL3 Trace / ClipPlane** — NG22 / ESCAPES floors.
+5. **LL6 GetTrackSegment / AddSpanRecord** — size-exact floors; only with new ICF/IV levers.
+6. **LL4 Span family / LL7 Slope+ShadeFill** — last.
 
 When a scope hits **N/N exact**, stop and report tip SHA for integrator merge.
 Do **not** merge partial scopes yourself.
@@ -215,7 +190,8 @@ Do **not** merge partial scopes yourself.
 | scope | exact | tip (approx) | file |
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
-| LL2 | 5/6 | `142842b2` | `logflume9.c` |
+| LL1 | **22/22** | merged `main` | `logflume8.c` |
+| LL2 | **6/6** | merged `main` | `logflume9.c` |
 | LL3 | 16/19 | `58c2dcca` | `coaster11.c` |
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
@@ -223,7 +199,7 @@ Do **not** merge partial scopes yourself.
 | LL7 | 14/17 | `afd8951d` | `coaster13.c` |
 | LL8 | 12/13 | `f8c1f002` | `gameframe2.c` |
 
-**WIP count in this wave:** 0+1+3+5+0+2+3+1 = **15 bodies**.
+**WIP count in this wave:** 0+0+3+5+0+2+3+1 = **14 bodies**.
 
 ---
 

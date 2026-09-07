@@ -92,12 +92,18 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **71.0% exact, 82.4% with partials** |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2915 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **71.3% exact, 82.7% with partials** |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2921 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F own part of this list; use `tools/inventory.py` for game-code targets. |
 | partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 79 |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
+
+**Scope LL2 closed exact (2026-09-08): 6 of 6; coverage 71.0% -> 71.3% exact
+(82.7% with partials).** Exact count **2921**; **79** WIPs.
+`logflume9.c` (LFGeom/LFPiece/LFTrack drop/track helpers). UpdateCommon SIB
+closed via RTL helper `LFUpd_Fst(v0, o.x=ox)` keeping ox-first moffs and
+`lea edx,[eax+ecx]`. Relocs 0 MISMATCH; `/W3` clean.
 
 **Scope AG closed exact (2026-09-08): 3 of 3; coverage 70.7% -> 71.0% exact
 (82.4% with partials).** Exact count **2915**; **79** WIPs.
@@ -123,7 +129,7 @@ MISMATCH; `/W3` clean.
 
 **Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.0% -> 70.3% exact.**
 `music2.c` + `pathobj2.c` (group 16).
-Parallel still open: FGH, V, Codex-F, AC remainders; LL2–LL4/LL6–LL8 in flight.
+Parallel still open: FGH, V, Codex-F, AC remainders; LL3–LL4/LL6–LL8 in flight.
 
 **LL wave cut (2026-09-07):** letter scopes end at AK; new scopes are
 `LL1`…`LL8` (`docs/SCOPE_LL_WAVE.md`). Live inventory leftovers after excluding
