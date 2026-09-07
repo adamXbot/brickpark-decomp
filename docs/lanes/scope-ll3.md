@@ -150,6 +150,24 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Plain `q = rt` coalesces back to ebp (70%). Residual: `mov ebx,eax
   / add ebx,0x70` vs `lea ebx,[eax+0x70]`; q load after `add esp,4`
   not before; eax vs edx for the reload; hist ecx/edx swap.
+  **LL2 `LFUpd_Fst` RTL does not move this body.** The 65/77 attractor
+  dest-coalesces n onto a callee-saved copy of p (`mov ebx,eax` in the
+  first `rep movsd` setup, `add ebx,0x70` sunk before `Span_EvalRange`).
+  `lea ebx,[eax+0x70]` can only be selected while eax still holds p
+  (before `mov eax,[f24]` for the call). Transparent `return a` helpers
+  (unused 2nd arg, by-value `RoutePos`, int `base+0x70` in the body,
+  `Mass_End` in the latch, `Mass_FstQ`/`Mass_FstF` around the call or
+  the K-mul, two-web `t`/`n`, delayed `n = &p->head`) all fold back to
+  65/77. Used 2nd-arg side effects (`dst=&fr.pos`, `fr.pos=p->pos`)
+  likewise. Volatile `head` / `n` spill (frame 0x70, 50/79). `head-0x64`
+  as the copy source mutates eax (`add eax,0x70` / `lea esi,[eax-0x64]`,
+  52/78). Volatile `fr.f24` makes `mov`/`add` adjacent but does not fuse
+  to lea and breaks the 2nd `rep movsd` interleave (64/77). `Mass_FstF`
+  with `q=` as the 2nd arg of the *call* pulls q into ebp before
+  GetAcceleration (61/78). q-in-edx + hist-ecx still only with extra
+  volatiles (80i). LL2's helper closes a 3-scratch `lea edx,[eax+ecx]`;
+  this residual is dest-coalesce of `reg+disp8` plus a post-call
+  edx/eax coloring, not a last-def SIB. Trace / ClipPlane not touched.
 - **Span_ClipPlane** (WIP): 179i, ESCAPES. Need the original's 0x2c frame,
   `in++` cursor in the latch, and the three-way sign classify
   (`(prev_sign>>1)|next_sign` against 0x80000000 / 0xC0000000 / 0x40000000).
