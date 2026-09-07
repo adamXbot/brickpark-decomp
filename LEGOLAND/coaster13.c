@@ -320,7 +320,7 @@ float Track_AbsDerivative(float t)
 /* Build one ramp geom from the span's world endpoints and stamp it onto
  * every piece with parameter ranges [i/n, (i+1)/n]. z/dz only place the
  * endpoints; the per-piece +0x90/+0x94 slots are the parameter, not height. */
-// WIP-FUNCTION: LEGOLAND 0x00429560  (90/90i, 302/302B, 7 eax/edx)
+// WIP-FUNCTION: LEGOLAND 0x00429560  (90/90i, 302/302B, 7 eax/edx; at floor)
 void TrackRunSetSlope(TrackNode* n, TrackNode* e, int steps, float z, float dz)
 {
     RouteGeom geom;
@@ -428,24 +428,27 @@ float Track_StepObjective(float t)
 
 /* Walk backward along the track until |pos - origin| == step. First try
  * the current geom's [t0, t]; then retreat and try each prior [t0, t1]. */
-// WIP-FUNCTION: LEGOLAND 0x00429f30  (70/70i, 227/232B, solver push schedule)
+// WIP-FUNCTION: LEGOLAND 0x00429f30  (70/70i, 226/232B, 47; hi=tol then hi=t)
 void Track_StepAlong(Vec3f* origin, float step, RoutePos* from, float t,
                      float tol, RoutePos* out, float* out_t)
 {
     RoutePos cur;
     float step2 = step * step;
     float t0;
+    float hi;
 
     cur = *from;
-    t0 = cur.geom->t0;
+    g_step_origin = origin;
     g_step_len2 = step2;
     g_step_len = step;
-    g_step_origin = origin;
-    g_curve_offset = tol;
+    hi = tol;
+    g_curve_offset = hi;
     g_curve_at = &cur;
-    g_step_hi2 = (step + tol) * (step + tol);
-    g_step_lo2 = (step - tol) * (step - tol);
-    if (!g_track_solver(Track_StepObjective, t0, t, out_t)) {
+    g_step_hi2 = (step + hi) * (step + hi);
+    g_step_lo2 = (step - hi) * (step - hi);
+    t0 = cur.geom->t0;
+    hi = t;
+    if (!g_track_solver(Track_StepObjective, t0, hi, out_t)) {
         do {
             TrackCursor_RetreatGeometry(&cur);
             t0 = cur.geom->t0;
@@ -535,7 +538,7 @@ typedef struct ShadeInterp {
     int rest[4];
 } ShadeInterp;                  /* 0x14 */
 
-// WIP-FUNCTION: LEGOLAND 0x00428860  (254/254i, 748/771B, frame 0x6c vs 0x70; mixed C+__asm)
+// WIP-FUNCTION: LEGOLAND 0x00428860  (254/254i, 748/771B, 0x6c vs 0x70; ZBuffer floor)
 void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge* edges)
 {
     ShadeInterp ed[4];

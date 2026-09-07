@@ -21,11 +21,11 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 | 0x0042a1b0 | Track_MeasureDistance | 92 | 100 | [OK] | FUNCTION |
 | 0x0042a680 | TrackCursorPair_Draw | 82 | 100 | [OK] | FUNCTION |
 | 0x00429cf0 | Track_StepObjective | 93 | 100 | [OK] | FUNCTION |
-| 0x00429560 | TrackRunSetSlope | 90 | 92 | 7 (eax/edx) | WIP |
-| 0x00429f30 | Track_StepAlong | 70 | 62 | 58 | WIP |
-| 0x00428860 | TrackShade_FillPoly | 254 | 38 | 243 (frame 0x6c vs 0x70) | WIP |
+| 0x00429560 | TrackRunSetSlope | 90 | 92 | 7 (eax/edx) **floor** | WIP |
+| 0x00429f30 | Track_StepAlong | 70 | 72 | 47 (226/232B) | WIP |
+| 0x00428860 | TrackShade_FillPoly | 254 | 38 | 243 **ZBuffer floor** | WIP |
 
-**14 / 17 exact.** `/W3` clean. `relocs.py` 0 MISMATCH on the 14 FUNCTION bodies.
+**14 / 17 exact.** Three WIPs retired or recorded at their measured floor. `/W3` clean. `relocs.py` 0 MISMATCH on the 14 FUNCTION bodies.
 
 ## Names
 
@@ -58,12 +58,12 @@ Brief: `docs/SCOPE_LL7_track_join_curve.md`.
 
 - **TrackFitSpanGeom**: named `head_opp` / `tail_opp`. Nested Opposite calls split `add esp` (70%).
 - **Track_Bisect**: `*(unsigned*)&pa ^ *(unsigned*)&pb` (pa first in the xor) lands the original `edx=[esp+0x14], ecx=[esp+0x10]`. A `pm` local is required so the mid-sample does not reuse `pb`'s slot (reuse dropped to 85%).
-- **TrackRunSetSlope**: body is instruction- and byte-identical except the loop prelude's eax/edx swap (`edx=steps, eax=0` vs the reverse). Ruled out: named `zed`/`k`, `zed=steps` then 0, `volatile` reload of steps, splitting `count` for the `1/steps` fild, chained `a=b=c=0` (reverses the +0x40/+0x48 stores). Still open: a free volatile or one extra IR temporary that gives the zero eax.
+- **TrackRunSetSlope**: **at its floor** (90i/302B, 7 eax↔edx). The `--steps` IV always wins eax; the loop zero always lands in edx. This session also ruled out: named `w0`/`w1`/`half` pointers (59%, 70 mismatch); `volatile int zed` (57%, +16B); `zed` live across the call via `steps+zed` (folded, same 7); named `dir0`/`jw0` values (ESCAPES, 34%); `if (*(volatile*)&steps > 0) { remain = steps; }` (0 *does* win eax but a second load of steps, 308B, 27 mismatch); volatile `remain` definition (same 7); `if ((remain = steps) > zed)` (same 7). No remaining one-temp or volatile spelling flipped the IV/zero pair at identical bytes.
 - **Track_MeasureDistance**: extra `g_dist_at = &cur` before the loop integrate and the final `[t0, t]` integrate (equal path sets it to `from`). 0.01f is `0x3c23d70a`.
 - **TrackCursorPair_Draw**: interleave `s=sin; m[0]=s; c=cos; m[2]=c; m[8]=-c; m[10]=s` so the leftover sin is `fst` then later `fstp`. Computing both trigs first emitted `fld st(1)`. Mat slots are 0/2/8/10 (not 1/2/8/10). `#pragma intrinsic(sin, cos)`.
 - **Track_StepObjective**: `if ((dist2 = x*x+y*y+z*z) > hi2)` (assignment-in-condition) lands `fld st / fcomp hi2`. A named `dist2 = sum; if (dist2 > hi2)` emitted `fcom [home]`.
-- **TrackRunSetSlope**: post-call `int zed=0; int left=steps; if (left>zed)`, named `st`/`clr` pointer, and a `from`-slot pun on StepAlong are inert or worse. The IV still wins eax.
-- **Track_StepAlong**: best honest body is 70i/227B vs 232B, matchfull 61.8%, audit 58. `g_step_lo2=(step-tol)²`. Original pushes `out_t` early, dword-moves `geom->t0` over the dead `from` slot, and `fstp [esp]` overwrites a pushed `tol` with `t`. A `float t0` local is 5 bytes short; an `int` pun and overwriting `from` dropped to ~55%. Residual is the solver-arg push schedule.
+- **Track_StepAlong**: best body is `hi = tol; … hi = t;` plus late `t0 = cur.geom->t0` (70i/226B vs 232B, matchfull 72.5%, audit 47). That lands the early `push out_t` and `fstp [esp]` overwrite. Residual: original pushes `tol` as the hi placeholder and dword-moves `t0` into the dead `from` slot *during* hi2 setup; we push `cur.geom` and load `t0` after. Early `int t0bits` dropped to 67%/66. `from`-slot puns still worse. Not a floor — the 6-byte gap is that placeholder/t0-slot pair — but further puns have not closed it.
+- **TrackShade_FillPoly**: **ZBuffer floor**, same class as schoolcar6.c `ZBuffer_FillPoly` (EBP frame, `xchg ebx,eax`, `add ebx,1`, mixed `__asm`). 254/254i, 748/771B, frame 0x6c vs 0x70. Not ground further.
 
 ## Extern-type divergences
 
