@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `aa26ec4e` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `c49b9375` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
@@ -169,25 +169,21 @@ same window).
 
 ### LL3 — `Span_ClipPlane` `0x0041f050`
 
-**13.2%** (25/189), 179i, **586**/593B, frame **0x24** (want **0x2c**). Tip `aa26ec4e`.
+**10.3%** (20/195), 179i, **588**/593B, frame **0x24** (want **0x2c**). Tip `c49b9375`.
 
-**Landed:** `mov ebx,n` via byte store
-`*(volatile unsigned char*)&left = (unsigned char)n` then `left = n` —
-ebx is the only byte-addressable callee-save, beating cursor for the early-out
-`*cursor` store. Prologue: `mov ebx,[n]; cmp ebx,1; in[n]` as `[esi+ebx*4]`;
-left spill `mov [esp+0x1c],ebx`.
+**Landed:**
+1. `mov ebx,n` via `*(volatile unsigned char*)&left = (unsigned char)n; left = n`
+2. `and ebx,0x7fffffff` for next_abs: reuse `n` for abs live across `__ftol`
+   (store `prev_abs` after lerp), then byte store of abs → ebx (edi not
+   byte-addressable). Path: edx → edi → ebx.
 
-**Still open:** `next_abs` `and 0x7fffffff` stays in **edx** not ebx; **0x2c**
-homes absent. Dest/plane/out already homed; `out_n` is `mov [esp+0x10],0`.
+**Still open:** 0x2c frame. Extra dest/dlt homes steal ebx; 8-byte spill / k-up
+only reach **0x28**. Matchfull dipped vs byte-n-only (25/189) while adding
+next_abs-ebx — keep both colourings, open the missing 8 bytes of homes
+(prev_abs at original `+0x24` implies 0x2c total).
 
-Original control flow still required:
-- Close `in[n]=in[0]`, `cmp n,1 / jl` trailing early epilogue
-- `in++`, left, latch `in+=4; dec left; jne`
-- Signed classify; fld bit-abs (not fild)
-- ENTER/LEAVE k/delta colouring; prev_abs at `+0x24`
-
-**Next:** reuse ebx for next_abs after left spill (n dies), without losing
-byte-n prologue; open 0x2c frame.
+**Next:** find the two missing dword homes without stealing ebx from
+n/next_abs; raise matchfull once frame matches.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -199,7 +195,7 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — ebx=n landed (byte-n); next next_abs→ebx + 0x2c frame.
+1. **LL3 Span_ClipPlane** — ebx=n + next_abs-ebx landed; open 0x2c without stealing ebx.
 2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
 3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
@@ -215,7 +211,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `aa26ec4e` | `coaster11.c` |
+| LL3 | 16/19 | `c49b9375` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
