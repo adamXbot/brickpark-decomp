@@ -92,12 +92,24 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **70.7% exact, 82.1% with partials** |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2912 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **71.0% exact, 82.4% with partials** |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2915 |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F own part of this list; use `tools/inventory.py` for game-code targets. |
 | partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 79 |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
+
+**Scope AG closed exact (2026-09-08): 3 of 3; coverage 70.7% -> 71.0% exact
+(82.4% with partials).** Exact count **2915**; **79** WIPs.
+`certificate.c` (KillControllers, SaveScreenshotBmp — the certificate
+*print* path, not a BMP writer) and `winmain.c` (WinMain, the SEH shell).
+WinMain's C was byte-identical from the start; it was held at WIP by the
+extent walker, which stopped at the try body's `jmp` over the filter and
+handler blocks that only the `.rdata` scope table reaches. `tools/match.py`
+`true_extent` now reads the VC6 SEH scope table (trylevel store
+`mov [ebp-4], K` makes entry K's filter/handler branch targets); a
+full-tree audit before/after changed only WinMain. Relocs 0 MISMATCH;
+`/W3` clean. Lever in `docs/lanes/scope-ag.md`.
 
 **Scope LL1 closed exact (2026-09-08): 22 of 22; coverage 70.4% -> 70.7% exact
 (82.1% with partials).** Exact count **2912**; **79** WIPs.
@@ -111,12 +123,12 @@ MISMATCH; `/W3` clean.
 
 **Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.0% -> 70.3% exact.**
 `music2.c` + `pathobj2.c` (group 16).
-Parallel still open: FGH, V, Codex-F, AG, AC remainders; LL2–LL4/LL6–LL8 in flight.
+Parallel still open: FGH, V, Codex-F, AC remainders; LL2–LL4/LL6–LL8 in flight.
 
 **LL wave cut (2026-09-07):** letter scopes end at AK; new scopes are
 `LL1`…`LL8` (`docs/SCOPE_LL_WAVE.md`). Live inventory leftovers after excluding
 V/X, Codex-F, AG, AC, F/G/H, LONG appraisal, SEH WinMain — **112 functions,
-≈5.8k instructions**. LL1+LL5 merged; others allocated.
+≈5.8k instructions**. LL1+LL5 merged, AG (incl. SEH WinMain) merged; others allocated.
 
 **Scope AK closed exact (2026-09-07): 20 of 20; coverage 69.5% -> 70.0% exact.**
 `narration2.c` (group 18).
@@ -484,7 +496,7 @@ Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
 coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
-Open for assignment: none cut and idle — Codex-F and AG are in progress;
+Open for assignment: none cut and idle — Codex-F is in progress (AG merged 2026-09-08, 3 of 3);
 FGH and V remain in their own sessions. AD, AE, AA, AB, AC, AF are DONE
 and merged (several with honest WIPs). Of the seven
 script-tier briefs six are DONE and merged (R, S, T, U, W, X).

@@ -18,11 +18,11 @@ decompilations.
 
 <a href="docs/LEGOLANDPROGRESS.HTML"><img src="docs/LEGOLANDPROGRESS.SVG" width="100%" alt="LEGOLAND decompilation progress"></a>
 
-The current source contains **2912 exact full-body function matches**: **665 of
-675 exported functions (98.5%)**, plus 2244 recovered internal functions.
+The current source contains **2915 exact full-body function matches**: **665 of
+675 exported functions (98.5%)**, plus 2247 recovered internal functions.
 Another 79 functions are marked work in progress. The export figure
-overstates completion: measured in bytes of game code, **70.7% is matched
-exactly (82.1% including partials)** as of the 2026-09-08 checkpoint
+overstates completion: measured in bytes of game code, **71.0% is matched
+exactly (82.4% including partials)** as of the 2026-09-08 checkpoint
 (`python3 tools/coverage.py`; see [docs/HANDOFF.md](docs/HANDOFF.md)). The
 searchable
 [decompilation report](docs/LEGOLANDPROGRESS.HTML)
