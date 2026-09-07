@@ -544,6 +544,121 @@ int NarrationBytesReady(void)
     return (g_narr_e - g_narr_d) & 0x1ffff;
 }
 
+/* Top ring B up: first whatever is left of the last decoded chunk, then
+ * decode further chunks (at most g_speech_chunk_size encoded bytes each,
+ * never more than the current source block holds) until the ring is full.
+ * A decode that produces LESS than the remaining space is copied whole and
+ * the function returns at once (no final source-ring top-up, and the write
+ * cursor is advanced without the wrap mask -- it cannot wrap there). */
+// FUNCTION: LEGOLAND 0x00498250
+void RefillNarrationRing(void)
+{
+    int space;
+    int n;
+
+    FillNarrationSourceRing();
+    space = NarrationFreeSpace();
+    while (space) {
+        while (space) {
+            n = g_speech_decoded_len - g_speech_decoded_pos;
+            if (n == 0)
+                break;
+            if (space < n)
+                n = space;
+            memcpy(g_narr_ring + g_narr_e,
+                   (char*)g_speech_decoded + g_speech_decoded_pos, n);
+            g_narr_e = (g_narr_e + n) & 0x1ffff;
+            space -= n;
+            g_speech_decoded_pos += n;
+        }
+        if (space) {
+            n = g_narr_queue[0];
+            if (n >= g_speech_chunk_size)
+                n = g_speech_chunk_size;
+            g_speech_header.srcLength = n;
+            ReadNarrationSource(g_speech_source, n);
+            acmStreamConvert(g_speech_acm, &g_speech_header, 0x10);
+            n = g_speech_header.dstUsed;
+            g_speech_decoded_pos = 0;
+            g_speech_decoded_len = n;
+            if (n < space) {
+                memcpy(g_narr_ring + g_narr_e, g_speech_decoded, n);
+                g_speech_decoded_pos = n;
+                g_narr_e = g_narr_e + n;
+                return;
+            }
+            memcpy(g_narr_ring + g_narr_e, g_speech_decoded, space);
+            g_speech_decoded_pos = space;
+            g_narr_e = (g_narr_e + space) & 0x1ffff;
+        }
+        space = NarrationFreeSpace();
+    }
+    FillNarrationSourceRing();
+}
+
+/* ========================================================================
+ *  The per-frame pump into the DirectSound buffer
+ * ======================================================================== */
+
+/* Called every frame. States 0/1 do nothing; state 2 (wound back, not yet
+ * playing) only keeps ring B topped up. State 3: while the play cursor is
+ * not inside the block we would fill next, lock that 0x1000-byte block,
+ * fill it from ring B (zero-padding a short read), advance the fill index
+ * mod 10, and count a block DOWN for every block written; when the count
+ * hits zero the buffer has played its last real block and the stream is
+ * stopped. Returns 1 when the play cursor has caught up with the fill
+ * block, 0 otherwise. */
+// FUNCTION: LEGOLAND 0x00498b40
+int PumpNarration(void)
+{
+    char block[0x1000];
+    void* ptr;
+    int play;
+    int bytes;
+    int write;
+    int n;
+
+    if (g_speech_state == 0 || g_speech_state == 1)
+        return 0;
+    if (g_speech_state == 2) {
+        RefillNarrationRing();
+        return 0;
+    }
+    /* The catch-up test is written TWICE in the source -- a guard and the
+     * do/while latch. A single `while (...)` is not loop-inverted by VC6
+     * when the condition carries a call, and comes out 20 instructions
+     * short with the `return 1` exiled. */
+    if (g_speech_buffer->lpVtbl->GetCurrentPosition(g_speech_buffer, &play, &write) == 0
+        && play >= (g_speech_fill_block << 12)
+        && play < ((g_speech_fill_block + 1) << 12))
+        return 1;
+    do {
+        if (g_speech_buffer->lpVtbl->Lock(g_speech_buffer, g_speech_fill_block << 12, 0x1000,
+                                          &ptr, &bytes, 0, 0, 0) == 0) {
+            n = ReadDecodedNarration(block, bytes);
+            if (n == 0x1000) {
+                memcpy(ptr, block, 0x1000);
+            } else {
+                memcpy(ptr, block, n);
+                memset((char*)ptr + n, 0, 0x1000 - n);
+            }
+            if (n)
+                g_speech_blocks_ready++;
+            g_speech_buffer->lpVtbl->Unlock(g_speech_buffer, ptr, bytes, 0, 0);
+            g_speech_fill_block++;
+            if (g_speech_fill_block >= 10)
+                g_speech_fill_block = 0;
+        }
+        if (--g_speech_blocks_ready == 0) {
+            StopNarrationPlayback();
+            return 0;
+        }
+    } while (!(g_speech_buffer->lpVtbl->GetCurrentPosition(g_speech_buffer, &play, &write) == 0
+               && play >= (g_speech_fill_block << 12)
+               && play < ((g_speech_fill_block + 1) << 12)));
+    return 1;
+}
+
 /* ========================================================================
  *  String table
  * ======================================================================== */
