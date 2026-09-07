@@ -10,7 +10,7 @@ else touched. Objects under `/tmp/sag_*`. `/W3` clean on both files.
 | --- | --- | ---: | ---: | --- | --- | --- |
 | 0x00451f40 | `KillControllers` | 9 | 100 | `[OK]` | `// FUNCTION:` | first compile |
 | 0x00453d10 | `WinMain` | 48 | 100 matchfull | 31i/93B ESCAPES | `// WIP-FUNCTION:` | SEH jmp-over-filter (below) |
-| 0x00451740 | `SaveScreenshotBmp` | 620 | 86.1 | 212 mismatch | `// WIP-FUNCTION:` | locals 4B low (below) |
+| 0x00451740 | `SaveScreenshotBmp` | 620 | 96.5 | StretchDIBits schedule | `// WIP-FUNCTION:` | margin /64 split (below) |
 
 Names: gamemain.c already named 0x00451f40 `KillControllers` (frees
 `g_controller`); render5.c already named 0x00451740 `SaveScreenshotBmp`.
@@ -112,20 +112,32 @@ print path: `EnumPrintersA` [0x4ab344], `CreateDCA` [0x4ab0a8],
 - **`xor ebp, ebp` as the zero register** once `info` / `bmi` named
   pointers are written as casts at the use site (esi had been the
   zero). hdc then lives in esi for the rest of the body.
-- **Frame 0xb88 needs `char printers[0xA84]`** (cbBuf is only 0x540).
-  `0xA78` is 12 short. The leftover is the original's unused high
-  space, not a second enum buffer.
-- **The 4-byte local shift is the residual.** Every aggregate is 4
-  bytes low of the original. `extra[4]` coalesces into hdc/fd's spill;
-  a 12-byte `{returned, needed, pad}` is an aggregate and jumps to the
-  top of the frame (FR01), throwing needed/returned to [esp+0x50]. A
-  fourth spilled scalar that is not coalesced and is not an aggregate
-  would shift the block +4; not found this session.
+- **Frame 0xb88 needs `char printers[0xA80]`** once
+  `{returned, pBits, needed, memdc}` is a 16-byte addressed object
+  (cbBuf is only 0x540). `0xA84` is the pre-struct tail; the leftover
+  is unused high space, not a second enum buffer.
+- **The 4-byte local shift was `pBits` sitting between `returned` and
+  `needed`.** A 12-byte `{returned, pBits, needed}` (then memdc as the
+  fourth member) packs that run at 0x28/0x2c/0x30/0x34 and slides
+  BITMAPINFOHEADER / DOCINFO / DEVMODE / printers +4. A pad
+  `extra[4]` coalesced into hdc/fd; `{returned, needed, pad}` jumped
+  to the top of the frame (FR01).
+- **TextOut Y is `pageH * 678 / pBmi->biHeight`**, not `bih.biHeight`.
+  That is `idiv [pBmi+8]` and keeps pBmi live past `font1`, so those
+  two no longer share a home (pBmi stays at 0x24, font1 at 0x14).
+- **StretchDIBits margin schedule is the residual.** The original
+  starts signed `pageH/64` (`cdq` / `and edx, 0x3f` / `add`) while
+  pageH is still in eax, immediately after `push SRCCOPY`, and
+  finishes `sar ecx, 6` after the src pushes; destW/destH are
+  `page - 2*margin`. Precomputing `xDest/yDest/destW/destH` is 96.5%.
+  Inlining the expressions into the call dropped to 94.6% — the
+  /64 split is a register-pressure schedule (pageH lives in ebp),
+  not a missing C local.
 
 ## Verification
 
 ```sh
-$PY tools/audit.py LEGOLAND/certificate.c   # KillControllers [OK]; SaveScreenshotBmp [WIP] 212
+$PY tools/audit.py LEGOLAND/certificate.c   # KillControllers [OK]; SaveScreenshotBmp [WIP] schedule
 $PY tools/audit.py LEGOLAND/winmain.c       # WinMain [WIP] 31i/93B ESCAPES, mismatch 0
 $PY tools/relocs.py LEGOLAND/certificate.c  # 0 MISMATCH (WIP body skipped)
 $PY tools/relocs.py LEGOLAND/winmain.c      # 0 functions checked (WIP)

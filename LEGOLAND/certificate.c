@@ -144,23 +144,23 @@ void KillControllers(void)
 /* Print `path` (an existing BMP) to the first local printer and stamp
  * `msg` / `stamp` in the Lego face. Non-zero on success.
  *
- * Residual: locals sit 4 bytes low of the original (needed at [esp+0x2c]
- * vs 0x30, DEVMODE at 0x80 vs 0x84, printers at 0x11c vs 0x120). Frame is
- * the original 0xb88. A pad extra[4] coalesces into an existing spill;
- * an {returned,needed,pad} aggregate jumps to the top of the frame (FR01). */
-// WIP-FUNCTION: LEGOLAND 0x00451740  (86.1%, first div 7: locals 4B low; 212 residual, 1750 vs 1760B)
+ * Residual: frame 0xb88 and the addressed run match (returned/pBits/needed
+ * at 0x28/0x2c/0x30, DEVMODE 0x84, printers 0x118) once those three live in
+ * one 16-byte struct with memdc. StretchDIBits still precomputes the signed
+ * pageW/8 and pageH/64 margins instead of splitting the /64 across the
+ * stdcall pushes (orig starts cdq/and while pageH is in eax, finishes
+ * sar ecx,6 after the src pushes). Inlining the expressions dropped the
+ * score (96.5 → 94.6). */
+// WIP-FUNCTION: LEGOLAND 0x00451740  (96.5%, StretchDIBits margin schedule; 22 residual)
 int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
 {
-    unsigned long     returned;
-    unsigned long     needed;
+    struct { unsigned long returned; void* pBits; unsigned long needed; void* memdc; } rpn;
     int               fd;
     void*             hdc;
     void*             hDib;
     void*             pBmi;
     void*             hBits;
-    void*             pBits;
     void*             hbmp;
-    void*             memdc;
     void*             oldbmp;
     void*             font1;
     void*             font2;
@@ -177,11 +177,11 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
     BitmapFileHeader  bfh;
     DocInfo           di;
     DevMode           dm;
-    char              printers[0xA84];
+    char              printers[0xA80];
 
-    needed = 0;
-    returned = 0;
-    if (EnumPrintersA(1, 0, 2, printers, 0x540, &needed, &returned) <= 0 || returned <= 0)
+    rpn.needed = 0;
+    rpn.returned = 0;
+    if (EnumPrintersA(1, 0, 2, printers, 0x540, &rpn.needed, &rpn.returned) <= 0 || rpn.returned <= 0)
         return 0;
 
     memset(&dm, 0, sizeof(dm));
@@ -241,8 +241,8 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
         DeleteDC(hdc);
         return 0;
     }
-    pBits = GlobalLock(hBits);
-    if (pBits == 0) {
+    rpn.pBits = GlobalLock(hBits);
+    if (rpn.pBits == 0) {
         GlobalUnlock(hDib);
         GlobalFree(hDib);
         GlobalFree(hBits);
@@ -251,8 +251,8 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
         return 0;
     }
 
-    _read(fd, pBits, bfh.size - bfh.offBits);
-    hbmp = CreateDIBitmap(hdc, &bih, 4, pBits, (BitmapInfo*)pBmi, 0);
+    _read(fd, rpn.pBits, bfh.size - bfh.offBits);
+    hbmp = CreateDIBitmap(hdc, &bih, 4, rpn.pBits, (BitmapInfo*)pBmi, 0);
     if (hbmp == 0) {
         GlobalUnlock(hDib);
         GlobalUnlock(hBits);
@@ -296,8 +296,8 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
         return 0;
     }
 
-    memdc = CreateCompatibleDC(hdc);
-    if (memdc == 0) {
+    rpn.memdc = CreateCompatibleDC(hdc);
+    if (rpn.memdc == 0) {
         GlobalFree(hDib);
         GlobalFree(hBits);
         DeleteObject(hbmp);
@@ -306,7 +306,7 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
         DeleteDC(hdc);
         return 0;
     }
-    oldbmp = SelectObject(memdc, hbmp);
+    oldbmp = SelectObject(rpn.memdc, hbmp);
     if (oldbmp == 0) {
         GlobalFree(hDib);
         GlobalFree(hBits);
@@ -325,7 +325,7 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
     destH = pageH - 2 * yDest;
     if (StretchDIBits(hdc, xDest, yDest, destW, destH,
                       0, 0, bih.biWidth, bih.biHeight,
-                      pBits, (BitmapInfo*)pBmi, 0, 0xcc0020) == 0) {
+                      rpn.pBits, (BitmapInfo*)pBmi, 0, 0xcc0020) == 0) {
         GlobalFree(hDib);
         GlobalFree(hBits);
         DeleteObject(hbmp);
@@ -353,7 +353,7 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
     oldfont = SelectObject(hdc, font1);
     SetBkMode(hdc, 1);
     SetTextAlign(hdc, 6);
-    TextOutA(hdc, destW / 2, pageH * 678 / bih.biHeight, msg, (int)strlen(msg));
+    TextOutA(hdc, destW / 2, pageH * 678 / ((BitmapInfoHeader*)pBmi)->biHeight, msg, (int)strlen(msg));
 
     lf->lfHeight = -MulDiv(8, GetDeviceCaps(hdc, 0x5a), 0x48);
     lf->lfWeight = 0x12c;
@@ -377,7 +377,7 @@ int SaveScreenshotBmp(const char* path, char* msg, const char* stamp)
     LocalFree(lf);
     SelectObject(hdc, oldfont);
     DeleteObject(font2);
-    DeleteDC(memdc);
+    DeleteDC(rpn.memdc);
     if (EndPage(hdc) <= 0) {
         GlobalFree(hDib);
         GlobalFree(hBits);
