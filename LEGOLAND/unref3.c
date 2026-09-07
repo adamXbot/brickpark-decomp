@@ -477,3 +477,98 @@ void Coaster3D_PlotPieceRails(DrawObj* o, const Vec3f* origin)
     Coaster3D_TransformPoints(g_rail_pts, g_rail_screen, 90);
     Coaster3D_PlotPoints(g_rail_screen, 90, -1);
 }
+
+/* ---- walking the track for a sphere crossing ---------------------------
+ * schoolcar8.c's RoutePos: a position along the track as a piece plus a
+ * geometry segment plus the world point. */
+typedef struct RouteGeom RouteGeom;
+struct RouteGeom {
+    unsigned char pad00[0x44];
+    float         t0;           /* +0x44 */
+    float         t1;           /* +0x48 */
+};
+typedef struct RoutePos {
+    void*      node;            /* +0x00 */
+    RouteGeom* geom;            /* +0x04 */
+    Vec3f      pos;             /* +0x08 */
+} RoutePos;                     /* 0x14 */
+
+/* The probe's parameter block.  0x00429cf0 -- the distance function the
+ * bracketing root finder is handed -- reads the cursor at 0x00615f84 and the
+ * centre at 0x00615f8c, and the three squared radii are its comparison
+ * thresholds. */
+extern RoutePos*   g_probe_pos;         /* 0x00615f84 */
+extern const Vec3f* g_probe_centre;     /* 0x00615f8c */
+extern float g_probe_radius;            /* 0x00615fd0 */
+extern float g_probe_band;              /* 0x00615fd4 */
+extern float g_probe_r2;                /* 0x00615fd8 */
+extern float g_probe_outer2;            /* 0x00615fdc */
+extern float g_probe_inner2;            /* 0x00615fe0 */
+
+extern void  TrackCursor_AdvanceGeometry(RoutePos* p);          /* 0x0041f850 */
+extern float TrackProbe_Distance(float t);                      /* 0x00429cf0 */
+/* 0x00429e20, reached through the module's own hook slot: bisect `f` between
+ * a and b and report whether it changed sign there. */
+extern int (*g_find_bracket)(float (*f)(float), float a, float b,
+                             float* out);                       /* 0x004b63fc */
+
+/* =========================================================================
+ * 0x0042a020 -- walk forward from `start`, one geometry segment at a time,
+ * until the probe's distance function crosses zero; the first segment is
+ * entered at `from` rather than at its own t0, and the cursor that found the
+ * crossing is copied out.  The seven module globals are the probe's
+ * parameter block: 0x00429cf0 reads the cursor and the centre out of them,
+ * and the three squared radii are its thresholds.
+ *
+ * THREE LEVERS, all measured on this body:
+ *  * `float f0 = from;` -- a named float local for the parameter, assigned
+ *    before the global stores and passed to the first call.  The local is
+ *    COALESCED onto the parameter's own slot, so it costs no instruction,
+ *    but it turns the argument into an x87-delivered one: the original's
+ *    `push ecx` reserve plus `fld from / fstp [esp]`.  Passing `from`
+ *    directly gives `mov ecx,[from] / push ecx` and the body comes out one
+ *    instruction SHORT (52 of 69) -- and every one of the 24 global-store
+ *    orders and the four `(float)`/`*(float*)&` spellings stays at 69.
+ *    `*(volatile float*)&from` also buys the third instruction (60 of 70)
+ *    but pins the schedule: a volatile access cannot cross a store, so the
+ *    two argument pushes and the g_probe_centre store stay on the wrong
+ *    side of it.
+ *  * The global stores must be r2, centre, radius, band, pos, outer2,
+ *    inner2.  VC6 SWAPS the adjacent centre/radius pair, which is why the
+ *    original's emission order (radius first, centre after the pushes) is
+ *    the reverse of the source's; writing them in emission order costs 2.
+ *  * The first `= geom->t1` must be assigned to the SAME local the LOOP
+ *    assigns `geom->t1` to, not the one it assigns `geom->t0` to.  The two
+ *    float locals are homed in the dead `radius` and `start` argument
+ *    slots, and sharing the t1 variable is what puts t0 at +8 and t1 at
+ *    +0x0c the way the original does (97.1% -> 100%).
+ * ========================================================================= */
+// FUNCTION: LEGOLAND 0x0042a020
+void Track_FindSphereCrossing(const Vec3f* centre, float radius,
+                              const RoutePos* start, float from, float band,
+                              RoutePos* out, float* hit)
+{
+    RoutePos cur = *start;
+    float    ta;
+    float    tb;
+    float    f0;
+    int      found;
+
+    tb = cur.geom->t1;
+    f0 = from;
+    g_probe_r2 = radius * radius;
+    g_probe_centre = centre;
+    g_probe_radius = radius;
+    g_probe_band = band;
+    g_probe_pos = &cur;
+    g_probe_outer2 = (radius + band) * (radius + band);
+    g_probe_inner2 = (radius - band) * (radius - band);
+    found = g_find_bracket(TrackProbe_Distance, f0, tb, hit);
+    while (!found) {
+        TrackCursor_AdvanceGeometry(&cur);
+        ta = cur.geom->t0;
+        tb = cur.geom->t1;
+        found = g_find_bracket(TrackProbe_Distance, ta, tb, hit);
+    }
+    *out = cur;
+}
