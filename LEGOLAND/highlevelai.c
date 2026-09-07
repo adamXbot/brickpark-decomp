@@ -281,10 +281,10 @@ void Visitor_WaveThenResume(Bloke* b)
 }
 
 /* Plan 0x0d: find an unreserved CAFE BROLLY, walk there, reserve, wait, leave.
- * Cell is 0x14 bytes. Split `reserved = flag0 & 1` plus a volatile flags
- * load kills the i19 `mov ebx,1` hoist (`test dl,1` matches). Residual:
- * obj/flags load order (i17) and empty-walk `je` vs `jne again`. */
-// WIP-FUNCTION: LEGOLAND 0x0044fe80  (92.1%, i17 obj/flags order / empty-walk je)
+ * Cell is 0x14 bytes. for-latch GetNext plus ordinary `reserved = flag0 & 1`
+ * emits the original walk. Case 2 splits obj vs flags so cafe stays in eax.
+ * Residual: dest.y store sinks one slot too early (world.x before world.y). */
+// WIP-FUNCTION: LEGOLAND 0x0044fe80  (96.5%, walk exact; dest.y store-sink)
 void Visitor_ReserveCafeBrolly(Bloke* b)
 {
     unsigned char act;
@@ -301,15 +301,14 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
             NewLongTermAction(b, 6);
             break;
         }
-        do {
+        for (; cell; cell = GetNextObjectMatching(cell, g_cafe_brolly_elem)) {
             Elem* e = (Elem*)cell->obj;
-            unsigned char f = *(unsigned char volatile*)&cell->f.flag0;
+            unsigned char f = cell->f.flag0;
             int reserved = f & 1;
             cls = e->cls;
             if (!reserved)
                 goto found;
-            cell = GetNextObjectMatching(cell, g_cafe_brolly_elem);
-        } while (cell);
+        }
         NewLongTermAction(b, 6);
         return;
     found:
@@ -333,12 +332,10 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
         case 3:
             b->state = 4;
             break;
-        case 5: {
-            Pos t;
-            t.y = leg.y;
-            t.x = leg.x;
-            b->target = t;
-            a = (unsigned char)(CalcMoveLine(*world, t, b->path) + 0x10);
+        case 5:
+            b->target.x = out->x;
+            b->target.y = out->y;
+            a = (unsigned char)(CalcMoveLine(*world, *out, b->path) + 0x10);
             b->state = 6;
             b->new_dir = a;
             NewDirForAction(b, (unsigned char)((a >> 5) + 3));
@@ -347,13 +344,10 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
             else
                 b->action = 2;
             break;
-        }
-        case 4: {
-            Pos t;
-            t.y = leg.y;
-            t.x = leg.x;
-            b->target = t;
-            a = (unsigned char)(CalcMoveLine(*world, t, b->path) + 0x10);
+        case 4:
+            b->target.x = out->x;
+            b->target.y = out->y;
+            a = (unsigned char)(CalcMoveLine(*world, *out, b->path) + 0x10);
             b->state = 6;
             b->new_dir = a;
             NewDirForAction(b, (unsigned char)((a >> 5) + 3));
@@ -363,14 +357,17 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
                 b->action = 1;
             break;
         }
-        }
         break;
     }
     case 2: {
         unsigned short fl;
         cell = CellAt(b->owner.b.x, b->owner.b.y);
+        if (cell->obj != g_cafe_brolly_elem) {
+            NewLongTermAction(b, 6);
+            break;
+        }
         fl = cell->f.flags;
-        if (cell->obj != g_cafe_brolly_elem || !(fl & 0x80)) {
+        if (!(fl & 0x80)) {
             NewLongTermAction(b, 6);
             break;
         }

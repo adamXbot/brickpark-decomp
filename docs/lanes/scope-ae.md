@@ -14,7 +14,7 @@ not touched.
 | 0x00450330 | `Worker_ResumeIdle` | 43 | [OK] | `FUNCTION` |
 | 0x004503a0 | `FaceClassRect` | 87 | [OK] | `FUNCTION` |
 | 0x00450450 | `Visitor_FaceAndMark` | 48 | [OK] | `FUNCTION` |
-| 0x0044fe80 | `Visitor_ReserveCafeBrolly` | 337 | no (92.1% matchfull; first diverge i17) | `WIP-FUNCTION` |
+| 0x0044fe80 | `Visitor_ReserveCafeBrolly` | 337 | no (96.5% matchfull; dest.y sink) | `WIP-FUNCTION` |
 
 Reached by: 0x004b83c4 plan 0x17, 0x004b839c plan 0x0d, 0x004b83a0 plan 0x0e,
 0x004b83b8 plan 0x14, 0x004b83a4 plan 0x0f; `FaceClassRect` is the 0x00450450
@@ -39,22 +39,33 @@ callee; `SelectBloke` is gameframe 0x00458ee0 (icon types 0x306..0x308).
 
 ## `Visitor_ReserveCafeBrolly` residual
 
-The i19 `mov ebx,1` hoist is gone. Split `reserved = flag0 & 1`
-then `cls = e->cls; if (!reserved)` plus a volatile flags load
-emits `test dl,1` / `mov ecx,[ecx+0xc]` / `je found` / GetNext
-as in the original (90.7% → 92.1%). First diverge is now i17:
-original loads obj then flags (`mov ecx,[eax]` / `mov dl,[eax+0xc]`);
-ours swaps those two. Empty-walk is still `je` to the shared plan-6
-tail, not `jne again` plus an inline one-call copy.
+i17 and the empty-walk are closed (92.1% → 96.5%). The walk is
+byte-identical: obj, flags, `test dl,1`, cls, `je found`, GetNext,
+`jne again`, inline plan-6 + ret. GetFirst-null still `je 0x45020e`.
+337 insns / 928 bytes.
 
-Tried and rejected on this pass: inner-scope `mask = 1` (still
-hoists); kill flags before GetNext (DCE); dual volatile obj+flags
-(obj/flags order right, test/cls swap, 91.5%); `reserved & 0` in
-the cls address (folds); volatile store of `reserved` (stack spill,
-89.8%); volatile obj only (hoist returns); e-dependent flags
-address (folds). A barrier store of `e` after the obj load restores
-obj-then-flags and test-cls order but adds `mov [esp],ecx` /
-reload. Case 1 y-then-x `Pos t` and Cell 0x14 stay.
+First diverge is now the two SuggestNextMove result arms. Original
+loads y then x (`mov ecx,[esp+0x10]` / `mov eax,[esp+0xc]`), stores
+target.x, pushes path and y, **pushes x**, loads world.y from `[edi+4]`,
+**then** stores target.y, then world.x. Ours has the y/x loads and
+target.x / path / y-push exact, but stores target.y one slot early
+and therefore loads world.x before world.y.
+
+`b->target.x = out->x; b->target.y = out->y; CalcMoveLine(*world,
+*out, b->path)` is the best dest spelling (96.5%). A `for` latch
+plus ordinary `reserved = flag0 & 1` (no volatile) closed the walk;
+splitting case 2's obj compare from the flags word put cafe in eax
+(`mov eax,moffs32`).
+
+Tried and rejected on this pass: dual-volatile obj+flags (cls before
+test, 91.5%); `for` + vol flags (cl/edx, 87.4%); `for` + dual vol
+(obj/flags right, cls before test, 92.5%); reserved&0 / *0 / xor0
+(fold); vol cell pointer (hoist + spill, 84.2%); `Pos t = *out`
+(x-then-y loads, 95.9%); dest.y after the call (91.7%); comma-from
+`target.y` (still 96.5%); named-y delay / ebx (93.4%); volatile
+target.y store (95.4%); `from.y`/`from.x` locals (92.5%). Helper
+`CafeMove(world, path, tgt, x, y)` matches the 96.5% field stores
+and is not needed.
 
 ## Levers
 
@@ -92,6 +103,16 @@ reload. Case 1 y-then-x `Pos t` and Cell 0x14 stay.
   `test dl,1`. Volatile flags also schedules the flags load before
   `cell->obj`; dual-volatile obj+flags flips that pair back and
   moves cls before the test.
+- **for-latch GetNext, ordinary flags.** After a separate GetFirst
+  null `break`, `for (; cell; cell = GetNextObjectMatching(...))`
+  with ordinary `f = cell->f.flag0; reserved = f & 1` emits obj then
+  flags, `test dl,1`, cls, `jne again` and an inline plan-6 copy.
+  Volatile flags is not needed once GetNext is the latch — the
+  do-while peel was what hoisted `1` and swapped the loads. Evidence:
+  92.1% → walk-exact.
+- **Case 2: compare obj, then load the flags word.** Combined
+  `obj != cafe || !(fl & 0x80)` puts cafe in edi (6-byte) and hoists
+  `mov ax,[ecx+0xc]` above the cmp. Split so cafe is `mov eax,moffs32`.
 
 ## Relocs / W3
 
