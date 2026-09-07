@@ -36,7 +36,7 @@ Contract: `docs/PARALLEL_CONTRACT.md`. Index: `docs/SCOPE_LL_WAVE.md`.
 **EDX**. Volatile shims / `return count++` / LL2 `Fst` could not hold both
 tails at once.
 
-### LL7 — `Track_StepAlong` `0x00429f30` + `TrackRunSetSlope` `0x00429560` (exact on `scope/LL7`; scope **16/17**, tip pitch-volatile FillPoly)
+### LL7 — `Track_StepAlong` `0x00429f30` + `TrackRunSetSlope` `0x00429560` (exact on `scope/LL7`; scope **16/17**, tip `7c7c6c86`)
 
 **StepAlong:** Named `float step2 = step * step` was the wall. Write the square
 only at the store after t0: `t0 = cur.geom->t0; g_step_len2 = step * step;`
@@ -131,15 +131,14 @@ Landed through pitch-volatile pin: `last`/ShadeSetup/`y` split; eax
 `g_zb_polys++`; `imul [ebp-4]`; `py = *(int volatile*)&s.pitch * y` then
 volatile zrow so zrow cannot hoist past the product — `shl` + both `add`s.
 
-**Residual (firstX=92 through crow store):** ours does
+**Residual (firstX=92 through crow store; yp-pin committed):** ours does
 `store zrow; mov eax,[g_shade_count]; test eax` vs original
-`mov edx,[g_shade_count]; test edx; store zrow`. nshade-in-EDX only with a
-shape *between* the two stores — that always swaps add dests and moves
-`g_zb_polys++` into ebx (**66.1%**). Inert: dummy/live edx, early nshade,
-named add-then-store, AfterCrow/NThenZ RTL, Fst both-stores, Fst(nshade,py)
-DCE, decl order, unsigned `jbe`. ZBuffer_FillPoly has no nshade analogue.
-Need **edx reuse of crow after it is stored**, without live nshade during
-add allocation.
+`mov edx,[g_shade_count]; test edx; store zrow`. Killing crow’s edx at the
+store (crowp / StoreThenN / drop named `c`) does **not** free edx for nshade
+without the 66.1% between-stores wall (swapped adds + `g_zb_polys++` in ebx).
+Keeping `c` live across nshade only hoists the load before crow store (still
+eax). Need nshade born after crow’s edx dies, without being live during add /
+`g_zb_polys++` allocation.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -178,7 +177,7 @@ Do **not** merge partial scopes yourself.
 | LL4 | 3/8 | `c81396e2` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `00779571` | `coaster12.c` |
-| LL7 | 16/17 | `ecbbc085` | `coaster13.c` |
+| LL7 | 16/17 | `7c7c6c86` | `coaster13.c` |
 | LL8 | **13/13** | merged `main` | `gameframe2.c` |
 
 **WIP count in this wave:** 0+0+3+5+0+2+1+0 = **11 bodies**.
