@@ -15,12 +15,11 @@ Object prefix `/tmp/sad_`. Continues after AB (`rlepaint.c`). Did not edit
 | 0x00466080 | `PresentFlip` | 102 | 100 | [OK] | `FUNCTION` |
 | 0x00468040 | `SoftBlitRLEFrameRecolour` | 303 | 100 | [OK] | `FUNCTION` |
 | 0x00468410 | `SoftBlitRLEFrame` | 312 | 100 | [OK] | `FUNCTION` |
-| 0x004640f0 | `PushRenderingStatusAndRelockVideoSurface` | 70 | 85.7 | no | `WIP` (21 residual) |
-| 0x004632b0 | `ShowCapacityOverlay` | 98 | ~48 | no | `WIP` (42 residual) |
+| 0x004640f0 | `PushRenderingStatusAndRelockVideoSurface` | 70 | 100 | [OK] | `FUNCTION` |
+| 0x004632b0 | `ShowCapacityOverlay` | 98 | 81.8 | no | `WIP` (18 residual) |
 
-Gate: `blitmisc.c` audit PASS (5/7 `[OK]`), relocs 47 matched / 0 MISMATCH,
-`/W3` clean. `rlepaint2.c` audit PASS (2/2 `[OK]`), relocs 20 matched / 0
-MISMATCH, `/W3` clean.
+Gate: `blitmisc.c` audit PASS (6/7 `[OK]`), relocs 0 MISMATCH, `/W3` clean.
+`rlepaint2.c` audit PASS (2/2 `[OK]`), relocs 0 MISMATCH, `/W3` clean.
 
 ## Names
 
@@ -71,20 +70,22 @@ MISMATCH, `/W3` clean.
   the `0xAAAAAAAA` test) — same dormant defect as HitL/HitR/Hit. `lea`
   of C is *before* the hi test (AB has test then lea).
 - `PushRenderingStatusAndRelockVideoSurface`: build inclusive screen
-  rect, push lock status, unlock if locked (Restore retry), then always
+  rect (`bottom = h-1` written before the status push; VC6 delays that
+  store so edx holds h, eax becomes `g_video_locked`, ecx is reused for
+  `g_status_sp`), unlock if locked (Restore retry), then always
   IntersectRect + Lock + `GetTransparentColour` + `g_video_locked = 1`.
-  Residual is the status-push interleaving with `rect.bottom` (original
-  keeps h in edx, reuses ecx for `g_status_sp` after storing right) and
-  `dwSize = 0x6c` sitting in the IntersectRect argument pushes. 21 of 70,
-  252 B vs 251 B.
+  `dwSize = 0x6c` is written BEFORE IntersectRect so it sits in those
+  argument pushes (writing it after sinks into Lock).
 - `ShowCapacityOverlay`: six `AICat` lines
   `[%s x %d]: Cap %d  x %d%% = %.2f (Capped %d) = %.2f` then
   `Tot Capacity = %.2f (limit %d - %d) = %d`. Product `cap*pct` is clamped
   to `scale*100`; acc sums clamped; y walks `0x14`..`0x78` in edi;
-  `fild`+`fmul kHundredth` is `product * kHundredth` (float 0.01 at
-  `0x004ab518`). Residual is the strength-reduced cat cursor (original
-  esi at `+0x18` / scale; ours anchors at `+0x14` / pct) and a frame
-  delta (`0x1f8`/`0x210` vs `0x208`). 42 of 98.
+  `fild`+`fmul kHundredth` is `n * kHundredth` (float 0.01 at
+  `0x004ab518`). Reconstruction pass closed the cursor (`esi` at
+  `+0x18` / scale) and the `0x208` frame. Residual is sprintf
+  evaluating `*names` during the first `fild` instead of `lea buf`
+  into edx, so names never lands in ebx and the Print / acc latch
+  follow. 18 of 99, 313 B vs 311 B. 48% was not a floor.
 
 ## Levers
 
@@ -103,15 +104,21 @@ MISMATCH, `/W3` clean.
   mid-stream callee-saved pushes and the painters' rotating-mask + nops
   do not lower from C.
 - Relock: `g_screencfg` is the same `0x004bcbf4` record `surface.c` calls
-  `g_screen` (one name here). `dwSize` after `IntersectRect` in the
-  source sinks into the argument pushes; writing it before (as Lock
-  does) hoists it above the call. Screen pointer in eax, `xor ecx,ecx` /
-  `mov cx,[eax]` for width, `xor edx,edx` / `mov dx,[eax+2]` for height,
-  then eax is overwritten with `g_video_locked`.
+  `g_screen` (one name here). Same `dwSize`-before-IntersectRect spelling
+  as Lock. Named `h` / keeping `s` live across the push both steal
+  registers (pointer in ecx, or `g_status_sp` hoisted into edx). Writing
+  `rect.bottom = s->h - 1` *before* the status push lets VC6 extract
+  both u16s while the pointer is in eax, then delay the bottom store
+  into the original's post-push slot.
 - Capacity: `fild` + `fmul dword` is `n * kHundredth`, not
   `(double)n * kHundredth` (`fld` + `fimul`). y in edi via
-  `do { ... y += 0x14; } while (y < 0x8c)`. Walking `names++` gives
-  `add ebx, 4`.
+  `do { ... y += 0x14; } while (y < 0x8c)`. `pct` then `cap` then
+  `scale` locals put them in ebx/ebp/eax; extra `cat->scale` refs in
+  the clamp/sprintf keep the SR cursor at `+0x18`. The 0x208 frame is
+  `{unused, clamped, acc, names, product, buf[0x1F4]}`. `char* dest =
+  f.buf` and Print operand swaps were inert; `&f.buf[0]` / `names[0]`
+  re-anchored esi. The remaining *names-early vs lea-buf-early choice
+  did not move.
 
 ## Extern-type / name notes
 

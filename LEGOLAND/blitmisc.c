@@ -262,8 +262,11 @@ void BltAdvisor(DibHeader* dib, int x, int y)
 /* 0x004640f0 -- push lock status, unlock if locked, then lock.
  * Tail-jumped from PushSetTarget (gpu.c). Rect is built first; the status
  * push sits between right and bottom so eax can carry the lock flag into
- * the unlock guard. dwSize is written with the IntersectRect pushes. */
-// WIP-FUNCTION: LEGOLAND 0x004640f0
+ * the unlock guard. dwSize is written BEFORE IntersectRect so it sits in
+ * those argument pushes (writing it after sinks into Lock instead).
+ * bottom = h-1 is written BEFORE the status push; VC6 delays the store
+ * until after the push so edx can hold h across it. */
+// FUNCTION: LEGOLAND 0x004640f0
 void PushRenderingStatusAndRelockVideoSurface(void)
 {
     WinRect    rect;
@@ -274,9 +277,9 @@ void PushRenderingStatusAndRelockVideoSurface(void)
     rect.left = 0;
     rect.top = 0;
     rect.right = s->w - 1;
+    rect.bottom = s->h - 1;
     status = g_video_locked;
     g_status_stack[g_status_sp++] = status;
-    rect.bottom = s->h - 1;
     if (status != 0) {
         if (g_draw_surface->vtbl->Unlock(g_draw_surface, g_ddsd.lpSurface)
                 == DDERR_SURFACELOST) {
@@ -284,8 +287,8 @@ void PushRenderingStatusAndRelockVideoSurface(void)
             g_draw_surface->vtbl->Unlock(g_draw_surface, g_ddsd.lpSurface);
         }
     }
-    IntersectRect(&g_render_clip, &rect, &g_clip_rect);
     g_ddsd.dwSize = 0x6c;
+    IntersectRect(&g_render_clip, &rect, &g_clip_rect);
     if (g_draw_surface->vtbl->Lock(g_draw_surface, 0, &g_ddsd,
                                    DDLOCK_WRITEONLY_WAIT, 0) == DDERR_SURFACELOST) {
         g_draw_surface->vtbl->Restore(g_draw_surface);
@@ -346,34 +349,49 @@ int PresentFlip(void)
 }
 
 /* 0x004632b0 -- Shift+capacity overlay: one line per AI category, then a total.
- * Called from gameframe when g_show_capacity and either shift key is down. */
+ * Called from gameframe when g_show_capacity and either shift key is down.
+ * Frame is the 0x208 aggregate (clamped/acc/names/product + buf[0x1F4])
+ * after and esp,-8. Cursor SR-anchors at AICat.scale (+0x18 / 0x832828);
+ * pct then cap then scale is the load order that puts them in ebx/ebp/eax.
+ * Residual is sprintf evaluating *names during the first fild instead of
+ * lea buf into edx, which keeps names out of ebx and cascades into Print
+ * and the acc/names latch. */
 // WIP-FUNCTION: LEGOLAND 0x004632b0
 void ShowCapacityOverlay(void)
 {
-    char         buf[0x1e4];
-    int          y;
-    int          acc;
-    AICat*       cat;
-    const char** names;
+    struct {
+        int          unused;
+        int          clamped;
+        int          acc;
+        const char** names;
+        int          product;
+        char         buf[0x1F4];
+    } f;
+    int    y;
+    AICat* cat;
 
-    acc = 0;
+    f.acc = 0;
     y = 0x14;
-    names = g_capacity_names;
+    f.names = g_capacity_names;
     cat = g_ai_cat;
     do {
-        int product = cat->cap * cat->pct;
-        int clamped = product;
-        if (clamped >= cat->scale * 100)
-            clamped = cat->scale * 100;
-        sprintf(buf, kCapRowFmt, *names, cat->objects, cat->cap, cat->pct,
-                product * kHundredth, cat->scale, clamped * kHundredth);
-        Print(g_clip_rect.left + 8, g_clip_rect.top + y, buf, 2);
-        acc += clamped;
+        int pct = cat->pct;
+        int cap = cat->cap;
+        int scale = cat->scale;
+
+        f.product = cap * pct;
+        f.clamped = f.product;
+        if (f.clamped >= scale * 100)
+            f.clamped = cat->scale * 100;
+        sprintf(f.buf, kCapRowFmt, *f.names, cat->objects, cap, pct,
+                f.product * kHundredth, cat->scale, f.clamped * kHundredth);
+        Print(g_clip_rect.left + 8, g_clip_rect.top + y, f.buf, 2);
+        f.acc += f.clamped;
         y += 0x14;
         cat++;
-        names++;
+        f.names++;
     } while (y < 0x8c);
-    sprintf(buf, kCapTotFmt, acc * kHundredth, g_visitor_cap_extra,
+    sprintf(f.buf, kCapTotFmt, f.acc * kHundredth, g_visitor_cap_extra,
             g_visitor_cap, g_visitor_limit);
-    Print(g_clip_rect.left + 8, g_clip_rect.top + 0x96, buf, 2);
+    Print(g_clip_rect.left + 8, g_clip_rect.top + 0x96, f.buf, 2);
 }
