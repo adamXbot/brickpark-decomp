@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `9e1d7e44` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `a37dd7d7` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
@@ -169,22 +169,21 @@ same window).
 
 ### LL3 — `Span_ClipPlane` `0x0041f050`
 
-**25.3%** (48/190), 179i, **609**/593B, frame **0x2c**, ESCAPES. Tip `9e1d7e44`.
+**25.3%** (48/190), 179i, **609**/593B, frame **0x2c**, ESCAPES. Tip `a37dd7d7`
+(C body still `8beb9d71` shape).
 
 **Four KEPT held:** 0x2c; byte-n→ebx=n; continue-header latch; loop
-`mov ebx`/`and ebx` via destrel-before-fild.
+`and ebx` via destrel-before-fild. Colouring: nxt **esi**, dest **edi**,
+sign **ebp**, seed abs **ecx**, loop abs **ebx**.
 
-**nxt→edi wave (did not land):** dest-in-edi is what destrel uses to keep
-loop abs on ebx. Homing dest frees edi but nxt stays esi and abs takes edi.
-Original at **first** bits: scratches busy (eax=in, ecx=plane, edx=dest) →
-abs **ebp**, sign **esi**, nxt leftover **edi**; dest stays edx until lerp
-destrel, spilled before `__ftol`. Loop later has `and ebx`. Our
-destrel-before-fild + post-ftol dest bump forces dest→edi — fights
-dest-as-edx / nxt-as-edi.
+**FLOOR on nxt=edi / dest=edx:** destrel locks dest→edi for loop and-ebx.
+Original first-bits need dest live edx (in/plane/dest scratches) → nxt=edi,
+seed abs ebp. On this body **in wins edx**; homing dest CSEs back to edi or
+hands delayed edi to abs. Park that chase.
 
-**Next:** match original scratch pressure (dest live edx through first bits;
-seed abs ebp OK) and still get **loop** `and ebx` without destrel locking
-dest into edi.
+**Next:** climb % / trim 609→593 / clear ESCAPES **inside** destrel binding
+(accept nxt=esi). ENTER/LEAVE k·delta, fld schedule, emit arms — do not
+trade away the four KEPT for nxt=edi.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -196,7 +195,7 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — dest=edx through first bits (nxt=edi); keep loop and-ebx another way.
+1. **LL3 Span_ClipPlane** — climb inside destrel binding (nxt=esi OK); trim size/ESCAPES.
 2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
 3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
@@ -212,7 +211,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `9e1d7e44` | `coaster11.c` |
+| LL3 | 16/19 | `a37dd7d7` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
