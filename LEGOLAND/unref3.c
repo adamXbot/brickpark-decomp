@@ -390,3 +390,31 @@ void WireBox_Init(float hw, float hh, float depth, WireBox* b)
     b->edges[22] = 3;
     b->edges[23] = 7;
 }
+
+extern void MakeTransform(const Vec3f* pos, const Mat3* rot, Mat4* out); /* 0x004264e0 */
+extern void TransformVec3(const Vec3f* src, Vec3f* dst, const Mat4* m,
+                          int n);                               /* 0x004261c0 */
+/* The 30-step line rasteriser; it interpolates into a local 30-entry
+ * ScreenPt array and hands that to Coaster3D_PlotPoints above.  Its colour
+ * parameter is 16-bit -- the caller only ever loads `cx`. */
+extern void Coaster3D_DrawLine(const ScreenPt* a, const ScreenPt* b,
+                               short colour);                   /* 0x004237f0 */
+
+/* Draw the wire box at `pos` with orientation `rot`: build the 4x4, rotate
+ * the 8 corners into world space, project them to the 16-byte screen
+ * vertices, then stroke the 12 index pairs. */
+// FUNCTION: LEGOLAND 0x004267b0
+void WireBox_Draw(const Vec3f* pos, const Mat3* rot, const WireBox* b)
+{
+    Mat4     m;
+    ScreenPt screen[8];
+    Vec3f    world[8];
+    int      i;
+
+    MakeTransform(pos, rot, &m);
+    TransformVec3(b->verts, world, &m, b->nverts);
+    Coaster3D_TransformPoints(world, screen, b->nverts);
+    for (i = 0; i < b->nedges; i++)
+        Coaster3D_DrawLine(&screen[b->edges[i * 2]],
+                           &screen[b->edges[i * 2 + 1]], b->colour);
+}
