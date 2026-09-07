@@ -25,7 +25,7 @@ Brief: `docs/SCOPE_LL3_route_joint_span.md`.
 | 0x0041ef60 | Raster_ClipPoly | 80 | 100 | [OK] | FUNCTION |
 | 0x0041db90 | Route_GetMassAndPower | 77 | 84 | 42 mis | WIP |
 | 0x0041c940 | BsRoute_Trace | 130 | FLOOR | 105 mis | WIP |
-| 0x0041f050 | Span_ClipPlane | 179 | 18 | trailing jl; k++; ebx held | WIP |
+| 0x0041f050 | Span_ClipPlane | 179 | 18 | latch jne; ebx=n; and ecx | WIP |
 
 **16 / 19 exact.** Relocs on FUNCTION bodies: 0 MISMATCH. `/W3` clean.
 
@@ -210,8 +210,8 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   Hist `edx=*mass; ecx=i&0x3f`: named `m`/`i`/`slot` become `fld`/`fstp`
   (64/77); int-bitcast, post-inc, and SetSlope do-while keep the ecx/edx
   swap. Best remains 65/77. Trace / ClipPlane not touched.
-- **Span_ClipPlane** (WIP): 36/199 (18.1%), ESCAPES, frame **0x2c**,
-  next_abs in ebx. Reconstruct
+- **Span_ClipPlane** (WIP): 35/193 (18.1%), latch jne-to-header, frame **0x28**,
+  ebx=n held, next_abs in ecx. Reconstruct
   notes (2026-09-08): trailing early-out after `in[n]=in[0]`; `in++` then
   `left=n` with latch `in+=4; dec left; jne`; signed classify
   `sar1/and 0x40000000/or` vs 0x80000000 / 0xC0000000 / 0x40000000; divide
@@ -264,3 +264,13 @@ Caller-given names kept: `JointSlot_Set`, `TrackFitFindPartners`,
   LEAVE inits `k` inside the guard (ebp / inc). Goto continue-header lost
   `and ebx` (abs fell to edx) and was dropped. 36/199 (18.1%), frame 0x2c,
   ebx-n and `and ebx,0x7fffffff` held. Mass/Trace not touched.
+  **2026-09-08 continue-header latch.** Seed `cls = prev_sign` and start the
+  do-while at the reload (`prev_sign = cls; abs_r = bits.i; prev = nxt;
+  prev_abs = abs_r; nxt = *in`) so the first iter `jmp`s over the two
+  loads and the latch is `load in; load left; add 4; dec; store; store;
+  jne header` — original shape. ebx=n and `cmp ebx,1 / jl` held (volatile
+  dest + volatile plane + byte-n). Loop abs is `and ecx,0x7fffffff`: the
+  header-seed sign web sits in edi and the bits reload reuses plane's ecx;
+  keeping n live across `__ftol` or rebirthing n as abs at the header
+  knocks ebx=n and/or inverts the latch to `je / mov / jmp`. Frame **0x28**
+  (prev_abs pad unused). 35/193 (18.1%), 640/593B. Mass/Trace not touched.
