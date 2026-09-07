@@ -281,9 +281,10 @@ void Visitor_WaveThenResume(Bloke* b)
 }
 
 /* Plan 0x0d: find an unreserved CAFE BROLLY, walk there, reserve, wait, leave.
- * Cell is 0x14 bytes (row+x*20). i19 is still `mov ebx,1` / `test bl,dl`
- * versus `test dl,1`; empty-walk stays `je` to the shared plan-6 tail. */
-// WIP-FUNCTION: LEGOLAND 0x0044fe80  (90.7%, i19 ebx=1 hoist / empty-walk je)
+ * Cell is 0x14 bytes. Split `reserved = flag0 & 1` plus a volatile flags
+ * load kills the i19 `mov ebx,1` hoist (`test dl,1` matches). Residual:
+ * obj/flags load order (i17) and empty-walk `je` vs `jne again`. */
+// WIP-FUNCTION: LEGOLAND 0x0044fe80  (92.1%, i17 obj/flags order / empty-walk je)
 void Visitor_ReserveCafeBrolly(Bloke* b)
 {
     unsigned char act;
@@ -301,8 +302,11 @@ void Visitor_ReserveCafeBrolly(Bloke* b)
             break;
         }
         do {
-            cls = ((Elem*)cell->obj)->cls;
-            if (!(cell->f.flag0 & 1))
+            Elem* e = (Elem*)cell->obj;
+            unsigned char f = *(unsigned char volatile*)&cell->f.flag0;
+            int reserved = f & 1;
+            cls = e->cls;
+            if (!reserved)
                 goto found;
             cell = GetNextObjectMatching(cell, g_cafe_brolly_elem);
         } while (cell);

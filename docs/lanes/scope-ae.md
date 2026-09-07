@@ -14,7 +14,7 @@ not touched.
 | 0x00450330 | `Worker_ResumeIdle` | 43 | [OK] | `FUNCTION` |
 | 0x004503a0 | `FaceClassRect` | 87 | [OK] | `FUNCTION` |
 | 0x00450450 | `Visitor_FaceAndMark` | 48 | [OK] | `FUNCTION` |
-| 0x0044fe80 | `Visitor_ReserveCafeBrolly` | 337 | no (90.7% matchfull; first diverge i19) | `WIP-FUNCTION` |
+| 0x0044fe80 | `Visitor_ReserveCafeBrolly` | 337 | no (92.1% matchfull; first diverge i17) | `WIP-FUNCTION` |
 
 Reached by: 0x004b83c4 plan 0x17, 0x004b839c plan 0x0d, 0x004b83a0 plan 0x0e,
 0x004b83b8 plan 0x14, 0x004b83a4 plan 0x0f; `FaceClassRect` is the 0x00450450
@@ -39,25 +39,22 @@ callee; `SelectBloke` is gameframe 0x00458ee0 (icon types 0x306..0x308).
 
 ## `Visitor_ReserveCafeBrolly` residual
 
-First diverge remains i19: original `test dl,1` / `je found`; ours
-`mov ebx,1` / `test bl,dl`. Prefix through i18 is exact. 90.7%
-matchfull; audit 337/337 insns, 943B vs 928B (the two extra `mov ebx,1`
-sites — loop + case 2 — plus empty-walk polarity).
+The i19 `mov ebx,1` hoist is gone. Split `reserved = flag0 & 1`
+then `cls = e->cls; if (!reserved)` plus a volatile flags load
+emits `test dl,1` / `mov ecx,[ecx+0xc]` / `je found` / GetNext
+as in the original (90.7% → 92.1%). First diverge is now i17:
+original loads obj then flags (`mov ecx,[eax]` / `mov dl,[eax+0xc]`);
+ours swaps those two. Empty-walk is still `je` to the shared plan-6
+tail, not `jne again` plus an inline one-call copy.
 
-**Cell is 0x14 bytes.** The earlier 16-byte layout emitted
-`shl eax,4` / `add` (stride 16) instead of `lea edx,[eax+eax*4]` /
-`lea ecx,[ecx+edx*4]` (stride 20). Padding `pad0e[6]` is load-bearing;
-79.7% → 90.7%. Case 3 `CellAtEdi` still keeps act in dl and the
-`xor ebx,ebx; mov bx,[edi+14h]` width scratch.
-
-The walk's `& 1` across `GetNextObjectMatching` still parks 1 in ebx
-even with the correct stride and with every other literal 1 removed.
-`do/while` + `goto found` is the right CFG (`je found`) but empty-walk
-stays `je` to the shared plan-6 tail. Case 1 `Pos t; t.y; t.x;
-b->target=t; CalcMoveLine(*world, t, path)` is closer (y/x temps)
-but still loads `[esp+0xc]` then `[esp+0x10]` vs original y then x.
-Function-scope width ints move act to bl. A `cafe` local takes edi,
-not ebx, and 1 still hoists into bl.
+Tried and rejected on this pass: inner-scope `mask = 1` (still
+hoists); kill flags before GetNext (DCE); dual volatile obj+flags
+(obj/flags order right, test/cls swap, 91.5%); `reserved & 0` in
+the cls address (folds); volatile store of `reserved` (stack spill,
+89.8%); volatile obj only (hoist returns); e-dependent flags
+address (folds). A barrier store of `e` after the obj load restores
+obj-then-flags and test-cls order but adds `mov [esp],ecx` /
+reload. Case 1 y-then-x `Pos t` and Cell 0x14 stay.
 
 ## Levers
 
@@ -89,6 +86,12 @@ not ebx, and 1 still hoists into bl.
   stride 20 (`lea [eax+eax*4]` / `lea [ecx+edx*4]`). A 16-byte cell
   (missing `pad0e[6]`) is `shl eax,4` and costs the cafe-brolly body
   ~11 matchfull points.
+- **Split the reservation bit from the branch.** `reserved = f & 1;
+  cls = e->cls; if (!reserved)` plus `*(unsigned char volatile*)`
+  on the flags byte kills the loop-invariant `mov ebx,1` and keeps
+  `test dl,1`. Volatile flags also schedules the flags load before
+  `cell->obj`; dual-volatile obj+flags flips that pair back and
+  moves cls before the test.
 
 ## Relocs / W3
 
