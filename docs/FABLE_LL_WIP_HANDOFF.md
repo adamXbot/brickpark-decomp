@@ -55,7 +55,7 @@ base loads swapped; nshade still eax before crow store (want edx).
 
 ### LL3 — `Route_GetMassAndPower` `0x0041db90` (16/19 scope)
 
-| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `3e1017da` |
+| Branch / file | `scope/LL3` · `LEGOLAND/coaster11.c` · tip `9bc92383` |
 
 **77i / 259/259B**, matchfull **84%**, audit **42** mism — **FLOOR** (dest-coalesce).
 
@@ -169,23 +169,18 @@ same window).
 
 ### LL3 — `Span_ClipPlane` `0x0041f050`
 
-**18.1%** (35/193), 179i, **614**/593B, frame **0x28** (was 0x2c). Tip `3e1017da`.
+**17.2%** (35/203), 179i, **603**/593B, frame **0x2c**. Tip `9bc92383`.
 
-**Landed:**
-1. Byte-n → `mov ebx,n` / `cmp ebx,1 / jl` (prologue ebx held)
-2. Trailing early-out + count-up lerp ENTER/LEAVE k
-3. **Continue-header latch:** first-iter `jmp` over reloads; header reloads
-   abs+cls then `prev=nxt; prev_abs=abs; nxt=*in`; latch
-   `in+=4; dec left; store; jne header`
+**Held:** continue-header latch; byte-n → `mov ebx,n` / `cmp ebx,1 / jl`;
+trailing early-out; count-up lerp; **0x2c** restored via dest copy + plane
+writeback to arg (no n-across-ftol, latch not inverted).
 
-**Regressed / open:**
-- Loop abs is `and ecx`, not `and ebx` — seed `cls=prev_sign` occupies a
-  callee-save so bits reload uses plane’s ecx scratch
-- Frame pad unused → **0x28**; size 614 vs 593; ESCAPES
-- Extending n across ftol / rebirthing abs at header knocks ebx=n or inverts latch
+**Open:** loop abs is `and edx` / `and ecx`, not `and ebx`. Sign landed in
+**ebp** (wanted esi). Dest copy then took leftover **ebx**, so bits load
+cannot be `mov ebx,[slot]/and ebx`.
 
-**Next:** put cls/sign in **esi** so post-`fstp` bits load is
-`mov ebx,[slot] / and ebx`; restore **0x2c** without losing latch or ebx=n.
+**Next:** keep dest off ebx after left= (home/reload) so post-fstp abs can
+take ebx; prefer sign/cls in esi if possible without losing latch/ebx=n/0x2c.
 
 ### LL3 — `BsRoute_Trace` `0x0041c940`
 
@@ -197,7 +192,7 @@ the west tail→loop and the original register ranking.
 
 ## Suggested Fable attack order
 
-1. **LL3 Span_ClipPlane** — latch landed; cls→esi for abs-ebx; restore 0x2c.
+1. **LL3 Span_ClipPlane** — dest off ebx after left= so abs can `and ebx`; keep 0x2c/latch.
 2. **LL4 Span_Fill*** — ZBuffer-class; only with a new frame/home lever.
 3. **LL4 IntegrateSimpson** — parked codegen ceiling 80/81 (Og-off fstp/esp glue).
 4. **LL6 / LL7 / Mass / Trace** — parked floors (ICF, nshade, dest-coalesce, NG22).
@@ -213,7 +208,7 @@ Do **not** merge partial scopes yourself.
 | --- | ---: | --- | --- |
 | LL1 | **22/22** | merged `main` | `logflume8.c` |
 | LL2 | **6/6** | merged `main` | `logflume9.c` |
-| LL3 | 16/19 | `3e1017da` | `coaster11.c` |
+| LL3 | 16/19 | `9bc92383` | `coaster11.c` |
 | LL4 | 3/8 | `966dbef0` | `coastershade2.c` |
 | LL5 | **3/3** | merged `main` | `castletrack2.c` |
 | LL6 | 22/24 | `b533c24f` | `coaster12.c` |
