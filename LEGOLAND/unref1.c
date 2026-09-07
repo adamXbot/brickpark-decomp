@@ -170,9 +170,10 @@ void FreeCoasterColours(void)
     Free_w(g_coaster_colours);
 }
 
-/* A plain `free` wrapper in the schoolcar8.c / curve-sampling neighbourhood. */
+/* Release a difference table built by BuildDifferenceTable: the pointer
+ * array and its triangular data are one allocation. */
 // FUNCTION: LEGOLAND 0x0041f710
-void CurveSamples_Free(void* samples)
+void DiffTable_Free(void* samples)
 {
     Free_w(samples);
 }
@@ -207,13 +208,13 @@ Pos WalkPath_GetPoint(WalkPath* path, int index)
     return path->nodes[index].pos;
 }
 
-/* The natural logarithm as a `float -> double` callback (VC6's intrinsic
- * `log` is fldln2/fyl2x).  Its only reference is the function pointer the
- * dead sampler at 0x0041f7f0 pushes. */
+/* The natural logarithm as a scalar `float -> double` sample function (VC6's
+ * intrinsic `log` is fldln2/fyl2x).  Its only reference is the function
+ * pointer MathSelfTest (0x0041f7f0) hands to NumericDerivative. */
 // FUNCTION: LEGOLAND 0x0041f7e0
-double CurveFn_Log(float x)
+float TestFn_Log(float x)
 {
-    return log(x);
+    return (float)log(x);
 }
 
 /* =========================================================================
@@ -412,4 +413,162 @@ void GetNodeEndSteps(TrackNode* node, int* tail_steps, int* head_steps)
         *head_steps = Track_CountHeadPieces(node->jin.node);
     if (node->jout.node)
         *tail_steps = Track_CountTailPieces(node->jout.node);
+}
+
+/* =========================================================================
+ * THE NUMERICAL-METHODS CORNER  (0x0041f2b0..0x0041fa10)
+ * =========================================================================
+ * coaster7.c recovered the live half of this block -- Span_SetClip
+ * (0x0041f380) and the physics plumbing.  The dead half is a small NUMERICAL
+ * LIBRARY plus its own self test, all of it unreferenced:
+ *
+ *   BuildDifferenceTable   sample f at n+1 equally spaced points centred on
+ *                          x and build the forward-difference triangle
+ *   NumericDerivative      f'(x) from rows 1 and 3 of that triangle
+ *   PhysVec_Derivative4    the same derivative for a VECTOR-valued function,
+ *                          through the PhysOps hooks, on the four-point
+ *                          stencil {-1, -1/3, +1/3, +1} with the weights
+ *                          {1/16, -27/16, +27/16, -1/16}
+ *   TestFn_Log / ExpDerivs the two sample functions the self test uses
+ *   MathSelfTest           calls each of them once and throws the results
+ *                          away -- a scratch `main`, left in the shipped exe
+ *
+ * The triangle is ONE allocation: (n+1) row pointers followed by
+ * (n+1)(n+2)/2 floats, the rows shortening by one each time.
+ * ========================================================================= */
+
+typedef struct SpanRect { int top, left, bottom, right; } SpanRect;
+typedef struct ClipPlane { float a, b, c; } ClipPlane;
+typedef struct ClipSet { int count; ClipPlane p[4]; } ClipSet;
+typedef struct PhysVec { int n; float v[20]; } PhysVec;         /* 0x54 */
+typedef struct PhysOps {
+    void  (*add)(PhysVec*, PhysVec*, PhysVec*);   /* +0x00 */
+    void*  op1;                                   /* +0x04 */
+    void*  op2;                                   /* +0x08 */
+    void  (*scale)(PhysVec*, float);              /* +0x0c */
+    void*  op4[4];                                /* +0x10 */
+    PhysVec** (*alloc)(int);                      /* +0x20 */
+    void  (*free)(PhysVec**, int);                /* +0x24 */
+    int    dim;                                   /* +0x28 */
+} PhysOps;                                        /* 0x2c */
+
+/* The four-point stencil: sample offsets in units of h, and the matching
+ * derivative weights.  Both are read as ONE array each; the first element of
+ * each is peeled out of the loop, which is why the loop's base displacement
+ * is the SECOND element. */
+extern float g_deriv_offsets[4];                 /* 0x004b5614 */
+extern float g_deriv_weights[4];                 /* 0x004b5624 */
+
+extern void* AllocZeroed(unsigned int size, int a, int b, int c); /* 0x004775b0 */
+/* The Sutherland-Hodgman clipper behind Span_SetClip's half-plane list. */
+extern void* ClipPolygonPlanes(int count, void* verts, int* out_count,
+                               int nplanes, const ClipPlane* planes); /* 0x0041f2b0 */
+extern void  CarPoolInit(void);                                 /* 0x00421470 */
+extern void  PhysVec_InitOps(PhysOps* out, int dimension);      /* 0x00421540 */
+/* The vector derivative MathSelfTest actually calls: the difference-table
+ * form (0x0041f3e0 builds the vector triangle), NOT the four-point stencil
+ * PhysVec_Derivative4 below. */
+extern int   PhysVec_DerivativeTable(void (*fn)(float, PhysVec*), PhysOps* ops,
+                                     float x, float h, PhysVec* out); /* 0x0041f4e0 */
+
+double exp(double);
+#pragma intrinsic(exp)
+
+/* Clip a polygon against a ClipSet, unpacking the set into the plane count
+ * and the plane array the clipper actually takes. */
+// FUNCTION: LEGOLAND 0x0041f350
+void* Span_ClipPolygonToSet(int count, void* verts, int* out_count,
+                            const ClipSet* clip)
+{
+    return ClipPolygonPlanes(count, verts, out_count, clip->count, clip->p);
+}
+
+/* Sample `f` at n+1 points spaced `h` apart and centred on `x`, then reduce
+ * the samples in place into a forward-difference triangle:
+ *     tab[0][i] = f(x + (i - n/2) * h)
+ *     tab[i][j] = tab[i-1][j+1] - tab[i-1][j]
+ * The pointer array and the triangle are one zeroed block. */
+// FUNCTION: LEGOLAND 0x0041f650
+float** BuildDifferenceTable(float (*f)(float), int n, float x, float h)
+{
+    float** tab;
+    float*  p;
+    int     m = n + 1;
+    int     i, j, len;
+
+    tab = (float**)AllocZeroed((((m + 1) * m >> 1) + m) * 4, 0, 0, 0);
+    if (!tab)
+        return tab;
+
+    p = (float*)(tab + m);
+    len = m;
+    for (i = 0; i <= n; i++, len--) {
+        tab[i] = p;
+        p += len;
+    }
+
+    x -= (float)(n >> 1) * h;
+    for (i = 0; i <= n; i++) {
+        tab[0][i] = f(x);
+        x += h;
+    }
+
+    len = n;
+    for (i = 1; i <= n; i++) {
+        for (j = 0; j < len; j++)
+            tab[i][j] = tab[i - 1][j + 1] - tab[i - 1][j];
+        len--;
+    }
+    return tab;
+}
+
+/* f'(x) from a five-point difference triangle:
+ *     ((D1[2] + D1[1]) - (D3[1] + D3[0]) / 6) / (2 * (h/2))
+ * A failed allocation returns 0 with the eax the table call left there. */
+// FUNCTION: LEGOLAND 0x0041f720
+int NumericDerivative(float (*f)(float), float x, float h, float* out)
+{
+    float** tab;
+    float   r;
+
+    h *= 0.5f;
+    tab = BuildDifferenceTable(f, 4, x, h);
+    if (!tab)
+        return 0;
+    r = ((tab[1][2] + tab[1][1])
+         - (tab[3][1] + tab[3][0]) * 0.16666667f) * 0.5f / h;
+    DiffTable_Free(tab);
+    *out = r;
+    return 1;
+}
+
+/* The self test's vector sample function: a three-component state whose
+ * components are exp(x), 2*exp(x) and 2*exp(2x). */
+// FUNCTION: LEGOLAND 0x0041f790
+void ExpDerivs(float x, PhysVec* out)
+{
+    double a = exp(x);
+    double b;
+
+    out->n = 3;
+    out->v[0] = (float)a;
+    out->v[1] = (float)(a + a);
+    b = exp(x + x);
+    out->v[2] = (float)(b + b);
+}
+
+/* The numerical corner's self test: differentiate log at 3 with h = 1, then
+ * differentiate the vector sample function at 3 with h = 0.01.  Every result
+ * is discarded and every cdecl cleanup merges into one `add esp,0xb0`. */
+// FUNCTION: LEGOLAND 0x0041f7f0
+void MathSelfTest(void)
+{
+    float   d;
+    PhysOps ops;
+    PhysVec state;
+
+    NumericDerivative(TestFn_Log, 3.0f, 1.0f, &d);
+    CarPoolInit();
+    PhysVec_InitOps(&ops, 3);
+    PhysVec_DerivativeTable(ExpDerivs, &ops, 3.0f, 0.01f, &state);
 }
