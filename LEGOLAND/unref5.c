@@ -465,6 +465,46 @@ int __stdcall UnlockLogicalVolume(void* h, unsigned char drive)
  * does not order the tail (the `else { return 0; }` form puts it lexically
  * between the loop and `return ok` and still emits [F][EXIT][G]), so the
  * key is internal to VC6's block list.  Confirmed floor.
+ * FOURTH PASS (2026-09-08, 15 more spellings; the cross-jump hypothesis is
+ * DEAD).  The premise of the third pass -- "identical bytes per block" --
+ * is WRONG, and the original's disassembly settles it: G is
+ * `pop edi/pop esi/xor eax,eax/pop ebp/add esp,0x24/ret` (six bytes of
+ * epilogue with NO `pop ebx`, the zero scheduled between the pops) and EXIT
+ * is `pop ebx/pop edi/pop esi/pop ebp/add esp,0x24/ret`.  They are DIFFERENT
+ * blocks -- G is the shrink-wrap clone for the pre-`push ebx` exits, EXIT is
+ * the real epilogue -- so VC6 cannot be tail-merging G with EXIT and then
+ * ordering the survivor.  Our G and EXIT are byte-identical to the
+ * original's; only their order differs, and no instruction, byte or
+ * register anywhere else in the 260 bytes differs.
+ * What the new probes DID establish is a rule the earlier passes missed:
+ * the placement of the merged `return 0` block is decided by HOW MANY
+ * `return 0` STATEMENTS reach it, not by where they sit.
+ *   - TWO `return 0` statements (guard 2 + the trailing one) -> one exiled
+ *     block, always emitted LAST: [F][EXIT][G], 260 bytes, 10.  Unmoved by
+ *     `else { return 0; }` with `return ok` outside and lexically last,
+ *     `goto out; ... fail: return 0; out: return ok;` with the return-0
+ *     lexically between the loop and the return-ok, `goto fail` for guard 2
+ *     only, a trailing `return ok` (ok is provably 0 there), a separate
+ *     `zero` variable returned by guard 2 (VC6 const-propagates it), and a
+ *     second `return 0` behind an `if (0)`-style label after the loop.
+ *   - ONE `return 0` statement (both guards `goto fail`) -> the block is
+ *     NOT exiled at all: VC6 inverts guard 2 to `je/je` and lays it inline
+ *     between the guard chain and `mov eax,1`, 256 bytes / 88 instructions,
+ *     46 strict.  Identical output whether the label sits before the loop,
+ *     after the loop, or after `return ok`, and with the guard-2 arms
+ *     swapped -- so a lone return-0 has no source position at all.
+ *   - TWO DISTINCT labels (`fail:`/`fail2:`) -> no cross-jump: VC6 clones
+ *     both epilogues inline (93 instructions, guard 1 as a bare `ret`), the
+ *     early-return behaviour again.  So VC6 does NOT cross-jump these
+ *     epilogues after layout; keeping them distinct until then, the lever
+ *     that worked on DDrawErrorPassThrough, has nothing to bite on here.
+ * The original's order needs the exiled return-0 block placed FIRST among
+ * the tail blocks while still being exiled, and this compiler emits an
+ * exiled return-0 last in every reachable source form: the two outcomes
+ * (exiled-last, or inline-early) are the only two we can produce.  The
+ * ordering therefore comes from an IR difference upstream of any C
+ * construct measured across four passes.  Floor, and the mechanism is now
+ * named rather than guessed.
  * ========================================================================= */
 
 // WIP-FUNCTION: LEGOLAND 0x00451280  (89%, 10/88 strict, first diverging index 75: the two tail epilogues are laid out in the other order)

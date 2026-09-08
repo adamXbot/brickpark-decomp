@@ -18,6 +18,15 @@ original's order.  The other three did not move: 27 more spellings on
 `UnlockAllPhysicalLocks` (all 10 or worse), 5 more probes on
 `LockPhysicalVolume` (14), 6 more on `DDrawErrorPassThrough` (16).
 
+Fourth pass (2026-09-08, `UnlockAllPhysicalLocks` only): still 10/88, but
+the diagnosis is now correct rather than assumed.  Reading the original's
+two tail epilogues instruction by instruction kills the cross-jump theory —
+they are NOT identical (the guards' clone has no `pop ebx`) — and 15 fresh
+spellings pin the real rule: a `return 0` block reached by TWO `return 0`
+statements is always exiled LAST, one reached by a single statement is
+never exiled at all, and two distinct labels are cloned inline instead of
+cross-jumped.  Details under "Residuals".
+
 | address | name | insns | % | audit | marker |
 | --- | --- | ---: | ---: | --- | --- |
 | 0x004514b0 | LockLogicalVolume | 55 | 100 | [OK] | FUNCTION |
@@ -397,6 +406,35 @@ what does and does not keep an empty switch alive.
   variable, and `goto out;` with `out: return ok;` textually after the
   trailing `return 0` — all 10. Textual position of the `return 0`
   provably does not order the tail. Floor.
+  **Fourth pass (2026-09-08, 15 more; the cross-jump hypothesis is dead and
+  the mechanism is now named).** The third pass's premise that the two tail
+  epilogues are byte-identical is WRONG. Read off the original: G is
+  `pop edi/pop esi/xor eax,eax/pop ebp/add esp,0x24/ret` — no `pop ebx`,
+  the zero scheduled between the pops — and EXIT is
+  `pop ebx/pop edi/pop esi/pop ebp/add esp,0x24/ret`. G is the shrink-wrap
+  clone for the pre-`push ebx` exits, EXIT is the real epilogue; they are
+  different blocks, so VC6 is not tail-merging them and ordering a survivor.
+  Ours are byte-identical to the original's; only the order differs.
+  **New rule measured: the placement of a `return 0` block is decided by how
+  many `return 0` STATEMENTS reach it, not by where they sit.** Two
+  statements → one exiled block always emitted LAST ([F][EXIT][G], 260B,
+  10) — unmoved by `else { return 0; }` with `return ok` outside and
+  lexically last, `goto out; ... fail: return 0; out: return ok;` with the
+  return-0 lexically between the loop and the return-ok, `goto fail` for
+  guard 2 only, a trailing `return ok` (ok is provably 0 there), a separate
+  `zero` variable returned by guard 2 (const-propagated), and a second
+  `return 0` behind a label after the loop. ONE statement (both guards
+  `goto fail`) → the block is not exiled at all: VC6 inverts guard 2 to
+  `je/je` and lays it inline between the guard chain and `mov eax,1`
+  (256B/88i, 46 strict), identically whether the label sits before the loop,
+  after it, or after `return ok`, and with the guard arms swapped. Two
+  DISTINCT labels (`fail:`/`fail2:`) → no cross-jump at all: both epilogues
+  are cloned inline (93i, guard 1 a bare `ret`), i.e. the early-return
+  behaviour — so the `DDrawErrorPassThrough` lever of keeping blocks
+  distinct through lowering has nothing to bite on here. Exiled-last and
+  inline-early are the only two layouts this compiler will produce for this
+  CFG; the original needs an exiled return-0 laid FIRST among the tail
+  blocks, which no C construct measured over four passes reaches. Floor.
 - **0x00451390 `LockPhysicalVolume` (14/39, first index 8; 5 more probes
   in the third pass — a two-definition `void* ov` web, the byte stores fed
   from one `unsigned char z = 0`, `p` written by a whole-struct copy from a
