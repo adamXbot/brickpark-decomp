@@ -609,19 +609,38 @@ extern void GetTileBounds(const Pos* tile, TileBounds* out);  /* 0x0045acc0 */
  * posstep.c's live LFTrack_FindPiece compares the square exactly; this dead
  * twin accepts anything inside the flume cell's own span, so a piece drawn
  * larger than one square still answers for its whole extent. */
-/* WIP: 40/50 strict, first divergence at index 1; the block layout, the two
- * zero registers, all four compares and both epilogues are index-for-index
- * right.  The whole residual is one register-allocation choice: the original
- * spills the RUN cursor into the single stack dword (`push ecx`) and keeps
- * both footprint spans in ebp/edi; VC6 gives us edi for `run` and spills the
- * y-span instead, which costs the two outer-loop reloads and adds one inner
- * reload.  Ruled out (identical 40): while/for/do-while spellings, reading
- * the head first or last, two-definition (`h = v3; h -= v1;`) spans, a
- * Footprint pointer local, function-scope cursors, a `volatile` run (48,
- * worse), split `continue` guards, swapping the two span initialisers, named
- * `v[0]`/`v[1]` locals, a guarded `if (run) do {...} while (run)`, and the
- * two spans as one two-element array (43, worse). */
-// WIP-FUNCTION: LEGOLAND 0x00408f90  (50/50 insns, 40 strict mismatches; run vs h spill choice)
+/* WIP: 50/50 instructions, 123/123 bytes, 14 strict, first divergence at
+ * index 4 (2026-09-08, LL9 escalation: 40 -> 14).  The lever was RA12's
+ * one-use volatile READ, applied at BOTH uses of the run cursor --
+ * `(*(LFRun* volatile*)&run)->pieces` at the outer head and
+ * `run = (*(LFRun* volatile*)&run)->next` in the latch -- with the
+ * definition and the `while (run)` test left ordinary.  That reproduces the
+ * original's memory-resident cursor exactly: spill at the definition
+ * (`mov [esp+10h],eax`), reload at the head, reload-then-store in the latch
+ * with the test still on the register copy (`test eax,eax / mov
+ * [esp+10h],eax / jne`).  A `volatile` DECLARATION was the earlier 48: it
+ * also forces the test to re-read memory.  Either read alone is worse (head
+ * only 50, latch only 44): the register only frees when both uses go through
+ * memory.  With the cursor in memory all four inner-loop values take the
+ * callee-saved registers, so h no longer spills and the inner reload is gone.
+ *
+ * The residual is one register NAMING: the original holds y in ebx and the
+ * x-span in edi, we hold the x-span in ebx and y in edi (h in ebp and x in
+ * esi agree), and the prologue's load schedule follows -- the original loads
+ * v[1] into the scratch edx first, we load v[0].  All four webs have exactly
+ * two references, so this is a tie-break, and 24 spellings did not move it:
+ * span order, declaration order, spans before/after the cursor, two-statement
+ * spans, `-v[1] + v[3]`, a `Footprint*` local, named v[] loads, an `int
+ * sp[2]` aggregate (15), unsigned spans (16), x/y copied to locals at
+ * function level or at the outer head or into a `Pos`, nested ifs, `for`
+ * spellings of either loop, and a free volatile on each footprint load or on
+ * the queue (14-20; v[2] breaks the hoist, 49).  Spelling a span inline in
+ * the compare makes VC6 hoist only the load and keep the subtract in the
+ * loop (28 / 42 / 49), so the spans were named locals.  At its floor for this
+ * regime; a lever that ranks a twice-read PARAMETER above a twice-read local
+ * is what is still missing (LEVERS RA16 records the parameter tie-break but
+ * not this cross-kind one). */
+// WIP-FUNCTION: LEGOLAND 0x00408f90  (50/50 insns, 123/123 B, 14 strict; y/w register naming)
 LFPiece* LFTrack_FindPieceCovering(int x, int y)
 {
     LFRun* run = g_lf_queue;
@@ -629,7 +648,7 @@ LFPiece* LFTrack_FindPieceCovering(int x, int y)
     int    w = g_lf_footprint.v[2] - g_lf_footprint.v[0];
 
     while (run) {
-        LFPiece* p = run->pieces;
+        LFPiece* p = (*(LFRun* volatile*)&run)->pieces;
         while (p) {
             int px = p->sq.b.x;
             int py = p->sq.b.y;
@@ -637,7 +656,7 @@ LFPiece* LFTrack_FindPieceCovering(int x, int y)
                 return p;
             p = p->next;
         }
-        run = run->next;
+        run = (*(LFRun* volatile*)&run)->next;
     }
     return 0;
 }
