@@ -265,13 +265,34 @@ divergence is recorded here and `unref2.c` names the field `npairs`.
   per-arm stores (value in eax in one arm, edi in the other) are the source
   shape.
 
+* **Measured negative, 2026-09-08: the SIB operand rank is a TWO-STATE global
+  toggle, and the original sits in neither state.** Hoisting the FIRST scan's
+  row pointer (`const int* tr = m->tris[i];` in the `nverts` loop, then
+  `tr[k]`) emits that scan unchanged but switches the whole function from
+  state A to state B: A (this body, 515) has the compaction loop's three
+  `m->tris[i][k]` loads pointer-first and matching with its six
+  `out->tris[n][k]` stores IV-first; B (514) has the six stores pointer-first
+  and byte-exact with the original, and pays with the three loads flipped to
+  IV-first plus two adjacent load pairs swapped in schedule. The original has
+  BOTH pairs pointer-first, which is neither state. Every spelling of the
+  hoist (`int*`, `&m->tris[i][0]`, `int (*tr)[3]` with `(*tr)[k]`, declared at
+  function top) lands on the same state B; the same hoist in the cross pass or
+  the pair-marking pass, and a `tp` temp for `out->tris` in the header setup,
+  are inert. A standalone reproduction of only the compaction loop shows the
+  two arms of one component disagreeing with each other, so the rank is per
+  address pair, not one flag. **State A is kept: one mismatch cheaper, and it
+  is the half the original also has right.**
+
 ## What a stronger model could still move
 
 `Mesh_DropBackFaces` 0x004227c0 is at 515/521 aligned with the instruction
 count (521) and byte count (1613) both exact. The residual is six SIB bytes:
 the triangle-compaction stores take the reloaded `out->tris` as base and the
 stride-12 IV as index, this build the reverse. It is an operand-rank decision
-inside VC6's store-address formation (loads through the same IV shape already
-match), and the spellings listed above under "measured negative" did not move
-it. The cross-product block that was this function's headline residual is
-closed by the block-split lever and should not be reopened.
+inside VC6's store-address formation, and the two-state result above says it
+is not reachable by spelling the store, the loop or its counters: the toggle
+that fixes the stores breaks the loads by the same mechanism. Anything that
+closes this has to give the pointer temp a higher rank than the n-IV while
+leaving the m-pointer/i-IV pair alone. The cross-product block that was this
+function's headline residual is closed by the block-split lever and should not
+be reopened.

@@ -518,6 +518,41 @@ extern void  HeapFree_w(void* p);                               /* 0x0049e4d0 */
  * `e`, or a ternary) is far worse (427/515) -- VC6 keeps ONE store with a
  * join, so the original's per-arm stores with the value in eax in one arm
  * and edi in the other are the source shape, as written here.
+ *
+ * 2026-09-08 -- THE OPERAND RANK IS A TWO-STATE GLOBAL, AND THE ORIGINAL IS
+ * IN NEITHER STATE.  The order is not a property of the store: it is a rank
+ * comparison between the reloaded POINTER temp and the stride-12 IV temp, and
+ * the whole function only has two reachable settings of it.
+ *   state A (this body, 515/521): the compaction loop's LOADS `m->tris[i][k]`
+ *     come out `[eax + edx]` -- pointer as base, matching -- and its six
+ *     STORES come out `[ecx + ptr]`, the six residual bytes.
+ *   state B (514/521): the six stores come out `[ptr + ecx]`, EXACTLY the
+ *     original, and in exchange the three loads flip to `[edx + eax]` and two
+ *     adjacent load pairs swap in schedule (`mov edx,[ebp+0x18]` against
+ *     `mov eax,[esp+0x20]`, and the vertex pass's `mov ecx,[ebx+0x10]`
+ *     against `mov edi,[esp+0x38]`): 3 SIB + 4 order mismatches.
+ * The ORIGINAL has BOTH the loads and the stores pointer-first, so it is not
+ * state A and not state B; no source spelling this build accepts puts the two
+ * address pairs on the same side at once.  A is kept because it is one
+ * mismatch cheaper and because it is the half the original also has right.
+ *
+ * The toggle is REMOTE from the store: hoisting the first scan's row pointer
+ * (`const int* tr = m->tris[i];` in the nverts loop, then `tr[k]`) switches
+ * A -> B while emitting the identical scan.  Every spelling of that hoist
+ * lands on the same state B -- `int*` instead of `const int*`,
+ * `&m->tris[i][0]`, `int (*tr)[3] = &m->tris[i]` with `(*tr)[k]`, and the
+ * hoist declared at function top -- so B is a single state, not a family.
+ * Measured inert (still 515, no state change): the same hoist in the cross
+ * pass or in the pair-marking pass; `(m->tris[i])[k]`; `&m->pairs[i][0]` for
+ * `pv`; a `tp` temp for `out->tris` in the header setup, and the reverse
+ * (`(char*)out->tris + (ntris-deadtris)*12` for `out->verts`); the store's
+ * value hoisted into a per-arm temp; `out->tris[n + 0][k]`,
+ * `(out->tris + n)[0][k]`, `((int*)&out->tris[n])[k]`,
+ * `*(int*)((char*)&out->tris[n][k])`; and the loads as `*(m->tris[i] + k)` or
+ * `((int*)m->tris)[i*3+k]`.  Renaming the compaction loop's counters (`j` for
+ * `i`, `k` for `n`) costs 31-37 and does not change the state.  A standalone
+ * reproduction of just this loop shows the two arms can disagree with each
+ * other, which is why the rank is per address pair and not one flag.
  */
 // WIP-FUNCTION: LEGOLAND 0x004227c0  (98.8%, 521/521 instructions and 1613/1613 bytes; six SIB base/index swaps on the triangle-compaction stores, indices 455-487)
 MeshDesc* Mesh_DropBackFaces(MeshDesc* m)
