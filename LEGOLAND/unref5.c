@@ -315,9 +315,34 @@ int UnlockPhysicalVolume(void* h, unsigned char drive)
 
 /* =========================================================================
  *  0x00451390 -- INT 21h AX=440Dh CX=0848h, parameter block op 0
+ * =========================================================================
+ * RESIDUAL (14/39 strict, first index 8; retired 2026-09-08 after 18 + 25
+ * spellings): the drive load must land in eax so that lpOverlapped is a
+ * literal `push 0`; ours keeps the memset's zero alive in eax to the push
+ * and loads the drive into ecx.  The mechanism is RA08's zero-web count:
+ * this body has THREE literal zeros after the memset (p.nlocks, p.op, the
+ * NULL argument) and VC6 gives the constant a register at three, so the
+ * push becomes `push eax` and the drive load is displaced.  Proof: deleting
+ * ONE of the two byte stores (a semantic-breaking diagnostic) puts the
+ * drive in eax, the push back to a literal and lines up every register from
+ * index 8 on.  The sibling bodies confirm the threshold from the other
+ * side: 0x00451410 (memset + NULL) and 0x00451280 (memset + nlocks + NULL)
+ * both keep the literal push.  So the original spells one of its three
+ * zeros in a way VC6 does not count as a literal-zero use, and no C
+ * spelling found here does that while still emitting `mov [esp+7],al /
+ * mov [esp+6],al`: a chained `p.nlocks = p.op = 0` (store order flips),
+ * `p.op = p.nlocks` (forwarded to the constant), a 2-byte memset (word
+ * store), `= {0}` / `= {0, 0}` at function or block scope (field-ordered
+ * stores, extra `xor`), a zeroed `void* ov`, NULL read from a zeroed r field
+ * (a load), volatile views of p, `&drive` as lpBytesReturned (identical:
+ * VC6 already homes `returned` in the dead argument slot), an `unsigned
+ * long` parameter, and every placement of the EBX/EDX/EAX/ECX stores around
+ * the p stores.  The volatile drive read below is load-bearing for index 8
+ * (without it the load hoists above the p stores, 16); the rest of the
+ * body is the exact 0x00451410 shape.
  * ========================================================================= */
 
-// WIP-FUNCTION: LEGOLAND 0x00451390  (64%, 14/39 strict, first diverging index 8: allocation rotation)
+// WIP-FUNCTION: LEGOLAND 0x00451390  (64%, 14/39 strict, first diverging index 8: zero-web count puts the drive in ecx -- see the note)
 int LockPhysicalVolume(void* h, unsigned long drive)
 {
     DiocRegs       r;
@@ -376,6 +401,39 @@ int __stdcall UnlockLogicalVolume(void* h, unsigned char drive)
 
 /* =========================================================================
  *  0x00451280 -- drop every outstanding physical lock on one drive
+ * =========================================================================
+ * 46/88 -> 10/88 (2026-09-08, ~45 spellings).  Three levers, each measured
+ * alone and together:
+ *   - `p.nlocks = 0` AFTER the memset (before it, the store is an immediate
+ *     scheduled among the r stores; after it, it is `mov [esp+0xd],al` from
+ *     the fill's zero, index 8).
+ *   - loop failures as `ok = 0; break;`, never `return 0`: a `return 0`
+ *     inside the loop merges with the guards' `return 0` into ONE block
+ *     reachable from both sides of the ebx region, and `push ebx` stays in
+ *     the prologue (46, 53, 56 in every loop form).  With the break, the
+ *     loop's exits are region-internal and the push sinks to the loop
+ *     preheader exactly as the original (BL13).
+ *   - the guards wrapped as `if (ok) { ... return ok; } return 0;` so their
+ *     two `return 0`s share ONE exiled xor block; written as early returns
+ *     each is cloned inline (guard 1 as a bare `ret`, guard 2 with its own
+ *     xor) -- 61/66.
+ *   - LP05: `i = 0; if (i < p.nlocks) while (1) { ...; i++; if (i >= p.nlocks)
+ *     break; }` keeps the uninverted latch `jge exit / jmp body`; a `for`
+ *     inverts it to `jl body` and lays the exit out as the fall-through (18).
+ *     do/while and for(;;) peel (101), a conditional while is the `for`.
+ * RESIDUAL (10, indices 75..84): the two tail epilogues are in the other
+ * order -- the original lays the guards' `pop edi/pop esi/xor eax,eax/
+ * pop ebp` epilogue right after the loop and lets the loop's `xor eax,eax`
+ * fall into the canonical pop-ebx epilogue; ours lays [fail][pop-ebx exit]
+ * first and the guards' clone last.  Both orders have identical bytes per
+ * block.  Every guard/return placement measured is layout-identical to
+ * this (else-return, else-braces, empty trailing else, `return ok` lexically
+ * last, loop outside the if, an `else` chain for guard 2, `return ok` for
+ * guard 1), `goto fail` costs 42, and moving `ok = 0` to a post-loop join
+ * breaks the region (87).  A DFS/RPO layout model with taken-edge-first
+ * reproduces ours and U31's inline form exactly and cannot produce the
+ * original's from this CFG, so the original's IR differs in a way no
+ * measured construct reaches; retired here as the tail-order floor.
  * ========================================================================= */
 
 // WIP-FUNCTION: LEGOLAND 0x00451280  (89%, 10/88 strict, first diverging index 75: the two tail epilogues are laid out in the other order)
@@ -586,6 +644,21 @@ void PresentNoOp(void)
  * the rest of the local Cell is left holding the PREVIOUS cell's bytes.
  * That is the original's behaviour and is harmless because nothing but rf is
  * read; reproduced.
+ *
+ * SLOT PERMUTATION, second pass (2026-09-08, 20 spellings, all 84 or worse):
+ * the LL9 aggregate-placement lever does not transfer.  Any struct holding
+ * `w` (`{short w; int qx; int savecol}` in the original's slot order or
+ * reversed, `{w, savecol}`, `{savecol, w}`, `{int w, savecol}`,
+ * `{w, savecol, hw}`) moves hw/qx as well and costs 97-108 (the 12-byte
+ * form grows the frame to 0x58); `{savecol, hw}` / `{hw, savecol}` 89-90;
+ * `{hh, hw}` with `{w, savecol}` 126; savecol/saverow folded into the
+ * cursor aggregate `{c, r, sc, sr}` 93 and `{sc, sr, c, r}` de-scalarises
+ * it (245).  qx and saverow as one variable 94.  Inert (byte-identical to
+ * 84): `= 0` initialisers on savecol, qx, saverow or w; block-scoped
+ * savecol/saverow inside the outer loop; a pre-loop `savecol = cur.c`.
+ * The appearance counts do not order the frame either (hw 10, savecol 4,
+ * qx/saverow 3+3, w 10, h 11, hh 8, y 5, rx 12 against top-down slots
+ * 0x30..0x10), so the ordering key is internal to the allocator.
  * ========================================================================= */
 
 // WIP-FUNCTION: LEGOLAND 0x0045ade0  (71%, 84/291 strict, rb 78, ob 65, first diverging index 42: three spill slots permuted (w / qx+saverow / savecol over +0x24,+0x28,+0x2c))
@@ -719,12 +792,31 @@ void DrawTileDebugOverlay(void)
  * `return 0` arms leave a `xor eax,eax` the original does not have.  With
  * `return hr` the whole body folds to the bare `ret` the original ends on.
  *
- * What is NOT recovered is the membership of the 120.. cluster: it decides
- * how VC6 splits the search, and without it the emitted tree comes out as one
- * table plus a different set of compares.  With only the codes above, VC6
- * builds ONE table over 10..55 and no singletons (61 bytes, 20 instructions,
- * 16 of 20 strict).  Rather than invent case values to buy a number, the
- * decoded set is committed as-is and the residual is the split.
+ * WHY THE TREE DIFFERS (2026-09-08, ~35 spellings in a standalone TU):
+ * the residual is not the 120.. cluster's membership.  VC6 lowers this
+ * switch as a balanced binary search over the sorted clusters and then
+ * PRUNES every subtree whose leaves all reach the same block; because our
+ * `return hr` arms and the default are one block by the time the tree is
+ * built, everything above the median (100/110/222/430) collapses into the
+ * top `jg ret`, whatever the case set.  The original still compares 430,
+ * 222 and 110 one by one, so ITS arm body and default were distinct blocks
+ * at lowering and only merged into the one `ret` afterwards -- which also
+ * explains the dead `lea ecx,[eax-0x88760078]`: a `lea/sub/je` compare
+ * chain over two or more nearby values in (110, 222) whose `je`s to the
+ * merged block were deleted (a jump table is never folded: the 20..100
+ * dispatch survives with both buckets pointing at the same `ret`).
+ * Every C construct that would make the arms distinct and then vanish is
+ * optimised away BEFORE lowering here: cases falling into `default` are
+ * dropped outright (byte-identical to omitting them), `default: break` +
+ * trailing return, no default, a copied switch/return variable, `(long)
+ * (unsigned long)hr`, `hr * 1`, do/while(0), for(;;)/while(1) with break,
+ * goto-to-label, a `hr < 0` guard, dead stores of distinct strings/ints/
+ * the case constant, `__inline` and forward-declared inline empty calls
+ * (inlined first), an empty `__asm {}` -- all give the same pruned 11
+ * instructions; a static non-inline empty call keeps the whole tree but
+ * leaves the calls in; `hr = DDERR_X` per arm folds only on fall-through
+ * arms.  The decoded case set is committed as-is; the true residual is the
+ * pruning, and it needs a source shape this toolchain does not reach.
  * ========================================================================= */
 
 #define DDERR(n) (long)(0x88760000 | (n))

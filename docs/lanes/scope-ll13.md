@@ -5,6 +5,11 @@ Object prefix `/tmp/sll13_`. Brief: `docs/SCOPE_LL13_unref_gamemain_bighelp.md`.
 
 ## Status
 
+Second pass (2026-09-08, escalation): `UnlockAllPhysicalLocks` 48% -> 89%;
+`LockPhysicalVolume`, `DrawTileDebugOverlay` and `DDrawErrorPassThrough`
+retired as measured floors with their mechanisms recorded above each marker
+and under "Residuals" below.
+
 | address | name | insns | % | audit | marker |
 | --- | --- | ---: | ---: | --- | --- |
 | 0x004514b0 | LockLogicalVolume | 55 | 100 | [OK] | FUNCTION |
@@ -16,7 +21,7 @@ Object prefix `/tmp/sll13_`. Brief: `docs/SCOPE_LL13_unref_gamemain_bighelp.md`.
 | 0x00451410 | UnlockPhysicalVolume | 35 | 100 | [OK] | FUNCTION |
 | 0x00451390 | LockPhysicalVolume | 39 | 64 | — | WIP-FUNCTION |
 | 0x00451550 | UnlockLogicalVolume | 49 | 100 | — (tooling) | WIP-FUNCTION |
-| 0x00451280 | UnlockAllPhysicalLocks | 88 | 48 | — | WIP-FUNCTION |
+| 0x00451280 | UnlockAllPhysicalLocks | 88 | 89 | — | WIP-FUNCTION |
 | 0x00451210 | ReleaseVolumeLocks | 35 | 100 | [OK] | FUNCTION |
 | 0x004551a0 | MeasureWrappedTextHeight | 46 | 100 | [OK] | FUNCTION |
 | 0x00455220 | PrintWrappedTextOnSurface | 120 | 100 | [OK] | FUNCTION |
@@ -276,6 +281,42 @@ what does and does not keep an empty switch alive.
   and took the body from 122/291 to 90/291. Wrapping any of the other pairs
   (`rx`/`ry`, `hh`/`hw`, `savecol`/`saverow`) made it worse, so this is a
   per-pair lever, not a general one.
+- **A loop's failure exits must be `ok = 0; break;`, not `return 0`, for a
+  saved-register push to sink to the loop (BL13, second sighting).**
+  `UnlockAllPhysicalLocks`: any `return 0` inside the loop merges with the
+  guards' `return 0` into one block reachable from both sides of the ebx
+  region and `push ebx` stays in the prologue (46/53/56 in every loop form);
+  with the break the loop's exits stay region-internal and the push sinks to
+  the preheader. Wrapping the guards as `if (ok) { ...; return ok; }
+  return 0;` makes their two `return 0`s ONE exiled xor block (as the
+  original); as early returns each is cloned inline, guard 1 as a bare `ret`
+  because eax is the tested zero (61/66).
+- **LP05 transfers: `i = 0; if (i < n) while (1) { ...; i++; if (i >= n)
+  break; }` keeps the uninverted latch `jge exit / jmp body`**; the same
+  loop as a `for` inverts to `jl body` with the exit as fall-through (18 vs
+  10 on 0x00451280), do/while and for(;;) peel (101).
+- **RA08's zero-web count decides whether a NULL argument is a literal
+  push.** `LockPhysicalVolume`: memset + two byte zero stores + `push 0` =
+  three literal zeros -> the constant takes eax to the push (`push eax`) and
+  the drive load is displaced to ecx; deleting one store (diagnostic) puts
+  the drive in eax and the push back to `push 0`. 0x00451410 (one zero) and
+  0x00451280 (two) keep the literal. No spelling of two byte zero stores
+  found that VC6 counts as fewer than two uses.
+- **`p.nlocks = 0` before an intrinsic memset is an immediate store scheduled
+  among the later stores; after it, it is `mov [esp+N],al` from the fill's
+  zero right after `rep stosd`** (0x00451280 index 8; FR06/RC08 corollary).
+- **VC6 prunes a switch's binary search wherever a subtree's leaves all
+  reach one block, and drops cases whose target is the default block before
+  lowering.** `DDrawErrorPassThrough`: with `return hr` arms and a
+  `return hr` default the whole upper half of the tree (100/110/222/430)
+  folds into the top `jg ret` whatever the case set; `case X: default:`
+  labels are byte-identical to omitting X. A jump table is never folded
+  (the 20..100 dispatch survives with both buckets on the same `ret`), so a
+  bare `lea ecx,[eax-K]` is the remnant of a `lea/sub/je` compare chain.
+  Every construct that keeps arms distinct and then vanishes (dead stores,
+  `__inline` empty calls, `__asm {}`, loop/goto wrappers, copied variables)
+  is optimised away before lowering; a static non-inline empty call keeps
+  the tree but leaves the calls.
 - **Statement order inside a switch arm decides where a reload is
   scheduled, not just the store order.** `cur.c--; rx += hw; ry += hh;`
   costs six fewer instructions than `rx += hw; cur.c--; ry += hh;` in
@@ -297,29 +338,50 @@ what does and does not keep an empty switch alive.
   `ob` residual. Measured and rejected: `savecol`/`saverow` as an aggregate
   (97), in (r, c) order (98), assigned in the other order (90),
   `rx`/`ry` as an aggregate (132), `qx`/`qy` as an aggregate (90, no change),
-  `hh`/`hw` as an aggregate (107), every declaration order.
-- **0x00451280 `UnlockAllPhysicalLocks` (46/88, first index 1).** Everything
-  from the loop preheader to the latch (indices 46..67) already matches
-  exactly. The single blocker is that the original SINKS `push ebx` past the
-  two leading guards to just before `xor ebx,ebx` (so the early-failure
-  epilogue pops only edi/esi/ebp). Tried and rejected: post-guard inner scope
-  for `i` (no change), `break` to one trailing return (peels the first
-  iteration, 71/88), `goto done` (ESCAPES), `do/while` inside
-  `if (p.nlocks != 0)` (78/88), `while` form, `int rc` copy, top-level `int i`.
-  BL13's demonstrated shapes did not reach it; something else is holding ebx
-  live across the guards.
-- **0x00451390 `LockPhysicalVolume` (14/39, first index 8).** Pure allocation
-  rotation: the drive load must land in eax (killing the memset's zero, so
-  the `lpOverlapped` argument becomes a literal `push 0`) instead of ecx.
-  Eighteen spellings measured — store permutations, `p` as an array / a
-  pointer / an initialiser / a second `memset`, `&drive` as the
-  `lpBytesReturned` slot, `unsigned char` vs `unsigned long` parameter,
-  volatile reads of every width, declaration order — all land on 14 or worse.
-- **0x00453c20 `DDrawErrorPassThrough` (16/20).** Needs the membership of the
-  DDERR cluster based at decimal 120; the emitted search tree is a function
-  of the whole case list, so this is a search over subsets of the ddraw.h
-  codes in (110, 222) — 120, 130, 140, 145, 150, 155, 160, 165, 170, 180,
-  190, 200, 205, 210, 212, 215, 216, 220 are the candidates. Ten subsets
-  tried; all give either one table (61 bytes) or three (83 bytes), never the
-  original's one table plus three singleton compares plus the dead
-  `lea ecx,[eax-0x88760078]` (71 bytes).
+  `hh`/`hw` as an aggregate (107), every declaration order. Second pass
+  (2026-09-08, 20 more): the LL9 lever of one struct over the contended
+  scalars in the original's slot order moves hw/qx too and costs 97-108
+  (`{w, qx, savecol}`, `{w, savecol}`, `{savecol, w}`, `{int w, savecol}`,
+  `{w, savecol, hw}`), `{savecol, hw}` 89-90, `{hh, hw}` + `{w, savecol}`
+  126, save pair inside the cursor aggregate 93/245, qx doubling as saverow
+  94; `= 0` initialisers on any of the four, block-scoped save locals and a
+  pre-loop `savecol = cur.c` are byte-identical to 84. Appearance counts do
+  not order the frame. Floor.
+- **0x00451280 `UnlockAllPhysicalLocks` (10/88, first index 75; was 46).**
+  `push ebx` now sinks, the guards share one exiled xor block, the latch is
+  the original's `jge exit / jmp body`, and the instruction and byte counts
+  are exact. The residual is the ORDER of the two tail epilogues: the
+  original lays the guards' no-ebx epilogue right after the loop and lets
+  the loop's `xor eax,eax` fall into the canonical pop-ebx epilogue; ours
+  lays [fail][pop-ebx exit] first and the guards' clone last, identical
+  bytes per block. Layout-identical spellings: else-return, else-braces,
+  empty trailing else, `return ok` lexically last, the loop outside the
+  `if (ok)`, an `if/else` chain for guard 2, `return ok` for guard 1;
+  `goto fail` 42; `ok = 0` at a post-loop join breaks the region (87); early
+  returns inline the guards (61). A taken-edge-first DFS/RPO layout model
+  reproduces ours and the early-return form exactly and cannot yield the
+  original's order from this CFG.
+- **0x00451390 `LockPhysicalVolume` (14/39, first index 8).** Diagnosed:
+  RA08's zero-web count. Three literal zeros after the memset (two byte
+  stores + NULL) give the constant a register, so the push is `push eax` and
+  the drive load is displaced to ecx; deleting one store (diagnostic) is the
+  original's allocation from index 8 on. 18 + 25 spellings (chained/forwarded
+  stores, 2-byte memset, `= {0}` at function/block scope, a zeroed pointer
+  local, NULL from a zeroed r field, volatile views, `&drive` as
+  lpBytesReturned — identical, VC6 already homes `returned` in the dead
+  argument slot — `unsigned long` parameter, every store order) all keep
+  three counted zeros or break the byte stores. Floor.
+- **0x00453c20 `DDrawErrorPassThrough` (16/20; the real body is 11
+  instructions, the audit extent pads it with table bytes).** The residual
+  is NOT the 120.. cluster's membership: VC6 prunes the binary search
+  wherever a subtree's leaves all reach one block, and our arms and default
+  are one block at lowering, so 100/110/222/430 fold into the top `jg ret`
+  for every case set. The original kept those compares, so its arm body and
+  default were distinct blocks at lowering and merged afterwards; the dead
+  `lea ecx,[eax-120]` is a `lea/sub/je` chain over two or more nearby values
+  whose branches were then deleted (jump tables are never folded). ~35
+  spellings in a standalone TU — subsets, fall-into-default labels (dropped
+  outright), `default: break`, no default, copied variables, `hr * 1`,
+  loop and goto wrappers, dead stores, `__inline`/forward-declared inline
+  empty calls, `__asm {}` — all give the same pruned tree; nothing measured
+  keeps the arms distinct through lowering and empty afterwards.
