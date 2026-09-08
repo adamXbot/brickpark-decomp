@@ -199,10 +199,29 @@ void JcDeco_Add(RideElem* elem, Pos* pos)
  * plus a second copy six squares to the left; the decoration may only go
  * next to river, so the river two cells to the right must have a WEST arm
  * (bit 8), and then a scratch cursor shows the square it will attach to. */
-// WIP-FUNCTION: LEGOLAND 0x004349b0  (92.6%, strict 7/94, first divergence i66:
-//   the scratch cursor's rect.top temp lands in ecx where the original uses
-//   eax -- the whole tail is one scratch register out of phase (i66/70/74 and
-//   i84-87); every block, every store order and every frame slot agree.)
+// WIP-FUNCTION: LEGOLAND 0x004349b0  (94.7%, 89/94 aligned, strict 7/94, first
+//   divergence i66: the scratch cursor's rect.top temp lands in ecx where the
+//   original uses eax, and the origin pair after ResetCursorFootprint is
+//   edx,eax against the original's ecx,edx -- the whole tail is one scratch
+//   register out of phase; every block, store order and frame slot agrees.)
+//   Ruled out (first session): all 24 orderings of the four g_jc_deco_rect2
+//   stores; --/-= 1/= x - 1 for the four rect adjustments; .flags before/after
+//   .next = 0; origin as a Pos copy vs two field stores in either order;
+//   (found & 8) != 0; int/unsigned/char for found; int returns declared for
+//   DefaultCursor, ValidateCursor, ResetCursorFootprint, SetCursorError; void*
+//   for ProbeRiver's out parameter.
+//   Ruled out (escalation, 2026-09-08, all inert at 89/94): an empty `if
+//   (found) ;` block boundary after the rect copy and after the four
+//   adjustments (the LL10 single-use pin); a `Rect* rc` alias of the scratch
+//   rect and a `Cursor* c` alias of the whole scratch cursor; the top
+//   adjustment through a named temp, and all four adjustments through four
+//   named temps (four loads, four ops, four stores -- the shape the original
+//   already has); the origin pair stored after the next-pointer (worse, 88);
+//   int-returning casts at the DefaultCursor / ResetCursorFootprint /
+//   ValidateCursor call sites; the `found == 0` early return rewritten as an
+//   if/else around the whole tail.  The phase is set before the tail by
+//   something that emits no instruction; nothing left in this body's source
+//   moves it.
 void JcDeco_CalcCursor(MapObj* o, int sx, int sy)
 {
     ObjDef* cls;
