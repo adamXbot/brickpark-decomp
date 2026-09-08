@@ -4,19 +4,21 @@ Completed 2026-09-08 on `scope/LL9`, based on `main` at `7d756410`.
 File: `LEGOLAND/unref1.c` (new). Brief:
 [`docs/SCOPE_LL9_unref_rides_flume_coaster_a.md`](../SCOPE_LL9_unref_rides_flume_coaster_a.md).
 
-**29 of 31 exact — 930 instructions assigned, 816 of them (2,275 bytes) in
-exact bodies** (escalation 2026-09-08: `LFPiece_ShadeForRow` and
-`ZBuffer_FillShadedPoly` closed, the other two WIPs cut from 57 and 40 strict
-to 56 and 14).
-The two remaining bodies are structurally complete and honest WIPs, each one
-register tie-break: `LFPiece_MoveBoatsOff` (piece copy vs destination) and
-`LFTrack_FindPieceCovering` (y parameter vs x-span naming, 50/50 and 123/123).
+**30 of 31 exact — 930 instructions assigned, 880 of them (2,418 bytes) in
+exact bodies** (escalation 2026-09-09: `LFPiece_MoveBoatsOff` closed from 56
+strict and 139/143 bytes; escalation 2026-09-08: `LFPiece_ShadeForRow` and
+`ZBuffer_FillShadedPoly` closed and the two remaining WIPs cut from 57 and 40
+strict).
+The one remaining body is a structurally complete and honest WIP with a single
+register tie-break: `LFTrack_FindPieceCovering` (y ranked against the x-span,
+50/50 instructions and 123/123 bytes).
 
-Validation: `tools/audit.py LEGOLAND/unref1.c` ends **PASS** with 29 `[OK]`
-lines and 2 `[WIP]`; `tools/relocs.py` reports **zero MISMATCH** across 34
-relocations (the 5 unresolved are x87 constant pool literals — 0.5f, 1.0f
-and 1/6, each read out of the original and checked); the file compiles
-clean under `/W3 /O2 /Gy /Gd`. No other file was touched.
+Validation: `tools/audit.py LEGOLAND/unref1.c` ends **PASS** with 30 `[OK]`
+lines and 1 `[WIP]`; `tools/relocs.py` reports **zero MISMATCH** over 50
+relocations, 39 matched (the 11 unresolved are 10 x87 constant-pool literals
+— 0.5f, 1.0f, 1/6, the shade ramp's -192 and 32 — plus one annotation, each
+read out of the original and checked); the file compiles clean under
+`/W3 /O2 /Gy /Gd`. No other file was touched.
 
 ## Status table
 
@@ -28,7 +30,7 @@ clean under `/W3 /O2 /Gy /Gd`. No other file was touched.
 | `0x0040adb0` | `LFPiece_ShadeForRow` | 69 | 100 | [OK] | FUNCTION | — |
 | `0x0040b270` | `LFBoat_IsAtPiece` | 7 | 100 | [OK] | FUNCTION | — |
 | `0x0040bd40` | `LFBoat_StepAtStation` | 76 | 100 | [OK] | FUNCTION | — |
-| `0x0040c250` | `LFPiece_MoveBoatsOff` | 64 | 12 | [WIP] | WIP-FUNCTION | 64/64 insns, 139/143 B, 56 strict, first diff i=1 (piece vs dest register) |
+| `0x0040c250` | `LFPiece_MoveBoatsOff` | 64 | 100 | [OK] | FUNCTION | — |
 | `0x00411e20` | `Unref_00411e20` | 1 | 100 | [OK] | FUNCTION | — |
 | `0x00411f70` | `LFQueue_IsFrontRider` | 13 | 100 | [OK] | FUNCTION | — |
 | `0x004120e0` | `WalkPath_GetPoint` | 7 | 100 | [OK] | FUNCTION | — |
@@ -397,6 +399,31 @@ Existing names reused unchanged: `Free_w`, `AllocZeroed`, `CarPoolInit`,
     call site and a branch past the extent; `while (s)` is the original's
     two call sites with the sub-list arm exiled. Layout only: 57 -> 56.
 
+15. **A single store reached by `goto` outranks the value it stores down,
+    below a piece pointer** (`LFPiece_MoveBoatsOff`, 0x0040c250, 56 -> 26).
+    The same store written in BOTH arms gives the destination two references
+    at loop depth 2 and 3, so it beats the piece for the fourth register and
+    the piece is spilled into the parameter slot. Writing it ONCE after the
+    if/else — the sub arm reaching it by `goto hit`, both miss paths by
+    `continue` — drops the destination below the piece and reproduces the
+    original's memory-resident destination in the dead parameter slot. The
+    label must sit at loop-body level: a trailing `continue` before it, or a
+    label inside the no-sub arm, puts the store past the exiled sub walk and
+    costs `jne store / jmp latch` for the original's one `je latch`.
+
+16. **A subscripted cursor `&run->boats[i]` coalesces the derived induction
+    variable with its base pointer's register; a `boat++` walker does not**
+    (`LFPiece_MoveBoatsOff`, 0x0040c250, 26 -> 0). With the subscript named
+    once inside the loop body, VC6 builds the IV on the run record's own
+    register: run takes the callee-saved edi (pushed in the prologue), the
+    trip guard still reads `[edi+3ch]`, and the cursor materialises late as
+    `add edi,40h` in the preheader. Every pointer-walk spelling leaves run in
+    the volatile ecx with an eager `lea edi,[ecx+40h]` and a separate cursor
+    register (25-26 strict at 143/143 bytes). Anchoring on `.piece`
+    (`add edi,54h`, the 2026-09-08 negative) only happens when the subscript
+    is respelled at each field use; naming ONE pointer from it keeps the
+    anchor on the boat base, because that pointer is itself a call argument.
+
 ### Measured negatives
 
 * **`LFTrack_FindPieceCovering` (0x00408f90), 50/50 instructions, 123/123
@@ -410,29 +437,57 @@ Existing names reused unchanged: `Free_w`, `AllocZeroed`, `CarPoolInit`,
   loads, `int sp[2]` (15), unsigned spans (16), x/y copied to locals at three
   scopes or into a `Pos`, nested ifs, `for` spellings, free volatiles on each
   footprint load and the queue). Spelling a span inline makes VC6 hoist only
-  the load and keep the subtract in the loop (28-49). At its floor for this
-  regime: what is missing is a lever that ranks a twice-read PARAMETER above
-  a twice-read local (RA16 records the parameter/parameter tie only).
-* **`LFPiece_MoveBoatsOff` (0x0040c250), 64/64 instructions, 139/143 bytes,
-  56 strict** (was 57 with ESCAPES; lever 14). The layout is now the
-  original's; the residual is one allocation choice: the original
-  enregisters the PIECE in ebp, spills the run record into the `push ecx`
-  slot and keeps the destination memory-resident in the dead parameter slot
-  (store at every def, reload at every use). VC6 gives the register to the
-  destination and spills the piece. 33 spellings measured. Appearance count
-  does not predict it: CSE'd re-reads, `if (piece) ;` pins, a single-def
-  neighbour temporary, run defined late and every declaration order are
-  inert; forcing the destination into memory with a one-use volatile at the
-  store site hands the fourth register to RUN, not the piece, so VC6 ranks
-  the piece copy below both whatever its count. `&p` and a 4-byte struct
-  parameter are scalarised back to the same code. The one regime that does
-  put the piece in a register and the destination memory-resident in the
-  parameter slot, with the original's exact store/reload idiom, is the
-  parameter used as the piece, an UNINITIALISED `dest` with no else arm (the
-  LFTrack_Add lever) and `piece->run` spelled inline for `boats` and the
-  latch -- 62 instructions, the original minus the run spill/reload, with
-  piece/i swapped between ebx and ebp. Naming `run` back as a local returns
-  the register to the destination; subscripting `run->boats[i]` gives the
-  run-coalesced cursor in edi and a spilled dest but anchors the cursor on
-  `.piece` and takes a fresh slot. Combining the two halves is the lever
-  still missing.
+  the load and keep the subtract in the loop (28-49).
+
+  2026-09-09 (about 70 more spellings): the tie is now measured, and the
+  framing above is wrong — the residual is not a parameter outranking a
+  local, it is `y` ranking BELOW both spans. Cut-down predicates (one-use
+  `x`, one-use `y`, `y == py + h`) expose VC6's preference order on this
+  body: eax to the return-coalesced piece cursor, ecx to `px`, edx to `py`,
+  then esi, edi, ebp, ebx to the four survivors in rank order. Ours ranks
+  x > y > span > span; the original ranks x > w > h > y.
+  **New reproducible lever:** the two spans split ebp/ebx by ASSIGNMENT
+  order — first-assigned takes ebp, second takes ebx (`h` first is the
+  committed 14; `w` first is 15, with `w` in ebp and `h` in ebx). Ten probes
+  obey it (run defined before, between or after the spans; initialiser
+  versus separate declaration plus assignment; every aggregate spelling).
+  Aggregates do NOT rank as a unit here, unlike `LFPiece_ShadeForRow`:
+  `int s[2]`, `int s[3]`, `struct { int w, h; }`, `struct { int h, w; }`,
+  `struct { int w, h, y; }`, `struct { int y, w, h; }` and `Pos` all
+  scalarise and merely obey the assignment-order rule; a `Pos` passed BY
+  VALUE is byte-identical to two int parameters.
+  Demoting `y` always over-shoots: one-use volatile reads at BOTH `y` uses
+  leave three webs and give x/w/h exactly esi/edi/ebp — the original's span
+  placement — but `y` is then memory-resident (35, 126 B); sinking the `py`
+  load into the second test block (nested if, goto-threaded arms, or raw
+  `p->sq.b.y`) frees edx, `y` takes it, and again w=edi, h=ebp, x=esi (45).
+  So edi/ebp is the spans' natural home, and `y` holding a callee-saved
+  register is exactly what pushes them down to ebp/ebx. Promoting a span
+  needs a REAL extra definition (`if (w < 0) w = 0;` puts `w` in edi, 39);
+  every free extra reference folds before ranking — two-statement spans, a
+  dead `w = 0;` prefix, `w = w;`, `-(-w)` and a duplicated `x <= px + w`
+  clause are all byte-identical to the plain form. Copies of a parameter
+  into a local coalesce at every position, confirming RA16. Also inert:
+  clause permutations, `px + w >= x` operand order (45), spans hoisted from
+  the outer loop head (20) or the inner loop (35), a comma-list `for` init,
+  a named predicate temporary, `py` before `px`, `register int y`, and the
+  16 cursor regimes crossing {plain, volatile-store} definition x {plain,
+  volatile-read} head x {plain, volatile-read, volatile-store, both} latch —
+  only the committed read/read pair reaches 14 (next best 25).
+  **Floor argument:** a match needs `y` ranked below two one-use invariant
+  hoists while still holding a callee-saved register. Every measured
+  demotion of `y` removes it from the callee-saved set entirely, and no free
+  reference can promote a span past it.
+* `LFPiece_MoveBoatsOff` (0x0040c250) is **closed** (levers 15 and 16, plus
+  the parameter kept as the piece with an UNINITIALISED no-else `dest`, the
+  LFTrack_Add lever). Negatives measured on the way, in addition to the 33
+  spellings recorded on 2026-09-08: hoisting the sub-arm store out of the
+  `while` (`while (s && !IsAtPiece(...))`, or `break` plus `if (s)`) escapes
+  the extent; `p->run->boats` for the cursor with `run` named only for the
+  count, a `(LFBoat*)run` alias definition, a redundant second cursor
+  assignment, an explicit `if (run->boat_count > 0)` guard around a
+  `do/while` (145 B), a hoisted `int n = run->boat_count` (138 B), a
+  `while (i < ...)` spelling (139 B), a volatile read of run in the loop
+  condition (144 B), a `dest` copy used by the second store, re-reading
+  `p->sub` at the loop head, and every declaration order of
+  run/cursor/dest/i are all inert or worse.
