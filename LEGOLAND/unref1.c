@@ -820,8 +820,54 @@ void LFBoat_StepAtStation(LFRun* run, int idx)
  * piece, `dest` is never assigned and the function reads it uninitialised.
  * VC6 homes it in the incoming argument's own stack slot, so in practice it
  * reads back `p` itself and every boat on `p` is "moved" onto `p`. */
-/* WIP: 64/64 instructions, 139/143 bytes, 56 strict, first divergence at
- * index 1 (2026-09-08, LL9 escalation: 57 with ESCAPES -> 56, no escape).
+/* WIP: 64/64 instructions, 143/143 BYTES EXACT, 26 strict, first divergence
+ * at index 4 (2026-09-09, LL9 escalation 3: 56 -> 26, and the byte deficit
+ * is gone).  Two levers closed the gap, both of them reference-count levers:
+ *
+ *  1. ONE source store of the destination, not two.  With `boat->piece =
+ *     dest;` written in BOTH arms (the 2026-09-08 shape) the destination
+ *     carries two references at loop depth 2 and 3, outranks the piece and
+ *     takes the register; the piece is then spilled into the parameter slot
+ *     and reloaded at the loop head.  Writing the store ONCE, after the
+ *     if/else, with the sub arm reaching it by `goto hit` and both miss paths
+ *     by `continue`, drops the destination below the piece: the piece takes
+ *     ebp, the destination becomes memory-resident in the dead parameter slot
+ *     with the original's exact `mov [esp+10h],eax / mov eax,[esp+10h]` and
+ *     `mov eax,[esp+18h]` idioms, and run is spilled at its definition into
+ *     the `push ecx` slot.  The label must sit at loop-body level with the
+ *     miss paths spelled `continue`: `goto hit` with the label AFTER a
+ *     trailing `continue` (or inside the no-sub arm) puts the store block
+ *     past the exiled sub walk and costs `jne store / jmp latch` for the
+ *     original's single `je latch` (58, 144B).  Hoisting the sub-arm store
+ *     out of the `while` instead (`while (s && !IsAtPiece(...))`, or `break`
+ *     plus `if (s)`) escapes the extent.
+ *  2. `LFBoat* boat = run->boats;` declared IMMEDIATELY after `run`, before
+ *     the destination block.  That is what pushes edi in the prologue.  The
+ *     same assignment placed after the `dest` block, in the `for` init, as
+ *     `&run->boats[0]`, or as a `(char*)run + 0x40` cast all leave edi pushed
+ *     late (58); placed between the two halves of the destination block it is
+ *     61 / 35.
+ *
+ * With both levers the whole loop, the exiled sub walk and the epilogue --
+ * indices 31..63, every register name and every frame offset -- are exact.
+ * The residual is ONE register naming in the prologue: the original loads the
+ * run record into edi and later turns that same register into the boat cursor
+ * (`add edi,40h` sunk into the loop preheader, after `push esi`); we load it
+ * into the volatile ecx and materialise the cursor eagerly with
+ * `lea edi,[ecx+40h]` before the trip guard.  Run and the boat cursor are one
+ * web in the original and two in ours, so ours also orders the two prologue
+ * loads v[prev]/run the other way round.  Eliminated for that residual:
+ * `p->run->boats` for the cursor with `run` named only for the count, a
+ * `(LFBoat*)run` alias definition before the real one, a redundant second
+ * `boat = run->boats;`, an explicit `if (run->boat_count > 0)` guard around a
+ * `do/while` (145B), a hoisted `int n = run->boat_count` (138B), a
+ * `while (i < ...)` spelling (139B), a volatile read of run in the loop
+ * condition (144B), and every declaration order of run/boat/dest/i.  What is
+ * still missing is a lever that puts a spilled-at-definition pointer in a
+ * CALLEE-SAVED register when a volatile one would do, so that the cursor
+ * derived from it coalesces instead of taking a fresh register.
+ *
+ * Earlier record (2026-09-08, the 56-strict shape; superseded above):
  * The `while (s)` spelling of the sub-list walk is what fixed the layout: a
  * `do/while` gave VC6 a THIRD IsAtPiece call site (the first sub-piece
  * peeled), 72 instructions and a branch past the extent; with `while` the
@@ -860,38 +906,38 @@ void LFBoat_StepAtStation(LFRun* run, int idx)
  *    anchors the cursor on `.piece` (`add edi,54h`) and takes a fresh slot.
  *    The two halves have not been combined; that combination is the lever
  *    still missing. */
-// WIP-FUNCTION: LEGOLAND 0x0040c250  (64/64 insns, 56 strict; piece vs dest spill choice)
+// WIP-FUNCTION: LEGOLAND 0x0040c250  (64/64 insns, 143/143 B, 26 strict; run's register)
 int LFPiece_MoveBoatsOff(LFPiece* p)
 {
-    LFPiece* piece = p;
-    LFRun*   run = piece->run;
-    LFBoat*  boat;
+    LFRun*   run = p->run;
+    LFBoat*  boat = run->boats;
+    LFPiece* dest;
     int      i;
 
-    if (piece->prev)
-        p = piece->prev;
-    else if (piece->next)
-        p = piece->next;
-    if (!p)
+    if (p->prev)
+        dest = p->prev;
+    else if (p->next)
+        dest = p->next;
+    if (!dest)
         return 0;
-    if (p->sub)
-        p = p->sub;
+    if (dest->sub)
+        dest = dest->sub;
 
-    boat = run->boats;
     for (i = 0; i < run->boat_count; i++, boat++) {
-        LFPiece* s = piece->sub;
+        LFPiece* s = p->sub;
         if (!s) {
-            if (LFBoat_IsAtPiece(boat, piece))
-                boat->piece = p;
+            if (!LFBoat_IsAtPiece(boat, p))
+                continue;
         } else {
             while (s) {
-                if (LFBoat_IsAtPiece(boat, s)) {
-                    boat->piece = p;
-                    break;
-                }
+                if (LFBoat_IsAtPiece(boat, s))
+                    goto hit;
                 s = s->next;
             }
+            continue;
         }
+    hit:
+        boat->piece = dest;
     }
     return 1;
 }
