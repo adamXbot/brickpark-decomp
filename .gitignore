@@ -1,6 +1,6 @@
 # No copyrighted game data or binaries ever live in the repo.
-original/
-gamedata/
+original
+gamedata
 *.res
 *.iso
 *.bin

@@ -126,14 +126,20 @@ def obj_function_code(obj_path, func):
                 else:
                     struct.pack_into("<I", code, va, 0x00990099)  # 6-hex sentinel
         return code
-    # find the symbol for func (VC6 prepends '_' to cdecl C names)
+    # find the symbol for func: VC6 prepends '_' to cdecl C names and
+    # decorates __stdcall ones as '_func@N' (N = argument bytes). Without the
+    # decorated form a __stdcall body could only be gated when it was the
+    # first function in its file (the .text fallback below found it by
+    # accident); input2.c and unref5.c both had to be laid out around that.
     targets = {func, "_" + func}
+    stdcall = "_" + func + "@"
     for i in range(nsym):
         o = symptr + i * 18
         rec = d[o:o + 18]
         name = symname(rec)
         value, secnum, typ, sclass = struct.unpack_from("<IhHB", rec, 8)
-        if name in targets and secnum > 0:
+        if (name in targets
+                or (name.startswith(stdcall) and name[len(stdcall):].isdigit())) and secnum > 0:
             code = patched_section(secnum - 1)
             return bytes(code[value:])           # to end of (per-func) COMDAT section
     # fallback: first .text section as a whole
@@ -293,7 +299,11 @@ def _loop_entry(insns, addr_index, i, tgt):
     return False
 
 
-def true_extent(d, secs, rva):
+WINDOW = 0x4000        # bytes disassembled per walk; every game function but one fits
+LONG_WINDOW = 0x20000  # the retry for the one that does not (0x004453a0, 34,662 bytes)
+
+
+def true_extent(d, secs, rva, window=WINDOW):
     """(instruction count, byte length) of the original function at rva.
 
     Walk from the entry tracking the furthest forward branch target seen —
@@ -304,12 +314,18 @@ def true_extent(d, secs, rva):
     early returns jumped past by guards, void tail calls (`jmp` out of the
     function, with or without a trailing jump table), and an out-of-line
     block that ends in a backward `jmp` into the body (LoadObjectLibrary).
+
+    `window` is how many bytes are disassembled. A function longer than the
+    window has no terminator inside it, so the walk returns (None, None); the
+    default window is then retried once at LONG_WINDOW. The retry cannot
+    change any result the small window already produced: the walk is over
+    the same instruction prefix and stops at the same terminator.
     """
     off = rva2off(secs, rva)
     if off is None:
         return None, None
     va = rva + IMAGE_BASE
-    insns = list(md.disasm(d[off:off + 0x4000], va))
+    insns = list(md.disasm(d[off:off + window], va))
     exps = export_rvas()
     nxt = None
     for e in exps:
@@ -389,10 +405,12 @@ def true_extent(d, secs, rva):
                 if not external(tgt):
                     furthest = max(furthest, tgt)
             elif x.mnemonic == "jmp":
-                for t in _table_targets(d, secs, x.op_str, va, va + 0x4000):
+                for t in _table_targets(d, secs, x.op_str, va, va + window):
                     furthest = max(furthest, t)
         if x.mnemonic == "ret" and x.address >= furthest:
             return i + 1, sum(k.size for k in insns[:i + 1])
+    if window < LONG_WINDOW:
+        return true_extent(d, secs, rva, LONG_WINDOW)
     return None, None
 
 
@@ -405,7 +423,7 @@ def original_body(d, secs, rva):
         raise SystemExit("address 0x%08x is outside every section" % (rva + IMAGE_BASE))
     n_ins, n_bytes = true_extent(d, secs, rva)
     if n_ins is None:
-        insns = end_of_body(list(md.disasm(d[off:off + 0x4000], rva + IMAGE_BASE)))
+        insns = end_of_body(list(md.disasm(d[off:off + WINDOW], rva + IMAGE_BASE)))
         return insns, None, None
     insns = list(md.disasm(d[off:off + n_bytes], rva + IMAGE_BASE))[:n_ins]
     return insns, n_ins, n_bytes
