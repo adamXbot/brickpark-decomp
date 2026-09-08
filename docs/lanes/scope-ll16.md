@@ -1967,3 +1967,124 @@ it scores identically -- two instructions of register-naming noise either way.
    reach across the `jne` is what it needs.
 3. The three-slot rotation is **not** worth another pass on weight arithmetic
    (item 1 above closes that off); only a non-weight mechanism would move it.
+
+## 2026-09-09 (fourteenth pass) — the section heads check `cur.bottom` BARE, and the hoisted store dies
+
+| | thirteenth pass | now |
+| --- | --- | --- |
+| emitted | 8,148 | **8,133** (original 8,085) |
+| bytes | 34,928 | **34,784** (original 34,662) |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 8 | 8 |
+| mismatch | **7,956** | 7,976 |
+| index-for-index `MATCH` | **129** | 109 |
+| true LCS vs the whole original | 59.5% | **62.5%** (lane best) |
+| `difflib` alignment | 50.2% | **53.5%** (lane best) |
+| hoisted blocks that store `cur.bottom` | 82 of 123 | **0 of 124** (original: 0 of 124) |
+
+**The trade.** LCS +3.0 and difflib +3.3, both lane bests, and the emitted
+count and byte count both move toward the original; mismatch +20 and
+index-for-index `MATCH` -20 (runs 60 -> 48, longest run 15 either way). That is
+the same alignment-shift cost the twelfth pass took: the body shortens by 15
+instructions early on and the index-for-index runs slide out of phase. LCS is
+the stable measure on a body this size (see the eighth pass) and the structural
+census below is not an alignment artefact at all.
+
+### The thirteenth pass's item 1 is solved, and the mechanism is store-to-load forwarding
+
+The brief for this pass hypothesised dead-store elimination out of the struct
+copy. That is the right shape, but the enabling condition was in a place no
+earlier pass had looked: **the original's nine section labels are all entered
+with `cur.bottom` already computed, and the head's own page check is a bare
+`cmp eax,0x1b5` that only reads it.** At every one of the nine, the
+`lea eax,[edi+0x16]` sits ABOVE the label — outside the block the rewind jumps
+back to — and the compare is below it:
+
+| section | the `lea` (above the label) | the label | the bare `cmp eax,0x1b5` |
+| --- | --- | --- | --- |
+| 1 | `mov [esp+0x28],eax` 0x0044541e (the `box` init: `eax` = 0x83) | 0x00445422 | 0x00445440 |
+| 2 | 0x00445530 | 0x00445539 | 0x00445566 |
+| 3 | 0x00446727 | 0x0044672e | 0x00446760 |
+| 4 | 0x00446b6a | 0x00446b71 | 0x00446ba3 |
+| 5 | 0x00446fa4 | 0x00446fab | 0x00446fdd |
+| 6 | 0x004473db | 0x004473e2 | 0x00447414 |
+| 7 | 0x00447856 | 0x0044785d | 0x0044788f |
+| 8 | 0x00447e6c | 0x00447e73 | 0x00447e88 |
+| 9 | 0x0044acb8 | 0x0044acbb | 0x0044acd0 |
+
+A computation cannot be hoisted above a label into one predecessor only, so
+this is the source, not scheduling. And it explains the missing store exactly.
+On the rewind path the head's read of `cur.bottom` is satisfied by the value
+the hoisted `cur = box;` just loaded — `mov eax,[esp+0x28]` at 0x004456bb,
+still live in `eax` through the ten-instruction shared rewind block and the
+`jmp` — so the copy's *store* has no consumer left and dies while its *load*
+survives. That is the load-survives/store-killed signature the lane has been
+staring at since the ninth pass, and it is store-to-load forwarding followed
+by DSE, not DSE alone.
+
+### What landed
+
+1. **`TEXT_LINE_H`** — a section-header line whose page check is the bare
+   `if (cur.bottom > 0x1b5)` (`PAGE_CHECK8`'s test) and whose end advances
+   `cur.top` but does **not** recompute `cur.bottom`. All nine header lines
+   use it; the per-line checks inside sections 1-7 and 9 keep `PAGE_CHECK`'s
+   recompute, which the object still demands (0x0044569d and friends).
+2. **`cur.bottom = cur.top + 0x16;` as the last statement of every section**,
+   inside the guarded block: at the end of section 1's title-line `if`, at the
+   end of each of sections 2-7's epilogues (after `all_passed += passed`), and
+   after the closing block's `indent -= 0x30`. Section 8 already had one above
+   its label from the eighth pass; that is the same statement, and it is now
+   the uniform shape rather than a special case.
+
+### The census, ours against the original
+
+| | original | thirteenth pass | now |
+| --- | --- | --- | --- |
+| hoisted page-break blocks | 124 | 123 | **124** |
+| ...that store `cur.bottom` | 0 | 82 | **0** |
+| rewind test `cmp ebp,ecx` | 73 | 10 | **33** |
+| rewind test `cmp ebp,eax` | 0 | 23 | **0** |
+| rewind test `cmp ebp,edx` | 0 | 38 | 38 |
+| section-head test `cmp ebp,esi` | 9 | 9 | 9 |
+| `cmp [esp+0x38],0x1b5` | 28 | 28 | **28** |
+
+The typical page-break block is now the original's, instruction for
+instruction, with one displacement wrong — and that displacement is the
+three-slot rotation, not a new residual:
+
+```
+   original 0x004456a7            ours (index 257)
+   mov eax,[esp+0x24]  box.right  mov eax,[esp+0x24]
+   mov ecx,[esp+0x44]  sect_start mov ecx,[esp+0x4c]   <- the rotation
+   mov edx,[esp+0x1c]  box.left   mov edx,[esp+0x1c]
+   mov edi,[esp+0x20]  box.top    mov edi,[esp+0x20]
+   mov [esp+0x34],eax  cur.right  mov [esp+0x34],eax
+   mov eax,[esp+0x28]  box.bottom mov eax,[esp+0x28]
+   cmp ebp,ecx                    cmp ebp,ecx
+   mov [esp+0x2c],edx  cur.left   mov [esp+0x2c],edx
+   jne <shared rewind>            jne <shared rewind>
+```
+
+The 38 sites that still compare `ebp,edx` are the ones where VC6 orders the
+four `box` loads differently and `sect_start` lands in `edx`; they are register
+naming, not a missing instruction.
+
+### Where the remaining 48 instructions are
+
+8,133 against 8,085. The `lea <reg>,[edi+0x16]` census is 76 in ours against
+102 in the original and the `cur.bottom` stores are 153 against 147, so the
+two forms are close but not identical — some of sections 1-7's per-line checks
+in the original may also be line-end rather than check-site. That is the next
+thing to census, and it is now a much smaller question than it was.
+
+### What a fifteenth pass should try
+
+1. **The three-slot rotation** at `0x10`/`0x14`/`0x18` — unchanged, and still
+   the largest single residual (worth ~2.4 LCS by the tenth pass's remap
+   measurement). Do NOT retry weight arithmetic or web decomposition: the
+   thirteenth pass refuted both. Only a non-weight mechanism would move it.
+2. **The remaining 48-instruction overshoot**, above: census which of
+   sections 1-7's per-line page checks are line-end rather than check-site
+   form, using the `lea [edi+0x16]` count (102 vs 76) as the target.
+3. The 38 `cmp ebp,edx` rewind tests, which are downstream of the `box` load
+   order in the hoisted block.

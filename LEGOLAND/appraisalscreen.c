@@ -255,6 +255,31 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
         cur = box;                                                        \
     }
 
+/* A section HEADER line.  The original's nine section labels are all
+ * entered with `cur.bottom` already computed: at every one of them the
+ * `lea eax,[edi+0x16]` sits ABOVE the label and the head's own check is a
+ * bare `cmp eax,0x1b5` (0x00445530/0x00445566, 0x00446727/0x00446760,
+ * 0x00446b6a/0x00446ba3, 0x00446fa4/0x00446fdd, 0x004473db/0x00447414,
+ * 0x00447856/0x0044788f, 0x00447e6c/0x00447e88, 0x0044acb8/0x0044acd0;
+ * section one's comes from the `box` initialiser at 0x0044541e).  That is
+ * what lets the rewind arm's `cur = box` feed the check through `eax` and
+ * is why the hoisted copy never stores `cur.bottom`. */
+#define TEXT_LINE_H(LBL, MARK, ID)                                        \
+    PAGE_CHECK8(LBL)                                                      \
+    lines[n].page = g_report_pages;                                       \
+    lines[n].indent = indent;                                             \
+    lines[n].ok = (MARK);                                                 \
+    lines[n].step = rand() % 5;                                           \
+    lines[n].text = GetString(ID);                                        \
+    lines[n].colour = 0;                                                  \
+    lines[n].bar = 0;                                                     \
+    lines[n].value = 0;                                                   \
+    lines[n].mark = 0;                                                    \
+    lines[n].range = 0;                                                   \
+    lines[n].nids = 0;                                                    \
+    n++;                                                                  \
+    cur.top += 0x18;
+
 #define LINE8_BODY(MARK, TEXTEXPR)                                        \
     lines[n].page = g_report_pages;                                       \
     lines[n].indent = indent;                                             \
@@ -283,7 +308,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK8(LBL)                                                      \
     LINE8_BODY(MARK, textbuf)
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (8148/8085 insns emitted, 34928/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7956, index-for-index MATCH 129, true LCS 59.5%; the build phase is now COMPLETE -- 129 rand, 112 GetString, 292 calls and 76 narration-queue stores, every census equal to the original's.  Two residuals remain: the hoisted cur.bottom store that the original dead-stores away (82 sites, which is the whole 63-instruction overshoot), and a THREE-SLOT ROTATION at the bottom of the frame -- our n*0x4c byte-offset CSE temp holds 0x10 with 221 references where the original puts page_start, so page_start and indent sit one slot high at 0x14/0x18.  VC6 orders this frame by descending reference weight per dword and the ORIGINAL's frame breaks that rule at exactly these three slots: its temp has 222 references and still sits at 0x18, below page_start's 173 and indent's 171)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (8133/8085 insns emitted, 34784/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7976, index-for-index MATCH 109, true LCS 62.5%; audit prints ESCAPES only because the body is still 48 instructions longer than the original.  The hoisted cur.bottom store is GONE -- all 124 page-break blocks now match the original's 124/0 census, and the typical block is instruction-for-instruction the original's apart from sect_start's displacement.  ONE residual remains: the THREE-SLOT ROTATION at the bottom of the frame -- our n*0x4c byte-offset CSE temp holds 0x10 with 221 references where the original puts page_start, so page_start, indent and sect_start all sit one slot high.  VC6 orders this frame by descending reference weight per dword and the ORIGINAL's frame breaks that rule at exactly these three slots: its temp has 222 references and still sits at 0x18, below page_start's 173 and indent's 171)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -396,8 +421,9 @@ sect1:
     sect_start = n;
     if (FLAGS & 0xf) {
         lines[n].indent = indent;
-        TEXT_LINE(sect1, 0, 0x12c)
+        TEXT_LINE_H(sect1, 0, 0x12c)
         lines[n - 1].ok = 1;
+        cur.bottom = cur.top + 0x16;
     }
 
     /* ---- what the park holds ----------------------------------------- */
@@ -407,7 +433,7 @@ sect2:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect1, 0, 0x131)         /* the original restarts at sect1 here */
+        TEXT_LINE_H(sect1, 0, 0x131)         /* the original restarts at sect1 here */
         indent += 0x30;
         CountAttractions(&nattr, &vattr);
         if (FLAGS & 0x4000) {
@@ -483,6 +509,7 @@ sect2:
         all_passed += passed;
         indent -= 0x30;
         all_total += total;
+        cur.bottom = cur.top + 0x16;
     }
 
     /* ---- scenery ------------------------------------------------------ */
@@ -492,7 +519,7 @@ sect3:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect3, line_ok, 0x144)
+        TEXT_LINE_H(sect3, line_ok, 0x144)
         indent += 0x30;
         CountScenery(&nscen, &vscen);
         if (FLAGS & 0x8000000) {
@@ -513,6 +540,7 @@ sect3:
         all_total += total;
         indent -= 0x30;
         all_passed += passed;
+        cur.bottom = cur.top + 0x16;
     }
 
     /* ---- food --------------------------------------------------------- */
@@ -522,7 +550,7 @@ sect4:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect4, line_ok, 0x145)
+        TEXT_LINE_H(sect4, line_ok, 0x145)
         indent += 0x30;
         CountFood(&nfood, &vfood);
         if (FLAGS & 0x40000000) {
@@ -541,6 +569,7 @@ sect4:
         all_total += total;
         indent -= 0x30;
         all_passed += passed;
+        cur.bottom = cur.top + 0x16;
     }
 
     /* ---- shops -------------------------------------------------------- */
@@ -550,7 +579,7 @@ sect5:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect5, line_ok, 0x146)
+        TEXT_LINE_H(sect5, line_ok, 0x146)
         indent += 0x30;
         CountShops(&nshop, &vshop);
         if (FLAGS & 0x10000) {
@@ -569,6 +598,7 @@ sect5:
         all_total += total;
         indent -= 0x30;
         all_passed += passed;
+        cur.bottom = cur.top + 0x16;
     }
 
     /* ---- visitors ----------------------------------------------------- */
@@ -578,7 +608,7 @@ sect6:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect6, line_ok, 0x147)
+        TEXT_LINE_H(sect6, line_ok, 0x147)
         indent += 0x30;
         CountVisitors(&nvis, &vmood, &vages);
         if (FLAGS & 0x80000) {
@@ -606,6 +636,7 @@ sect6:
         all_total += total;
         indent -= 0x30;
         all_passed += passed;
+        cur.bottom = cur.top + 0x16;
     }
 
     /* ---- the park at work --------------------------------------------- */
@@ -615,7 +646,7 @@ sect7:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect7, line_ok, 0x14a)
+        TEXT_LINE_H(sect7, line_ok, 0x14a)
         indent += 0x30;
         if (FLAGS & 0x200000) {
             total++;
@@ -650,6 +681,7 @@ sect7:
         all_total += total;
         indent -= 0x30;
         all_passed += passed;
+        cur.bottom = cur.top + 0x16;
     }
 
     /* ---- the advice ---------------------------------------------------- */
@@ -828,10 +860,11 @@ sect8:
         }
     }
     indent -= 0x30;
+    cur.bottom = cur.top + 0x16;
 sect9:
     sect_start = n;
     lines[n].indent = indent;
-    TEXT_LINE(sect9, -2, 0x174)
+    TEXT_LINE_H(sect9, -2, 0x174)
     NARR(0x174)
     nhint = 0;
     indent += 0x30;
