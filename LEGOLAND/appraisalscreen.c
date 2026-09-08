@@ -148,18 +148,14 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
             n = sect_start;                                               \
             indent = lines[sect_start].indent;                            \
             g_report_pages++;                                             \
-            cur.right = box.right;                                        \
-            cur.left = box.left;                                          \
-            cur.bottom = box.bottom;                                      \
-            y = box.top;                                                  \
+            cur = box;                                                    \
+            y = cur.top;                                                  \
             goto LBL;                                                     \
         }                                                                 \
         g_report_pages++;                                                 \
         page_start = n;                                                   \
-        cur.right = box.right;                                            \
-        cur.left = box.left;                                              \
-        cur.bottom = box.bottom;                                          \
-        y = box.top;                                                      \
+        cur = box;                                                        \
+        y = cur.top;                                                      \
     }
 
 /* A plain line: no bar, no measured value. */
@@ -236,7 +232,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     lines[n - 1].ids[lines[n - 1].nids] = (ID);                           \
     lines[n - 1].nids++;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (6821/8085 insns emitted, 29309/34662 bytes, frame 0x23d4 exact, first diverging index 6, mismatch 8005; the build's page break constant-propagates box where the original reloads it, and indent is enregistered where the original spills it and keeps page_start in ebp)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (8094/8085 insns emitted, 34413/34662 bytes, frame 0x23d4 exact, first diverging index 5, mismatch 7970; the page reset is a struct copy so box is reloaded at every site as in the original, but y is still constant-propagated where the original reloads box.top, cur.top is stored where the original never writes it, and indent is enregistered where the original spills it)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -272,6 +268,7 @@ int RunAppraisalScreen(void)
     int i;
     int nnarr, narr_cur;
     AppraisalBox title;
+    AppraisalBox bar;
 
     n = 0;
     page_start = 0;
@@ -899,11 +896,11 @@ sect9:
             cur.bottom = cur.top + 0x16;
             NewPrintColoured(lines[i].text, 2, cur, lines[i].colour);
             if (lines[i].bar) {
-                box.left = 0x126;
-                box.top = cur.top;
-                box.right = 0x1a4;
-                box.bottom = cur.top + 8;
-                DrawAppraisalBar(box, lines[i].value, lines[i].range, lines[i].mark);
+                bar.left = 0x126;
+                bar.top = cur.top;
+                bar.right = 0x1a4;
+                bar.bottom = cur.top + 8;
+                DrawAppraisalBar(bar, lines[i].value, lines[i].range, lines[i].mark);
             }
             cur.top += 0x18;
             i++;

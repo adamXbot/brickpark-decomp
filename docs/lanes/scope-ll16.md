@@ -712,3 +712,40 @@ build), and checking whether any of `nrun`, the `[esp+0x1c]` temp or the
 regression against the fourth pass's predecessor at 7,565, but the count is
 purely a proxy for the `box` reloads; `mismatch` and `FULL MATCH` both
 improved and the frame stayed exact.
+
+## 2026-09-08 (sixth pass, escalation) — the page reset is a struct copy
+
+| | before | after |
+| --- | --- | --- |
+| emitted | 6,821 | **8,094** (original 8,085) |
+| bytes | 29,309 | 34,413 |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 6 | 5 |
+| mismatch | 8,005 | **7,970** |
+| `FULL MATCH` | 42.7% | 39.0% (the alignment metric; see below) |
+
+Two changes, both measured (object prefix `/tmp/sll16b_`):
+
+1. **The page reset is `cur = box; y = cur.top;` on both arms** — a whole-struct
+   copy, not four field copies.  VC6 lowers a struct copy as four
+   memory-to-memory moves and does not constant-propagate into them, so `box`
+   becomes memory-resident and is reloaded at every page-break site exactly
+   as the original does (`mov eax,[esp+0x24] / mov edx,[esp+0x1c] / ...`).
+   The instruction count lands within nine of the original.  `y = box.top`
+   instead of `y = cur.top` is measurably worse (mismatch 8004).
+2. **The bar rectangle in the render loop is its own `AppraisalBox bar`, not
+   `box` reused.**  The original never stores into `[esp+0x1c..0x28]` inside
+   the render loop, and reusing `box` there both gave it a second definition
+   and (bug) made every frame after the first bar copy `0x126` into
+   `cur.left` at the render head.
+
+Measured on the way (all with the struct-copy sites): a block copy at the
+render head too (`cur = box;`), or a separate `rc` for the text rectangle,
+flips `box` back to fully folded (6,833 emitted) — keep the render head
+fieldwise and pass `cur` by value.  Declaration order, `const`, an
+initializer list, a `static const` template, `y = 0x6d` vs `y = box.top`,
+and `box.top = y` are all inert.  The `+0x10` that every earlier opacity
+spelling cost `title` is understood and avoided: it was VC6 hoisting
+`title.right = 0x1a4` out of the frame loop because the pre-loop
+`cur.right = 0x1a4` store makes the constant available in a register; it
+does not happen with the spellings above.
