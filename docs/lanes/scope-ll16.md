@@ -9,10 +9,12 @@ one function.
 | --- | --- |
 | address | `0x004453a0` |
 | original | 8,085 instructions, 34,662 bytes, frame `0x23d4` |
-| ours | 6,821 instructions, 29,309 bytes, frame **`0x23d4` (exact)** |
+| ours | 7,272 instructions, 31,952 bytes, frame **`0x23d4` (exact)** |
 | first diverging index | 6 |
-| mismatch | 8,005 of 8,085 |
-| `FULL MATCH` | 2,914/6,821 = 42.7% |
+| mismatch | 7,937 of 8,085 |
+| index-for-index `MATCH` | 148 |
+| `FULL MATCH` (difflib) | 39.9% — see the eighth pass, do not read this alone |
+| true LCS vs the whole original | 4,055/8,085 = 50.2% |
 | audit | `[WIP]`, file ends `PASS` |
 | relocs | zero `MISMATCH` (a WIP body is skipped) |
 | `/W3` | clean |
@@ -1018,3 +1020,21 @@ as `box.top` but three pushes are pending, so it is `[esp+0x14]` — `indent +=
 389 unreachable) because VC6 defers its argument pops across branches.  Only
 counts taken at push-free points — the page-break blocks, the render loop —
 can be trusted; use `/FAs` for everything else.
+
+### Refinement: the `indent` lever is the truncating READ, not the declaration
+
+`lines[n].indent = (short)indent;` with `indent` left an `int` reproduces
+`short indent`'s allocation flip exactly — first diverging index 6 -> **8**
+(`xor ebp,ebp` and `push edi` fall into place) and `page_start`'s home lands
+on the original's `0x10` — while keeping the frame at `0x23d4`, which the
+`short` declaration also does.  Cost is the same: a `movsx` per line takes
+mismatch to 8,020 and the LCS to 40.7%, and `ebp` still ends up holding
+`indent`'s zero rather than `page_start`.  So the allocator responds to how
+`indent` is *read*, and a spelling that lowers its rank without inserting an
+instruction per line is what this residual needs.
+
+Also inert: evaluating the rewind predicate on the main path
+(`rew = (page_start != sect_start);` before the `cur.bottom` test), which
+gives `page_start` 140 unconditional reads instead of 123 conditional ones —
+VC6 sinks it straight back into the arm and the object moves by two
+instructions.
