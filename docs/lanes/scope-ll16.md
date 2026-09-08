@@ -11,10 +11,10 @@ one function.
 | original | 8,085 instructions, 34,662 bytes, frame `0x23d4` |
 | ours | 7,824 instructions, 34,224 bytes, frame **`0x23d4` (exact)** |
 | first diverging index | 8 |
-| mismatch | 7,923 of 8,085 |
-| index-for-index `MATCH` | 162 |
-| `FULL MATCH` (difflib) | 40.7% — see the eighth pass, do not read this alone |
-| true LCS vs the whole original | 4,441/8,085 = 54.9% |
+| mismatch | 7,920 of 8,085 |
+| index-for-index `MATCH` | 165 |
+| `FULL MATCH` (difflib) | 42.4% — see the eighth pass, do not read this alone |
+| true LCS vs the whole original | 4,483/8,085 = 55.5% |
 | LCS with the slot permutation removed | 4,968/8,085 = **61.4%** (see the tenth pass) |
 | audit | `[WIP]`, file ends `PASS` |
 | relocs | zero `MISMATCH` (a WIP body is skipped) |
@@ -28,10 +28,12 @@ shape (hoisted above the rewind test AND repeated in the fall-through arm),
 does it, and the body is within 264 instructions and 438 bytes of the target.
 **The one remaining structural residual is the stack SLOT PERMUTATION**: our
 33 scalar dwords hold the same values as the original's 33 in a different
-order, so almost every `[esp+N]` displacement is wrong. **Read the tenth pass
-first** — it gives VC6's frame-ordering rule (descending reference weight,
-per dword for aggregates), which is the lever every earlier pass was looking
-for; the earlier passes' "what is left" lists are superseded.
+order, so almost every `[esp+N]` displacement is wrong. **Read the ELEVENTH pass
+first** — it measures the ORIGINAL's own slot weights for the first time and
+shows they break the tenth pass's descending-weight rule at exactly the three
+slots the lane is chasing, so that rule is a rough guide and not the lever.
+The eleventh pass also has the `box`-opacity mechanism the fifth through tenth
+passes were hunting; the earlier "what is left" lists are superseded.
 
 ## What the screen is
 
@@ -1393,3 +1395,207 @@ Also measured and **rejected** this pass: a second `box` init at `sect1:`
 (mismatch 7,988) or at `sect2:` (8,003), re-initialising `box` at the render
 head (7,990), `box.bottom = box.top + 0x16` (byte-identical), `cur = box;`
 after the init with or without the separate `cur.top = 0x6d` (both 7,976).
+
+## 2026-09-08 (eleventh pass) — the ORIGINAL's own frame breaks the weight rule; `box` opacity is solved
+
+| | tenth pass | now |
+| --- | --- | --- |
+| emitted | 7,824 | 7,824 |
+| bytes | 34,224 | 34,224 |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 8 | 8 |
+| mismatch | 7,923 | **7,920** (lane best) |
+| index-for-index `MATCH` | 162 | **165** (lane best) |
+| true LCS vs the whole original | 54.9% | **55.5%** (lane best) |
+| `difflib` alignment | 40.7% | 42.4% |
+
+Two small changes committed, and two large measurements that redirect the lane.
+
+### The tool this pass added: a validated `esp`-delta tracker
+
+Every earlier pass says a raw `[esp+N]` census of the ORIGINAL cannot be
+trusted because `tools/disasm.py` does not track `esp`, and that a
+CFG-propagated delta does not converge. A **linear** delta does converge well
+enough: walk the listing, `push` `+4` / `pop` `-4` / `add esp,K` `-K`, and
+reset the delta to 0 at any address that is the target of a `jmp`/`jcc`/`call`.
+The script is `/tmp/sll16f/slots.py`; rebuild it from this paragraph.
+
+It was **validated against `/FAs` on our own object**, where the equates give
+ground truth: every slot agrees to within about 5% (`0x18 indent` 168 vs 169,
+`0x1c ok` 151 vs 151, `0x20 sect_start` 135 vs 135, the eight `r` dwords sum to
+902 vs 901). So its reading of the original can be trusted to the same
+tolerance. **This is the first time the original's slot weights have been
+measured**, and it settles the tenth pass's open question the wrong way.
+
+### The original's frame, with weights
+
+| slot | what | refs |
+| --- | --- | --- |
+| `0x10` | `page_start` | 173 |
+| `0x14` | `indent` | 171 |
+| `0x18` | the `n*0x4c` temp + `nrun` + `nhint` | **222** |
+| `0x1c`..`0x38` | `box` + `cur` | 1,448 (**181** per dword) |
+| `0x3c` | `ok` / `obj` | 153 |
+| `0x40` | `passed` + the `&lines[n].indent` pointer temp | 36 |
+| `0x44` | `sect_start` | 128 |
+| `0x48` | `failmask` / `nnarr` | 79 |
+| `0x4c` | the second `n*0x4c` temp (five section heads) | 76 |
+| `0x50` | `total` | 48 |
+| `0x54` | `narr_cur` + a temp | 22 |
+| `0x58` | `v` + the `&lines[n].ok` pointer temp | 16 |
+| `0x5c` | `all_total` / `i` | 18 |
+| `0x60` | `all_passed` | 13 |
+| `0x64` | `kind` (a short at `0x66`) | 2 |
+| `0x68`..`0x90` | the eleven out-params | 3 each |
+
+Ours, same tracker: `0x10` temp 199, `0x14` `page_start` 181, `0x18` `indent`
+168, `0x1c` `ok` 151, `0x20` `sect_start` 135, `0x24`..`0x40` `r` 902,
+`0x44` `v` 91, `0x48` `failmask` 62, `0x4c` `passed` 38, `0x50` `total` 47,
+`0x54` `nrun`/`i` 29, `0x58` 17, `0x5c` 13, `0x60` 4, out-params 3 each.
+
+**Ours is in strict descending order. The original is not.** Its temp (222)
+and its `box`/`cur` aggregate (181 per dword) both outweigh `page_start` (173)
+and `indent` (171) and both sit *above* them in the frame; `passed` (36) sits
+below `sect_start` (128). So the tenth pass's rule holds for our object and for
+the lab functions but **the original violates it at exactly the three slots
+this residual is about**. Whatever pulls `page_start` and `indent` to the
+bottom of the original's frame is not reference weight, and nothing measured
+this pass reproduces it.
+
+The rule is still a good *predictor* — it was confirmed again twice this pass
+(a fieldwise page reset takes `page_start` to 250 refs and it moves to `0x10`;
+`box = cur` takes `r` to 1,501 and it moves to `0x14`) — so use it to predict
+what a change will do. Just do not expect hitting the original's numbers to
+produce the original's layout.
+
+### The tenth pass's "split the temp" plan does not exist to be executed
+
+The tenth pass proposed getting the `n*0x4c` temp's weight into the window
+`(151, 169)` because the original's is "split across four slots". It is not.
+Measured on both objects with the same detector (`shl <r>,2` followed by
+`mov [esp+N],<r>` for stores; a `[esp+N]` load whose register is then an index
+in `[esp+<r>+K]` for reloads):
+
+| | main slot stores | secondary slot stores | refs per line site |
+| --- | --- | --- | --- |
+| original | 71 (`0x18`) | 5 (`0x4c`, the section-3..7 headers) | 3 |
+| ours | 71 (`0x10`) | 5 (`0x44`) | 3 |
+
+The two temps have the **same shape, the same split and the same per-site
+cost**: one store, one reload after the page check, one reload after `rand`,
+one reload after `GetString` (three references attributed to the line macro,
+the fourth shared with the section head). The original's total is *larger* than
+ours, 222 against 210. Attribution of our 210 by construct: `TEXT_LINE8` 106,
+`TEXT_LINE` 43, `BAR_LINE` 24, `TEXT_LINE_NOY8` 12, the section-head
+`lines[n].indent` pre-stores 9, `NARR` 9, `BUF_LINE8` 2.
+
+So there is no reference to shed without making our line bodies differ from the
+original's, and the tenth pass's window is chasing a number the original does
+not have. **Do not spend another pass on it.**
+
+### `box` opacity is SOLVED: seed `cur`, then `box = cur;`
+
+The residual the fifth through tenth passes all converged on — the original
+keeps `box` in memory and reloads all four fields at every page-break site
+while ours folds `box.bottom` to `mov <reg>,0x83` and hoists `box.left` into
+`ecx` — has a one-line source fix that **costs nothing on the frame**:
+
+```c
+    cur.left = 0x50;
+    cur.top  = 0x6d;
+    cur.right = 0x1a4;
+    cur.bottom = 0x83;
+    box = cur;
+    cur.top = 0x6d;      /* the build's row register */
+```
+
+`box`'s definition is then a struct copy from a variable that has ~120 further
+definitions, and VC6 stops propagating. Measured (object prefix `/tmp/sll16f_`):
+
+| | committed | with `box = cur` |
+| --- | --- | --- |
+| `r`'s references | 901 | **1,501** (the original's is 1,448) |
+| frame | `0x23d4` | **`0x23d4`** |
+| emitted | 7,824 | 7,774 |
+| LCS | 55.5% | **55.9%** |
+| `difflib` | 42.4% | **43.1%** |
+| mismatch | **7,920** | 7,991 |
+| `MATCH` | **165** | 94 |
+
+The entry block also becomes the original's shape — four constants into four
+registers and then four stores (`mov edi,131 / mov ecx,109 / mov eax,80 /
+mov edx,420 / mov [box.bottom],edi / mov [box.top],ecx / ... `) against the
+original's `mov edi,0x6d / mov eax,0x83 / mov ecx,0x50 / mov edx,0x1a4 / ...`,
+where ours previously stored two of them as immediates and dead-stored
+`box.bottom` away entirely.
+
+**It is not committed** only because `r` at 1,501 then outranks `page_start`
+and `indent` and the aggregate moves to `0x14`, pushing every scalar up by
+`0x20` — mismatch and `MATCH` pay for it. Landing this is worth roughly three
+LCS points on its own plus whatever the register assignment below is worth, and
+it is the single most valuable open state in this lane. To take it, `r` has to
+rank below `indent` (169 per dword, i.e. under 1,352 references total) and
+above `ok` (151, i.e. over 1,208) — or the ordering has to be steered some
+other way. Every attempt to shave `r` by making the page reset partly
+fieldwise **destroys the whole shape** (see the rejects below): the struct copy
+is load-bearing at both sites.
+
+### A newly quantified residual: the rewind test's register
+
+At all 75 non-section-head page-break sites the original compares
+`cmp ebp, ecx` — `sect_start` is loaded into `ecx`, because `eax`, `edx` and
+`edi` are taken by `box.right`/`box.bottom`, `box.left` and `box.top`. Ours
+emits `cmp ebp, eax` 25 times and `cmp ebp, edx` 47 times, because our
+page-break block loads fewer `box` fields and the registers land differently.
+That is about 72 index-for-index mismatches plus their loads, and it is
+**downstream of the `box` opacity above** — `box = cur` alone moves 9 of the 75
+onto `ecx`. Both bodies agree on the nine section-head sites (`cmp ebp, esi`).
+
+### What landed
+
+1. **`nnarr` rides `v`.** `/FAs` showed VC6 already packing them onto one slot
+   (`0x44 v,nnarr`); spelling it as `#define nnarr v` and dropping the
+   declaration frees the name, and VC6 then puts `passed` below `total`, which
+   is the original's relative order. mismatch 7,923 -> 7,922, `MATCH` 162 ->
+   163, LCS 54.9% -> 55.5%. (`v`'s last use is the closing block; `nnarr` is
+   assigned 0 at the render loop's first page turn, so they never overlap.)
+2. **The entry zero-stores are `indent`, `n`, `page_start`.** VC6 emits them in
+   source order and the original's is `mov [esp+0x14],ebx / xor esi,esi /
+   mov [esp+0x10],ebp / [0x60] / [0x5c] / [0x48]`. With that order our entry is
+   the original's exact instruction sequence for indices 8-13 — only the
+   displacements differ, and index 13 (`failmask` at `0x48`) matches outright.
+   mismatch 7,922 -> 7,920, `MATCH` 163 -> 165. **Initialisation order is
+   therefore NOT inert**, contrary to the second and tenth passes; only
+   *declaration* order is.
+
+### Measured and rejected this pass
+
+| probe | result |
+| --- | --- |
+| any fieldwise page reset (hoisted / fall-through / with / without `bottom`, with or without `box = cur`) | `box` collapses, emitted falls to ~6,900, LCS ~42% |
+| `if (sect_start != page_start)` | mismatch -2 and `MATCH` +2, but emits `cmp esi,ebp` where the original has `cmp ebp,esi` at all nine head sites — alignment noise, rejected |
+| rewind-block statement order, five permutations | `g_report_pages++` first gives `MATCH` +1 but puts it at the FRONT of the emitted block where the original has it last; the committed order already matches the original's block. Noise, rejected |
+| `#define nhint X` for `nrun`, `i`, `nnarr`, `narr_cur`, `kind`, `total`, `passed`, `all_total`, `ok` | all frame `0x23d8` (`v` then needs its own dword). `nhint`=`kind` is worth recording: mismatch **7,912** and `MATCH` **173**, better than anything committed, at LCS 44.7% and a broken frame |
+| `#define nhint nrun` with `nnarr` or `narr_cur` riding `v` | frame `0x23d8` |
+| a duplicated `lines[n].indent = indent;` (a model probe to buy `indent` weight) | **byte-identical** — DSE runs before the layout, so weight cannot be bought with a redundant store |
+| out-param declaration order, two permutations | byte-identical. Declaration order stays inert even for tied weights, so the original's out-param order is not a declaration-order effect |
+| `unsigned int n` (warns C4018), `register int n` | inert |
+| `lines[n].indent` before `lines[n].page` in the line macros | mismatch 7,929 |
+| `lines[n].nids = 0` first in the line body | mismatch 8,000, LCS 48.8% |
+| `box = title` through a separate template struct | frame `0x23e4` |
+| `cur.top = box.top`; seeding `cur.left`/`right`/`bottom` from `box` at entry; the `box` init reordered bottom-first | inert or worse |
+| separate `box`/`cur` structs with `box = cur` | frame exact, `box` 743 + `cur` 758, but `page_start` lands at `0x34`; LCS 55.4%, `MATCH` 98 |
+| `AppraisalBox r[2]` instead of the struct | LCS +0.1, everything else identical (as the tenth pass found) |
+
+### What a twelfth pass should try
+
+1. **Find what pulls `page_start` and `indent` to `0x10`/`0x14` in the
+   original.** It is not weight, not declaration order, not initialisation
+   order, not first reference and not first store — all measured. It is worth
+   2.4 LCS on its own and it unblocks `box = cur`, which is worth ~3 more. A
+   lab function that reproduces the *violation* (a frame where two low-weight
+   always-live scalars sit below a high-weight CSE temp) is the thing to hunt;
+   `/tmp/sll16e_lab` has the harness and `/tmp/sll16f/slots.py` the census.
+2. **`box = cur;`** — keep it in hand. The moment (1) is solved, apply it.
+3. The rewind test's register (75 sites) and the out-param slot order (11
+   slots) are the two remaining named residuals, both downstream of (1) and (2).
