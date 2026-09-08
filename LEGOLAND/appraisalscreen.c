@@ -179,7 +179,13 @@ extern int     g_num_visitors;                              /* 0x00832bd0 */
     n++;                                                                  \
     y += 0x18;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (2596/8085 insns emitted, first diverging index 0, frame 0x21c4 vs 0x23d4; report sections 1-7 plus the render and input loops)
+/* Append a narration string id to the line that was just written.  The
+ * render loop copies these into the narration queue when the page turns. */
+#define NARR(ID)                                                          \
+    lines[n - 1].ids[lines[n - 1].nids] = (ID);                           \
+    lines[n - 1].nids++;
+
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (4644/8085 insns emitted, first diverging index 0, frame 0x21cc vs 0x23d4; report sections 1-7, the advice chain, the render and input loops)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -498,6 +504,129 @@ sect7:
         all_total += total;
         indent -= 0x30;
         all_passed += passed;
+    }
+
+    /* ---- the advice ---------------------------------------------------- */
+    /* Unguarded: every report ends with a verdict line and one piece of
+     * advice per failed statistic.  ok is the bullet form here: -2 the
+     * verdict/plain bullet, -1 a piece of advice, -3 its continuation. */
+sect8:
+    sect_start = n;
+    lines[n].indent = indent;
+    TEXT_LINE(sect8, -2, 0x230)
+    indent += 0x30;
+    if (all_passed < all_total / 2) {
+        TEXT_LINE(sect8, -2, 0x14f)
+        NARR(0x14f)
+        TEXT_LINE(sect8, -2, 0x150)
+    } else if (all_passed < all_total) {
+        TEXT_LINE(sect8, -2, 0x151)
+        NARR(0x151)
+        TEXT_LINE(sect8, -2, 0x150)
+    } else {
+        TEXT_LINE(sect8, -2, 0x153)
+        NARR(0x153)
+        TEXT_LINE(sect8, -2, 0x154)
+    }
+    if (failmask & 0x1) {
+        TEXT_LINE(sect8, -1, 0x155)
+    }
+    if (failmask & 0x2) {
+        TEXT_LINE(sect8, -1, 0x156)
+    }
+    if (failmask & 0x4) {
+        TEXT_LINE(sect8, -1, 0x157)
+    }
+    if (failmask & 0x8) {
+        TEXT_LINE(sect8, -1, 0x158)
+    }
+    switch (failmask & 0x30) {
+    case 0x10:
+        TEXT_LINE(sect8, -1, 0x159)
+        break;
+    case 0x20:
+        TEXT_LINE(sect8, -1, 0x15a)
+        break;
+    case 0x30:
+        TEXT_LINE(sect8, -1, 0x15b)
+        TEXT_LINE(sect8, -3, 0x133)
+        break;
+    }
+    if (failmask & 0x40) {
+        TEXT_LINE(sect8, -1, 0x15c)
+        NARR(0x15c)
+        TEXT_LINE(sect8, -3, 0x15d)
+    }
+    if (failmask & 0x80) {
+        TEXT_LINE(sect8, -1, 0x15e)
+    }
+    if (failmask & 0x100) {
+        TEXT_LINE(sect8, -1, 0x15f)
+    }
+    if (failmask & 0x200) {
+        TEXT_LINE(sect8, -1, 0x160)
+    }
+    if (failmask & 0x400) {
+        TEXT_LINE(sect8, -1, 0x161)
+    }
+    if (failmask & 0x800) {
+        TEXT_LINE(sect8, -1, 0x162)
+    }
+    switch (failmask & 0x3000) {
+    case 0x1000:
+        TEXT_LINE(sect8, -1, 0x163)
+        break;
+    case 0x2000:
+        TEXT_LINE(sect8, -1, 0x164)
+        break;
+    case 0x3000:
+        TEXT_LINE(sect8, -1, 0x165)
+        break;
+    }
+    switch (failmask & 0x18000) {
+    case 0x8000:
+        TEXT_LINE(sect8, -1, 0x166)
+        break;
+    case 0x10000:
+        TEXT_LINE(sect8, -1, 0x167)
+        break;
+    case 0x18000:
+        TEXT_LINE(sect8, -1, 0x168)
+        break;
+    }
+    switch (failmask & 0x60000) {
+    case 0x20000:
+        TEXT_LINE(sect8, -1, 0x169)
+        break;
+    case 0x40000:
+        TEXT_LINE(sect8, -1, 0x16a)
+        break;
+    case 0x60000:
+        TEXT_LINE(sect8, -1, 0x16b)
+        NARR(0x16b)
+        TEXT_LINE(sect8, -3, 0x231)
+        break;
+    }
+    if (failmask & 0x80000) {
+        TEXT_LINE(sect8, -1, 0x16c)
+    }
+    if (failmask & 0x100000) {
+        TEXT_LINE(sect8, -1, 0x16d)
+    }
+    /* String id 0x16e is skipped: original. */
+    if (failmask & 0x200000) {
+        TEXT_LINE(sect8, -1, 0x16f)
+    }
+    if (failmask & 0x400000) {
+        TEXT_LINE(sect8, -1, 0x170)
+    }
+    if (failmask & 0x800000) {
+        TEXT_LINE(sect8, -1, 0x171)
+        NARR(0x171)
+        TEXT_LINE(sect8, -3, 0x172)
+    }
+    if (failmask & 0x1000000) {
+        TEXT_LINE(sect8, -1, 0x173)
     }
 
     /* ================================================================== */
