@@ -518,17 +518,18 @@ extern void SetClipping(Box* r);                                 /* 0x0048a5c0 *
  * icon array and passes 0x2e/0x28, and none of the three is ever read.
  *
  */
-// WIP-FUNCTION: LEGOLAND 0x0043ea30  (98.5%, 392/398 aligned, 6 residual)
-//   The frame loop's `ret = sel` (the -1 the abort paths return) must live in
-//   ESI across the whole iteration and be REMATERIALISED at the loop header,
-//   because ESI is reused as the row cursor in the draw loop.  We get the
-//   value into esi but VC6 still ROTATES the loop, so the header's
-//   `mov esi,[sel]` + ProcessSystemEvents test are duplicated at the latch
-//   where the original has a bare `jmp` back.  Everything else -- every
-//   block, both epilogues, every frame slot (including `n` spilled into the
-//   dead `r` argument slot and `rows` into `keep_scroll`'s) -- is identical.
-//   Ruled out: while/do-while/goto loop forms, ret as a literal vs a copy of
-//   sel, moving `tp++` into the for-increment, all 24 sbar store orders.
+/* Levers that closed this body (escalation, 2026-09-08; see the lane doc):
+ *  - the abort value is a literal `ret = -1` re-assigned at the top of a
+ *    `while (1)` frame loop, and the three abort sites `return ret` directly
+ *    (a `break` puts the `mov eax,esi` epilogue AFTER the click epilogue);
+ *  - the no-hit sites assign `sel = -1`, not a copy of `ret`;
+ *  - the draw loop reads `items[k]` -- a user `tp` cursor puts its `add
+ *    edi,4` on the wrong side of the row IV's `add esi,0x10`;
+ *  - the second layout loop is an UP-counting `for (i = 0; i < n; i++, q++)`
+ *    over the row cursor: the do-while form flips the add destination of
+ *    the draw call's `box.top - g_scroll_offset + rows[k].top` (all six
+ *    orderings of that sum are inert; the loop form is the lever). */
+// FUNCTION: LEGOLAND 0x0043ea30
 int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
                   void (*overlay)(int sel), void** icons, int a7, int a8,
                   int keep_scroll)
@@ -538,7 +539,6 @@ int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
     int  i;
     int  textw;
     int  visible;
-    char** tp;
     int  overflow;
     Box  box;
     Box  sbar;
@@ -604,27 +604,24 @@ int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
     if (n > 0) {
         Row* q = rows;
 
-        i = n;
-        do {
+        for (i = 0; i < n; i++, q++) {
             q->left = 0;
             q->right = textw;
-            q++;
-            i--;
-        } while (i);
+        }
     }
     sbar.left = r->x + r->w - 0x14;
     sbar.top = box.top;
     sbar.right = r->x + r->w - 5;
     sbar.bottom = box.bottom;
-    for (;;) {
-        ret = sel;
+    while (1) {
+        ret = -1;
         if (!ProcessSystemEvents())
-            break;
+            return ret;
         ReadGameButtons();
         if (g_mouse_btn_a & 1)
-            break;
+            return ret;
         if (g_mouse_btn_b & 1)
-            break;
+            return ret;
         if (g_gfx_point.x >= box.left && g_gfx_point.x <= box.right
             && g_gfx_point.y >= box.top && g_gfx_point.y <= box.bottom) {
             my = g_gfx_point.y - box.top + g_scroll_offset;
@@ -637,9 +634,9 @@ int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
                 }
             }
             if (k == n)
-                sel = ret;
+                sel = -1;
         } else {
-            sel = ret;
+            sel = -1;
         }
         PushRenderingStatusAndLockVideoSurface();
         PrintSprite(backdrop, 0, 0, 0, 0);
@@ -660,7 +657,6 @@ int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
                 break;
         }
         if (k < n) {
-            tp = &items[k];
             for (; k < n; k++) {
                 if (rows[k].top >= g_scroll_offset + visible)
                     break;
@@ -679,15 +675,13 @@ int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
                 }
                 DrawWrappedText(box.left + rows[k].left,
                                 box.top - g_scroll_offset + rows[k].top,
-                                *tp, 2, textw);
-                tp++;
+                                items[k], 2, textw);
             }
         }
         SetClipping(&savedclip);
         RenderingComplete();
         PopRenderingStatus();
     }
-    return ret;
 }
 
 /* =========================================================================
