@@ -1805,8 +1805,8 @@ loads fewer `box` fields in the hoisted copy because it keeps the hoisted
 | first diverging index | 8 | 8 |
 | mismatch | 7,992 | **7,956** (lane best) |
 | index-for-index `MATCH` | 93 | **129** |
-| true LCS vs the whole original | 57.7% | **59.4%** (lane best) |
-| `difflib` alignment | 42.7% | **50.0%** (lane best) |
+| true LCS vs the whole original | 57.7% | **59.5%** (lane best) |
+| `difflib` alignment | 42.7% | **50.2%** (lane best) |
 
 One change, and it improves **every** metric the lane tracks at once — the
 first state in this lane that costs nothing.
@@ -1946,13 +1946,22 @@ tried to extend that to sections 1-7 and 9:
 So the store cannot be removed without losing `box`'s opacity, which is worth
 far more. It stays, and it is the whole 63-instruction overshoot.
 
+### The narration arm order, landed
+
+The original lays the `narr_cur >= nnarr` arm as the fall-through
+(`cmp eax,edx / jl <play arm>` at 0x0044da2b); ours had the play arm there.
+Rewriting the source as `if (narr_cur >= nnarr) { if (!IsNarrationPlaying())
+UpdateHelpBar(); } else if (...) { ...play... }` puts the two arms in the
+original's order: LCS 59.4% -> **59.5%**, difflib 50.0% -> **50.2%**, mismatch
+and `MATCH` unchanged. (Ours already had `IsNarrationPlaying` in both arms;
+the eleventh-hour reading that it did not was wrong.) Writing the test as
+`nnarr <= narr_cur` instead gets the compare's operand order right
+(`cmp eax,edx`) but then the branch is `jg` where the original has `jl`, and
+it scores identically -- two instructions of register-naming noise either way.
+
 ### What a fourteenth pass should try
 
-1. **The render/input tail's two small divergences**: the narration arm order
-   (`if (narr_cur >= nnarr)` as the then-arm) and the duplicated
-   `IsNarrationPlaying` call in both arms. Cheap, ~4 instructions, and the
-   tail is otherwise transcribed.
-2. **The hoisted `cur.bottom` store**, above — 82 instructions and 66
+1. **The hoisted `cur.bottom` store**, above — 82 instructions and 66
    wrong-register rewind tests, but every known spelling trades `box`'s
    opacity for it. A shape that keeps the struct copy and still lets DSE
    reach across the `jne` is what it needs.

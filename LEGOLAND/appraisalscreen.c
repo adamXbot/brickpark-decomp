@@ -283,7 +283,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK8(LBL)                                                      \
     LINE8_BODY(MARK, textbuf)
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (8148/8085 insns emitted, 34928/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7956, index-for-index MATCH 129, true LCS 59.4%; the build phase is now COMPLETE -- 129 rand, 112 GetString, 292 calls and 76 narration-queue stores, every census equal to the original's.  Two residuals remain: the hoisted cur.bottom store that the original dead-stores away (82 sites, which is the whole 63-instruction overshoot), and a THREE-SLOT ROTATION at the bottom of the frame -- our n*0x4c byte-offset CSE temp holds 0x10 with 221 references where the original puts page_start, so page_start and indent sit one slot high at 0x14/0x18.  VC6 orders this frame by descending reference weight per dword and the ORIGINAL's frame breaks that rule at exactly these three slots: its temp has 222 references and still sits at 0x18, below page_start's 173 and indent's 171)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (8148/8085 insns emitted, 34928/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7956, index-for-index MATCH 129, true LCS 59.5%; the build phase is now COMPLETE -- 129 rand, 112 GetString, 292 calls and 76 narration-queue stores, every census equal to the original's.  Two residuals remain: the hoisted cur.bottom store that the original dead-stores away (82 sites, which is the whole 63-instruction overshoot), and a THREE-SLOT ROTATION at the bottom of the frame -- our n*0x4c byte-offset CSE temp holds 0x10 with 221 references where the original puts page_start, so page_start and indent sit one slot high at 0x14/0x18.  VC6 orders this frame by descending reference weight per dword and the ORIGINAL's frame breaks that rule at exactly these three slots: its temp has 222 references and still sits at 0x18, below page_start's 173 and indent's 171)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -1094,16 +1094,16 @@ build_done:
 
         if (g_report_page_turned)
             g_report_page_turned = 0;
-        if (narr_cur < nnarr) {
-            if (!IsNarrationPlaying() && narr[narr_cur] != -1) {
-                sprintf(namebuf, "TEXT%04d.WAV", narr[narr_cur]);
-                narr_cur++;
-                PauseCurrentTrack();
-                PlayNarrationFile(namebuf);
-                ResumeCurrentTrack();
-            }
-        } else if (!IsNarrationPlaying())
-            UpdateHelpBar();
+        if (narr_cur >= nnarr) {
+            if (!IsNarrationPlaying())
+                UpdateHelpBar();
+        } else if (!IsNarrationPlaying() && narr[narr_cur] != -1) {
+            sprintf(namebuf, "TEXT%04d.WAV", narr[narr_cur]);
+            narr_cur++;
+            PauseCurrentTrack();
+            PlayNarrationFile(namebuf);
+            ResumeCurrentTrack();
+        }
 
         ProcessFrontEndHelp();
         UpdateFocussedIconPtr();
