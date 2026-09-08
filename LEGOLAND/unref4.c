@@ -219,9 +219,35 @@ void JcDeco_Add(RideElem* elem, Pos* pos)
 //   already has); the origin pair stored after the next-pointer (worse, 88);
 //   int-returning casts at the DefaultCursor / ResetCursorFootprint /
 //   ValidateCursor call sites; the `found == 0` early return rewritten as an
-//   if/else around the whole tail.  The phase is set before the tail by
-//   something that emits no instruction; nothing left in this body's source
-//   moves it.
+//   if/else around the whole tail.
+//   MEASURED (escalation 2, 2026-09-08): the phase is a MOD-3 COUNTER of the
+//   memory-to-memory VALUE MOVES emitted before the tail, and this body is
+//   exactly one move over.  With the four g_jc_deco_rect2 field assignments
+//   present the tail's first scratch is ecx (here); drop any ONE of them and
+//   it is eax -- the original -- drop two and it is edx, add one and it is
+//   edx, add two and it is eax again.  Cutting the ScreenToMapRef call (two
+//   moves) lands on edx and cutting the ProbeRiver call (four) on eax, both
+//   consistent with mod 3, and the second and third phases were each hit
+//   twice.  ONLY cross-location value moves count: an immediate store
+//   (g_edit_cursor.status = 7), a read-modify-write (status++) and every dead
+//   statement (found = found, found += 0, found |= 0, owner.w = owner.w,
+//   an empty `if (found) ;` or `if (cls) ;`, `while (0) ;`, an empty switch)
+//   are invisible to it, so the count cannot be padded without also emitting
+//   the instructions.  Allocation count in the TAIL does not move the phase
+//   (dropping or adding one rect adjustment, or the origin pair, keeps ecx).
+//   Inert at 89/94 with no phase change: memcpy for either struct copy;
+//   g_edit_cursor.rect / .origin / .next spelled through the parent Cursor
+//   instead of the flat aliases (the same addresses); Rect* / Cursor* / Pos*
+//   / BPosW* aliases for &g_jc_deco_rect2, &g_edit_cursor,
+//   &g_edit_cursor_origin and &owner; the four rect2 values through four
+//   named temps or read through a Rect* alias; `- 6` as `+ -6` and as
+//   `-6 + x`; (int) and (void*) casts on the probe result, on the two null
+//   pointers, on the rect2 values and on the ScreenToMapRef arguments;
+//   `!found` for `found == 0`; `unsigned found`; declaration order of cls,
+//   owner and found, and cls assigned at its declaration.  The head emits the
+//   original's instructions exactly, so the original's source makes ONE FEWER
+//   value move for the same code -- nothing in this body's vocabulary does
+//   that, and every zero-instruction construct tried is not counted.
 void JcDeco_CalcCursor(MapObj* o, int sx, int sy)
 {
     ObjDef* cls;

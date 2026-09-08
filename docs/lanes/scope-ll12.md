@@ -52,8 +52,35 @@ Residual for the one WIP:
   next-pointer (88/94); int-returning function-pointer casts at the
   `DefaultCursor`, `ResetCursorFootprint` and `ValidateCursor` call sites;
   the `found == 0` early return rewritten as an if/else around the whole
-  tail. The phase is decided before the tail by something that emits no
-  instruction; nothing left in this body's source moves it. **Retired.**
+  tail.
+
+  **Measured (escalation 2, 2026-09-08) — the phase is a MOD-3 COUNTER of the
+  memory-to-memory VALUE MOVES emitted before the tail, and this body is one
+  move over.** With the four `g_jc_deco_rect2` field assignments present the
+  tail's first scratch is `ecx`; drop any ONE of them and it is `eax` (the
+  original), drop two and it is `edx`, add one and it is `edx`, add two and
+  it is `eax` again. Cutting the `ScreenToMapRef` call (two moves) lands on
+  `edx` and cutting `ProbeRiver` (four) on `eax` — each of the three phases
+  reached twice, from both directions. **Only cross-location value moves
+  count**: an immediate store (`g_edit_cursor.status = 7`), a
+  read-modify-write (`status++`) and every dead statement (`found = found`,
+  `found += 0`, `found |= 0`, `owner.w = owner.w`, an empty `if (found) ;`,
+  `while (0) ;`, an empty `switch`) are invisible to it, so the count cannot
+  be padded without emitting the instructions that go with it; and the tail's
+  own allocation count does not move the phase (dropping or adding one rect
+  adjustment, or the origin pair, keeps `ecx`). Also inert at 89/94 with no
+  phase change: `memcpy` for either struct copy; `g_edit_cursor.rect` /
+  `.origin` / `.next` through the parent `Cursor` instead of the flat aliases
+  (the same addresses); `Rect*` / `Cursor*` / `Pos*` / `BPosW*` aliases for
+  `&g_jc_deco_rect2`, `&g_edit_cursor`, `&g_edit_cursor_origin`, `&owner`;
+  the four rect2 values through four named temps or a `Rect*` alias; `- 6`
+  as `+ -6` and `-6 + x`; `(int)` / `(void*)` casts on the probe result, the
+  two null pointers, the rect2 values and the `ScreenToMapRef` arguments;
+  `!found`; `unsigned found`; declaration order of `cls`, `owner`, `found`
+  and `cls` assigned at its declaration. The head emits the original's
+  instructions exactly, so the original's source makes ONE FEWER value move
+  for the same code — that is the whole residual, and no construct in this
+  body's vocabulary supplies it. **Retired.**
 
 ## Closing the two large WIPs (escalation, 2026-09-08)
 
