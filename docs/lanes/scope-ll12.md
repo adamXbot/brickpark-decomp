@@ -4,9 +4,12 @@ Branch `scope/LL12` from `main` `7d756410`. New file **`LEGOLAND/unref4.c`**
 (the only `LEGOLAND/*.c` file touched) plus this note and the brief
 `docs/SCOPE_LL12_unref_jungle_planeride_loaders.md`.
 
-**Result: 8 of 11 exact (`audit.py [OK]`), 606 of 1,408 instructions;
-the three WIPs sit at 98.5%, 92.6% and 60.7%.**
+**Result: 10 of 11 exact (`audit.py [OK]`), 1,314 of 1,408 instructions;
+the one WIP (`JcDeco_CalcCursor`) sits at 94.7%, retired.**
 The file ends `PASS`, `relocs.py` reports zero `MISMATCH`, `/W3` is clean.
+The first session closed 8; the escalation of 2026-09-08 closed
+`RunListPicker` and `BrowseForFile` (see "Closing the two large WIPs"
+below) and retired `JcDeco_CalcCursor`.
 
 ## Status
 
@@ -15,52 +18,145 @@ The file ends `PASS`, `relocs.py` reports zero `MISMATCH`, `/W3` is clean.
 | 0x00434810 | `JcDeco_Create` | 4 | 100 | `[OK]` | `// FUNCTION:` |
 | 0x00434820 | `JcDeco_SelectForPlacement` | 14 | 100 | `[OK]` | `// FUNCTION:` |
 | 0x00434860 | `JcDeco_Add` | 119 | 100 | `[OK]` | `// FUNCTION:` |
-| 0x004349b0 | `JcDeco_CalcCursor` | 94 | 92.6 | REJECT | `// WIP-FUNCTION:` |
+| 0x004349b0 | `JcDeco_CalcCursor` | 94 | 94.7 | REJECT | `// WIP-FUNCTION:` (retired) |
 | 0x00434b20 | `JcDeco_DrawSelection` | 7 | 100 | `[OK]` | `// FUNCTION:` |
 | 0x0043e930 | `Slider_Track` | 101 | 100 | `[OK]` | `// FUNCTION:` |
-| 0x0043ea30 | `RunListPicker` | 395 | 98.5 | REJECT | `// WIP-FUNCTION:` |
+| 0x0043ea30 | `RunListPicker` | 395 | 100 | `[OK]` | `// FUNCTION:` |
 | 0x0043eee0 | `PickLLIDBElement` | 173 | 100 | `[OK]` | `// FUNCTION:` |
-| 0x0043f0b0 | `BrowseForFile` | 313 | 60.7 | REJECT | `// WIP-FUNCTION:` |
+| 0x0043f0b0 | `BrowseForFile` | 313 | 100 | `[OK]` | `// FUNCTION:` |
 | 0x0043f460 | `TextEntryFieldStep` | 57 | 100 | `[OK]` | `// FUNCTION:` |
 | 0x0043f4f0 | `RunTextEntryDialog` | 131 | 100 | `[OK]` | `// FUNCTION:` |
 
-Residuals for the three WIPs:
+Residual for the one WIP:
 
-- **0x004349b0 `JcDeco_CalcCursor`** — strict 7/94, first diverging index 66.
-  Instruction count, byte length, every block, every store order and every
-  frame slot agree; the tail is **one scratch register out of phase** (the
-  scratch cursor's `rect.top` temp lands in `ecx` where the original uses
-  `eax`, and the following `origin` pair rotates `edx,eax` against the
-  original's `ecx,edx`). Ruled out: all 24 orderings of the four
-  `g_jc_deco_rect2` stores (the best, committed, order fixed indices 26–40);
-  `--`/`-= 1`/`= x - 1` spellings of the four rect adjustments; `.flags`
-  before/after `.next = 0`; `origin` as a `Pos` struct copy vs two field
-  stores and either field first; `(found & 8) != 0`; `int`/`unsigned`/`char`
-  for `found`; `int` returns declared for `DefaultCursor`, `ValidateCursor`,
-  `ResetCursorFootprint`, `SetCursorError`; `void*` for `ProbeRiver`'s out
-  parameter.
-- **0x0043ea30 `RunListPicker`** — 392/398 aligned. The frame loop's abort
-  value (-1) has to live in `esi` across an iteration and be
-  **re-materialised at the loop header** (because `esi` is reused as the row
-  cursor in the draw loop); we get the value into `esi`, but VC6 still
-  ROTATES the loop, so the header's `mov esi,[sel]` + `ProcessSystemEvents`
-  test are duplicated at the latch where the original has a bare `jmp` back.
-  Ruled out: `while (cond)`, `do {} while (1)`, an explicit `goto` loop,
-  `for (ret = -1; cond; ret = -1)`, a comma-operator condition, `ret` as a
-  literal `-1` vs a copy of `sel`, `sel = -1` vs `sel = ret` at the two
-  no-hit sites, `tp++` in the for-increment.
-- **0x0043f0b0 `BrowseForFile`** — 190/313 aligned; the instruction COUNT is
-  exact and every call, block and epilogue lines up. Two frame defects:
-  (1) our frame is `0x64c`, the original's `0x650` — the original spills one
-  more 4-byte scalar than we do, so **every** `[esp+x]` is 4 out; (2) `dir`
-  and `fname` (both `char[0x100]`) are swapped in the frame — the original
-  puts `dir` at the top of the frame (`E-0x100`) and `fname` below `cwd`.
-  Ruled out for (1): `drive[4]`, `drive[8]`, `_finddata_t::name[264]`,
-  `pattern[0x108]` (each fixes the frame SIZE but then shifts every scalar
-  by 4 instead); `swapped`, `j` and a `node` pointer hoisted to function
-  scope; storing `result` through memory. Ruled out for (2): swapping the
-  declaration order of `dir` and `fname` (no effect — declaration order is
-  irrelevant, as DECOMP already says).
+- **0x004349b0 `JcDeco_CalcCursor`** — 89/94 aligned (strict 7/94), first
+  diverging index 66. Instruction count, byte length, every block, every
+  store order and every frame slot agree; the tail is **one scratch register
+  out of phase** (the scratch cursor's `rect.top` temp lands in `ecx` where
+  the original uses `eax`, and the following `origin` pair rotates `edx,eax`
+  against the original's `ecx,edx`). Ruled out in the first session: all 24
+  orderings of the four `g_jc_deco_rect2` stores (the best, committed, order
+  fixed indices 26–40); `--`/`-= 1`/`= x - 1` spellings of the four rect
+  adjustments; `.flags` before/after `.next = 0`; `origin` as a `Pos` struct
+  copy vs two field stores and either field first; `(found & 8) != 0`;
+  `int`/`unsigned`/`char` for `found`; `int` returns declared for
+  `DefaultCursor`, `ValidateCursor`, `ResetCursorFootprint`,
+  `SetCursorError`; `void*` for `ProbeRiver`'s out parameter. Ruled out by
+  the escalation (eleven spellings, every one 89/94 except where noted): an
+  empty `if (found) ;` block boundary after the rect copy and after the four
+  adjustments (the LL10 single-use pin — inert on integer globals); a
+  `Rect* rc` alias of the scratch rect and a `Cursor* c` alias of the whole
+  scratch cursor; the top adjustment through a named temp, and all four
+  adjustments through four named temps (the four-loads/four-ops/four-stores
+  shape the original already has); the origin pair stored after the
+  next-pointer (88/94); int-returning function-pointer casts at the
+  `DefaultCursor`, `ResetCursorFootprint` and `ValidateCursor` call sites;
+  the `found == 0` early return rewritten as an if/else around the whole
+  tail. The phase is decided before the tail by something that emits no
+  instruction; nothing left in this body's source moves it. **Retired.**
+
+## Closing the two large WIPs (escalation, 2026-09-08)
+
+Object prefix `/tmp/sll12b_`; every row is `matchfull.py` aligned/total.
+
+### 0x0043ea30 `RunListPicker` — 392/398 → 395/395
+
+The first session had the frame loop's abort value in `esi` but the loop
+ROTATED (the `mov esi,[sel]` + `ProcessSystemEvents` test duplicated at the
+latch). Reading the original header block instruction by instruction:
+`or esi,-1 / call ProcessSystemEvents / test eax,eax / je exit`, latch a bare
+`jmp header`, and `mov dword ptr [esp+0x10],-1` in the prologue — so `sel`
+is initialised to -1 ONCE (memory) and the returned value is a SEPARATE
+literal `-1` re-assigned every iteration.
+
+| spelling | result |
+| --- | --- |
+| baseline: `for (;;) { ret = sel; if (!PSE()) break; ... }`, `return ret` | 392/398 (rotated) |
+| `sel = -1` at the loop top, no `ret` (A) | 285/395 — loses the `mov [esp+0x10],-1` prologue store |
+| `for (;;) { ret = -1; ... }` (B) | 387/401 — still rotated |
+| `while (1) { ret = -1; ... }` (B1) | 383/395 — un-rotated; count exact |
+| B1 + no-hit sites `sel = -1` instead of `sel = ret` (B4) | 385/395 |
+| B4 + the three abort `break`s as `return ret` (V5) | 392/395 — the `mov eax,esi` epilogue moves BEFORE the click epilogue |
+| V5 + `for (; k < n; k++, tp++)`, `tp++, k++`, body-end `k++; tp++;`, `while` forms (L1, L4–L7) | 392/395 — the row IV's `add esi,0x10` always follows `inc ebx` |
+| V5 + a loop-carried `Row* rp` cursor (L2, L3) | 377/396 — anchored at `.left`, every displacement off |
+| V5 + `items[k]` in the draw call, no `tp` (T1) | 393/395 — latch `inc ebx / add edi,4 / add esi,0x10` |
+| T1 + six orderings/parenthesisations of the draw call's y, named `y0`/`rt`/`so` temps, `(unsigned)` casts, `(rows + k)->top`, `((int*)rows)[k*4+1]`, empty `if (k) ;` pins, `box`/`rows` declaration swaps (Y1–Y14, D1–D9, P1–P5, Q10–Q16) | 393/395 — all inert: the sum is flat and canonical (LEVERS SA02) |
+| T1 + `Row* q = &rows[k]` before the draw, used in x and y (Q17, R3, R8, H1–H4, E1, S1–S6) | 394/395 — y fixed, but the row IV update now precedes `add edi,4` |
+| T1 + first layout loop indexed `rows[i]` (W1a) | 392/395 |
+| T1 + second layout loop indexed `rows[i].left/right` (W3, X1, X8) | 391/395 — flips the X destination too (diagnostic) |
+| **T1 + second layout loop `for (i = 0; i < n; i++, q++) { q->left = 0; q->right = textw; }` (X5)** | **395/395** |
+
+Levers, in the order they landed:
+
+- **Header rematerialisation needs `while (1)` and a literal.** `for (;;)`
+  rotates even with a two-statement header; `while (1)` with `ret = -1;` as
+  the first statement keeps the folded constant-true test as the header and
+  the bare `jmp` at the latch (LP05, now with a second witness). `ret = sel`
+  (a copy of a variable known to be -1 on entry) is what produced the
+  `or esi,-1` header PLUS a `mov esi,[sel]` latch copy.
+- **`return ret` at the abort sites, not `break`.** With the un-rotated loop
+  a `break` puts the loop-exit epilogue (`mov eax,esi`) AFTER the in-loop
+  `return k` epilogue; three direct returns cross-jump into one epilogue
+  that lands first, as in the original.
+- **A compiler-derived IV and a user cursor do not interleave the same
+  way.** With `tp` a user cursor its `add edi,4` sits either before `inc
+  ebx` (body `tp++`) or after the derived row IV's `add esi,0x10`
+  (`k++, tp++`); reading `items[k]` makes both IVs compiler-derived and the
+  latch is `inc ebx / add edi,4 / add esi,0x10`.
+- **The add DESTINATION of a flat three-term sum is decided by OTHER code in
+  the function, not by the sum's spelling.** `box.top - g_scroll_offset +
+  rows[k].top` in the draw call had `rows[k].top` as the `sub` destination
+  in every spelling (six orders, temps, casts, pins); the original has
+  `box.top`. Writing the second layout loop as an up-counting `for` over the
+  row cursor (instead of `i = n; do { ... } while (--i)`) flips it, while
+  writing that loop with `rows[i].left = 0` indexing flips the X sum's
+  destination as well (W3). The loop that DEFINES the row fields sets the
+  operand rank of the later reads (SA01/SA02's "definition point").
+
+### 0x0043f0b0 `BrowseForFile` — 190/313 → 313/313
+
+Frame map of the original (E = esp after the four pushes): `n` E+0x10,
+`list` +0x14, `names` +0x18, `isdir` +0x1c, `icons` +0x20, `spr_file`
++0x24, `spr_folder` +0x28, `pass` +0x2c, `spr_drive` +0x30, `head` +0x34,
+`drive[3]` +0x38, **`diff` +0x3c**, `fd` +0x40, `pattern` +0x158, `fname`
++0x25c, `cwd` +0x35c, `ext` +0x460, `dir` +0x560. Ours had no `diff` slot
+(the `((a ^ b) >> 4) & 1` flag folded into `test dl,0x10`), `pass` at the
+bottom, `head`/`spr_drive` swapped, and `fname`/`dir` swapped.
+
+| spelling | result |
+| --- | --- |
+| baseline (two separate swap bodies under `if (diff) {...} else if (...)`) | 190/313, frame 0x64c |
+| swap once under `diff ? (b->attrib & 0x10) != 0 : NameCompare(...) < 0` (P1) | 193/316 |
+| P1 + `*(volatile int*)&spill = diff` phantom slot (P3a) / `*(volatile int*)&diff = ...` (P3b) | 213/317 / 271/316 |
+| renaming `dir`→`path`/`folder`, `fname`→`name` (P4a–c) | 190/313 — inert |
+| **swap once under `(diff != 0 && (b->attrib & 0x10)) \|\| (diff == 0 && NameCompare(...) < 0)` (P2)** | **288/312, frame 0x650** — `diff` read twice becomes a real local with a memory home at E+0x3c; `pass`, `head`/`spr_drive` and `fname`/`dir` all fall into place |
+| P2 + `strcpy(g_browse_name, names[sel]); result = g_browse_name;` (T1) | 288/312 |
+| P2 + `result = g_browse_name; strcpy(result, names[sel]);` (T2) | 311/313 |
+| P2 + `node = head` / `prev = head` hoisted above the `n > 0` guard (T5a/T5b) | 290/312 |
+| **T2 + T5b** | **313/313** |
+
+Levers:
+
+- **A one-shot flag that the original both stores and tests from the
+  register is a local READ TWICE.** `diff` used in both halves of an
+  `(a && b) || (!a && c)` condition gets a memory home (the "twelfth slot")
+  and the `mov [esp+0x3c],ebx / je` pair; the ternary form (one read) does
+  not, and a volatile phantom store puts the slot in the wrong pool.
+- **The missing scalar slot was the whole frame story.** With it present the
+  spill-pool ORDER (`pass` between `spr_folder` and `spr_drive`, `spr_drive`
+  below `head`) and the `dir`/`fname` order followed with no further change;
+  the first session's "two same-size buffers are not ordered by declaration
+  order" observation stands, but their order was a consequence of the
+  allocation, not an independent defect.
+- **Assign the walker before the guard when the original loads it above
+  the count test.** `mov eax,[head]` precedes `test ebx,ebx / jle`, so
+  `prev = head;` is a statement above `if (n > 0)`, not a block-local
+  initialiser inside it.
+- **`result = dest; strcpy(result, src)` vs `result = strcpy(dest, src)`.**
+  The original materialises `mov ebp,0x81c8e0` before the inline strcpy and
+  feeds `edi` from `ebp`; copying the intrinsic's return instead keeps the
+  constant in `edi` and copies it to `ebp` afterwards, and also let a
+  reloaded `names` stay in `esi` across the picker call.
 
 ## What these functions are
 
@@ -234,13 +330,15 @@ CRT sites confirmed by use: `0x0049edcc _getcwd`, `0x0049ebff _chdir`,
   home. **176/396 -> 44/404.**
 - **An infinite frame loop whose only exits are `break`/`return` is ROTATED,
   duplicating its leading guard; a `while (<variable>)` loop with the guard
-  as a leading `break` inside is not.** `RunTextEntryDialog`:
+  as a leading `break` inside is not — and neither is `while (1)` with a
+  literal assignment as its first statement (RunListPicker, escalation).** `RunTextEntryDialog`:
   `for (;;) { if (!ProcessSystemEvents()) break; ...; if (done) break; }`
   emitted a second copy of the `ProcessSystemEvents` call at the latch;
   `done = 0; while (!done) { if (!ProcessSystemEvents()) break; ...; }`
-  is exact (131/131), and the `done = 0` initialiser is free. The same
-  rewrite is what `RunListPicker` still needs and does not get, because
-  there the header also has to re-materialise a constant.
+  is exact (131/131), and the `done = 0` initialiser is free. `RunListPicker`,
+  whose header also re-materialises a constant, needed `while (1)` with the
+  literal `ret = -1;` as its first statement instead (see "Closing the two
+  large WIPs").
 - **Exiling a leading `return K`:** `if (c != 0) { if (c == -3) return 1;
   ... }` inlines the `mov eax,1` epilogue right after the compare, while
   `if (c != 0) { if (c != -3) { ... } else { return 1; } }` puts it at the
@@ -272,7 +370,8 @@ CRT sites confirmed by use: `0x0049edcc _getcwd`, `0x0049ebff _chdir`,
   slots line up.
 - **Two same-size `char` buffers are NOT ordered by declaration order**
   (confirming DECOMP): swapping `dir` and `fname` in `BrowseForFile`'s
-  declaration list left the frame byte-identical.
+  declaration list left the frame byte-identical. (Escalation: their order
+  followed the missing scalar slot — see "Closing the two large WIPs".)
 
 ## Original bugs reproduced
 
