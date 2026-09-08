@@ -1,6 +1,6 @@
-# Scope V — event tick handlers and goal checks: 61 of 62 exact
+# Scope V — event tick handlers and goal checks: 62 of 62 exact
 
-**Status: in progress, 2026-09-08 (see the eighth pass at the end).** Recovered the interrupted session's
+**Status: DONE, 2026-09-08 — 62 of 62 exact (the closing section is at the end of this file; everything between here and there is the history of `EventTick_Clear`).** Recovered the interrupted session's
 three saved exact fixes (`EventTick_Lookat`, `EventTick_Connect`, and
 `EventTick_Link`). A fresh whole-file audit reports 61 exact functions and
 one WIP, `EventTick_Clear` (177i/576B versus 177i/577B, 24 strict mismatches
@@ -61,7 +61,7 @@ one shape (`if (HintTimerDue() && !ShowGoalHint(e)) { h = NewTimedEvent(K,
 | 0x00469bd0 | `PlaceScriptObject` | 35 / 111 | OK | first try |
 | 0x00469c40 | `EventTick_Place` | 9 / 26 | OK | first try |
 | 0x00469c60 | `ClearSfxFade` | 7 / 18 | OK | first try; brief's `sub_469c60` (the CLEAR sample's fade callback) |
-| 0x00469c80 | `EventTick_Clear` | 177 / 576 vs 177 / 577 | **WIP** | 120 → 32 → 24 strict differences, first at insn 110; see the register-assignment checkpoint at the end |
+| 0x00469c80 | `EventTick_Clear` | 177 / 577 | OK | 120 → 32 → 24 → 2 → 0; closed 2026-09-08 with the sibling-copy kill plus the cancelled-pointer x copy (closing section) |
 | 0x00469ed0 | `EventTick_Unglue` | 29 / 76 | OK | first try |
 | 0x00469f20 | `EventTick_Glue` | 29 / 74 | OK | first try |
 | 0x00469f70 | `EventTick_Extendpark` | 5 / 14 | OK | first try |
@@ -1340,3 +1340,58 @@ byte-class conversion — paired with the y byte read from `sq.y`'s home. The
 front end folds every identity expression, so the copy has to come from the
 optimizer or the allocator; phis do it but cost a branch. Everything else in
 this block is now pinned by measurement.
+
+## Closed — 2026-09-08 (`feat/v-completion-worktree-69a63a`)
+
+`EventTick_Clear` is exact: **177 instructions / 577 bytes, 0 strict**,
+`audit.py` `[OK]`, `relocs.py` 0 MISMATCH, `/W3` clean, no `volatile`
+anywhere in the body. `eventtick.c` is 46 of 46 and `eventgoal.c` 16 of
+16. Two mechanisms closed it, one from each session working the residual:
+
+1. **The x copy (Cursor, `.worktrees/scope-v-clear`, its 178th check,
+   uncommitted there at the time of writing).** `Pos t; t.y = (int)d;
+   t.x = bx; t.x += t.y; t.x -= t.y;` and every later x store from `t.x`.
+   The add/sub of a pointer-valued int cancel in instruction selection,
+   but the allocator has already given `t.x` its own web, so `bx` keeps
+   ebp with no byte need and the byte-capable copy `mov ecx, ebp` feeds
+   `sq.x`, `origin.x` and `g_sel_bpos.b.x`. This is the construct the
+   eighth pass asked for; every identity written directly on `bx` folds.
+   Cursor's body with it was 2 strict (`g_sel_def` / `bpos.y` swapped) and
+   still carried a `volatile` byte read of `sq.y`.
+
+2. **The y reload and the store order (this session).** The fifth pass's
+   fourth kill — a block copy into a sibling member of the same local
+   aggregate — was rejected because wrapping `f` memory-homed all four
+   footprint fields. The layout that works keeps the frame exact
+   (`sq` 0x18, spills 0x24 / 0x2c, `saved` 0x30):
+
+   ```c
+   typedef struct ClearLocals { Pos sq; int pad0; int top; int pad1; int bottom; Cursor saved; } ClearLocals;
+   ```
+
+   with the footprint computed through a register `Rect f` and only the two
+   y-sums stored into the aggregate: `f.top = d->top; f.bottom = d->bottom;
+   f.left = d->left; L.top = f.top + by; f.right = d->right; L.bottom =
+   f.bottom + by; f.left += bx; f.right += bx;` (single-statement member
+   sums; `L.top = d->top; L.top += by;` stores twice, and scalar `left` /
+   `right` get sunk to their compares). The copy into `L.saved` then kills
+   the forwarding of `L.sq.y = by` (stored before the copy), so
+   `g_sel_bpos.b.y = (unsigned char)L.sq.y` is a plain, hoistable
+   `mov dl, [esp+0x1c]` at 114 — and because the read is ordinary, the
+   source order `bpos.x`, `g_sel_def = d`, `bpos.y` is what the scheduler
+   emits at 117–119, with the query in the original's edx / ecx.
+
+   Measured on the way: with a `volatile` y read the load is pinned at its
+   statement and the store sinks into the address-sorted group ahead of the
+   `g_sel_def` store; naming the byte gives it a web that is coloured
+   before `inst` and rotates the query registers; a single selection
+   struct spanning 0x667c54..0x667c5c, 24 permutations of split byte
+   symbols by name and declaration order, and moving the last ecx use
+   after the y store are all inert. The kill is what makes the plain read
+   legal, and the plain read is what lets source order win.
+
+Reusable levers, both general: **a block copy into a sibling member of the
+same local aggregate is a free forwarding kill for every member (hole
+members reproduce a Rect's unused slots without homing the used ones)**, and
+**`v + (int)p - (int)p` through a struct member gives a byte-needing store
+its own web and a bare `mov r32, r32` from the original register**.

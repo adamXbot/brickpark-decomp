@@ -125,6 +125,16 @@ typedef struct Cursor {
     char pad140c[0x1834 - 0x140c];
 } Cursor;
 
+/* CLEAR's locals that must share one object (see EventTick_Clear). */
+typedef struct ClearLocals {
+    Pos    sq;                   /* +0x00  the square handed to the query callback */
+    int    pad0;                 /* +0x08  the footprint Rect's never-stored left */
+    int    top;                  /* +0x0c  footprint top + y, spilled */
+    int    pad1;                 /* +0x10  never-stored right */
+    int    bottom;               /* +0x14  footprint bottom + y, spilled */
+    Cursor saved;                /* +0x18  the destroy cursor, saved whole */
+} ClearLocals;
+
 /* ---- globals ------------------------------------------------------------- */
 extern MapHdr*    g_map;                 /* 0x004bcbf4 */
 extern Cell**     g_map_rows;            /* 0x00801400 */
@@ -393,41 +403,39 @@ int ClearSfxFade(void* sample)
  * flag-0x10 menu, then the rest of the unpowered ones, then everything --
  * each through the destroy cursor, which is saved and restored around it.
  *
- * Residual (docs/lanes/scope-v.md): 177 instructions / 576 bytes versus
- * the original 177 / 577, with 24 strict differences, the first at
- * instruction 110. Everything up to and including the footprint overlap
- * test is now instruction-for-instruction exact: the frame, the three
- * passes, next in ebx and the render-list cell in edi, base x in ebp
- * (loaded through edx and moved) and base y in edx, and both footprint
- * spills. What is left is the nine-instruction cursor-setup group at
- * 110-119 and the register renames it forces on the calls after it.
+ * Exact. Three things in this body are load-bearing and look odd; each is
+ * documented with its measurements in docs/lanes/scope-v.md:
  *
- * The original serves g_sel_bpos.b.x from a byte-capable copy of ebp
- * (`mov ecx, ebp`) and g_sel_bpos.b.y from a reload of sq.y's home slot;
- * this body has those two roles the other way round, because the volatile
- * read below is the only spelling found that puts base x in ebp at all.
- * A byte re-read of a local's home needs a memory kill between the store
- * and the read, and VC6 has only four: a call, a volatile access, a store
- * through a pointer it cannot resolve, and a block copy into a sibling
- * member of the same local aggregate. Every one of them serves the byte
- * from memory, and serving a coordinate's byte from memory is exactly what
- * drops its byte need and moves it out of edx, so no kill can produce the
- * original's pairing.
- * See docs/lanes/scope-v.md for the levers and the bounded negatives.
- * This is a full body ending in ret, not a truncated comparison. */
-// WIP-FUNCTION: LEGOLAND 0x00469c80  (177i/576B vs 177i/577B, 24 strict; cursor-setup byte sources differ)
+ * - The query square and the saved cursor live in ONE local aggregate
+ *   (ClearLocals) with the two spilled footprint sums between them. The
+ *   6196-byte copy into L.saved is then a block copy into a sibling member
+ *   of the same aggregate, which is the one memory-kill VC6 SP3 has that
+ *   costs nothing: it stops the store of L.sq.y being forwarded to its
+ *   later byte read, so g_sel_bpos.b.y comes back out of L.sq.y's home
+ *   (`mov dl, [esp+0x1c]`) exactly as the original does. The two `pad`
+ *   members are the Rect's never-stored left/right slots; top/bottom are
+ *   members because the original stores and reloads exactly those two.
+ * - The base x reaches the cursor stores through `t.x = bx + (int)d - (int)d`.
+ *   The add/sub cancel in instruction selection, but the allocator has
+ *   already treated t.x as a web distinct from bx, so bx keeps ebp with no
+ *   byte need and the byte-capable copy `mov ecx, ebp` feeds sq.x, origin.x
+ *   and g_sel_bpos.b.x. Every identity expression written directly folds
+ *   back onto bx and puts x in edx.
+ * - The footprint sums are computed through a register Rect and only the
+ *   two y-sums are stored into the aggregate, in the statement order below,
+ *   which reproduces the original's load/add/spill interleave. */
+// FUNCTION: LEGOLAND 0x00469c80
 int EventTick_Clear(ScriptEvent* e)
 {
-    Cursor   saved;
+    ClearLocals L;
     ObjDef*  saved_def;
-    Pos      sq;
     int      pass;
     Cell*    c;
     Cell*    next;
     ObjDef*  d;
     Rect     f;
     int      bx, by;
-    unsigned char px;
+    Pos      t;
     void*    sfx;
 
     sfx = PlayInstanceOfSample(g_clear_sfx, 1, 1, 0);
@@ -457,39 +465,36 @@ int EventTick_Clear(ScriptEvent* e)
                 d = c->obj->def;
                 bx = c->x;
                 by = c->y;
-                /* Separate field loads and offsets keep the two footprint
-                 * spills and the render-list registers close to the original. */
                 f.top = d->top;
                 f.bottom = d->bottom;
                 f.left = d->left;
-                f.top += by;
+                L.top = f.top + by;
                 f.right = d->right;
-                f.bottom += by;
+                L.bottom = f.bottom + by;
                 f.left += bx;
                 f.right += bx;
                 if (f.left <= e->area.right && f.right >= e->area.left &&
-                    f.top <= e->area.bottom && f.bottom >= e->area.top) {
+                    L.top <= e->area.bottom && L.bottom >= e->area.top) {
                     saved_def = g_sel_def;
-                    saved = g_destroy_cursor;
-                    sq.y = by;
-                    sq.x = bx;
-                    /* Taking this byte out of memory instead of out of the
-                     * base coordinate is what drops base x's byte need, and
-                     * with it x into ebp, y into edx and next into ebx --
-                     * the original's assignment, and the whole footprint
-                     * block exactly. */
-                    px = *(volatile unsigned char*)&sq.x;
-                    g_destroy_cursor.origin = sq;
-                    g_sel_bpos.b.y = (unsigned char)by;
+                    L.sq.y = by;
+                    L.saved = g_destroy_cursor;
+                    t.y = (int)d;
+                    t.x = bx;
+                    t.x += t.y;
+                    t.x -= t.y;
+                    g_destroy_cursor.origin.y = by;
+                    L.sq.x = t.x;
+                    g_destroy_cursor.origin.x = t.x;
+                    g_sel_bpos.b.x = (unsigned char)t.x;
                     g_sel_def = d;
-                    g_sel_bpos.b.x = px;
-                    d->query(d->inst, &sq);
+                    g_sel_bpos.b.y = (unsigned char)L.sq.y;
+                    d->query(d->inst, &L.sq);
                     BuildCursorPtr(&g_destroy_cursor, 0, 0);
                     if (CursorIsValid(&g_destroy_cursor)) {
-                        RemoveObjectPathTiles(g_sel_def, &sq);
+                        RemoveObjectPathTiles(g_sel_def, &L.sq);
                         RemObjFromMap(g_sel_def, g_sel_def->inst, g_sel_bpos, &g_destroy_cursor);
                     }
-                    g_destroy_cursor = saved;
+                    g_destroy_cursor = L.saved;
                     g_sel_def = saved_def;
                 }
             }
