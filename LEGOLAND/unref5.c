@@ -645,23 +645,31 @@ void PresentNoOp(void)
  * That is the original's behaviour and is harmless because nothing but rf is
  * read; reproduced.
  *
- * SLOT PERMUTATION, second pass (2026-09-08, 20 spellings, all 84 or worse):
- * the LL9 aggregate-placement lever does not transfer.  Any struct holding
- * `w` (`{short w; int qx; int savecol}` in the original's slot order or
- * reversed, `{w, savecol}`, `{savecol, w}`, `{int w, savecol}`,
- * `{w, savecol, hw}`) moves hw/qx as well and costs 97-108 (the 12-byte
- * form grows the frame to 0x58); `{savecol, hw}` / `{hw, savecol}` 89-90;
- * `{hh, hw}` with `{w, savecol}` 126; savecol/saverow folded into the
- * cursor aggregate `{c, r, sc, sr}` 93 and `{sc, sr, c, r}` de-scalarises
- * it (245).  qx and saverow as one variable 94.  Inert (byte-identical to
- * 84): `= 0` initialisers on savecol, qx, saverow or w; block-scoped
- * savecol/saverow inside the outer loop; a pre-loop `savecol = cur.c`.
- * The appearance counts do not order the frame either (hw 10, savecol 4,
- * qx/saverow 3+3, w 10, h 11, hh 8, y 5, rx 12 against top-down slots
- * 0x30..0x10), so the ordering key is internal to the allocator.
+ * SLOT ORDER -- CLOSED (2026-09-08, third pass).  The residual was a
+ * three-way permutation of the 4-byte spill slots at +0x24/+0x28/+0x2c
+ * (original `w`, `qx`+`saverow`, `savecol`; ours `savecol`, `w`,
+ * `qx`+`saverow`), worth 84 of 291 because it also swapped which of
+ * `rx`/`cur.c` is loaded into ecx at the top of the outer loop and cost one
+ * extra `mov` in the loop-A preheader.  The lever is that **`savecol` must
+ * have a SINGLE definition**: written `savecol++; cur.c = savecol;` the
+ * increment is a second definition of `savecol` inside the outer loop, its
+ * web is split at the back edge and the allocator gives it the FIRST of the
+ * three slots; written `cur.c = savecol + 1;` at both restore sites (the
+ * value is identical -- `savecol` is only ever read as `savecol + 1` after
+ * loop A) `savecol` is defined once per iteration, its web is created last
+ * and it takes the LAST slot, which is the original's frame and register
+ * allocation exactly.  Nothing else changed.  Everything measured before
+ * this -- the LL9 aggregate lever in every grouping (89-245), `= 0`
+ * initialisers, block-scoped saves, a pre-loop dead store, reversed
+ * declaration orders, `qx`/`qy`/`sx`/`sy` doubling as the save pair
+ * (88-106), the save pair as an array (97) or as a struct (97) -- moved the
+ * slots without ever putting `w` first, because they all left the extra
+ * definition in place.  LEVERS: a self-increment of a loop-carried save
+ * variable splits its web and moves its frame slot; spell it as `x + 1` at
+ * the use sites instead.
  * ========================================================================= */
 
-// WIP-FUNCTION: LEGOLAND 0x0045ade0  (71%, 84/291 strict, rb 78, ob 65, first diverging index 42: three spill slots permuted (w / qx+saverow / savecol over +0x24,+0x28,+0x2c))
+// FUNCTION: LEGOLAND 0x0045ade0
 void DrawTileDebugOverlay(void)
 {
     ClipRect clip;
@@ -743,8 +751,7 @@ void DrawTileDebugOverlay(void)
             cur.c++;
             cur.r--;
         }
-        savecol++;
-        cur.c = savecol;
+        cur.c = savecol + 1;
         cur.r = saverow;
         for (x = clip.x - 2 * w - rx; x < w * 2 + clip.w; x += w) {
             if (cur.c >= 0 && cur.c < g_map->cells_w && cur.r >= 0 && cur.r < g_map->cells_h)
@@ -757,7 +764,7 @@ void DrawTileDebugOverlay(void)
             cur.c++;
             cur.r--;
         }
-        cur.c = savecol;
+        cur.c = savecol + 1;
         cur.r = saverow + 1;
     }
 }
