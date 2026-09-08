@@ -58,7 +58,7 @@ Object prefix: `/tmp/cf_`.
 | `0x0043a940` | `SpaceTower_StepCar` | 37 | OK | — |
 | `0x004049a0` | `Copters_StopRide` | 71 | OK | — |
 | `0x0043b810` | `SpaceTower_UpdateRiders` | 116 | OK | — |
-| `0x00404630` | `Copters_UpdateCarRider` | 168 | WIP | 50 audit mismatches (matchfull 154/176); oa memory-homed instead of esi, kf[8] load order |
+| `0x00404630` | `Copters_UpdateCarRider` | 168 | WIP | **168i/528B, frame 0x28 — all exact; 15 audit mismatches.** oa/cursor register swap + two FP operand orders |
 
 ## Closed this wave (levers)
 
@@ -388,13 +388,55 @@ spend more time on it.**
   anchor's HOST is the only thing that selects the rotation, and only
   `(int)track` gives the correct cursor and product order.
 
-Next: the residual on both bodies is a rank ordering among the loop's
-webs that no source-level construct found so far can set. The EAX story
-is dead; the remaining leads are (a) the /FAc listing route — compile the
-exact bnvpath and person3d asm bodies with `/FAc` and compare VC6's own
-frame/register annotations against ours to find what ranks a web, and
-(b) accepting these two as honest WIPs, since both are size- or
-instruction-exact with a documented one-rotation residual. Nothing in the C or asm syntax
+Eighth sweep (2026-09-08) — **the /FAc listing route, which took Copters
+from 50 audit mismatches to 15 and made it instruction-, byte- and
+frame-exact (168i/528B, frame 0x28).**
+
+`/FAcs /Fa<path>` works through the wibo wrapper and is now the tool of
+choice for this class of residual: the listing prints VC6's own frame
+symbol table and attributes every instruction to a source line.
+
+- **VC6 overlaps locals onto dead PARAMETER slots.** The exact bnvpath body
+  equates `_value$ = 8` — the same offset as `_person$ = 8`. That is why the
+  original's asm operands sit at `[ebp+0x10]` and `[ebp+0x1c]`: they are the
+  dead `frame` and `screen_y` parameters holding `value` and `scale`. Our
+  pointer puns and a plain `float` local produce identical bytes, so that
+  choice was never the issue.
+- **The equates list tells you which locals cost frame slots.** mantex lists
+  only `_out$`/`_base$`, so its carrier is free — hence 221B size-exact.
+  The old Copters body listed `_u$ = -48`, exactly the 8 bytes that took the
+  frame from the original's 0x28 to 0x30.
+- **A struct member that must live ACROSS a loop is memory-homed and
+  reloaded; one confined to a straight-line region stays in a register.**
+  So the cancelled-pair lever is byte-free only for a value that does not
+  cross a loop. The `oa` carrier violated that and cost the slot plus a
+  reload every inner iteration.
+- **THE ANCHOR IS LIVE WHEREVER THE CANCEL IS — pick it accordingly.** This
+  is the general rule the listing exposed and the one to carry to other
+  scopes. The old body anchored on `(int)person`, so `person` stayed live
+  through the inner loop and occupied esi; the original frees esi at
+  `lea edx,[esi+0x58]` and hands it to `oa`. Anchoring on `oa` itself, taken
+  where `oa` is defined, leaves every other web exactly where the original
+  has it. Anchors on `anim` (45) and on the dead-at-that-point `layer`,
+  `mode`, `seat->frame`, `(int)kf` (77-164, several ESCAPES) confirm the
+  rule from the other side, as does mantex: `(int)track` stays its best
+  anchor (8) because the original really does keep the track pointer live
+  through the loop, while `si`/`chan[i]` anchors give 11/14.
+- Inert on the new base: cross-product operand order and statement order
+  (all swaps identical), the dead-loop phase counter k=1..6, doubling or
+  tripling the cancel, an explicit `m` cursor in four placements, a cursor
+  carrier, `register`, and every spelling of how the anchor takes its value
+  (`= oa`, `= chan[i]`, chained, two-step).
+
+Residual on Copters is now exactly two items: `oa` and the store cursor are
+swapped (original `oa`=esi with `lea edx,[esi+0x58]`, ours `oa`=edx with
+`add esi,0x58`), and the second factor of two cross products loads in the
+other order. Both are rank/phase decisions, and 15 mismatches is a plateau
+across ~40 further variants.
+
+Next: both bodies are honest WIPs with everything but a rank ordering
+matching. The EAX story is dead. If a ninth pass happens, the /FAc route
+is the one that works — read the listing, not the score. Nothing in the C or asm syntax
 tried so far does it; the two remaining ideas are (a) an instruction
 the compiler emits for C code inside the loop that we have attributed
 to the asm and that VC6 models as an EAX def, and (b) an inline-asm

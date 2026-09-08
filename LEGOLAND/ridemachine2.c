@@ -255,20 +255,24 @@ void SpaceTower_UpdateRiders(TowerRec* rec)
  * 12-float frames (pos, a, b, n); the frame's normal is rebuilt as b x a
  * before the bake, and the bake reads vector 1+oa of the frame.
  *
- * WIP (50 audit mismatches, was 146; matchfull 154/176).  The scope-V
- * cancelled-pair lever (DECOMP.md, SCOPE V) is applied twice: the float
- * index and `oa` are struct members carrying `+= t.oy; -= t.oy` against a
- * pointer-valued anchor.  The add/sub cancel at instruction selection but
- * the allocator has already weighted those webs, which gives the original's
- * whole picture outside the loop (seat spilled to the dead `rec` slot with
- * edi as its cache, chain esi, anim ebx, ip/m at [ebp-4]/[ebp-8], scale at
- * [ebp-0xc]) and the original's IV registers (j ecx, cursor edx, temp eax).
- * Residual: `u.ox` (oa) is memory-homed at [ebp-0x30] (frame 0x30 vs 0x28)
- * and reloaded instead of living in esi, and the two cross products that
- * read kf[8] load it second.  An EAX write inside the asm block plus a
- * pre-asm `sb = sign_b[oa]` reaches 163/175: the original was allocated as
- * if the fld/fmul/fistp block wrote EAX.  Everything measured on the way is
- * in docs/lanes/codex-f.md. */
+ * WIP: 168i/528B -- instruction-, byte- and frame-exact (0x28); 15 audit
+ * mismatches, was 50.  The scope-V cancelled-pair lever (DECOMP.md, SCOPE V)
+ * carries the float index in a struct member, and the anchor is `oa` taken
+ * where `oa` is defined.  The anchor choice is the whole lever here: an
+ * anchor is live wherever the cancel is, so anchoring on `person` (the
+ * earlier body) kept `person` alive through the inner loop and blocked esi,
+ * which the original frees at the cursor `lea` and hands to `oa`.  Anchoring
+ * on `oa` itself leaves every other web where the original has it: seat
+ * spilled to the dead `rec` slot with edi as its cache, anim ebx, ip/m at
+ * [ebp-4]/[ebp-8], scale at [ebp-0xc], j ecx, temp eax.
+ *
+ * Residual (two items): `oa` and the store cursor are swapped (original
+ * oa=esi with `lea edx,[esi+0x58]` for the cursor, ours oa=edx with
+ * `add esi,0x58`), and the second factor of two cross products loads in the
+ * other order (`fld [eax+0x20]` first).  Both are rank/phase decisions no
+ * source form reached: see docs/lanes/codex-f.md, which also records that
+ * the FP operand order is inert under every source spelling and dead-loop
+ * counter, and that the EAX-clobber reading was falsified. */
 // WIP-FUNCTION: LEGOLAND 0x00404630
 void Copters_UpdateCarRider(CoptersRec* rec, int index)
 {
@@ -287,8 +291,8 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
     int layer;
     float* kf;
     int i, j;
+    int oa;
     Offset t;
-    Offset u;
 
     screen = GetScreenCoordsForObject(rec, g_copters_def);
     if (seat->rider == 0)
@@ -319,23 +323,21 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
     SetPersonPosition(person, pos.ox, pos.oy);
 
     scale = 65536.0f;
-    t.oy = (int)person;
     kf = (float*)((char*)g_copters_postable->slots[anim] + seat->frame * 0x30);
     kf[9] = kf[5] * kf[7] - kf[8] * kf[4];
     kf[10] = kf[8] * kf[3] - kf[6] * kf[5];
     kf[11] = kf[6] * kf[4] - kf[3] * kf[7];
 
     for (i = 0; i < 3; i++) {
-        u.ox = g_copter_ord_a[i];
-        u.ox += t.oy;
-        u.ox -= t.oy;
+        oa = g_copter_ord_a[i];
+        t.oy = oa;
         for (j = 0; j < 3; j++) {
-            t.ox = (u.ox + seat->frame * 4 + 1) * 3 + g_copter_ord_b[j];
+            t.ox = (oa + seat->frame * 4 + 1) * 3 + g_copter_ord_b[j];
             t.ox += t.oy;
             t.ox -= t.oy;
             f = g_copters_postable->slots[anim][t.ox];
             FSCALEF(f, scale);
-            person->matrix[j * 3 + i] = g_copter_sign_a[j] * g_copter_sign_b[u.ox] * *(int*)&f;
+            person->matrix[j * 3 + i] = g_copter_sign_a[j] * g_copter_sign_b[oa] * *(int*)&f;
         }
     }
 }
