@@ -809,15 +809,8 @@ char* BrowseForFile(const char* title, void* backdrop, IRect* r,
 
             for (j = n - 2; j >= pass; j--) {
                 diff = ((list[j]->attrib ^ list[j + 1]->attrib) >> 4) & 1;
-                if (diff != 0) {
-                    if (list[j + 1]->attrib & 0x10) {
-                        FileEnt* t = list[j + 1];
-
-                        list[j + 1] = list[j];
-                        list[j] = t;
-                        swapped = 1;
-                    }
-                } else if (NameCompare(list[j + 1]->name, list[j]->name) < 0) {
+                if ((diff != 0 && (list[j + 1]->attrib & 0x10))
+                    || (diff == 0 && NameCompare(list[j + 1]->name, list[j]->name) < 0)) {
                     FileEnt* t = list[j + 1];
 
                     list[j + 1] = list[j];
