@@ -125,8 +125,13 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
 
 #define FLAGS g_appraisal_flags
 
-/* See the declaration of `v`: the hint counter is that same local. */
+/* See the declaration of `v`: section 9's hint counter and the render
+ * loop's narration count are both that same local.  VC6 packs all three
+ * onto one slot anyway (`/FAs` shows `_v$ == _nnarr$` before this was
+ * spelled out), and saying so in the source is worth a point of LCS:
+ * it also flips `passed` below `total`, which is the original's order. */
 #define nhint v
+#define nnarr v
 
 /* The page break every report line runs before it is written.  A section
  * that will not fit on what is left of the page is rewound and re-emitted
@@ -278,7 +283,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK8(LBL)                                                      \
     LINE8_BODY(MARK, textbuf)
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (7824/8085 insns emitted, 34224/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7923, index-for-index MATCH 162, true LCS 54.9%; VC6 orders this frame by DESCENDING reference weight (per dword for aggregates), which is why our slots were permuted against the original's.  `box` and `cur` are now one non-escaping aggregate so they sit adjacent as the original has them, paid for by writing the bar rectangle's top/bottom before its two constants, which takes `bar`'s stack home away.  What is left of the permutation is the `n*0x4c` byte-offset temp, whose 210 references outrank `page_start` and hold it off slot 0x10)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (7824/8085 insns emitted, 34224/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7922, index-for-index MATCH 163, true LCS 55.5%; the residual is the stack SLOT PERMUTATION.  The lane's "descending reference weight" rule is only a rough guide -- the ORIGINAL's own frame breaks it at exactly the three slots in question: its n*0x4c byte-offset temp has 222 references and sits at 0x18, below page_start's 173 at 0x10 and indent's 171 at 0x14.  Our temp has the same shape and count and sits at 0x10, which shifts every scalar displacement by one slot)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -331,7 +336,7 @@ int RunAppraisalScreen(void)
     RObj* obj;
     short kind;
     int i;
-    int nnarr, narr_cur;
+    int narr_cur;
     AppraisalBox title;
     AppraisalBox bar;
 
