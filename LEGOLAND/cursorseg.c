@@ -41,7 +41,38 @@ __declspec(dllimport) int __stdcall PtInRect(const ClipRect* r, int x, int y);  
  * (that one breaks the chain: 92/154). The shape `dec / je / four pops /
  * add esp / ret` exists nowhere else in the binary (both cursor fills have
  * it), so there is no template. STRUCTURAL by class, but the lever has not
- * been found. */
+ * been found.
+ *
+ * LL19 (2026-09-08), ~40 more spellings in a scratch harness, at its floor.
+ * MECHANISM: the default arm is a void `return`, i.e. an EMPTY block whose
+ * only content is the jump to the exit; VC6 threads it away before block
+ * layout, which leaves the last test with the exit as fall-through and
+ * inverts it (`jne end`, case 2 falls through). Any real instruction in
+ * the default arm (a `volatile` read of `flip`, a store to a global) keeps
+ * the block, and THEN the chain falls through into a cloned epilogue exactly
+ * as the original -- so the shape is reachable only with a code-bearing
+ * default, and the original's default has no code. Every zero-cost pin was
+ * threaded with the block: `if (h) ;`, `if (vs) ;`, `if (h) return;`,
+ * `while (0) ;`, `for (;;) return;`, `h = h;`, a dead store to flip / pat[0]
+ * / phase / x / c / p, a dead read of pat[0] / col[0] / vs->pitch, an
+ * unreferenced label, `{}`, a comma of casts, `goto` to the post-diagonal
+ * `return` label, a nested `switch (kind)` / `switch (h)` default, a shared
+ * `case 3:`; `__asm { }` keeps the block but gives the function an EBP
+ * frame. Also identical to the baseline: the diagonal loop as the switch's
+ * break join (both arms `break`), the vertical loop inside case 0 with
+ * `return` or `break`, every order of {0, 1, 2, default} with and without a
+ * default, `dir` pre-assigned before the switch (VC6 hoists the store above
+ * the chain, never sinks it), and a switch of `goto`s dispatching to
+ * labelled arms. SECOND OBSTACLE: whenever the default does fall through,
+ * VC6 lays the remaining arms in DESCENDING case value (2 then 1, case 0
+ * last) whatever their source order or which arm carries the goto -- the
+ * same order as the four matched chain-fall-through templates in the binary
+ * (GetTransparentColour / GetNearestColour 0x0044e690/0x0044e6c0,
+ * CurLevelFlags 0x00478610, SelectFont 0x00454b40) -- while the original
+ * has case 1 (`dir = -1; jmp`) BEFORE case 2. No construct produced the
+ * ascending order. Flags do not reach it either: /O1, /Os, /Ox, /Ob0, /Oy-,
+ * /Oa, /Ow, /Gf, /Gs, /GB, /G3-/G6, /Zp1 are all equal or worse. The 9
+ * residual instructions (LCS, all blinds equal) are exactly this layout. */
 // WIP-FUNCTION: LEGOLAND 0x0045fad0  (94.2%, the switch's default arm: the original clones the exit epilogue as the chain's fall-through and keeps case 1 then case 2; ours inverts the last test)
 void DrawCursorSegmentB(VideoSurfaceInfo* vs, int kind, int x, int y, const unsigned char* col, int h)
 {
@@ -120,22 +151,33 @@ void DrawCursorSegmentB(VideoSurfaceInfo* vs, int kind, int x, int y, const unsi
     }
 }
 
-/* WIP. audit: ours 194i/608B, original 195i/606B, mismatch 111; matchfull
- * ~150/195. The same default-arm layout difference as DrawCursorSegmentB
- * (see its note; the two fills are the only bodies in the binary with that
- * shape), plus two consequences in the diagonal loop that will most likely
- * follow from it: a scratch rotation (the original loads y into edx and x
- * into eax before PtInRect, ours eax/ecx; the count copy is edx there and
- * ecx here) and the `if (flip)` block, where the original loads `vs->pitch`
- * into ecx between the y increment and its store while ours folds the load
- * into the add. The prologue, the 32 pattern stores, the zero register (edi)
- * and the vertical loop match. */
-// WIP-FUNCTION: LEGOLAND 0x0045fca0  (77%, the DrawCursorSegmentB default-arm layout plus a scratch rotation and a folded pitch load in the diagonal loop)
+/* WIP. audit: ours 195i/608B, original 195i/606B, mismatch 111 (positional;
+ * the whole count is the block shift below); matchfull 180/189 = 95.2%,
+ * LCS residual 9 with strict == rb == ob. LL19 (2026-09-08): the diagonal
+ * loop's head must be spelled `h++; while (h--)` -- the counted-down copy
+ * `i = h + 1; while (i--)` gives the same code in DrawCursorSegmentB (where
+ * x and y live in ebp/ebx) but here, with x, y, phase, flip and the count
+ * all memory-homed, the extra name made VC6 load h into edx and form h + 1
+ * with `lea`, and that one scratch choice rotated eax/ecx/edx through the
+ * whole loop (the count copy, the PtInRect argument loads, the pattern
+ * index, the x step) and re-scheduled the `if (flip)` block so the pitch
+ * load folded into the add. With `h` stepped in place the loop, its
+ * preheader, the `mov ecx,[eax] / mov [y],edx / add esi,ecx` pitch shape
+ * and the vertical loop are all instruction-, register- and offset-exact.
+ * (`*(volatile int*)&h + 1` in the head reaches the same rotation, 180/190,
+ * 607B; `while (h-- >= 0)` 176/188.) Measured inert or worse here: the
+ * flip block as `q = p; p += vs->pitch; y++` or `q = p; y++; p += pitch`
+ * or with a named `pitch` local (only the fold moves, 147/189 at best),
+ * `y = y + 1`, `for (i = h + 1; i--; )`, `i = h; i++;`, and free volatile
+ * reads of flip (86), phase (146), y in the test (146), x (133), dir (88),
+ * vs (95). The residual is exactly DrawCursorSegmentB's switch layout --
+ * see its note for the mechanism and why it is at its floor. */
+// WIP-FUNCTION: LEGOLAND 0x0045fca0  (95.2%, only the DrawCursorSegmentB default-arm layout: the chain falls through into a cloned epilogue and keeps case 1 then case 2)
 void DrawCursorSegmentA(VideoSurfaceInfo* vs, int kind, int x, int y, const unsigned char* col, int h)
 {
     int            flip = 0;
     unsigned short pat[32];
-    int            c1, c2, i, phase, dir;
+    int            c1, c2, phase, dir;
     unsigned short c;
     unsigned char* p;
     unsigned char* q;
@@ -188,8 +230,8 @@ void DrawCursorSegmentA(VideoSurfaceInfo* vs, int kind, int x, int y, const unsi
     case 2:
         dir = 1;
     diagonal:
-        i = h + 1;
-        while (i--) {
+        h++;
+        while (h--) {
             if (PtInRect(&g_clip, x, y)) {
                 c = pat[phase & 0x1f];
                 if (c)
