@@ -1196,13 +1196,19 @@ different order:
 | original | `page_start` | `indent` | temp/`nrun`/`nhint` | `box` | `cur` | `ok`/`obj` | `passed`/temp | `sect_start` | `failmask`/`nnarr` | temp | `total` |
 | ours | temp | `cur` | | | | `ok`/`obj` (`0x2c`) | `box` (`0x40`) | | | | `nrun`/`i` |
 
-ours in full: `0x10` temp, `0x14`–`0x20` `cur`, `0x24` `page_start`, `0x28`
-`indent`, `0x2c` `ok`/`obj`, `0x30` `sect_start`, `0x34`
-`passed`/`nhint`/`nnarr`, `0x38` `failmask`, `0x3c` `total`, `0x40`–`0x4c`
-`box`/`bar`, `0x50` `nrun`/`i`, `0x54` `all_passed`/`narr_cur`, `0x58`
-`all_total`, `0x5c`/`0x60` temps, `0x64`–`0x90` the eleven out-params and
-`kind` (the original puts `kind` at `0x64` and the out-params at
-`0x68`–`0x90`, and orders them differently).
+ours in full (`/FAs` on the committed build): `0x10` temp, `0x14`–`0x20`
+`cur`, `0x24` `page_start`, `0x28` `indent`, `0x2c` `ok`/`obj`/temp, `0x30`
+`sect_start`, `0x34` `v`/`nnarr`/temp, `0x38` `failmask`, `0x3c` `passed`,
+`0x40` `total`, `0x44`–`0x50` `box`/`bar`, `0x54` `nrun`/`i`, `0x58`
+`all_passed`/`narr_cur`/temp, `0x5c` `all_total`, `0x60` temp, `0x64`–`0x90`
+the eleven out-params with `kind` at `0x8c` (the original puts `kind` at
+`0x64` and the out-params at `0x68`–`0x90`, and in a different order).
+Five slots carry a temp here too — the counting in the previous section is
+about *which* names ride them, not how many exist.
+
+Declaration order was re-tested under this shape and is still inert: moving
+`cur` ahead of `box`, and rewriting the whole scalar declaration block into
+the original's slot order, both give a byte-identical frame map.
 
 **Mechanically renaming our slots to the original's takes the LCS from 50.6%
 to 59.8%** (`/tmp/sll16d_remap.py`, same normalisation as `tools/match.py`).
