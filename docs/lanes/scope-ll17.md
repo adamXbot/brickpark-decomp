@@ -14,8 +14,8 @@ count). Object prefix `/tmp/sll17_`. Brief:
 | 0x0046d850 | ScrollIconPanel | fpui4.c | 35/121 | 35/121 | PASS, 6 OK | WIP (floor, note extended) |
 | 0x00482430 | BuildPTPRoute | workorder3.c | 10/76 | **0/76** | PASS, 2 OK | **FUNCTION** |
 | 0x0045e960 | FindObjDoorTile | mapbuild2.c | 6/89 | **0/89** | PASS, 3 OK | **FUNCTION** |
-| 0x0048f0f0 | InitExitCheckBox | screens2.c | | | | |
-| 0x0048a3e0 | GetObjectUID | objmap2.c | | | | |
+| 0x0048f0f0 | InitExitCheckBox | screens2.c | 118/119 | 118/119 | PASS, 11 OK | WIP (floor, note extended) |
+| 0x0048a3e0 | GetObjectUID | objmap2.c | 20/191 | 20/191 | PASS, 14 OK | WIP (floor, note extended) |
 | 0x00459970 | TallyBuildFootprints | mapbuild2.c | | | | |
 | 0x00499d60 | UnlinkGardenerOrder | workorder3.c | | | | |
 
@@ -97,3 +97,49 @@ block); ours took the free scratch (edx; ecx/esi). Not a count problem:
 RA02 in its plainest form: a named aggregate copy and a direct field
 expression are different webs, and only the direct expression gets the
 original's registers. The appearance-count model has nothing to say here.
+
+### 0x0048f0f0 InitExitCheckBox — floor re-confirmed (6 spellings, resumed session)
+
+The residual is `push ebx / xor ebx,ebx / pop ebx`: a three-store constant
+zero the original keeps in a callee-saved register. Five earlier passes
+measured the hoist threshold (four unweighted uses) and the byte-class rule
+for ebx. The two LL17 levers were tried and are inert:
+
+| spelling | result |
+| --- | --- |
+| `int z = 0` at the top + `z = 0` again in the else arm (two reaching defs) | baseline, byte-identical |
+| `z = 0` in all three arms, no top definition | baseline |
+| `char z = 0` carrier (PASS N+1's 119-instruction lead) | baseline (confirms PASS N+2) |
+| char carrier + `if (z) ;` pin after the def | baseline |
+| char carrier + pin before the shared-block store | baseline |
+| char carrier + pins after the def and before the tail stores | baseline |
+
+VC6 folds phi(0,0), so a same-constant redefinition is not a second reaching
+definition; the empty-if pin is folded along with a constant-valued local.
+LL14's ranking model does not apply — the zero is the only callee-saved
+candidate, so there is nothing to rank it against. Prediction: none
+(out of the model's domain). Retired.
+
+### 0x0048a3e0 GetObjectUID — floor re-confirmed (6 spellings, resumed session)
+
+Residual: the two horizontal probes load `g_map` at first use inside the
+guard (edx) where the original re-materialises it at the region entry (esi),
+the zero-extend scratch taking the other register. The LL10 block-split pin
+was placed at every position the earlier passes' mechanism analysis names:
+
+| spelling | result |
+| --- | --- |
+| caller `m = g_map; if (m) ;` before each horizontal probe, `CellM(m, y, x)` | 20, byte-identical |
+| `if (def) ;` as the pin instead of `if (m) ;` | 20, identical |
+| pin inside a horizontal-only helper after `Map* m = g_map;` | 20, identical |
+| pin inside the guard at the row-table read (`rows = g_map_rows; if (rows) ;`) | 20, identical |
+| `if (y) ;` before `g_map_rows[y][x]` inside the guard | 20, identical |
+| one `m` shared by both horizontals, pinned once | 20, identical |
+
+A global load is re-materialised at its use (PASS 4's rule), and a block
+boundary does not stop that: the LL10 pin works on register-resident locals
+(its witnesses were x87 floats). LL14: the contested esi is between the map
+pointer (1–3 appearances already measured identical) and an unnamed
+compiler scratch, so no reference count can move. Prediction: none.
+Retired; PASS 6's volatile proof (register-blind zero) remains the sharpest
+statement.

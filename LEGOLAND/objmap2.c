@@ -1427,6 +1427,25 @@ static __inline int UidHit(Cell* c, ObjDef* def, int x, int y)
  * this rules out the remaining cheap call-argument temporary route.
  * Full measurements: docs/lanes/scope-i.md.
  */
+/* Scope LL17 (2026-09-08): re-opened for two new levers, RETIRED again at
+ * 20/191, six spellings, every one byte-identical to this body:
+ *  - LL10's block-split pin (Mesh_DropBackFaces: an empty `if (k) ;`
+ *    between a definition and its consumer stops forward substitution
+ *    across the split).  Placed after a caller-level `m = g_map;` before
+ *    each horizontal probe (with a `CellM(m, y, x)` helper), inside a
+ *    horizontal-only helper after `Map* m = g_map;`, after ONE `m` shared
+ *    by both horizontals, testing `def` instead of `m`, and -- where PASS 6's
+ *    volatile worked -- inside the guard at the row-table read (`rows =
+ *    g_map_rows; if (rows) ;` and `if (y) ;` before `g_map_rows[y][x]`).
+ *    A global load is not forward-substituted, it is RE-MATERIALISED at the
+ *    use (PASS 4's rule), and a block boundary does not stop that; the pin
+ *    lever is for register-resident locals (LL10's were x87 floats).
+ *  - LL14's appearance-count ranking: the contested esi is between the map
+ *    pointer (named, 1 to 3 appearances already measured identical in PASS
+ *    4/w11d) and the compiler's own zero-extend scratch, which has no name
+ *    to count.  No source reference can be added to or removed from it.
+ * The placement floor and PASS 6's volatile proof stand.
+ */
 // WIP-FUNCTION: LEGOLAND 0x0048a3e0  (89.5%, 20/191 strict; two displaced map loads; first 95)
 unsigned short GetObjectUID(Pos* wpos, ObjDef* def)
 {
