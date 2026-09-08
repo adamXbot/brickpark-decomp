@@ -1,0 +1,931 @@
+/* LEGOLAND — dead (linker-retained) functions from the gamemain / sysmisc /
+ * bighelp / tilehelp translation units, 0x004511e0..0x00466070.
+ *
+ * Nothing live in the shipped binary calls, tail-jumps to or takes the address
+ * of any function in this file; the game was linked without /OPT:REF so the
+ * code survived.  They are ordinary C from the same translation units as their
+ * nearest matched neighbours (sysmisc.c, sysmisc2.c, memdb.c, text.c,
+ * bighelp.c, bubblecache.c, tilehelp.c, blitmisc.c), so the vocabulary here is
+ * theirs.  Names are OURS -- there is no export table entry for any of them.
+ *
+ * Reconstructed from original/legoland.exe (VC6 SP3, /O2 /Gy /Gd).  Only
+ * struct field OFFSETS, global addresses and callee argument counts are
+ * load-bearing.  Types are defined locally so this file does not depend on
+ * (or disturb) legoland.h.
+ *
+ * ---------------------------------------------------------------------------
+ * THE VWIN32 VOLUME-LOCK CLUSTER (0x004511e0 .. 0x00451550)
+ *
+ * Eight of these functions are a Windows 95 raw-disk-access helper library.
+ * They talk to the VWIN32 VxD through
+ *     CreateFileA("\\\\.\\vwin32", 0,0,0,0, FILE_FLAG_DELETE_ON_CLOSE, 0)
+ * and DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL == 1, &regs, 28, &regs, 28,
+ * &returned, 0), where `regs` is the 28-byte DIOC_REGISTERS block
+ *     +0x00 EBX  +0x04 EDX  +0x08 ECX  +0x0c EAX  +0x10 EDI  +0x14 ESI
+ *     +0x18 Flags   (bit 0 = CF, i.e. the INT 21h call failed)
+ * Every call is INT 21h AX=440Dh (generic IOCTL for block devices) with a
+ * category/minor pair in CX:
+ *     CX = 0x0848  category 08h minor 48h, DS:DX -> {BYTE op; BYTE nlocks}
+ *     CX = 0x0849  category 08h minor 49h, no parameter block
+ *     CX = xx4Ah   lock logical volume:   BL = drive, BH = level, DX = perms
+ *     CX = xx6Ah   unlock logical volume: BL = drive
+ * The two logical-volume calls try category 48h (the OSR2 FAT32 extension)
+ * first and fall back to category 08h; the physical ones only ever use 08h.
+ * The minor-48h parameter block's `op` is 2 to READ the outstanding lock
+ * count back into `nlocks` and 1 to drop one lock -- 0x00451280 uses exactly
+ * that pair to unwind however many locks are held.  Drive numbers are 1-based
+ * (A: = 1), which is what 0x00451210's `toupper(letter) - 0x40` produces.
+ * The names below describe that behaviour; the shipped game never calls any
+ * of them (res.c mounts the CD by volume label instead).
+ * ------------------------------------------------------------------------- */
+
+/* ---- Win32 ------------------------------------------------------------- */
+
+__declspec(dllimport) void* __stdcall CreateFileA(const char* name, unsigned long access,
+                                                  unsigned long share, void* sa,
+                                                  unsigned long disp, unsigned long flags,
+                                                  void* templ);                    /* [0x4ab258] */
+__declspec(dllimport) int   __stdcall CloseHandle(void* h);                        /* [0x4ab260] */
+__declspec(dllimport) int   __stdcall DeviceIoControl(void* h, unsigned long code,
+                                                      void* in, unsigned long insz,
+                                                      void* out, unsigned long outsz,
+                                                      unsigned long* returned,
+                                                      void* overlapped);           /* [0x4ab248] */
+
+/* ---- CRT --------------------------------------------------------------- */
+
+extern int toupper(int c);                          /* 0x0049f34b (CRT) */
+extern void* memset(void* d, int c, unsigned int n);
+#pragma intrinsic(memset)
+
+/* ---- the VWIN32 DOS-IOCTL register block ------------------------------- */
+
+typedef struct DiocRegs {
+    unsigned long reg_EBX;    /* +0x00 */
+    unsigned long reg_EDX;    /* +0x04 */
+    unsigned long reg_ECX;    /* +0x08 */
+    unsigned long reg_EAX;    /* +0x0c */
+    unsigned long reg_EDI;    /* +0x10 */
+    unsigned long reg_ESI;    /* +0x14 */
+    unsigned long reg_Flags;  /* +0x18  bit 0 = carry */
+} DiocRegs;
+
+/* The DS:DX parameter block of INT 21h AX=440Dh CX=0848h. */
+typedef struct PhysLockParams {
+    unsigned char op;         /* +0x00  0 lock, 1 unlock, 2 read lock count */
+    unsigned char nlocks;     /* +0x01  returned by op 2 */
+} PhysLockParams;
+
+#define VWIN32_DIOC_DOS_IOCTL 1
+#define DOS_GENERIC_BLOCK_IOCTL 0x440d
+
+extern const char kVwin32Device[];   /* 0x004b8634 "\\\\.\\vwin32" */
+
+/* The open VWIN32 handle; INVALID_HANDLE_VALUE when closed. */
+extern void* g_vwin32;               /* 0x004b85c4 */
+
+
+/* ============================== the text / bubble-help neighbourhood ==== */
+
+typedef struct WinRect {
+    int left;      /* +0x00 */
+    int top;       /* +0x04 */
+    int right;     /* +0x08 */
+    int bottom;    /* +0x0c */
+} WinRect;
+
+typedef struct DDSurface DDSurface;
+
+typedef struct DDSurfaceVtbl {
+    char pad00[0x44];
+    long(__stdcall* GetDC)(DDSurface*, void** hdc);      /* +0x44 */
+    char pad48[0x68 - 0x48];
+    long(__stdcall* ReleaseDC)(DDSurface*, void* hdc);   /* +0x68 */
+} DDSurfaceVtbl;
+
+struct DDSurface {
+    DDSurfaceVtbl* vtbl;   /* +0x00 */
+};
+
+/* bubblecache.c / fpui3.c's 0x20-byte rendered-text cache entry. */
+typedef struct TextEntry {
+    int        w;       /* +0x00 */
+    int        h;       /* +0x04 */
+    int        format;  /* +0x08 */
+    char*      text;    /* +0x0c */
+    int        ink;     /* +0x10 */
+    int        paper;   /* +0x14 */
+    int        font;    /* +0x18 */
+    void*      sprite;  /* +0x1c */
+} TextEntry;
+
+extern volatile int g_text_cache_count;   /* 0x006675b8 */
+extern TextEntry    g_text_cache[];       /* 0x006675c0 */
+extern DDSurface*   g_draw_surface;       /* 0x0066807c */
+extern WinRect      g_clip_rect;          /* 0x004bdea0 */
+
+__declspec(dllimport) void* __stdcall CreateCompatibleDC(void* dc);            /* [0x4ab094] */
+__declspec(dllimport) int   __stdcall SetBkMode(void* dc, int mode);           /* [0x4ab074] */
+__declspec(dllimport) void* __stdcall SelectObject(void* dc, void* obj);       /* [0x4ab080] */
+__declspec(dllimport) int   __stdcall DeleteDC(void* dc);                      /* [0x4ab0a4] */
+__declspec(dllimport) int   __stdcall DeleteObject(void* obj);                 /* [0x4ab09c] */
+__declspec(dllimport) void* __stdcall CreateRectRgnIndirect(WinRect* rc);      /* [0x4ab0b4] */
+__declspec(dllimport) int   __stdcall DrawTextA(void* dc, const char* s, int n,
+                                                WinRect* rc, unsigned int fmt); /* [0x4ab2ac] */
+
+extern unsigned int strlen(const char* s);
+extern int          strcmp(const char* a, const char* b);
+#pragma intrinsic(strlen, strcmp)
+
+extern void* SelectFont(void* dc, int font);                      /* 0x00454b40 */
+extern void  PushRenderingStatusAndUnlockVideoSurface(void);      /* 0x00464080 */
+extern void  PopRenderingStatus(void);                            /* 0x004641f0 */
+
+/* DT_WORDBREAK | DT_EXPANDTABS, with and without DT_CALCRECT. */
+#define DT_MEASURE_WRAPPED 0x450
+#define DT_DRAW_WRAPPED    0x050
+
+/* ============================== the tilehelp.c neighbourhood ============ */
+
+/* The map header (bigrender.c / bubblecache.c / tilehelp.c agree on these). */
+typedef struct MapHdr {
+    unsigned short screen_w;    /* +0x00  viewport size in pixels */
+    unsigned short screen_h;    /* +0x02 */
+    char           pad04[0x14 - 0x04];
+    unsigned short cells_w;     /* +0x14  map size in cells */
+    unsigned short cells_h;     /* +0x16 */
+    char           pad18[0x20 - 0x18];
+    unsigned short origin_x;    /* +0x20  viewport origin in pixels */
+    unsigned short origin_y;    /* +0x22 */
+} MapHdr;
+
+/* legoland.h's Cell (20 bytes); only the RF flags byte is read here. */
+typedef struct Cell {
+    char          pad00[0x10];
+    unsigned char rf;           /* +0x10 */
+    char          pad11[0x14 - 0x11];
+} Cell;
+
+typedef struct SpriteRec {
+    char  pad00[0x16];
+    short h;                    /* +0x16 */
+} SpriteRec;
+
+/* sweep4.c's 16-byte clip window (0x004bdea0 g_clip): position and size. */
+typedef struct ClipRect {
+    int x;    /* +0x00 */
+    int y;    /* +0x04 */
+    int w;    /* +0x08 */
+    int h;    /* +0x0c */
+} ClipRect;
+
+extern MapHdr*    g_map;                /* 0x004bcbf4 */
+extern Cell**     g_map_rows;           /* 0x00801400 */
+extern SpriteRec* g_tile_sprites[];     /* 0x00805f60 */
+extern int        g_default_tile;       /* 0x00667ca4 */
+extern int        g_tileset_id3;        /* 0x00805f48 */
+extern int*       g_basic_tiles_data;   /* 0x00801a6c -> "BASIC TILES 1" desc, +0 = base slot */
+extern int        g_scroll_x;           /* 0x00667cb4  8.8 fixed point */
+extern int        g_scroll_y;           /* 0x00667cb8 */
+
+extern void SetClipping(ClipRect* r);                                 /* 0x0048a5c0 */
+extern int  PrintSprite(SpriteRec* s, int x, int y, int mode, void* ctx); /* 0x004853a0 */
+
+/* The overlay's tint, as mapbuild2.c recorded it. */
+#define TILE_OVERLAY_COLOUR 0xff6868
+
+/* ---- this file's own callees (text/help) ------------------------------- */
+
+/* ---- this file's own callees ------------------------------------------- */
+
+extern int  UnlockAllPhysicalLocks(void* h, unsigned char drive);   /* 0x00451280 */
+extern int  UnlockPhysicalVolume(void* h, unsigned char drive);     /* 0x00451410 */
+extern int  __stdcall UnlockLogicalVolume(void* h, unsigned char drive); /* 0x00451550 */
+extern void __stdcall CloseVWin32(void* h);                         /* 0x004514a0 */
+extern void VolumeLockNoOp(char letter);                            /* 0x004511f0 */
+
+/* =========================================================================
+ *  0x004514b0 -- lock a logical volume (minor 4Ah), FAT32 category first
+ * NOTE ON THE MARKER: this body is EXACT (0 mismatches over the full 55
+ * instructions / 159 bytes), but it must stay the FIRST function defined in
+ * this file.  It is __stdcall, so its COFF symbol is `_LockLogicalVolume@16`;
+ * tools/match.py looks names up as `X` / `_X` and, failing that, falls back to
+ * the FIRST .text COMDAT of the object.  input2.c records the same constraint
+ * for LegoLandWindowProc.  The two other __stdcall bodies here
+ * (0x004514a0, 0x00451550) are equally exact but cannot be reached by that
+ * fallback, so they carry WIP markers -- see their notes.
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x004514b0
+int __stdcall LockLogicalVolume(void* h, unsigned char drive, unsigned char level,
+                                unsigned short perms)
+{
+    DiocRegs      r;
+    unsigned long returned;
+    unsigned char cat;
+    int           ok;
+
+    memset(&r.reg_EDX, 0, sizeof(r) - sizeof(r.reg_EBX));
+    cat = 0x48;
+    for (;;) {
+        r.reg_ECX = (unsigned short)(cat << 8) | 0x4a;
+        r.reg_EAX = DOS_GENERIC_BLOCK_IOCTL;
+        r.reg_EBX = (unsigned short)(level << 8) | (drive & 0xff);
+        r.reg_EDX = perms & 0xffff;
+        if (DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL, &r, sizeof(r), &r, sizeof(r),
+                            &returned, 0)
+            && (r.reg_Flags & 1) == 0) {
+            ok = 1;
+            break;
+        }
+        ok = 0;
+        if (cat == 8)
+            break;
+        cat = 8;
+    }
+    return ok;
+}
+
+/* =========================================================================
+ *  0x004511e0 / 0x004511f0 / 0x00451200 -- one-byte `ret` stubs
+ * =========================================================================
+ * Three consecutive empty functions in the sysmisc2.c neighbourhood, each a
+ * single `ret` padded to a 16-byte boundary.  0x004511f0 is the only one with
+ * a caller (0x00451210, below), which passes it the drive letter with a cdecl
+ * `add esp` of its own, so it takes one argument; the outer two are reached
+ * by nothing at all and are written void/void.  They are almost certainly the
+ * release-build remains of debug hooks. */
+
+// FUNCTION: LEGOLAND 0x004511e0
+void VolumeDebugHookA(void)
+{
+}
+
+// FUNCTION: LEGOLAND 0x004511f0
+void VolumeLockNoOp(char letter)
+{
+}
+
+// FUNCTION: LEGOLAND 0x00451200
+void VolumeDebugHookB(void)
+{
+}
+
+/* =========================================================================
+ *  0x00451480 -- open the VWIN32 VxD
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x00451480
+void* OpenVWin32(void)
+{
+    return CreateFileA(kVwin32Device, 0, 0, 0, 0, 0x4000000, 0);
+}
+
+/* =========================================================================
+ *  0x004514a0 -- close it again
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x004514a0
+void __stdcall CloseVWin32(void* h)
+{
+    CloseHandle(h);
+}
+
+/* =========================================================================
+ *  0x00451410 -- INT 21h AX=440Dh CX=0849h on one drive
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x00451410
+int UnlockPhysicalVolume(void* h, unsigned char drive)
+{
+    DiocRegs      r;
+    unsigned long returned;
+
+    memset(&r.reg_EDX, 0, sizeof(r) - sizeof(r.reg_EBX));
+    r.reg_EBX = drive;
+    r.reg_EAX = DOS_GENERIC_BLOCK_IOCTL;
+    r.reg_ECX = 0x0849;
+    if (DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL, &r, sizeof(r), &r, sizeof(r),
+                        &returned, 0)) {
+        if ((r.reg_Flags & 1) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/* =========================================================================
+ *  0x00451390 -- INT 21h AX=440Dh CX=0848h, parameter block op 0
+ * =========================================================================
+ * RESIDUAL (14/39 strict, first index 8; retired 2026-09-08 after 18 + 25
+ * spellings): the drive load must land in eax so that lpOverlapped is a
+ * literal `push 0`; ours keeps the memset's zero alive in eax to the push
+ * and loads the drive into ecx.  The mechanism is RA08's zero-web count:
+ * this body has THREE literal zeros after the memset (p.nlocks, p.op, the
+ * NULL argument) and VC6 gives the constant a register at three, so the
+ * push becomes `push eax` and the drive load is displaced.  Proof: deleting
+ * ONE of the two byte stores (a semantic-breaking diagnostic) puts the
+ * drive in eax, the push back to a literal and lines up every register from
+ * index 8 on.  The sibling bodies confirm the threshold from the other
+ * side: 0x00451410 (memset + NULL) and 0x00451280 (memset + nlocks + NULL)
+ * both keep the literal push.  So the original spells one of its three
+ * zeros in a way VC6 does not count as a literal-zero use, and no C
+ * spelling found here does that while still emitting `mov [esp+7],al /
+ * mov [esp+6],al`: a chained `p.nlocks = p.op = 0` (store order flips),
+ * `p.op = p.nlocks` (forwarded to the constant), a 2-byte memset (word
+ * store), `= {0}` / `= {0, 0}` at function or block scope (field-ordered
+ * stores, extra `xor`), a zeroed `void* ov`, NULL read from a zeroed r field
+ * (a load), volatile views of p, `&drive` as lpBytesReturned (identical:
+ * VC6 already homes `returned` in the dead argument slot), an `unsigned
+ * long` parameter, and every placement of the EBX/EDX/EAX/ECX stores around
+ * the p stores.  The volatile drive read below is load-bearing for index 8
+ * (without it the load hoists above the p stores, 16); the rest of the
+ * body is the exact 0x00451410 shape.
+ * THIRD PASS (2026-09-08, 5 more probes, all 14 or worse).  Aimed straight
+ * at the zero web: a `void* ov` with a dead first definition (`ov = &p;
+ * ov = 0;`) so the constant is a two-definition web, the two byte stores
+ * fed from one `unsigned char z = 0;` local, `p` written by a whole-struct
+ * copy from a zeroed twin (LL16's memory-to-memory lowering -- 41i/133B,
+ * the copy survives), and both byte stores and the NULL taken from the
+ * memset-zeroed `r.reg_EDI` field (40-41i, the loads survive).  The first
+ * two are byte-identical to the committed body: VC6 forwards them to the
+ * same literal zero and still counts three uses.  Floor stands.
+ * ========================================================================= */
+
+// WIP-FUNCTION: LEGOLAND 0x00451390  (64%, 14/39 strict, first diverging index 8: zero-web count puts the drive in ecx -- see the note)
+int LockPhysicalVolume(void* h, unsigned long drive)
+{
+    DiocRegs       r;
+    PhysLockParams p;
+    unsigned long  returned;
+
+    memset(&r.reg_EDX, 0, sizeof(r) - sizeof(r.reg_EBX));
+    p.nlocks = 0;
+    p.op = 0;
+    r.reg_EBX = *(volatile unsigned long*)&drive & 0xff;
+    r.reg_EDX = (unsigned long)&p;
+    r.reg_EAX = DOS_GENERIC_BLOCK_IOCTL;
+    r.reg_ECX = 0x0848;
+    if (DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL, &r, sizeof(r), &r, sizeof(r),
+                        &returned, 0)) {
+        if ((r.reg_Flags & 1) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/* =========================================================================
+ *  0x00451550 -- unlock a logical volume (minor 6Ah), FAT32 category first
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x00451550
+int __stdcall UnlockLogicalVolume(void* h, unsigned char drive)
+{
+    DiocRegs       r;
+    unsigned long  returned;
+    unsigned char  cat;
+    unsigned short cx;
+    int            ok;
+
+    memset(&r.reg_EDX, 0, sizeof(r) - sizeof(r.reg_EBX));
+    cat = 0x48;
+    for (;;) {
+        cx = (unsigned short)(cat << 8);
+        cx |= 0x6a;
+        r.reg_ECX = cx;
+        r.reg_EAX = DOS_GENERIC_BLOCK_IOCTL;
+        r.reg_EBX = drive;
+        if (DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL, &r, sizeof(r), &r, sizeof(r),
+                            &returned, 0)
+            && (r.reg_Flags & 1) == 0) {
+            ok = 1;
+            break;
+        }
+        ok = 0;
+        if (cat == 8)
+            break;
+        cat = 8;
+    }
+    return ok;
+}
+
+/* =========================================================================
+ *  0x00451280 -- drop every outstanding physical lock on one drive
+ * =========================================================================
+ * 46/88 -> 10/88 (2026-09-08, ~45 spellings).  Three levers, each measured
+ * alone and together:
+ *   - `p.nlocks = 0` AFTER the memset (before it, the store is an immediate
+ *     scheduled among the r stores; after it, it is `mov [esp+0xd],al` from
+ *     the fill's zero, index 8).
+ *   - loop failures as `ok = 0; break;`, never `return 0`: a `return 0`
+ *     inside the loop merges with the guards' `return 0` into ONE block
+ *     reachable from both sides of the ebx region, and `push ebx` stays in
+ *     the prologue (46, 53, 56 in every loop form).  With the break, the
+ *     loop's exits are region-internal and the push sinks to the loop
+ *     preheader exactly as the original (BL13).
+ *   - the guards wrapped as `if (ok) { ... return ok; } return 0;` so their
+ *     two `return 0`s share ONE exiled xor block; written as early returns
+ *     each is cloned inline (guard 1 as a bare `ret`, guard 2 with its own
+ *     xor) -- 61/66.
+ *   - LP05: `i = 0; if (i < p.nlocks) while (1) { ...; i++; if (i >= p.nlocks)
+ *     break; }` keeps the uninverted latch `jge exit / jmp body`; a `for`
+ *     inverts it to `jl body` and lays the exit out as the fall-through (18).
+ *     do/while and for(;;) peel (101), a conditional while is the `for`.
+ * RESIDUAL (10, indices 75..84): the two tail epilogues are in the other
+ * order -- the original lays the guards' `pop edi/pop esi/xor eax,eax/
+ * pop ebp` epilogue right after the loop and lets the loop's `xor eax,eax`
+ * fall into the canonical pop-ebx epilogue; ours lays [fail][pop-ebx exit]
+ * first and the guards' clone last.  Both orders have identical bytes per
+ * block.  Every guard/return placement measured is layout-identical to
+ * this (else-return, else-braces, empty trailing else, `return ok` lexically
+ * last, loop outside the if, an `else` chain for guard 2, `return ok` for
+ * guard 1), `goto fail` costs 42, and moving `ok = 0` to a post-loop join
+ * breaks the region (87).  A DFS/RPO layout model with taken-edge-first
+ * reproduces ours and U31's inline form exactly and cannot produce the
+ * original's from this CFG, so the original's IR differs in a way no
+ * measured construct reaches; retired here as the tail-order floor.
+ * THIRD PASS (2026-09-08, 27 more spellings, every one 10 or worse).  The
+ * tail order is [G = the guards' no-ebx epilogue][F = the loop's `xor
+ * eax,eax`][EXIT = the pop-ebx epilogue] in the original and
+ * [F][EXIT][G] here, with identical bytes per block.  Layout-identical
+ * (10): guard 2's arms swapped (`if (eax == 0xb0 || eax == 1) ok = 1; else
+ * return 0;`), `else { return 0; }` on guard 1, an empty trailing `else {}`
+ * on the loop guard or on guard 2 (LL17's BL12 token -- inert here, nothing
+ * falls through), `return ok;` moved out of the `if`, `ok = 0; return ok;`
+ * for both guards, the latch as `if (i < n) continue; break;`, the two
+ * in-loop failures merged into one `||` break, `i = i + 1`, `ok = call &&
+ * (flags & 1) == 0; if (!ok) break;`, `if (ok != 0)`, `ok` scoped inside
+ * the `if` with a separate call-result variable, and `goto out;` at the end
+ * of the `if` body with `out: return ok;` textually after the trailing
+ * `return 0` (VC6 forwards the jumps and re-normalises the order).  Worse:
+ * `goto fail` for both guards 42, a single guard-2 `||` chain 14, a
+ * `return ok` inside the loop 87, and every form that folds the `i = 0;
+ * if (i < p.nlocks)` preheader away 47.  The single-definition lever that
+ * closed 0x0045ade0 does not apply -- `ok`'s definitions are already
+ * exactly the original's.  Textual position of the `return 0` demonstrably
+ * does not order the tail (the `else { return 0; }` form puts it lexically
+ * between the loop and `return ok` and still emits [F][EXIT][G]), so the
+ * key is internal to VC6's block list.  Confirmed floor.
+ * FOURTH PASS (2026-09-08, 15 more spellings; the cross-jump hypothesis is
+ * DEAD).  The premise of the third pass -- "identical bytes per block" --
+ * is WRONG, and the original's disassembly settles it: G is
+ * `pop edi/pop esi/xor eax,eax/pop ebp/add esp,0x24/ret` (six bytes of
+ * epilogue with NO `pop ebx`, the zero scheduled between the pops) and EXIT
+ * is `pop ebx/pop edi/pop esi/pop ebp/add esp,0x24/ret`.  They are DIFFERENT
+ * blocks -- G is the shrink-wrap clone for the pre-`push ebx` exits, EXIT is
+ * the real epilogue -- so VC6 cannot be tail-merging G with EXIT and then
+ * ordering the survivor.  Our G and EXIT are byte-identical to the
+ * original's; only their order differs, and no instruction, byte or
+ * register anywhere else in the 260 bytes differs.
+ * What the new probes DID establish is a rule the earlier passes missed:
+ * the placement of the merged `return 0` block is decided by HOW MANY
+ * `return 0` STATEMENTS reach it, not by where they sit.
+ *   - TWO `return 0` statements (guard 2 + the trailing one) -> one exiled
+ *     block, always emitted LAST: [F][EXIT][G], 260 bytes, 10.  Unmoved by
+ *     `else { return 0; }` with `return ok` outside and lexically last,
+ *     `goto out; ... fail: return 0; out: return ok;` with the return-0
+ *     lexically between the loop and the return-ok, `goto fail` for guard 2
+ *     only, a trailing `return ok` (ok is provably 0 there), a separate
+ *     `zero` variable returned by guard 2 (VC6 const-propagates it), and a
+ *     second `return 0` behind an `if (0)`-style label after the loop.
+ *   - ONE `return 0` statement (both guards `goto fail`) -> the block is
+ *     NOT exiled at all: VC6 inverts guard 2 to `je/je` and lays it inline
+ *     between the guard chain and `mov eax,1`, 256 bytes / 88 instructions,
+ *     46 strict.  Identical output whether the label sits before the loop,
+ *     after the loop, or after `return ok`, and with the guard-2 arms
+ *     swapped -- so a lone return-0 has no source position at all.
+ *   - TWO DISTINCT labels (`fail:`/`fail2:`) -> no cross-jump: VC6 clones
+ *     both epilogues inline (93 instructions, guard 1 as a bare `ret`), the
+ *     early-return behaviour again.  So VC6 does NOT cross-jump these
+ *     epilogues after layout; keeping them distinct until then, the lever
+ *     that worked on DDrawErrorPassThrough, has nothing to bite on here.
+ * The original's order needs the exiled return-0 block placed FIRST among
+ * the tail blocks while still being exiled, and this compiler emits an
+ * exiled return-0 last in every reachable source form: the two outcomes
+ * (exiled-last, or inline-early) are the only two we can produce.  The
+ * ordering therefore comes from an IR difference upstream of any C
+ * construct measured across four passes.  Floor, and the mechanism is now
+ * named rather than guessed.
+ * ========================================================================= */
+
+// WIP-FUNCTION: LEGOLAND 0x00451280  (89%, 10/88 strict, first diverging index 75: the two tail epilogues are laid out in the other order)
+int UnlockAllPhysicalLocks(void* h, unsigned char drive)
+{
+    DiocRegs       r;
+    PhysLockParams p;
+    unsigned long  returned;
+    int            ok;
+    int            i;
+
+    memset(&r.reg_EDX, 0, sizeof(r) - sizeof(r.reg_EBX));
+    p.nlocks = 0;
+    p.op = 2;
+    r.reg_EDX = (unsigned long)&p;
+    r.reg_EAX = DOS_GENERIC_BLOCK_IOCTL;
+    r.reg_EBX = drive;
+    r.reg_ECX = 0x0848;
+    ok = DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL, &r, sizeof(r), &r, sizeof(r),
+                         &returned, 0);
+    if (ok) {
+        if (r.reg_Flags & 1) {
+            if (r.reg_EAX != 0xb0 && r.reg_EAX != 1)
+                return 0;
+            ok = 1;
+        }
+        i = 0;
+        if (i < p.nlocks) {
+            while (1) {
+                p.op = 1;
+                r.reg_EDX = (unsigned long)&p;
+                r.reg_EAX = DOS_GENERIC_BLOCK_IOCTL;
+                r.reg_EBX = drive;
+                r.reg_ECX = 0x0848;
+                if (!DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL, &r, sizeof(r), &r, sizeof(r),
+                                     &returned, 0)) {
+                    ok = 0;
+                    break;
+                }
+                if (r.reg_Flags & 1) {
+                    ok = 0;
+                    break;
+                }
+                ok = 1;
+                i++;
+                if (i >= p.nlocks)
+                    break;
+            }
+        }
+        return ok;
+    }
+    return 0;
+}
+
+/* =========================================================================
+ *  0x00451210 -- release every lock on the drive and close VWIN32
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x00451210
+void ReleaseVolumeLocks(char letter)
+{
+    char drive;
+
+    VolumeLockNoOp(letter);
+    if (g_vwin32 != (void*)-1) {
+        drive = (char)(toupper(letter) - 0x40);
+        UnlockAllPhysicalLocks(g_vwin32, drive);
+        UnlockPhysicalVolume(g_vwin32, drive);
+        UnlockLogicalVolume(g_vwin32, drive);
+        CloseVWin32(g_vwin32);
+        g_vwin32 = (void*)-1;
+    }
+}
+
+/* =========================================================================
+ *  0x004551a0 -- height of `text` wrapped into a `width`-wide column
+ * =========================================================================
+ * text.c's PrintCentColref neighbourhood.  A throwaway memory DC measures the
+ * string with DT_CALCRECT | DT_WORDBREAK | DT_EXPANDTABS into a rectangle
+ * seeded at `width - 1`, and the answer is the measured height plus one.
+ *
+ * ORIGINAL BUG (reproduced): the font selected into the memory DC is never
+ * selected back out before DeleteDC -- SelectFont's result is discarded.  It
+ * is harmless because the DC is a scratch one, and PrintTextBoxOnSurface
+ * below (which shares the measuring block) makes the same call.
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x004551a0
+int MeasureWrappedTextHeight(const char* text, int font, int width)
+{
+    WinRect rc;
+    void*   dc;
+
+    rc.left = 0;
+    rc.top = 0;
+    rc.right = 0;
+    rc.bottom = 0;
+    dc = CreateCompatibleDC(0);
+    rc.right = width - 1;
+    SetBkMode(dc, 1);
+    SelectFont(dc, font);
+    DrawTextA(dc, text, strlen(text), &rc, DT_MEASURE_WRAPPED);
+    DeleteDC(dc);
+    return rc.bottom - rc.top + 1;
+}
+
+/* =========================================================================
+ *  0x00455220 -- wrap `text` into a `width` column and paint it at (x, y)
+ * =========================================================================
+ * bighelp.c's BubbleHelp neighbourhood, and the dead sibling of
+ * MeasureWrappedTextHeight: the same measuring pass, then the measured
+ * rectangle is offset to (x, y), the video surface is unlocked, a GDI DC is
+ * taken on the draw surface and the text is drawn into it through a clipping
+ * region built from g_clip_rect.  Both the region and the font are selected
+ * back out and the region is deleted before the DC is released.
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x00455220
+void PrintWrappedTextOnSurface(int x, int y, char* text, int font, int width)
+{
+    WinRect rc;
+    void*   dc;
+    void*   hdc;
+    void*   rgn;
+    void*   oldrgn;
+    void*   oldfont;
+
+    rc.left = 0;
+    rc.top = 0;
+    rc.right = 0;
+    rc.bottom = 0;
+    dc = CreateCompatibleDC(0);
+    rgn = CreateRectRgnIndirect(&g_clip_rect);
+    rc.right = width - 1;
+    SetBkMode(dc, 1);
+    SelectFont(dc, font);
+    DrawTextA(dc, text, strlen(text), &rc, DT_MEASURE_WRAPPED);
+    DeleteDC(dc);
+    rc.left += x;
+    rc.top += y;
+    rc.right += x;
+    rc.bottom += y;
+    PushRenderingStatusAndUnlockVideoSurface();
+    g_draw_surface->vtbl->GetDC(g_draw_surface, &hdc);
+    SetBkMode(hdc, 1);
+    oldrgn = SelectObject(hdc, rgn);
+    oldfont = SelectFont(hdc, font);
+    DrawTextA(hdc, text, strlen(text), &rc, DT_DRAW_WRAPPED);
+    SelectObject(hdc, oldfont);
+    SelectObject(hdc, oldrgn);
+    DeleteObject(rgn);
+    g_draw_surface->vtbl->ReleaseDC(g_draw_surface, hdc);
+    PopRenderingStatus();
+}
+
+/* =========================================================================
+ *  0x00455de0 -- find a rendered-text cache entry by its string alone
+ * =========================================================================
+ * bubblecache.c's PrintCachedText neighbourhood.  The weakest of the three
+ * cache lookups in the tree: FindCachedText (0x00455d40) also matches font,
+ * format and colours and FindCachedTextBox (0x00455c80) the size as well;
+ * this one compares only the text.  The cursor anchors at the +0x0c text
+ * pointer (the only field the loop reads) and the count is re-read in the
+ * latch, as in every other walker over this array.
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x00455de0
+TextEntry* FindCachedTextByString(const char* text)
+{
+    int i;
+
+    for (i = 0; i < *(volatile int*)&g_text_cache_count; i++) {
+        if (strcmp(g_text_cache[i].text, text) == 0)
+            return &g_text_cache[i];
+    }
+    return 0;
+}
+
+/* =========================================================================
+ *  0x00466070 -- one-byte `ret` stub in the blitmisc.c neighbourhood
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x00466070
+void PresentNoOp(void)
+{
+}
+
+/* =========================================================================
+ *  0x0045ade0 -- paint the RF-bit-1 overlay over every visible map tile
+ * =========================================================================
+ * tilehelp.c's GetTileCentre neighbourhood, and the map-editor debug overlay
+ * mapbuild2.c described from the outside.  The clip window is set to the map
+ * header's viewport, the tile size comes from the DEFAULT ground sprite
+ * (h = sprite->h, w = 2h, exactly as GetTileCentre reads it), and the scroll
+ * position is split into a whole-tile part (the starting cell) and a
+ * remainder inside the tile.
+ *
+ * The four-way switch is the sub-tile correction: the remainder (rx, ry)
+ * places the scroll origin in one of the diamond's four triangles, and each
+ * arm nudges the starting cell by one step along the corresponding diagonal
+ * if the point falls outside the diamond.  q is 1..4, so VC6 subtracts one
+ * before the jump table; the case ORDER is the block order.
+ *
+ * Then two interleaved diagonal scans per screen row -- the second offset by
+ * half a tile on both axes -- copy each in-range cell out of g_map_rows (a
+ * whole 20-byte Cell, rep movsd) and stamp the "blocked" tile sprite over it
+ * when RF bit 1 is set.  Out-of-range cells get only their RF byte zeroed:
+ * the rest of the local Cell is left holding the PREVIOUS cell's bytes.
+ * That is the original's behaviour and is harmless because nothing but rf is
+ * read; reproduced.
+ *
+ * SLOT ORDER -- CLOSED (2026-09-08, third pass).  The residual was a
+ * three-way permutation of the 4-byte spill slots at +0x24/+0x28/+0x2c
+ * (original `w`, `qx`+`saverow`, `savecol`; ours `savecol`, `w`,
+ * `qx`+`saverow`), worth 84 of 291 because it also swapped which of
+ * `rx`/`cur.c` is loaded into ecx at the top of the outer loop and cost one
+ * extra `mov` in the loop-A preheader.  The lever is that **`savecol` must
+ * have a SINGLE definition**: written `savecol++; cur.c = savecol;` the
+ * increment is a second definition of `savecol` inside the outer loop, its
+ * web is split at the back edge and the allocator gives it the FIRST of the
+ * three slots; written `cur.c = savecol + 1;` at both restore sites (the
+ * value is identical -- `savecol` is only ever read as `savecol + 1` after
+ * loop A) `savecol` is defined once per iteration, its web is created last
+ * and it takes the LAST slot, which is the original's frame and register
+ * allocation exactly.  Nothing else changed.  Everything measured before
+ * this -- the LL9 aggregate lever in every grouping (89-245), `= 0`
+ * initialisers, block-scoped saves, a pre-loop dead store, reversed
+ * declaration orders, `qx`/`qy`/`sx`/`sy` doubling as the save pair
+ * (88-106), the save pair as an array (97) or as a struct (97) -- moved the
+ * slots without ever putting `w` first, because they all left the extra
+ * definition in place.  LEVERS: a self-increment of a loop-carried save
+ * variable splits its web and moves its frame slot; spell it as `x + 1` at
+ * the use sites instead.
+ * ========================================================================= */
+
+// FUNCTION: LEGOLAND 0x0045ade0
+void DrawTileDebugOverlay(void)
+{
+    ClipRect clip;
+    Cell     cell;
+    short    h;
+    short    w;
+    int      hh, hw;
+    int      sx, sy;
+    int      qx, qy, rx, ry;
+    struct { int c, r; } cur;
+    int      savecol, saverow;
+    int      q;
+    int      x, y;
+
+    clip.x = g_map->origin_x;
+    clip.y = g_map->origin_y;
+    clip.w = g_map->screen_w;
+    clip.h = g_map->screen_h;
+    SetClipping(&clip);
+
+    h = g_tile_sprites[g_default_tile]->h;
+    w = (short)(h + h);
+    hh = (h + 1) >> 1;
+    hw = (w + 1) >> 1;
+    sx = g_scroll_x >> 8;
+    sy = (g_scroll_y >> 8) - hh;
+    qx = sx / w;
+    rx = sx % w;
+    qy = sy / h;
+    ry = sy % h;
+    cur.c = qy + qx - 3;
+    cur.r = qy - qx;
+
+    q = (rx >= hw) + 1;
+    if (ry > hh)
+        q += 2;
+    switch (q) {
+    case 1:
+        if (rx < hw - 2 * ry) {
+            cur.c--;
+            rx += hw;
+            ry += hh;
+        }
+        break;
+    case 2:
+        if (rx >= hw + 2 * ry) {
+            rx -= hw;
+            cur.r--;
+            ry += hh;
+        }
+        break;
+    case 3:
+        if (rx < hw + 2 * (ry - h)) {
+            cur.r++;
+            rx += hw;
+            ry -= hh;
+        }
+        break;
+    case 4:
+        if (rx >= hw + 2 * (h - ry)) {
+            cur.c++;
+            rx -= hw;
+            ry -= hh;
+        }
+        break;
+    }
+
+    for (y = clip.y - 2 * h - ry; y < h * 2 + clip.h; y += h) {
+        savecol = cur.c;
+        saverow = cur.r;
+        for (x = clip.x - 2 * w - rx; x < w * 2 + clip.w; x += w) {
+            if (cur.c >= 0 && cur.c < g_map->cells_w && cur.r >= 0 && cur.r < g_map->cells_h)
+                cell = g_map_rows[cur.r][cur.c];
+            else
+                cell.rf = 0;
+            if (cell.rf & 2)
+                PrintSprite(g_tile_sprites[(g_tileset_id3 & 0xff) + *g_basic_tiles_data],
+                            x, y, TILE_OVERLAY_COLOUR, 0);
+            cur.c++;
+            cur.r--;
+        }
+        cur.c = savecol + 1;
+        cur.r = saverow;
+        for (x = clip.x - 2 * w - rx; x < w * 2 + clip.w; x += w) {
+            if (cur.c >= 0 && cur.c < g_map->cells_w && cur.r >= 0 && cur.r < g_map->cells_h)
+                cell = g_map_rows[cur.r][cur.c];
+            else
+                cell.rf = 0;
+            if (cell.rf & 2)
+                PrintSprite(g_tile_sprites[(g_tileset_id3 & 0xff) + *g_basic_tiles_data],
+                            x + hw, y + hh, TILE_OVERLAY_COLOUR, 0);
+            cur.c++;
+            cur.r--;
+        }
+        cur.c = savecol + 1;
+        cur.r = saverow + 1;
+    }
+}
+
+/* =========================================================================
+ *  0x00453c20 -- a DirectDraw HRESULT switch whose arms are all empty
+ * =========================================================================
+ * memdb.c's __DEBUG_FREE neighbourhood.  Twenty instructions of pure switch
+ * skeleton: a binary search over MAKE_DDHRESULT codes (0x88760000 | n) with
+ * every arm -- and the default -- reaching the same bare `ret`.  Everything
+ * below was READ OUT of the original, not guessed:
+ *
+ *   - the byte index table at 0x00453c70 is 0x51 entries wide with base
+ *     0x88760014, i.e. it covers DDERR codes 20..100 decimal, and its
+ *     bucket-0 entries sit at indices 0, 0x14, 0x23, 0x4b and 0x50 --
+ *     decimal 20, 40, 55, 95 and 100.  Those are exactly
+ *     DDERR_CANNOTDETACHSURFACE(20), DDERR_CURRENTLYNOTAVAIL(40),
+ *     DDERR_EXCEPTION(55), DDERR_INCOMPATIBLEPRIMARY(95) and
+ *     DDERR_INVALIDCAPS(100).  Bucket 1 is the default.
+ *   - the two dword entries at 0x00453c68 BOTH hold 0x00453c66, the `ret`.
+ *   - the compare chain adds singletons at 430 (DDERR_SURFACEBUSY),
+ *     222 (DDERR_NODIRECTDRAWSUPPORT) and 110 (DDERR_INVALIDCLIPLIST), plus
+ *     a `cmp eax,0x8876000a / jle` boundary at 10
+ *     (DDERR_CANNOTATTACHSURFACE).
+ *   - `lea ecx,[eax-0x88760078]` at 0x00453c60 is a DEAD index computation
+ *     for a second cluster based at decimal 120 (DDERR_INVALIDMODE) whose
+ *     dispatch VC6 folded away entirely.
+ *
+ * The only source shape that keeps the skeleton at all is a function whose
+ * arms each `return` the switch value itself: `void`, `break`-only, `goto`
+ * and dead-store arms are all deleted outright by VC6 at /O2 (measured), and
+ * `return 0` arms leave a `xor eax,eax` the original does not have.  With
+ * `return hr` the whole body folds to the bare `ret` the original ends on.
+ *
+ * WHY THE TREE DIFFERS (2026-09-08, ~35 spellings in a standalone TU):
+ * the residual is not the 120.. cluster's membership.  VC6 lowers this
+ * switch as a balanced binary search over the sorted clusters and then
+ * PRUNES every subtree whose leaves all reach the same block; because our
+ * `return hr` arms and the default are one block by the time the tree is
+ * built, everything above the median (100/110/222/430) collapses into the
+ * top `jg ret`, whatever the case set.  The original still compares 430,
+ * 222 and 110 one by one, so ITS arm body and default were distinct blocks
+ * at lowering and only merged into the one `ret` afterwards -- which also
+ * explains the dead `lea ecx,[eax-0x88760078]`: a `lea/sub/je` compare
+ * chain over two or more nearby values in (110, 222) whose `je`s to the
+ * merged block were deleted (a jump table is never folded: the 20..100
+ * dispatch survives with both buckets pointing at the same `ret`).
+ * Every C construct that would make the arms distinct and then vanish is
+ * optimised away BEFORE lowering here: cases falling into `default` are
+ * dropped outright (byte-identical to omitting them), `default: break` +
+ * trailing return, no default, a copied switch/return variable, `(long)
+ * (unsigned long)hr`, `hr * 1`, do/while(0), for(;;)/while(1) with break,
+ * goto-to-label, a `hr < 0` guard, dead stores of distinct strings/ints/
+ * the case constant, `__inline` and forward-declared inline empty calls
+ * (inlined first), an empty `__asm {}` -- all give the same pruned 11
+ * instructions; a static non-inline empty call keeps the whole tree but
+ * leaves the calls in; `hr = DDERR_X` per arm folds only on fall-through
+ * arms.  The decoded case set is committed as-is; the true residual is the
+ * pruning, and it needs a source shape this toolchain does not reach.
+ * THIRD PASS (2026-09-08, 6 more spellings).  The remaining hypothesis was
+ * that the arms fold because they are ONE block: give each cluster its own
+ * `return hr;` statement with at least TWO case labels on it, so `hr` is
+ * not a known constant in any arm and cannot fold to `mov eax,K`.  Measured
+ * as {20,40,55,95,100} / {10,110} / {222,430} / {120,121} and four other
+ * groupings, with and without a `default:`, and with a distinct named local
+ * per arm (`a = hr; return a;`): every one still prunes to `cmp eax,100 /
+ * jg / je` plus one table, i.e. VC6 cross-jumps the identical arm blocks
+ * BEFORE it builds the search tree, so source-level distinctness cannot
+ * survive to the lowering.  That closes the last construct the diagnosis
+ * left open; the residual needs an arm that is genuinely different code at
+ * tree-build time and empty afterwards, which nothing in C reaches at /O2.
+ * ========================================================================= */
+
+#define DDERR(n) (long)(0x88760000 | (n))
+
+// WIP-FUNCTION: LEGOLAND 0x00453c20  (20%, 16/20 strict, first diverging index 4: the unrecovered 120.. cluster changes the search split)
+long DDrawErrorPassThrough(long hr)
+{
+    switch (hr) {
+    case DDERR(10):    /* DDERR_CANNOTATTACHSURFACE */
+    case DDERR(20):    /* DDERR_CANNOTDETACHSURFACE */
+    case DDERR(40):    /* DDERR_CURRENTLYNOTAVAIL */
+    case DDERR(55):    /* DDERR_EXCEPTION */
+    case DDERR(95):    /* DDERR_INCOMPATIBLEPRIMARY */
+    case DDERR(100):   /* DDERR_INVALIDCAPS */
+    case DDERR(110):   /* DDERR_INVALIDCLIPLIST */
+    case DDERR(222):   /* DDERR_NODIRECTDRAWSUPPORT */
+    case DDERR(430):   /* DDERR_SURFACEBUSY */
+        return hr;
+    default:
+        return hr;
+    }
+}
