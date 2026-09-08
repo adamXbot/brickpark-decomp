@@ -4,16 +4,16 @@ Completed 2026-09-08 on `scope/LL9`, based on `main` at `7d756410`.
 File: `LEGOLAND/unref1.c` (new). Brief:
 [`docs/SCOPE_LL9_unref_rides_flume_coaster_a.md`](../SCOPE_LL9_unref_rides_flume_coaster_a.md).
 
-**27 of 31 exact — 930 instructions assigned, 613 of them (1,673 bytes) in
-exact bodies.**
-The four remaining bodies are structurally complete and honest WIPs: three
-are a single register-allocation tie-break each, and the fourth
-(`ZBuffer_FillShadedPoly`, a hand-written-assembly function) is exact in
-instruction count, byte length and its whole `__asm` region, with the
-residual in twelve frame homes and one CSE hoist.
+**29 of 31 exact — 930 instructions assigned, 816 of them (2,275 bytes) in
+exact bodies** (escalation 2026-09-08: `LFPiece_ShadeForRow` and
+`ZBuffer_FillShadedPoly` closed, the other two WIPs cut from 57 and 40 strict
+to 56 and 14).
+The two remaining bodies are structurally complete and honest WIPs, each one
+register tie-break: `LFPiece_MoveBoatsOff` (piece copy vs destination) and
+`LFTrack_FindPieceCovering` (y parameter vs x-span naming, 50/50 and 123/123).
 
-Validation: `tools/audit.py LEGOLAND/unref1.c` ends **PASS** with 27 `[OK]`
-lines and 4 `[WIP]`; `tools/relocs.py` reports **zero MISMATCH** across 34
+Validation: `tools/audit.py LEGOLAND/unref1.c` ends **PASS** with 29 `[OK]`
+lines and 2 `[WIP]`; `tools/relocs.py` reports **zero MISMATCH** across 34
 relocations (the 5 unresolved are x87 constant pool literals — 0.5f, 1.0f
 and 1/6, each read out of the original and checked); the file compiles
 clean under `/W3 /O2 /Gy /Gd`. No other file was touched.
@@ -24,11 +24,11 @@ clean under `/W3 /O2 /Gy /Gd`. No other file was touched.
 | --- | --- | ---: | ---: | --- | --- | --- |
 | `0x00401e00` | `SchoolCarPushWaypoint` | 69 | 100 | [OK] | FUNCTION | — |
 | `0x00403d60` | `Copters_RestoreRider` | 12 | 100 | [OK] | FUNCTION | — |
-| `0x00408f90` | `LFTrack_FindPieceCovering` | 50 | 20 | [WIP] | WIP-FUNCTION | 40 strict, first diff i=1 |
-| `0x0040adb0` | `LFPiece_ShadeForRow` | 69 | 4 | [WIP] | WIP-FUNCTION | 68/69 insns, 66 strict, first diff i=3 |
+| `0x00408f90` | `LFTrack_FindPieceCovering` | 50 | 72 | [WIP] | WIP-FUNCTION | 50/50 insns, 123/123 B, 14 strict, first diff i=4 (y/w register naming) |
+| `0x0040adb0` | `LFPiece_ShadeForRow` | 69 | 100 | [OK] | FUNCTION | — |
 | `0x0040b270` | `LFBoat_IsAtPiece` | 7 | 100 | [OK] | FUNCTION | — |
 | `0x0040bd40` | `LFBoat_StepAtStation` | 76 | 100 | [OK] | FUNCTION | — |
-| `0x0040c250` | `LFPiece_MoveBoatsOff` | 64 | 11 | [WIP] | WIP-FUNCTION | 57 strict, first diff i=1, ESCAPES |
+| `0x0040c250` | `LFPiece_MoveBoatsOff` | 64 | 12 | [WIP] | WIP-FUNCTION | 64/64 insns, 139/143 B, 56 strict, first diff i=1 (piece vs dest register) |
 | `0x00411e20` | `Unref_00411e20` | 1 | 100 | [OK] | FUNCTION | — |
 | `0x00411f70` | `LFQueue_IsFrontRider` | 13 | 100 | [OK] | FUNCTION | — |
 | `0x004120e0` | `WalkPath_GetPoint` | 7 | 100 | [OK] | FUNCTION | — |
@@ -50,7 +50,7 @@ clean under `/W3 /O2 /Gy /Gd`. No other file was touched.
 | `0x0041f790` | `ExpDerivs` | 33 | 100 | [OK] | FUNCTION | — |
 | `0x0041f7e0` | `TestFn_Log` | 4 | 100 | [OK] | FUNCTION | — |
 | `0x0041f7f0` | `MathSelfTest` | 22 | 100 | [OK] | FUNCTION | — |
-| `0x0041fa10` | `ZBuffer_FillShadedPoly` | 134 | 77 | [WIP] | WIP-FUNCTION | 134/134 insns, 393/393 B, 31 strict, first diff i=22 |
+| `0x0041fa10` | `ZBuffer_FillShadedPoly` | 134 | 100 | [OK] | FUNCTION | — |
 | `0x00420520` | `Unref_00420520` | 1 | 100 | [OK] | FUNCTION | — |
 | `0x004207b0` | `FreeCoasterColours` | 5 | 100 | [OK] | FUNCTION | — |
 
@@ -347,56 +347,92 @@ Existing names reused unchanged: `Free_w`, `AllocZeroed`, `CarPoolInit`,
    records for `LFTrack_DrawAlt`, and it is what makes the rest of that body
    line up.
 
+10. **Four corner sums as ONE aggregate keep the square byte live for the
+    fourth callee-saved push** (`LFPiece_ShadeForRow`, 0x0040adb0, closed
+    2026-09-08 from 68/69, 66 strict). Four scalar sums let VC6 fold each
+    `v[k]` load into its add, so `sq.x` dies before `v[1]` loads and six
+    registers suffice; `int b[4]` (or two non-escaped `Pos` copied whole)
+    makes VC6 issue all four loads before any add, keeps `sq.x` live and
+    pushes ebx/ebp/esi/edi. The aggregate-as-live-value form of RA03; every
+    scalar permutation, named bytes, a `const int*` cursor and a volatile
+    `v[1]` (64) were inert.
+
+11. **An aggregate for scalars that are still enregistered DECIDES THEIR FRAME
+    HOMES** (`ZBuffer_FillShadedPoly`, 0x0041fa10, 31 -> 14).
+    `struct { short* row; short* zrow; int pitch; } r`, named `r.row` /
+    `r.zrow` in the `__asm` block, places the three in the frame at
+    -0x14/-0x10/-0xc although VC6 still scalarises them into esi/edi/eax;
+    the two remaining scalars (the z step and VC6's own hoisted `pitch*2`)
+    then take the dead argument slots the original gives them. The row pair
+    alone is 31 -> 19 (ylast/pitch swapped); adding pitch is 14; declaration
+    order is inert. This is FR01 in its useful direction and it transfers to
+    schoolcar6.c's twin `ZBuffer_FillPoly` (0x00423350), whose recorded
+    residual is exactly the row/ylast home swap.
+
+12. **Write `a = p->x - p->step` as stores plus a read-modify-write through
+    the address-taken array to hoist `p->x` instead of `p->step`**
+    (`ZBuffer_FillShadedPoly`, 14 -> 0). In one expression VC6 forms the CSE
+    temporary for the twice-used `e->step` first and hoists THAT load above
+    the branch; `ed[k].x = e->x; ed[k+1].x = e->step; ed[k].x -= ed[k+1].x;`
+    orders the x load first, store-to-load forwarding folds the RMW into a
+    register subtract, and the leading common load becomes `e->x`. The left
+    arm's order is load-bearing (x, step, z, zstep, then the two subtractions:
+    0; the other 79 dependency-respecting orders 2-14). `ed[k].x = e->x;
+    ed[k].x -= e->step;` is recombined and inert, as are unary-minus forms,
+    casts, per-arm temporaries, `switch`, a flat `int ed[20]` and volatile x.
+
+13. **One-use volatile READS at every use of a loop cursor, with its
+    definition and test left ordinary, reproduce a memory-resident cursor**
+    (`LFTrack_FindPieceCovering`, 0x00408f90, 40 -> 14).
+    `(*(LFRun* volatile*)&run)->pieces` at the head and
+    `run = (*(LFRun* volatile*)&run)->next` in the latch give spill-at-def,
+    reload-at-use and the test on the register copy (`test eax,eax / mov
+    [esp+10h],eax / jne`); a `volatile` declaration also forces the test to
+    re-read (48), and either read alone is worse (50 / 44). With the cursor
+    in memory all four inner-loop values take the callee-saved registers.
+    RA12's read form at more than one site.
+
+14. **A `while` sub-list walk where a `do/while` peels the first element**
+    (`LFPiece_MoveBoatsOff`, 0x0040c250). The `do/while` gave VC6 a third
+    call site and a branch past the extent; `while (s)` is the original's
+    two call sites with the sub-list arm exiled. Layout only: 57 -> 56.
+
 ### Measured negatives
 
-* **`LFTrack_FindPieceCovering` (0x00408f90), 50/50 instructions, 40 strict.**
-  Block layout, the two zero registers, all four compares and both epilogues
-  are index-for-index right. The residual is one register-allocation choice:
-  the original spills the RUN cursor into the single stack dword (`push ecx`)
-  and keeps both footprint spans in ebp/edi; VC6 gives us edi for `run` and
-  spills the y-span instead. Inert at 39-40: `while`/`for`/`do-while`
-  spellings, reading the head first or last, two-definition spans
-  (`h = v[3]; h -= v[1];`), a `Footprint*` local, function-scope cursors,
-  split `continue` guards, swapping the two span initialisers, named
-  `v[0]`/`v[1]` locals and a guarded `if (run) do {...} while (run)`. A
-  `volatile` run is worse (48), and so are the two spans as one two-element
-  array (43).
-* **`LFPiece_ShadeForRow` (0x0040adb0), 68 of 69 instructions, 66 strict.**
-  Everything from the second `GetTileBounds` on is right, including the frame
-  (one `Pos` and one `TileBounds` reused by both calls), the merged
-  `add esp,0x10`, the two spills into the dead argument-2 slot, the
-  `fild/fmul/fdivp` order, both clamp arms and the
-  `0x20 - __ftol(r * -192)` tail. The deficit is ONE callee-saved push: the
-  original holds seven values at once (the footprint pointer, both square
-  bytes and all four corner sums) and pushes ebx/ebp/esi/edi, putting x0 in
-  edx and y0 in edi; VC6 lets `sq.x` die before it loads `v[1]`, needs six,
-  and pushes three. Inert at 65-67: loading all four `v[]` before the adds,
-  every permutation of the four sum statements, named `sq.x`/`sq.y` locals,
-  a `const int* v = fp->v` cursor, storing the first point early, and
-  storing y before x.
-* **`LFPiece_MoveBoatsOff` (0x0040c250), 64/64 instructions, 57 strict.**
-  The block layout is right — the two destination stores CROSS-JUMP into one,
-  the sub-list arm is exiled past the `mov eax,1` epilogue, ebx and esi are
-  pushed INSIDE the boat-loop path, and the boat count is re-read from the
-  run local in the latch. The residual is one allocation choice: the original
-  enregisters the PIECE in ebp and homes the destination cursor in the
-  parameter's own stack slot; VC6 does the reverse for us whichever way the
-  two are spelled, which is also why a branch still escapes the extent.
-  Inert at 57-63: a plain `dest` local left uninitialised on the
-  no-neighbour path, reassigning the parameter itself, a merged
-  `n = prev; if (!n) n = next;` temporary, declaring the copy before the run
-  record, and indexing `run->boats[i]` instead of walking a cursor.
-* **`ZBuffer_FillShadedPoly` (0x0041fa10), 134/134 instructions, 393/393
-  bytes, 31 strict.** Twelve of the residual are frame homes: the original
-  keeps `row`, `zrow`, `pitch` and `ylast` in the frame and gives the three
-  dead argument slots to the colour, the z step and VC6's own hoisted
-  `pitch*2`; VC6 hands the two POINTERS two of those argument slots instead.
-  Declaration order is inert across all seven orders tried — schoolcar6.c
-  records the same negative for its twin — as is `int` versus `short` for the
-  colour. Declaring the `src` parameter `int` and assigning the z step into
-  it DOES move the z step to +0xc, but pushes the colour out of +8 for no net
-  gain. The other fourteen are the per-key edge switch: the original hoists
-  `e->x` above the branch and loads `e->step` inside each arm, VC6 hoists
-  `e->step`. All six orderings of the two arms' stores are inert (VC6
-  reorders the adjacent stores anyway) and naming the hoisted value is worse
-  — 55 steps-first, 70 values-first, 103 with both named.
+* **`LFTrack_FindPieceCovering` (0x00408f90), 50/50 instructions, 123/123
+  bytes, 14 strict** (was 40; lever 13). The residual is one register
+  NAMING: the original holds `y` in ebx and the x-span in edi, we hold the
+  x-span in ebx and `y` in edi (h in ebp and x in esi agree), and the
+  prologue's load schedule follows. All four webs have exactly two
+  references, so it is a tie-break; 24 spellings in this regime did not move
+  it (span order, declaration order, spans before/after the cursor,
+  two-statement spans, `-v[1] + v[3]`, a `Footprint*` local, named `v[]`
+  loads, `int sp[2]` (15), unsigned spans (16), x/y copied to locals at three
+  scopes or into a `Pos`, nested ifs, `for` spellings, free volatiles on each
+  footprint load and the queue). Spelling a span inline makes VC6 hoist only
+  the load and keep the subtract in the loop (28-49). At its floor for this
+  regime: what is missing is a lever that ranks a twice-read PARAMETER above
+  a twice-read local (RA16 records the parameter/parameter tie only).
+* **`LFPiece_MoveBoatsOff` (0x0040c250), 64/64 instructions, 139/143 bytes,
+  56 strict** (was 57 with ESCAPES; lever 14). The layout is now the
+  original's; the residual is one allocation choice: the original
+  enregisters the PIECE in ebp, spills the run record into the `push ecx`
+  slot and keeps the destination memory-resident in the dead parameter slot
+  (store at every def, reload at every use). VC6 gives the register to the
+  destination and spills the piece. 33 spellings measured. Appearance count
+  does not predict it: CSE'd re-reads, `if (piece) ;` pins, a single-def
+  neighbour temporary, run defined late and every declaration order are
+  inert; forcing the destination into memory with a one-use volatile at the
+  store site hands the fourth register to RUN, not the piece, so VC6 ranks
+  the piece copy below both whatever its count. `&p` and a 4-byte struct
+  parameter are scalarised back to the same code. The one regime that does
+  put the piece in a register and the destination memory-resident in the
+  parameter slot, with the original's exact store/reload idiom, is the
+  parameter used as the piece, an UNINITIALISED `dest` with no else arm (the
+  LFTrack_Add lever) and `piece->run` spelled inline for `boats` and the
+  latch -- 62 instructions, the original minus the run spill/reload, with
+  piece/i swapped between ebx and ebp. Naming `run` back as a local returns
+  the register to the destination; subscripting `run->boats[i]` gives the
+  run-coalesced cursor in edi and a spilled dest but anchors the cursor on
+  `.piece` and takes a fresh slot. Combining the two halves is the lever
+  still missing.

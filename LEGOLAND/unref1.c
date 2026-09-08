@@ -989,44 +989,53 @@ extern int             g_zb_pitch;               /* 0x004b5b28 */
 extern int             g_zb_polys;               /* 0x0060f900 */
 extern unsigned short* g_shade_tab[0x400];       /* 0x00829c60 */
 
-/* WIP: 134/134 instructions and 393/393 bytes, 31 strict mismatches, first
- * divergence at index 22.  The whole hand-written region is index-for-index
- * exact, as is the entire set-up down to the two row bases and the outer
- * loop's key walk.  The residual is two things and nothing else:
+/* CLOSED 2026-09-08 (LL9 escalation) from 134/134, 393/393, 31 strict.  Two
+ * levers, one per half of the residual:
  *
- *  1. TWELVE frame homes: the original keeps `row`, `zrow`, `pitch` and
- *     `ylast` in the frame at -0x14/-0x10/-0xc/-8 and gives the three dead
- *     argument slots to `colour` (+8), the z step (+0xc) and VC6's own
- *     hoisted `pitch*2` (+0x10).  We get `colour` at +8 right, but VC6 hands
- *     the two POINTERS the other two argument slots and pushes the z step and
- *     the hoisted stride into the frame instead.  Measured and inert: all
- *     seven declaration orders of the five scalars (schoolcar6.c records the
- *     same negative for its twin), `int` vs `short` for the colour, and
- *     making the z step reuse the `src` parameter's own home by declaring
- *     that parameter `int` and assigning into it -- that DOES move the z step
- *     to +0xc but pushes `colour` out of +8, for the same total of 43 before
- *     the base-load fix and no better after it.
- *  2. FOURTEEN instructions in the per-key edge switch: the original hoists
- *     `e->x` into the block above the branch and loads `e->step` inside each
- *     arm; VC6 hoists `e->step` for us.  All six orderings of the two arms'
- *     stores are inert (VC6 reorders the adjacent stores anyway), and naming
- *     the hoisted value (`int ex = e->x;`) makes it worse, not better -- 55
- *     with the steps-first arms, 70 values-first, 103 with both named.
+ *  1. FRAME HOMES (12): the two row pointers and `pitch` are ONE aggregate,
+ *     `struct { short* row; short* zrow; int pitch; } r`, named as `r.row` /
+ *     `r.zrow` inside the __asm block.  As three scalars VC6 gave the row
+ *     pointers the dead `src`/`n` argument slots and pushed the z step and
+ *     its own hoisted `pitch*2` into the frame; as members of an aggregate
+ *     the three are PLACED in the frame (-0x14/-0x10/-0xc) even though they
+ *     are still scalarised into registers (FR01), so the two scalars fall
+ *     back to +0xc/+0x10 and `colour` keeps +8.  The row pair alone is 31 ->
+ *     19 with ylast/pitch swapped between -8 and -0xc; adding pitch to the
+ *     aggregate is 14; adding ylast as well is the same 14.  Declaration
+ *     order, a one-member `{ int v; } pt` for pitch (19), `key[n].y = ylast`
+ *     and free volatiles on the pitch load or the ylast read were inert or
+ *     worse.  This transfers to schoolcar6.c's twin ZBuffer_FillPoly
+ *     (0x00423350), whose recorded residual is the same row/ylast home swap.
  *
- * The set-up's own scheduling WAS reachable and is worth recording: writing
- * the two row pointers as `zrow = g_zb_base; row = g_zb_colour;` immediately
- * after `pitch`, and adding `pitch * y` to them at the END of the set-up,
- * takes the body from 105 strict to 31.  Computing them in one statement
- * each (`row = g_zb_colour + pitch * y;`) leaves both base loads at the
- * bottom where the original has them at the top, and costs 74. */
-// WIP-FUNCTION: LEGOLAND 0x0041fa10  (134/134 insns, 393/393 B, 31 strict; frame homes + one CSE hoist)
+ *  2. THE EDGE SWITCH (14): written as `ed[k].x = e->x - e->step;` VC6 forms
+ *     the CSE temporary for `e->step` FIRST in each arm and hoists THAT load
+ *     above the branch; the original hoists `e->x` and loads the step inside
+ *     each arm (its exact twin hoists both, x first).  Writing each arm as
+ *     stores followed by a read-modify-write through the address-taken
+ *     array -- `ed[k].x = e->x; ed[k+1].x = e->step; ed[k].x -= ed[k+1].x;`
+ *     -- puts the x load first in the IR, and store-to-load forwarding folds
+ *     the RMW back into a register subtract, so the instruction count is
+ *     unchanged.  The LEFT arm's order is load-bearing: x, step, z, zstep,
+ *     then the two subtractions is 0 strict; the other 79 dependency-
+ *     respecting orders of those six statements measure 2 to 14.  Inert on
+ *     the way here: per-arm `int ex = e->x` temporaries, `e->x + -e->step`,
+ *     `-e->step + e->x`, `(long)` casts, `ed[k].x = e->x; ed[k].x -= e->step;`
+ *     (VC6 recombines it), reading the step back from the just-stored slot
+ *     in a single expression, a named step temporary, `switch`, the inverted
+ *     test, a flat `int ed[20]`, a volatile `e->x`, and empty `if (e->x) ;`
+ *     pins; `int ex = e->x` above the branch is 65 (the earlier 55).
+ *
+ * The set-up's own scheduling was the first lever found and still holds:
+ * `r.zrow = g_zb_base; r.row = g_zb_colour;` right after `pitch`, with the
+ * `pitch * y` offsets added at the END of the set-up, puts the two base loads
+ * high among the callee-saved pushes where the original has them (105 -> 31
+ * before the two levers above). */
+// FUNCTION: LEGOLAND 0x0041fa10
 void ZBuffer_FillShadedPoly(int ramp, const int* src, int n,
                             ZKey* key, ZEdge* edge)
 {
     ZInterp ed[4];
-    short*  row;
-    short*  zrow;
-    int     pitch;
+    struct { short* row; short* zrow; int pitch; } r;
     int     ylast;
     int     y;
     short   colour;
@@ -1035,27 +1044,30 @@ void ZBuffer_FillShadedPoly(int ramp, const int* src, int n,
     y = key[0].y;
     edge[key[n - 1].idx].ylast++;
     ylast = edge[key[n - 1].idx].ylast;
-    pitch = g_zb_pitch;
-    zrow = g_zb_base;
-    row  = g_zb_colour;
+    r.pitch = g_zb_pitch;
+    r.zrow = g_zb_base;
+    r.row  = g_zb_colour;
     zstep = src[1];
     g_zb_polys++;
     colour = g_shade_tab[ramp][src[0]];
     key[n].y = edge[key[n - 1].idx].ylast;
-    row  += pitch * y;
-    zrow += pitch * y;
+    r.row  += r.pitch * y;
+    r.zrow += r.pitch * y;
     do {
         ZEdge* e = &edge[key->idx];
 
         key++;
         if (e->side) {
-            ed[2].x = e->x - e->step;
+            ed[2].x = e->x;
             ed[3].x = e->step;
+            ed[2].x -= ed[3].x;
         } else {
-            ed[0].x = e->x - e->step;
-            ed[0].rest[1] = e->z - e->zstep;
+            ed[0].x = e->x;
             ed[1].x = e->step;
+            ed[0].rest[1] = e->z;
             ed[1].rest[1] = e->zstep;
+            ed[0].x -= ed[1].x;
+            ed[0].rest[1] -= ed[1].rest[1];
         }
         while (y < key->y) {
             y++;
@@ -1077,8 +1089,8 @@ void ZBuffer_FillShadedPoly(int ramp, const int* src, int n,
             wide:
                 sar  eax, 16
                 sar  ebx, 16
-                mov  edi, row
-                mov  esi, zrow
+                mov  edi, r.row
+                mov  esi, r.zrow
                 xchg ebx, eax
                 sub  ebx, eax                   /* left - right, <= 0 */
                 lea  edi, [edi + eax*2]         /* &row[right]        */
@@ -1094,8 +1106,8 @@ void ZBuffer_FillShadedPoly(int ramp, const int* src, int n,
                 jle  fill
             done:
             }
-            row  += pitch;
-            zrow += pitch;
+            r.row  += r.pitch;
+            r.zrow += r.pitch;
         }
     } while (y < ylast);
 }
