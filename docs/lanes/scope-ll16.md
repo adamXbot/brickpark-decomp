@@ -377,7 +377,14 @@ earlier draft called `nclose` is this hint counter.
    and the narration cursor block (0x54..0x64) are both accounted for; the
    two missing slots are most likely in the render/input loop, which is
    still approximate.
-2. **The render loop should be rewritten around a walking pointer.** The
+2. **The render loop's walking pointer is not a free win — measured.**
+   Rewriting the three render-phase walks with `RepLine*` cursors (plus an
+   `int* np` for the narration queue and `do/while` rotations) moved the
+   mismatch count only 8043 -> 8041 and took the **frame the wrong way**,
+   0x23cc -> 0x23bc, because VC6 then enregisters `i` and `nnarr` which the
+   original keeps at `[esp+0x5c]` and `[esp+0x48]`. Reverted; the indexed
+   spelling is what is on disk. Anyone retrying this has to keep those two
+   counters memory-homed. The original's addressing is:  the
    original keeps `edi = &lines[i].nids` (`lea edi,[esp+19*i*4+0xbc]`) and
    reads every field as a displacement off it: `[edi-0x28]` page,
    `[edi-0x24]` indent, `[edi-0x20]` ok, `[edi-0x1c]` step, `[edi-0x18]`
