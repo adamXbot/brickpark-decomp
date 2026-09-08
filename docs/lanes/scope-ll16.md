@@ -9,13 +9,13 @@ one function.
 | --- | --- |
 | address | `0x004453a0` |
 | original | 8,085 instructions, 34,662 bytes, frame `0x23d4` |
-| ours | 7,821 instructions, 34,224 bytes, frame **`0x23d4` (exact)** |
+| ours | 7,824 instructions, 34,224 bytes, frame **`0x23d4` (exact)** |
 | first diverging index | 8 |
-| mismatch | 7,933 of 8,085 |
-| index-for-index `MATCH` | 152 |
-| `FULL MATCH` (difflib) | 39.0% — see the eighth pass, do not read this alone |
-| true LCS vs the whole original | 4,231/8,085 = 52.3% |
-| LCS with the slot permutation removed | 4,835/8,085 = **59.8%** (see the ninth pass) |
+| mismatch | 7,923 of 8,085 |
+| index-for-index `MATCH` | 162 |
+| `FULL MATCH` (difflib) | 40.7% — see the eighth pass, do not read this alone |
+| true LCS vs the whole original | 4,441/8,085 = 54.9% |
+| LCS with the slot permutation removed | 4,968/8,085 = **61.4%** (see the tenth pass) |
 | audit | `[WIP]`, file ends `PASS` |
 | relocs | zero `MISMATCH` (a WIP body is skipped) |
 | `/W3` | clean |
@@ -28,8 +28,10 @@ shape (hoisted above the rewind test AND repeated in the fall-through arm),
 does it, and the body is within 264 instructions and 438 bytes of the target.
 **The one remaining structural residual is the stack SLOT PERMUTATION**: our
 33 scalar dwords hold the same values as the original's 33 in a different
-order, so almost every `[esp+N]` displacement is wrong. Read the ninth pass
-first; the earlier passes' "what is left" lists are superseded.
+order, so almost every `[esp+N]` displacement is wrong. **Read the tenth pass
+first** — it gives VC6's frame-ordering rule (descending reference weight,
+per dword for aggregates), which is the lever every earlier pass was looking
+for; the earlier passes' "what is left" lists are superseded.
 
 ## What the screen is
 
@@ -1232,3 +1234,162 @@ and only this; it is worth more than everything else left combined.
    now overshoot by 173. It is in the render/input tail, which the second
    pass's note about `RepLine*` cursors still governs: whatever is tried
    there has to keep `i` and `nnarr` memory-homed.
+
+## 2026-09-08 (tenth pass) — the frame is ORDERED BY REFERENCE WEIGHT
+
+| | ninth pass | now |
+| --- | --- | --- |
+| emitted | 7,821 | 7,824 |
+| bytes | 34,224 | 34,224 |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 8 | 8 |
+| mismatch | 7,933 | **7,923** (lane best) |
+| index-for-index `MATCH` | 152 | **162** (lane best) |
+| true LCS vs the whole original | 52.3% | **54.9%** (lane best) |
+| `difflib` alignment | 37.3% | 40.7% |
+
+### The rule: descending reference weight, per dword, from `esp+0x10` upward
+
+The ninth pass left "nothing found so far steers the slot permutation".  The
+rule is now known and it is simple.  **VC6 lays this frame out in DESCENDING
+order of reference weight, lowest address first, and an aggregate is ranked by
+its weight divided by its size in dwords.**  Proved on small functions in
+`/tmp/sll16e_lab` and confirmed on our own object:
+
+- `t2.c` — ten `int` locals with 24/16/12/8/6/4/3/2/2/1 uses, no aggregates:
+  the six that reach memory come out in exactly descending-weight order.
+- `t5.c` — the same plus two 16-byte structs and **no array**: the scalars are
+  weight-ordered at the bottom and both structs sit above all of them.
+- `t6.c` — `t5.c` plus a 400-byte array and a 128-byte buffer: the structs
+  stop being a block at the top and interleave among the scalars at exactly
+  their **per-dword** weight (`cur` 63/4 = 15.75 lands between `ok` 17 and
+  `passed` 6; `box` 20/4 = 5 lands between `fm` 6 and `total` 4).  So the
+  presence of an array is what switches VC6 from "aggregates on top" to one
+  weight-ordered sequence — which is the mode this function is in.
+
+Our own committed object obeys it with a single adjacent inversion.  The
+`/FAs` equates plus a census of `_name$[esp` and `-NNNN+[esp` occurrences give
+the weights directly; that census is the tool this pass ran on every variant
+(no `esp` tracking needed, so the doc's slot-census caveat does not apply):
+
+```
+0x10 T(n*0x4c) 210 | 0x14 page_start 171 | 0x18 indent 169 | 0x1c ok+obj+T 151
+0x20 sect_start 135 | 0x24 r{box,cur} 901/8 = 112 | 0x44 v+nnarr+T 91
+0x48 failmask 62 | 0x4c total 47 | 0x50 passed 38 | 0x54 nrun+i+T 29
+0x58 all_passed+narr_cur 18 | 0x5c all_total 14 | 0x60 T 4 | 0x64.. out-params 3
+```
+
+Everything the earlier passes measured as **inert** — declaration order,
+initialisation order, renaming, `register`, the order of the entry
+zero-stores — is inert *because none of them changes a reference count*.  The
+only lever on this frame is the weight.
+
+### What that bought: `box` and `cur` are one aggregate, and `bar` loses its home
+
+The original has `box` at `0x1c` and `cur` at `0x2c`, adjacent with `box`
+below.  Two separate 16-byte structs cannot land adjacent unless their weights
+happen to be adjacent, and ours were 145 and 758 — so they were pulled to
+opposite ends of the frame (`cur` at `0x14`, `box` at `0x44`).  A
+**non-escaping `struct { AppraisalBox box, cur; } r;`** (with `#define box
+r.box` / `#define cur r.cur`) pins them together and is ranked as one 8-dword
+object.  The ninth pass had measured this shape as +2.4 LCS but rejected it
+because it cost `+0x10`: inside an aggregate `box`'s home is live to the end
+of the function, so `bar` can no longer share it and has to be homed at
+`0x1e44`.
+
+**`bar`'s home is removable, and that is what makes the aggregate free.**  The
+render loop wrote
+
+```c
+bar.left = 0x126; bar.top = cur.top; bar.right = 0x1a4; bar.bottom = cur.top + 8;
+```
+
+With the two constants written first VC6 has `0x126`, `0x1a4` and `cur.top+8`
+all live across the three argument pushes, and it spills the computed bottom
+to `bar`'s home.  Writing **top and bottom first** leaves only one value live
+and the spill disappears — `_bar$` goes away entirely, which is what the
+original does (it builds the bar rectangle straight onto the pushed arguments
+at 0x0044d9d5 and has no `bar` slot at all).  On its own the reorder is worth
+two instructions; together with the aggregate it is worth 2.6 points of LCS.
+
+Measured (object prefix `/tmp/sll16e_`):
+
+| shape | emitted | mismatch | `MATCH` | LCS | frame |
+| --- | --- | --- | --- | --- | --- |
+| ninth pass (committed before) | 7,820 | 7,933 | 152 | 52.3% | `0x23d4` |
+| bar top/bottom first, alone | 7,818 | 7,934 | 151 | 52.4% | `0x23d4` |
+| **aggregate + bar reorder** | **7,819** | **7,923** | **162** | **54.9%** | **`0x23d4`** |
+| aggregate alone | 7,821 | 7,925 | 160 | 54.8% | `0x23e4` (fatal) |
+| `AppraisalBox r[2]` + bar reorder | 7,819 | 7,923 | 162 | 55.0% | `0x23d4` |
+| `struct { cur, box }` + bar reorder | 7,819 | 7,928 | 157 | 53.3% | `0x23d4` |
+| `struct { box, cur, title }` | 7,819 | 7,955 | 130 | 39.5% | `0x23e4` |
+
+`AppraisalBox r[2]` is three LCS instructions better than the struct and
+identical on every other measure; the struct is what is on disk because it
+reads as source.
+
+### What is left of the permutation, and exactly what it is worth
+
+Remapping the committed object's `[esp+N]` displacements to the original's
+slots (same normalisation as `tools/match.py`):
+
+| remap | `MATCH` | mismatch | LCS |
+| --- | --- | --- | --- |
+| none (as committed) | 162 | 7,923 | 54.9% |
+| `page_start`->`0x10`, `indent`->`0x14`, temp->`0x18` only | 169 | 7,916 | **57.3%** |
+| + `r`->`0x1c`, `ok`->`0x3c`, `sect_start`->`0x40` | 171 | 7,914 | 60.4% |
+| the whole frame remapped | 171 | 7,914 | 61.4% |
+
+So 2.4 of the remaining 6.5 points sit in **one object**: the `n * 0x4c`
+byte-offset CSE temp, whose 210 references outrank `page_start`'s 171 and hold
+it off `0x10`.  Push that temp's weight into the window **(151, 169)** and
+`page_start`, `indent` and the temp all land on the original's `0x10`, `0x14`,
+`0x18` at once.
+
+The original's temp is the same size in total and is **split across four
+slots**: an esp-tracked zone census of the original gives `0x18` 103 refs
+(shared with `nrun`/`nhint`), `0x4c` 47 (sections 1-7 only), `0x54` 43
+(sections 3-7 only), plus a share of `0x50`, and section 9 keeps the offset in
+`ebp`.  Ours coalesces every line's offset onto one slot.  That is a packing
+choice, not a source one, and nothing tried moves it:
+
+| probe | temp | result |
+| --- | --- | --- |
+| drop the seven section-head `lines[n].indent` pre-stores | 201 | mismatch 8,021 |
+| `lines[n].nids = 0` first in the line body | 234 **+** 208 (it does split!) | frame `0x23d8`, LCS 43.0% |
+| `RepLine* rp = &lines[n];` in the line macros | `rp` 200 at `0x10` | frame `0x23d8`, LCS 34.8% |
+
+The second row is the encouraging one: VC6 **will** split this temp into two
+webs, so a spelling that splits it without disturbing the line body is what
+this residual needs.
+
+### The second lever: `box`'s remaining constant folds
+
+`r` is ranked at 901/8 = 112 per dword and needs to be above `ok`'s 151 to
+land on `0x1c` — about +350 references.  All of them are `box` reloads the
+original makes and we do not.  At a typical site the original loads
+`box.left/top/right/bottom` in the hoisted copy and reloads three of them in
+the fall-through arm, seven loads per site; ours loads three, because
+`box.bottom` is folded to `mov <reg>,0x83` (131 sites) and `box.left` and
+`box.right` survive in `ecx`/`edx` into the fall-through arm.  Confirmed by
+the arithmetic: an opaque `box` (initialised from four externs, a probe only)
+takes `box` from 145 references to 744, puts `box` and `cur` adjacent with
+`box` below **exactly as the original has them**, and lifts the LCS to 55.7%
+even while breaking the frame and the first eight instructions.  A probe that
+adds one instruction per site (`box.bottom += g_report_pages`) lifts `r` to
+1,110/8 = 138 and moves it up one slot, over `sect_start` — the weight model
+predicting the move correctly is itself the confirmation.
+
+So the remaining work is two weight adjustments, both now quantified:
+
+1. **Split or shrink the `n*0x4c` temp** to under `indent`'s 169 (ideally into
+   the 151-169 window).  Worth 2.4 LCS points.
+2. **Stop `box.bottom` folding and stop `box.left`/`box.right` surviving into
+   the fall-through arm**, worth +350 references on `r` and a further ~3
+   points — and it is the same residual as the ninth pass's "box.bottom's
+   constant fold", now with a mechanism attached to it.
+
+Also measured and **rejected** this pass: a second `box` init at `sect1:`
+(mismatch 7,988) or at `sect2:` (8,003), re-initialising `box` at the render
+head (7,990), `box.bottom = box.top + 0x16` (byte-identical), `cur = box;`
+after the init with or without the separate `cur.top = 0x6d` (both 7,976).
