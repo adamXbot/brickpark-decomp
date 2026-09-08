@@ -2655,7 +2655,275 @@ static __inline int FullMapY(TileBounds* t, int scale_y)
  *     is in docs/lanes/scope-ll20.md); it is the only construct measured in
  *     eleven rounds that reproduces the original's pool.
  */
-// WIP-FUNCTION: LEGOLAND 0x004567a0  (28.8%, 827/1161 strict, 4216/4225 bytes; ILF address carrier improved; first 0)
+/* Scope LL20, second session (2026-09-08): THE LEVER IS NOW THE BODY.  The
+ * pass-4 loop body lives in the by-value FullMap_ChainCell below; the
+ * caller's loop is three lines.  Measured against the 827 body it replaces:
+ *   frame 0xf8 == 0xf8 (was 0xf4); first diverging index 1 (was 0); the
+ *   pool EXACTLY the original's (sd +0xac, Pos +0xc4/+0xcc/+0xd4/+0xdc in
+ *   the original's order, Cell copy +0xe4..+0xf8, 521..526 `lea edi,
+ *   [esp+0xf4] / rep movsd / mov eax,[esp+0x100]`), three `rep movsd`;
+ *   alignment-aware matchfull 659/1191 (was 584/1188); register+offset-
+ *   blind aligned 625 (was 613); bytes 4212 (was 4216) of 4225;
+ *   index-for-index strict 864 (was 827), rb 814 (763), ob 786 (758);
+ *   1164 instructions, i.e. THREE LONG, so audit prints ESCAPES.
+ * Why the strict count is worse although the structure is better: the two
+ * bodies have the SAME block layout.  The first LL20 note's "track arm laid
+ * out last" is true of BOTH -- the 827 body already had [sd fill][join]
+ * [single-sprite head][HalfOffset join][single-sprite tail][ILF][TRACK]
+ * [latch], read off its listing (track arm 873..1116, ILF exit `jmp` 872);
+ * its "track arm mid-body" was a misreading.  Both are exactly VC6's LIFO
+ * trace (pending targets popped newest-first: SD, then SS2, ILF, TRK).  The
+ * +37 strict is the +3 length: 22 of it is the epilogue (1117..1160) shifted
+ * by three, 8 is pass-1/2 scheduling, 4 the ILF loop.  The +3 itself, read
+ * instruction by instruction against the original: track arm +5 (LineTo
+ * cached in esi, +1; c.base.y reloaded from the copy instead of the
+ * original's hoisted `mov ebp,[esp+0xf9]` at 528, +1; a `mov ecx,eax / mov
+ * eax,[tb.top]` shuffle in each of three HalfOffset expansions, +3), the
+ * single-sprite tail +1, the ILF loop -1, the loop head -2 (no `mov esi,eax`
+ * chain copy, no hoisted c.base.y).  The roads arm is now instruction-for-
+ * instruction the original's shape (both scales read from memory, 605..656),
+ * which the 827 body was not.
+ * The block layout is at its floor for source spelling, now also INSIDE the
+ * inlined body.  Byte-identical to this body (22 spellings this session):
+ * the sprite path guarded by the negated track test with the track arm as
+ * the fall-through, with and without an `else`; `if (track) {..} else
+ * {sprite path}`; every `return` removed (nested ifs, the helper falls off
+ * its end on all paths); the flags test as one `||` with the roads arm as
+ * the else; a `while` chain loop; the scales passed by pointer; the roads
+ * Pos filled before GetRoadRecord (within one byte); hoisted `unsigned char
+ * bx, by` copies of the cell base (forwarded away); and -- the new
+ * hypothesis this session, falsified -- the track arm and the whole sprite
+ * tail (desc tests, single sprite, ILF loop) as their OWN `static __inline`
+ * helpers, singly and together: an inline boundary does not change the
+ * order in which VC6 creates or lays out blocks.  Not identical but worse:
+ * `def` passed as a separate argument (871); an `int by` copy (866, 1162
+ * instructions).  Note for the model: the original's post-trace order
+ * SD, TRK, SS2, ILF is NOT the LIFO pop of its pending targets (TRK x5, SD,
+ * ILF, SS2 in trace order would pop SS2 first) while ours is exactly LIFO;
+ * so the original's order came from a different pending sequence that no
+ * source shape here reproduces.
+ * ROOT, measured with two non-committable diagnostics: `volatile int
+ * scale_y` as the helper parameter gives 846, `volatile int scale_x` gives
+ * 811 with LineTo uncached (`call dword ptr [imp]` twice, as the original)
+ * and the compare chain / cb call back on the original's indices (677).
+ * Ours enregisters both scales as loop-wide webs (ebx/ebp) for the whole
+ * pass-4 body; the original caches scale_x in ebx only from the loop header
+ * to the mark block and reads both scales from memory everywhere else,
+ * which is what frees ebp for the hoisted c.base.y, sends `chain` to a
+ * memory home (515/520, the peeled header `jmp` into the reload), and
+ * leaves no register to cache LineTo.  No non-volatile spelling moves that
+ * allocation (by-value, by-pointer, and a caller-local struct of both
+ * scales were tried: 864/864/862).  `push ebp` vs `push ebx` at index 1
+ * unchanged (the zero web + pass-2 y tie-break).  Retire here: the next
+ * lever, if any, is whatever makes VC6 not enregister the two scales across
+ * the pass-4 body, and it is not a spelling of this loop. */
+/* The pass-4 loop body, with the chain cell taken BY VALUE.
+ *
+ * THIS IS A FRAME-LAYOUT LEVER, not a style choice (scope LL20, 2026-09-08).
+ * The 20-byte by-value argument of an inlined helper becomes an
+ * inline-expansion temporary, and VC6 gives those homes in the pool at the
+ * top of the frame, where a named local -- of any scope -- never lands.
+ * With the WHOLE loop body inside the helper the copy stays live across the
+ * arm dispatch and lands at frame+0xe4 exactly as the original's does
+ * (521..526 `lea edi,[esp+0xf4] / rep movsd / mov eax,[esp+0x100]`), the
+ * pool below it comes out in the original's order (sd +0xac, Pos +0xc4
+ * roads / +0xcc single sprite / +0xd4 mark / +0xdc p1) and the frame is the
+ * original's 0xf8.  A by-value CellMarkTest(c) on an already-copied local
+ * buys none of this: VC6 forwards the fields and makes no temporary.
+ * `tb`, `tile`, `gtb` and `sd` stay the caller's named locals (their homes
+ * are in the named region of the original's frame) and are reached through
+ * pointers; every `continue` of the loop body is a `return` here. */
+static __inline void FullMap_ChainCell(Cell c, BPos bpos, int scale_x, int scale_y,
+                                       Elem* e_track, Elem* e_track_h, Elem* e_track_h0,
+                                       Elem* e_track_hp, Elem* e_castle, Elem* e_roads,
+                                       Sprite* s_blob, Sprite* s_stick, Sprite* s_lights,
+                                       void* pen, TileBounds* tbp, Pos* tilep, Pos* gtbp,
+                                       SpriteDesc* sdp)
+{
+    SpriteDesc* desc;
+    ILFTable*   ilf;
+    ILFTable**  slot;
+    ObjDef*     def;
+    RoadRec*    road;
+    int         lox, loy;
+    int         i;
+    int         mx, my;
+    int         x0, y0;
+
+    if (CellMarkTest(c)) {
+        TileBoundsAt((c.base.x & ~7) + 4, (c.base.y & ~7) + 4, tbp);
+        FullMapScroll(tbp);
+        g_map_marks[c.base.y >> 3][c.base.x >> 3].x = FullMapX(tbp, scale_x);
+        g_map_marks[c.base.y >> 3][c.base.x >> 3].y = FullMapY(tbp, scale_y);
+    }
+    def = ((Obj*)c.obj)->def;
+    if (!(def->flags & 4) && !(def->flags & 0x400)) {
+        /* only the driving-school roads draw here, and only at a lit
+         * junction record */
+        if (def != (ObjDef*)e_roads->data)
+            return;
+        sdp->sprite = s_lights;
+        sdp->dx = -0x66;
+        sdp->dy = -0x58;
+        road = GetRoadRecord(bpos.x, bpos.y);
+        if (road == 0)
+            return;
+        if ((road->kind & 0xf) != 5)
+            return;
+        /* Pooled Pos, as the original has here (its `lea eax,[esp+0xd4]`
+         * at index 610).  Round w7's "frame ballast" demotion of this
+         * site is gone; see item 5 of the round-w8 note above. */
+        TileBoundsAt(bpos.x, bpos.y, tbp);
+        tbp->left += HalfOffset(sdp->dx);
+        tbp->top += HalfOffset(sdp->dy);
+        FullMapScroll(tbp);
+        g_fm_cw = s_lights->w;
+        g_fm_ch = s_lights->h;
+        PrintScaledSprite(s_lights,
+                          FullMapX(tbp, scale_x),
+                          FullMapY(tbp, scale_y),
+                          g_fm_cw * scale_x >> 16,
+                          g_fm_ch * scale_y >> 16);
+        return;
+    }
+    if (def->ctx == e_track || def->ctx == e_track_h
+        || def->ctx == e_track_h0 || def->ctx == e_track_hp
+        || def->ctx == e_castle) {
+        Pos   p1;
+        float h0, h1;
+        int   link;
+
+        /* the track arm reads the CELL COPY's base, not `bpos` -- that is
+         * what keeps the 20-byte Cell live across the arm dispatch in the
+         * original (see the residual note above). */
+        tilep->x = c.base.x;
+        tilep->y = c.base.y;
+        if (GetTrackSegment(tilep, &h0, &p1, &h1, &link)) {
+            void* hdc;
+            void* old;
+
+            if (h0 < 0.0f)
+                h0 = 0.0f;
+            if (h1 < 0.0f)
+                h1 = 0.0f;
+            gtbp->x = tilep->x;
+            gtbp->y = tilep->y;
+            GetTileBounds(gtbp, tbp);
+            tbp->top += HalfOffset(-(int)h0);
+            FullMapScroll(tbp);
+            x0 = FullMapX(tbp, scale_x);
+            y0 = FullMapY(tbp, scale_y);
+            gtbp->x = p1.x;
+            gtbp->y = p1.y;
+            GetTileBounds(gtbp, tbp);
+            tbp->top += HalfOffset(-(int)h1);
+            FullMapScroll(tbp);
+            mx = FullMapX(tbp, scale_x);
+            my = FullMapY(tbp, scale_y);
+            if (def->ctx != e_track_hp) {
+                g_fm_cw = s_stick->w;
+                g_fm_ch = (short)(int)((float)scale_y * h0
+                                       * 7.62939453125e-06f);
+                if (g_fm_ch > 0)
+                    PrintScaledSprite(s_stick,
+                                      x0 - ((g_fm_cw * scale_x) >> 17), y0,
+                                      (g_fm_cw * scale_x) >> 16, g_fm_ch);
+            }
+            PushRenderingStatusAndUnlockVideoSurface();
+            g_draw_surface->vtbl->GetDC(g_draw_surface, &hdc);
+            old = SelectObject(hdc, pen);
+            MoveToEx(hdc, mx, my, 0);
+            LineTo(hdc, x0, y0);
+            if (link) {
+                gtbp->x = tilep->x - 0xa;
+                gtbp->y = tilep->y;
+                GetTileBounds(gtbp, tbp);
+                tbp->top += HalfOffset(-(int)h0);
+                FullMapScroll(tbp);
+                LineTo(hdc, FullMapX(tbp, scale_x),
+                       FullMapY(tbp, scale_y));
+            }
+            SelectObject(hdc, old);
+            g_draw_surface->vtbl->ReleaseDC(g_draw_surface, hdc);
+            PopRenderingStatus();
+        }
+        /* The original fills the descriptor for TRACKBLOB here and then
+         * moves straight on to the next chain entry -- the blob is never
+         * drawn.  Reproduced: three dead stores. */
+        sdp->sprite = s_blob;
+        sdp->dx = 0;
+        sdp->dy = (int)(-h0);
+        return;
+    }
+    if (def->flags & 0x400) {
+        SpriteDesc* (*cb)(void*, BPos) = def->draw;
+
+        if (cb == 0)
+            return;
+        desc = cb(def->ctx, bpos);
+    } else {
+        sdp->sprite = def->sprite;
+        sdp->dx = def->dx;
+        sdp->dy = def->dy;
+        desc = sdp;
+    }
+    if (desc == 0)
+        return;
+    if (desc->sprite == 0)
+        return;
+    if (!(*(unsigned int*)((char*)desc->sprite + 0x10) & 0x8000)) {
+        /* Pooled Pos, as the original has here (its `lea eax,[esp+0xdc]`
+         * at index 690).  The original pools one at ALL FOUR of this
+         * loop's TileBoundsAt sites -- 0xd4 roads, 0xdc HERE, 0xe4 mark
+         * grid, 0xa0 ILF -- and round w8 restored the two that round w7
+         * had demoted to the function-level `tile` as frame ballast. */
+        TileBoundsAt(bpos.x, bpos.y, tbp);
+        {
+            int gdx = desc->dx;
+            int gdy = desc->dy;
+
+            tbp->left += HalfOffset(gdx);
+            tbp->top += HalfOffset(gdy);
+        }
+        FullMapScroll(tbp);
+        g_fm_cw = ((Sprite*)desc->sprite)->w;
+        g_fm_ch = ((Sprite*)desc->sprite)->h;
+        PrintScaledSprite((Sprite*)desc->sprite,
+                          FullMapX(tbp, scale_x),
+                          FullMapY(tbp, scale_y),
+                          g_fm_cw * scale_x >> 16,
+                          g_fm_ch * scale_y >> 16);
+        return;
+    }
+    slot = (ILFTable**)((char*)desc->sprite + 0x08);
+    ilf = *slot;
+    if (ilf->count <= 0)
+        return;
+    i = 0;
+    do {
+        Sprite* layer;
+
+        ilf = *slot;
+        layer = ilf->sprites[i];
+        lox = ilf->dx[i];
+        loy = ilf->dy[i];
+        TileBoundsAt(bpos.x, bpos.y, tbp);
+        tbp->left += HalfOffset(desc->dx) + HalfOffset(lox);
+        tbp->top += HalfOffset(desc->dy) + HalfOffset(loy);
+        FullMapScroll(tbp);
+        g_fm_ch = layer->h;
+        g_fm_cw = layer->w;
+        PrintScaledSprite(layer,
+                          FullMapX(tbp, scale_x),
+                          FullMapY(tbp, scale_y),
+                          g_fm_cw * scale_x >> 16,
+                          g_fm_ch * scale_y >> 16);
+        i++;
+        slot = (ILFTable**)((char*)desc->sprite + 0x08);
+    } while (i < (*slot)->count);
+}
+
+// WIP-FUNCTION: LEGOLAND 0x004567a0  (25.6%, 864/1161 strict, first 1, 4212/4225 bytes, frame 0xf8 exact; pool exact via the by-value FullMap_ChainCell body, 1164 instructions (+3, ESCAPES), block layout at its floor)
 void RenderFullMap(void)
 {
     Elem*       e_track;
@@ -2672,26 +2940,20 @@ void RenderFullMap(void)
     TileBounds  tb;
     Pos         tile;
     Pos         gtb;
-    int         lox, loy;
     Cell        c;
     Cell*       chain;
     SpriteDesc  sd;
-    SpriteDesc* desc;
     TerrainObj* tobj;
     TileSet*    set;
     Sprite*     spr;
-    ILFTable*   ilf;
-    ILFTable**  slot;
     ObjDef*     def;
-    RoadRec*    road;
     int         saved_ox;
     int         saved_oy;
     BPos        bpos;
     int         tw, th;
     int         scale_x, scale_y;
-    int         x, y, i;
+    int         x, y;
     int         mx, my;
-    int         x0, y0;
     float       fsx, fsy;
     unsigned int tcode;
 
@@ -2844,181 +3106,12 @@ void RenderFullMap(void)
         tobj = tobj->next;
     }
 
-    /* ---- pass 4: the render chain ---- */
+    /* ---- pass 4: the render chain (the body is FullMap_ChainCell above) ---- */
     for (chain = GetFirstRenderObject(); chain; chain = GetNextRenderObject(chain)) {
         bpos = chain->base;
-        c = *chain;
-        if (CellMarkTest(c)) {
-            TileBoundsAt((c.base.x & ~7) + 4, (c.base.y & ~7) + 4, &tb);
-            FullMapScroll(&tb);
-            g_map_marks[c.base.y >> 3][c.base.x >> 3].x = FullMapX(&tb, scale_x);
-            g_map_marks[c.base.y >> 3][c.base.x >> 3].y = FullMapY(&tb, scale_y);
-        }
-        def = ((Obj*)c.obj)->def;
-        if (!(def->flags & 4) && !(def->flags & 0x400)) {
-            /* only the driving-school roads draw here, and only at a lit
-             * junction record */
-            if (def != (ObjDef*)e_roads->data)
-                continue;
-            sd.sprite = s_lights;
-            sd.dx = -0x66;
-            sd.dy = -0x58;
-            road = GetRoadRecord(bpos.x, bpos.y);
-            if (road == 0)
-                continue;
-            if ((road->kind & 0xf) != 5)
-                continue;
-            /* Pooled Pos, as the original has here (its `lea eax,[esp+0xd4]`
-             * at index 610).  Round w7's "frame ballast" demotion of this
-             * site is gone; see item 5 of the round-w8 note above. */
-            TileBoundsAt(bpos.x, bpos.y, &tb);
-            tb.left += HalfOffset(sd.dx);
-            tb.top += HalfOffset(sd.dy);
-            FullMapScroll(&tb);
-            g_fm_cw = s_lights->w;
-            g_fm_ch = s_lights->h;
-            PrintScaledSprite(s_lights,
-                              FullMapX(&tb, scale_x),
-                              FullMapY(&tb, scale_y),
-                              g_fm_cw * scale_x >> 16,
-                              g_fm_ch * scale_y >> 16);
-            continue;
-        }
-        if (def->ctx == e_track || def->ctx == e_track_h
-            || def->ctx == e_track_h0 || def->ctx == e_track_hp
-            || def->ctx == e_castle) {
-            Pos   p1;
-            float h0, h1;
-            int   link;
-
-            /* the track arm reads the CELL COPY's base, not `bpos` -- that is
-             * what keeps the 20-byte Cell live across the arm dispatch in the
-             * original (see the residual note above). */
-            tile.x = c.base.x;
-            tile.y = c.base.y;
-            if (GetTrackSegment(&tile, &h0, &p1, &h1, &link)) {
-                void* hdc;
-                void* old;
-
-                if (h0 < 0.0f)
-                    h0 = 0.0f;
-                if (h1 < 0.0f)
-                    h1 = 0.0f;
-                gtb.x = tile.x;
-                gtb.y = tile.y;
-                GetTileBounds(&gtb, &tb);
-                tb.top += HalfOffset(-(int)h0);
-                FullMapScroll(&tb);
-                x0 = FullMapX(&tb, scale_x);
-                y0 = FullMapY(&tb, scale_y);
-                gtb.x = p1.x;
-                gtb.y = p1.y;
-                GetTileBounds(&gtb, &tb);
-                tb.top += HalfOffset(-(int)h1);
-                FullMapScroll(&tb);
-                mx = FullMapX(&tb, scale_x);
-                my = FullMapY(&tb, scale_y);
-                if (def->ctx != e_track_hp) {
-                    g_fm_cw = s_stick->w;
-                    g_fm_ch = (short)(int)((float)scale_y * h0
-                                           * 7.62939453125e-06f);
-                    if (g_fm_ch > 0)
-                        PrintScaledSprite(s_stick,
-                                          x0 - ((g_fm_cw * scale_x) >> 17), y0,
-                                          (g_fm_cw * scale_x) >> 16, g_fm_ch);
-                }
-                PushRenderingStatusAndUnlockVideoSurface();
-                g_draw_surface->vtbl->GetDC(g_draw_surface, &hdc);
-                old = SelectObject(hdc, pen);
-                MoveToEx(hdc, mx, my, 0);
-                LineTo(hdc, x0, y0);
-                if (link) {
-                    gtb.x = tile.x - 0xa;
-                    gtb.y = tile.y;
-                    GetTileBounds(&gtb, &tb);
-                    tb.top += HalfOffset(-(int)h0);
-                    FullMapScroll(&tb);
-                    LineTo(hdc, FullMapX(&tb, scale_x),
-                           FullMapY(&tb, scale_y));
-                }
-                SelectObject(hdc, old);
-                g_draw_surface->vtbl->ReleaseDC(g_draw_surface, hdc);
-                PopRenderingStatus();
-            }
-            /* The original fills the descriptor for TRACKBLOB here and then
-             * moves straight on to the next chain entry -- the blob is never
-             * drawn.  Reproduced: three dead stores. */
-            sd.sprite = s_blob;
-            sd.dx = 0;
-            sd.dy = (int)(-h0);
-            continue;
-        }
-        if (def->flags & 0x400) {
-            SpriteDesc* (*cb)(void*, BPos) = def->draw;
-
-            if (cb == 0)
-                continue;
-            desc = cb(def->ctx, bpos);
-        } else {
-            sd.sprite = def->sprite;
-            sd.dx = def->dx;
-            sd.dy = def->dy;
-            desc = &sd;
-        }
-        if (desc == 0)
-            continue;
-        if (desc->sprite == 0)
-            continue;
-        if (!(*(unsigned int*)((char*)desc->sprite + 0x10) & 0x8000)) {
-            /* Pooled Pos, as the original has here (its `lea eax,[esp+0xdc]`
-             * at index 690).  The original pools one at ALL FOUR of this
-             * loop's TileBoundsAt sites -- 0xd4 roads, 0xdc HERE, 0xe4 mark
-             * grid, 0xa0 ILF -- and round w8 restored the two that round w7
-             * had demoted to the function-level `tile` as frame ballast. */
-            TileBoundsAt(bpos.x, bpos.y, &tb);
-            {
-                int gdx = desc->dx;
-                int gdy = desc->dy;
-
-                tb.left += HalfOffset(gdx);
-                tb.top += HalfOffset(gdy);
-            }
-            FullMapScroll(&tb);
-            g_fm_cw = ((Sprite*)desc->sprite)->w;
-            g_fm_ch = ((Sprite*)desc->sprite)->h;
-            PrintScaledSprite((Sprite*)desc->sprite,
-                              FullMapX(&tb, scale_x),
-                              FullMapY(&tb, scale_y),
-                              g_fm_cw * scale_x >> 16,
-                              g_fm_ch * scale_y >> 16);
-            continue;
-        }
-        slot = (ILFTable**)((char*)desc->sprite + 0x08);
-        ilf = *slot;
-        if (ilf->count <= 0)
-            continue;
-        i = 0;
-        do {
-            Sprite* layer;
-
-            ilf = *slot;
-            layer = ilf->sprites[i];
-            lox = ilf->dx[i];
-            loy = ilf->dy[i];
-            TileBoundsAt(bpos.x, bpos.y, &tb);
-            tb.left += HalfOffset(desc->dx) + HalfOffset(lox);
-            tb.top += HalfOffset(desc->dy) + HalfOffset(loy);
-            FullMapScroll(&tb);
-            g_fm_ch = layer->h;
-            g_fm_cw = layer->w;
-            PrintScaledSprite(layer,
-                              FullMapX(&tb, scale_x),
-                              FullMapY(&tb, scale_y),
-                              g_fm_cw * scale_x >> 16,
-                              g_fm_ch * scale_y >> 16);
-            i++;
-            slot = (ILFTable**)((char*)desc->sprite + 0x08);
-        } while (i < (*slot)->count);
+        FullMap_ChainCell(*chain, bpos, scale_x, scale_y, e_track, e_track_h, e_track_h0,
+                          e_track_hp, e_castle, e_roads, s_blob, s_stick, s_lights, pen,
+                          &tb, &tile, &gtb, &sd);
     }
 
     PopRenderingStatus();

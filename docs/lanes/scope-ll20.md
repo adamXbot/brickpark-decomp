@@ -10,9 +10,11 @@ session limit before committing anything.
 | address | name | before | after | audit | marker |
 | --- | --- | --- | --- | --- | --- |
 | 0x0045b180 | RenderView | 381/903 strict, first 67, 2893/2880 B | unchanged — retired, mechanism traced to its root | PASS, 0 OK (file has no exact bodies) | WIP |
-| 0x004567a0 | RenderFullMap | 827/1161 strict, first 0, 4216/4225 B, frame 0xf4 | unchanged — retired; ONE lever found that moves index 0 (frame exact, pool exact) but regresses strict | PASS, 0 OK | WIP |
+| 0x004567a0 | RenderFullMap | 827/1161 strict, first 0, 4216/4225 B, frame 0xf4 | **committed (second session)**: by-value `FullMap_ChainCell` body — frame 0xf8 exact, pool exact, first 1, matchfull 659/1191 (was 584/1188), strict 864, 1164 i (ESCAPES); layout at its floor | PASS, 0 OK | WIP |
 
-Nothing committed to either body; both notes carry a dated LL20 paragraph.
+First session: nothing committed to either body. Second session (same day,
+object prefix `/tmp/sll20b_`): the RenderFullMap lead below is now the
+committed body; see "Second session" at the end.
 Gates at the tip: `audit.py LEGOLAND/renderview.c` PASS, `relocs.py` zero
 MISMATCH, `/W3` silent.
 
@@ -168,3 +170,69 @@ track arm between the sd fill and the single-sprite tail".
   loop-head uses were inert while the geometry order alone switched the web
   between "entry only" and "entry + three rematerialised segments"
   (RenderView).
+
+## Second session (2026-09-08, `/tmp/sll20b_`) — the lead is the body; layout at its floor inside it
+
+Tooling rebuilt in the scratchpad: `t.py` (compile + strict / rb / ob / both,
+first index, bytes, frame, landmarks), `v.py`/`pieces.py` (the pass-4 body as
+assemblable pieces, variants built into a full renderview.c copy), `al.py` /
+`al2.py` (both-blind difflib alignment, whole body or one region).
+
+**Committed:** the whole pass-4 body as `static __inline void
+FullMap_ChainCell(Cell c, ...)` called with `*chain` (the text recorded in the
+first session, comments kept), tip of this section's commit.
+
+| measure | 827 body | committed now |
+| --- | --- | --- |
+| frame | 0xf4 | **0xf8 = original** |
+| first diverging index | 0 | **1** |
+| pool | ElemID homes + link at +0xac.., sd +0xbc, Pos +0xd4.., no Cell | **exactly the original's** (sd +0xac, Pos +0xc4/+0xcc/+0xd4/+0xdc, Cell +0xe4) |
+| matchfull (alignment-aware) | 584/1188 | **659/1191** |
+| both-blind aligned-equal | 613 | **625** |
+| bytes | 4216 | 4212 (of 4225) |
+| strict / rb / ob | 827 / 763 / 758 | 864 / 814 / 786 |
+| instructions | 1161 | 1164 (+3, ESCAPES) |
+| block layout | [sd][join][SS1][NEG][SS2][ILF][TRK][latch] | **the same** |
+
+Correction to the first session: the helper did NOT move the block layout —
+the 827 body already had the track arm last (873..1116; `jmp latch` at 872 is
+the ILF exit). Both bodies are VC6's LIFO trace exactly. The +37 strict is the
++3 length (22 of it the epilogue shifted by three). The +3: track arm +5
+(cached LineTo +1, c.base.y reloaded instead of the original's hoisted ebp +1,
+three HalfOffset register shuffles +3), single-sprite tail +1, ILF −1, loop
+head −2.
+
+Byte-identical to the committed body (all measured; do not repeat): track arm
+as the fall-through behind a negated test (with/without `else`); `if (track)
+{} else {sprite path}`; no `return` anywhere (nested ifs); the flags test as
+one `||` with roads as the else; `while` chain loop; scales by pointer into the
+helper; roads Pos filled before GetRoadRecord (±1 byte); hoisted `unsigned
+char bx, by`; the track arm and the sprite tail as their own inline helpers,
+singly and together (the "inline bodies are created late, so they are laid
+out late" hypothesis is falsified). Worse: `def` as a separate argument 871;
+`int by` 866 (1162 i); a caller-local struct holding both scales, by pointer
+or by value, 862.
+
+Diagnostics (volatile, not committable): `volatile int scale_y` parameter 846;
+`volatile int scale_x` 811 with LineTo uncached and the cb call back on index
+677. Root of everything left in pass 4: ours keeps both scales in ebx/ebp for
+the whole body; the original caches scale_x in ebx only header→mark block and
+reads both from memory elsewhere, which frees ebp (hoisted c.base.y), spills
+`chain` (515/520) and leaves LineTo uncached. No non-volatile spelling moves
+it.
+
+Model note: the original's post-trace order SD, TRK, SS2, ILF is not the LIFO
+pop of its pending targets (trace order TRK×5, SD, ILF, SS2 → LIFO would pop
+SS2 first); ours is exactly LIFO. Whatever produced the original's order is
+not a source-order, arm-shape, return-shape or inline-boundary property of
+this loop body.
+
+## Levers for LEVERS (second session)
+
+- **An inline boundary is not a layout lever**: the arms of a loop body as
+  their own `static __inline` helpers, and the whole body as one helper,
+  produce byte-identical block order (RenderFullMap, h1–h3 vs e1–e6).
+- **The strict count of a layout-displaced body measures its LENGTH, not its
+  choices**: +3 instructions cost 37 strict while the alignment-aware score
+  rose 75 — rank displaced bodies with matchfull / both-blind alignment
+  (RenderFullMap 827→864 vs 584→659).
