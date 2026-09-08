@@ -125,29 +125,36 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
 
 #define FLAGS g_appraisal_flags
 
+/* See the declaration of `v`: the hint counter is that same local. */
+#define nhint v
+
 /* The page break every report line runs before it is written.  A section
  * that will not fit on what is left of the page is rewound and re-emitted
  * on a fresh page; a section that would not fit on a whole page is simply
  * broken.  LBL is the section's restart label.
  *
- * The new page's rectangle is reset on BOTH arms.  The rewind arm needs it
- * as much as the other one: it jumps back to the section label, whose first
- * act is this same page check, so without a fresh `y` the check would fire a
- * second time and bump `g_report_pages` twice.  The original's object shows
- * the duplication plainly -- VC6 speculates the four `box` loads and two of
- * the stores above the `cmp ebp,esi`, then re-emits the stores in the
- * fall-through arm (0x00445450 and 0x00445481).
+ * The new page's rectangle is reset TWICE, once above the rewind test and
+ * once in the fall-through arm.  That is not a stylistic choice: it is what
+ * the original's object says.  At 0x004456a7 the four `box` loads and two of
+ * the `cur` stores sit ABOVE the `cmp ebp,ecx`, `cur.bottom`'s store among
+ * them is gone (it is dead on both paths -- the rewind arm recomputes it at
+ * the section label and the fall-through re-stores it), and then the
+ * fall-through arm at 0x004456cb reloads `box.bottom` and `box.right` and
+ * re-stores all three.  The copy above the test is what serves the rewind
+ * arm, which is why the shared `rew_sectK` block at 0x004464b7 contains no
+ * copy of its own.  Writing one copy in each arm instead lets VC6 sink the
+ * rewind arm's copy INTO the shared block and costs four instructions at
+ * every one of the ~120 sites.
  *
- * `cur.top` is deliberately not among them: `[esp+0x30]` is touched exactly
- * three times in the whole original body and all three are inside the render
- * loop.  The build's page break leaves the new top in `y` alone. */
+ * `cur.top` never reaches memory here: `[esp+0x30]` is touched exactly three
+ * times in the whole original body and all three are inside the render loop.
+ * The struct copy loads `box.top` straight into `edi` and leaves it there. */
 #define PAGE_CHECK(LBL)                                                   \
     cur.bottom = cur.top + 0x16;                                          \
     if (cur.bottom > 0x1b5) {                                             \
-        if (page_start != sect_start) {                                   \
-            cur = box;                                                    \
+        cur = box;                                                        \
+        if (page_start != sect_start)                                     \
             goto rew_##LBL;                                               \
-        }                                                                 \
         g_report_pages++;                                                 \
         page_start = n;                                                   \
         cur = box;                                                        \
@@ -235,10 +242,9 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
  * above the `sect8:` label. */
 #define PAGE_CHECK8(LBL)                                                  \
     if (cur.bottom > 0x1b5) {                                             \
-        if (page_start != sect_start) {                                   \
-            cur = box;                                                    \
+        cur = box;                                                        \
+        if (page_start != sect_start)                                     \
             goto rew_##LBL;                                               \
-        }                                                                 \
         g_report_pages++;                                                 \
         page_start = n;                                                   \
         cur = box;                                                        \
@@ -272,7 +278,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK8(LBL)                                                      \
     LINE8_BODY(MARK, textbuf)
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (7272/8085 insns emitted, 31952/34662 bytes, frame 0x23d4 exact, first diverging index 6, mismatch 7937, FULL MATCH 39.9% difflib / 50.2% true-LCS; section 8 and the closing lines now update cur.bottom at the LINE END and check it bare, which reproduces the original's 28 memory compares of [esp+0x38]; what is left is that box is reloaded at only 59 of the ~246 page-break arms the original reloads it at, and that ours caches indent in ebp where the original caches page_start)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (7821/8085 insns emitted, 34224/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7933, index-for-index MATCH 152, true LCS 52.3%; the page reset is now hoisted above the rewind test and repeated in the fall-through arm, which is the original's shape and closes the double-copy residual -- the page-break blocks now hold 2778 instructions against the original's 2605, up from 1981.  page_start is in ebp and indent is memory-homed, as the original.  What is left is the stack SLOT PERMUTATION: our 33 dwords hold the same values as the original's in a different order, and remapping them mechanically takes the LCS from 50.6% to 59.8%)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -294,13 +300,23 @@ int RunAppraisalScreen(void)
     int passed, total;
     int all_passed, all_total;
     int ok;
+    /* `v` and section 9's hint counter are ONE local, and they have to be.
+     * The original's frame holds exactly 33 scalar dwords below `lines`;
+     * with the page reset hoisted (above) `indent` loses its register and
+     * needs a whole slot of its own, so a 34th dword appears and pushes
+     * `lines` off 0x94.  VC6 pays for the original's 34th name by packing it
+     * onto a CSE temp -- five of the original's slots carry a temp and a
+     * named local -- and nothing in this source persuades it to do the same,
+     * so the two uses share a name instead.  They never overlap: every write
+     * of `v` (sections 2 and 7 and the closing block) is dead before section
+     * 9's unconditional `nhint = 0`, and nothing reads the hint counter until
+     * after it. */
     int v;
     int nattr, vattr;
     int nscen, vscen;
     int nfood, vfood;
     int nshop, vshop;
     int nvis, vmood, vages;
-    int nhint;
     int nrun;
     RObj* obj;
     short kind;

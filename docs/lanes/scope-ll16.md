@@ -9,24 +9,27 @@ one function.
 | --- | --- |
 | address | `0x004453a0` |
 | original | 8,085 instructions, 34,662 bytes, frame `0x23d4` |
-| ours | 7,272 instructions, 31,952 bytes, frame **`0x23d4` (exact)** |
-| first diverging index | 6 |
-| mismatch | 7,937 of 8,085 |
-| index-for-index `MATCH` | 148 |
-| `FULL MATCH` (difflib) | 39.9% — see the eighth pass, do not read this alone |
-| true LCS vs the whole original | 4,055/8,085 = 50.2% |
+| ours | 7,821 instructions, 34,224 bytes, frame **`0x23d4` (exact)** |
+| first diverging index | 8 |
+| mismatch | 7,933 of 8,085 |
+| index-for-index `MATCH` | 152 |
+| `FULL MATCH` (difflib) | 39.0% — see the eighth pass, do not read this alone |
+| true LCS vs the whole original | 4,231/8,085 = 52.3% |
+| LCS with the slot permutation removed | 4,835/8,085 = **59.8%** (see the ninth pass) |
 | audit | `[WIP]`, file ends `PASS` |
 | relocs | zero `MISMATCH` (a WIP body is skipped) |
 | `/W3` | clean |
 
 Not exact. **The whole build phase is transcribed** — all nine sections, the
 advice chain, the closing sprintf line and the hint section — and so are the
-render and input loops, whose length now agrees with the original's to within
-a handful of instructions. What is left is one thing and its consequences:
-the original keeps `box` in memory and reloads it at every page-break site
-while ours constant-folds it. See the fifth pass at the end; the instruction
-shortfall, the missing `edi = y`, and the `indent` / `page_start` register
-flip are all downstream of it, so they are not separate work items.
+render and input loops. As of the ninth pass the page reset is the original's
+shape (hoisted above the rewind test AND repeated in the fall-through arm),
+`page_start` is in `ebp` and `indent` is memory-homed exactly as the original
+does it, and the body is within 264 instructions and 438 bytes of the target.
+**The one remaining structural residual is the stack SLOT PERMUTATION**: our
+33 scalar dwords hold the same values as the original's 33 in a different
+order, so almost every `[esp+N]` displacement is wrong. Read the ninth pass
+first; the earlier passes' "what is left" lists are superseded.
 
 ## What the screen is
 
@@ -1038,3 +1041,188 @@ Also inert: evaluating the rewind predicate on the main path
 gives `page_start` 140 unconditional reads instead of 123 conditional ones —
 VC6 sinks it straight back into the arm and the object moves by two
 instructions.
+
+## 2026-09-08 (ninth pass) — the double copy lands; the residual is now the slot permutation
+
+| | eighth pass | now |
+| --- | --- | --- |
+| emitted | 7,272 | **7,821** (original 8,085) |
+| bytes | 31,952 | **34,224** (original 34,662) |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 6 | **8** |
+| mismatch | 7,937 | **7,933** (lane best) |
+| index-for-index `MATCH` | 148 | **152** (lane best) |
+| true LCS vs the whole original | 50.2% | **52.3%** (lane best) |
+| page-break block instructions | 1,981 / 106 sites | **2,778 / 122 sites** (original 2,605 / 115) |
+
+This state dominates the eighth pass's on every measure the lane tracks.
+Two changes, both required together (object prefix `/tmp/sll16d_`):
+
+1. **The page reset is hoisted above the rewind test and repeated in the
+   fall-through arm** — the eighth pass's "hoisted + fall-through copy" row,
+   which was rejected only because it cost the frame.
+2. **`v` and section 9's `nhint` are one local**, which pays the dword the
+   hoist costs.
+
+### The hoist is the original's source, proved from a typical site
+
+0x004456a7, the 19-instruction median site:
+
+```
+lea  eax, [edi + 0x16]        ; cur.bottom = cur.top + 0x16
+cmp  eax, 0x1b5
+jle  0x4456f0
+mov  eax, [esp + 0x24]        ;  box.right   \
+mov  ecx, [esp + 0x44]        ;  sect_start   |
+mov  edx, [esp + 0x1c]        ;  box.left     |  cur = box, HOISTED above
+mov  edi, [esp + 0x20]        ;  box.top      |  the rewind test
+mov  [esp + 0x34], eax        ;  cur.right    |
+mov  eax, [esp + 0x28]        ;  box.bottom  /   (its store is dead: see below)
+cmp  ebp, ecx                 ; page_start != sect_start
+mov  [esp + 0x2c], edx        ;  cur.left
+jne  0x4464b7                 ; -> the shared rewind block, which copies nothing
+mov  eax, [0x6660a0]          ; g_report_pages++
+mov  ecx, [esp + 0x28]        ;  box.bottom   \
+inc  eax                      ;               |
+mov  ebp, esi                 ; page_start = n|  cur = box, AGAIN
+mov  [0x6660a0], eax          ;               |
+mov  eax, [esp + 0x24]        ;  box.right    |
+mov  [esp + 0x10], ebp        ;               |
+mov  [esp + 0x2c], edx        ;  cur.left     |
+mov  [esp + 0x34], eax        ;  cur.right    |
+mov  [esp + 0x38], ecx        ;  cur.bottom  /
+```
+
+Three things fall out of this and settle the fourth pass's reading:
+
+- The copy above the `cmp` is **the rewind arm's** copy, which is why the
+  shared rewind block at 0x004464b7 contains no `box` load at all — it is
+  ten instructions of `page_start`/`n`/`indent`/`g_report_pages` and a `jmp`.
+- `cur.bottom`'s store is missing from the hoisted copy because it is dead on
+  both paths: the rewind arm recomputes it at the section label and the
+  fall-through arm re-stores it. Its **load** survives, which is the tell —
+  VC6 killed a store out of a struct copy and left the load behind.
+- Writing one copy in each arm instead (the eighth pass's committed shape)
+  lets VC6 **sink** the rewind arm's copy into the shared block, and the four
+  instructions vanish at every later site. Sinking, not tail-merging: the
+  block at 0x10b4 in that object literally begins with the four `box` loads.
+
+Our sites are now 2,778 instructions over 122 sites against the original's
+2,605 over 115 — we now overshoot by 173 where we were 580 short. The
+overshoot is one store per site: ours keeps the hoisted `cur.bottom` store
+that the original dead-stores away, and pays for it by keeping `0x83` live in
+`eax` so the fall-through needs no reload. Net zero per site; the 173 is the
+handful of sites where that bookkeeping differs.
+
+### The dword the hoist costs, and what pays for it
+
+The hoist flips the register allocation to the original's — `page_start` into
+`ebp`, `indent` memory-homed — and a memory-homed `indent` is live across the
+whole build, so it can no longer share a slot with `passed` and `nnarr` the
+way the enregistered one did. `/FAs` says it exactly:
+
+| | eighth pass | with the hoist |
+| --- | --- | --- |
+| shared pool | `{indent,nnarr,passed}` `{nhint,total}` `{failmask}` | `{indent}` `{nhint,nnarr,passed}` `{failmask}` `{total}` |
+| scalars | 33 dwords, `lines` at `0x94` | 34 dwords, `lines` at `0x98` |
+
+The original has the same memory-homed `indent` in its own slot and still
+fits 33, because **five of its slots carry a CSE temp and a named local at
+once** (`0x18` temp+`nrun`+`nhint`, `0x40` temp+`passed`, `0x54`
+temp+`narr_cur`, `0x58` temp+`v`, `0x5c` `all_total`+`i`) where ours manages
+three. Nothing tried moves that: measured **inert** (frame stays `0x23d8`)
+were the rewind block reading `lines[n].indent` after `n = sect_start`,
+reordering `page_start`/`n`/`g_report_pages++` inside it, reading `indent`
+through an explicit `char*` cast, a saved `sidx`, a `RepLine* sp` pointer
+kept at each section head, moving all nine `rew_sectK` blocks to sit next to
+their sections, and merging `nrun` with `v` or with `nhint`, `nnarr` with
+`total`/`failmask`/`indent`, `narr_cur` with `total`, `i` with `all_total`.
+
+What does work is **removing one named scalar**, and the only name VC6 can
+absorb is `v`: merging it with `nhint`, `passed`, `ok`, `all_total` or even
+`nattr` all give `0x23d4` back, while merging any other pair does not. Of the
+semantically legal ones (`v`'s three uses are all dead before section 9's
+unconditional `nhint = 0`) `v`+`nhint` is the one on disk, spelled as
+`#define nhint v` so section 9 still reads as a hint counter. `v`+`passed`
+scores marginally better (LCS 52.8%) and is **wrong** — section 2 would
+overwrite the section's pass count with `PercentObjectsLinked()`.
+
+### Measured on the way (all with the hoist)
+
+| shape | emitted | mismatch | LCS | frame |
+| --- | --- | --- | --- | --- |
+| **committed** (hoist + `v`/`nhint` merged) | 7,821 | **7,933** | **52.3%** | `0x23d4` |
+| hoist + `v`/`passed` (incorrect source) | 7,821 | 7,933 | 52.8% | `0x23d4` |
+| hoist + `v`/`total` | 7,817 | 7,952 | 52.1% | `0x23d4` |
+| hoist + `v`/`all_total` | 7,820 | 7,947 | 52.1% | `0x23d4` |
+| hoist + `v`/`ok` | 7,827 | 8,024 | 52.1% | `0x23d4` |
+| hoist alone | 7,829 | 7,950 | 42.3% | `0x23d8` (fatal) |
+| hoist + `v`/`nhint` + `RepLine* sp` | 7,826 | 7,978 | 52.6% | `0x23d4` |
+| non-escaping `struct {box, cur}` + hoist | 7,826 | 7,944 | 54.7% | `0x23e4` (fatal) |
+
+Also **inert** on top of the hoist: `box.bottom = box.top + 0x16`, zeroing
+`indent` before `page_start` at entry, initialising `box` before `cur.top`,
+`cur.top = box.top` instead of `0x6d`, and a `static __inline` that builds the
+bar rectangle on the pushed arguments. And **rejected** on top of the eighth
+pass's shape, all byte-identical to it: the empty trailing `else { }` (scope
+LL17's lever), the block-pin `if (n) ;` and `if (indent) ;` (scope LL10's),
+and inverting the test to `if (page_start == sect_start)`. Moving the reset to
+the FRONT of the fall-through arm so both arms share a source prefix does not
+trigger VC6's prefix hoister — it sinks the copy instead (mismatch 7,999).
+
+### The one aggregate result worth keeping
+
+`struct { AppraisalBox box, cur; } r;` (non-escaping, `#define box r.box`)
+puts the two rectangles adjacent the way the original has them and is worth
+**+2.4 points of LCS and +9 matches** on top of the hoist — but it costs
+`+0x10`, and this time it is provable which local pays: `/FAs` shows
+`_bar$ = 0x1e44` with `namebuf`/`textbuf`/`narr` all shifted up. `bar`
+normally shares `box`'s home (`_bar$ == _box$`), which is legal because
+`box`'s four fields are constants and the render head's `cur = box` folds, so
+`box`'s home is dead by the render loop — the original does the same, which is
+why its frame has no `bar` slot. Wrapping `box` in an aggregate makes the
+whole 32-byte object live and `bar` has to be homed. A `static __inline`
+helper that builds the bar rectangle from four ints does **not** free it
+(byte-identical). Anyone retrying the aggregate has to kill `bar`'s home
+first.
+
+### The residual, quantified: the stack slot permutation
+
+Both frames hold 33 scalar dwords below `lines` and the same values, in a
+different order:
+
+| | `0x10` | `0x14` | `0x18` | `0x1c` | `0x2c` | `0x3c` | `0x40` | `0x44` | `0x48` | `0x4c` | `0x50` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| original | `page_start` | `indent` | temp/`nrun`/`nhint` | `box` | `cur` | `ok`/`obj` | `passed`/temp | `sect_start` | `failmask`/`nnarr` | temp | `total` |
+| ours | temp | `cur` | | | | `ok`/`obj` (`0x2c`) | `box` (`0x40`) | | | | `nrun`/`i` |
+
+ours in full: `0x10` temp, `0x14`–`0x20` `cur`, `0x24` `page_start`, `0x28`
+`indent`, `0x2c` `ok`/`obj`, `0x30` `sect_start`, `0x34`
+`passed`/`nhint`/`nnarr`, `0x38` `failmask`, `0x3c` `total`, `0x40`–`0x4c`
+`box`/`bar`, `0x50` `nrun`/`i`, `0x54` `all_passed`/`narr_cur`, `0x58`
+`all_total`, `0x5c`/`0x60` temps, `0x64`–`0x90` the eleven out-params and
+`kind` (the original puts `kind` at `0x64` and the out-params at
+`0x68`–`0x90`, and orders them differently).
+
+**Mechanically renaming our slots to the original's takes the LCS from 50.6%
+to 59.8%** (`/tmp/sll16d_remap.py`, same normalisation as `tools/match.py`).
+That is the size of this residual: nine points, and it is a single cause.
+Nothing found so far steers it — declaration order, initialisation order,
+renaming, `register`, and the order of the entry zero-stores are all inert,
+and the doc's earlier passes say the same. The next lane should attack this
+and only this; it is worth more than everything else left combined.
+
+### What a future lane should try first
+
+1. **The slot permutation**, above. VC6 orders this frame by something that
+   is not declaration order, not first reference and not first store (the
+   original stores `indent` first and gives it the *higher* of its two lowest
+   slots). Find the rule on a small function before touching this one.
+2. **`box.bottom`'s constant fold.** Ours emits `mov <reg>,0x83` where the
+   original reloads `[esp+0x28]` at ~130 sites, and ours keeps `box.left` in
+   `ecx` for the whole function where the original reloads it. Both are one
+   instruction per site and both would fall out of `box`'s home being live.
+3. **The 264-instruction shortfall is no longer in the page breaks** — those
+   now overshoot by 173. It is in the render/input tail, which the second
+   pass's note about `RepLine*` cursors still governs: whatever is tried
+   there has to keep `i` and `nnarr` memory-homed.
