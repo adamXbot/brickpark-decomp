@@ -759,19 +759,47 @@ void LFBoat_StepAtStation(LFRun* run, int idx)
  * piece, `dest` is never assigned and the function reads it uninitialised.
  * VC6 homes it in the incoming argument's own stack slot, so in practice it
  * reads back `p` itself and every boat on `p` is "moved" onto `p`. */
-/* WIP: 64/64 instructions and 143 bytes, first divergence at index 1, 57
- * strict.  The block layout is right (the two destination stores CROSS-JUMP
- * into one; the sub-list arm is exiled past the `mov eax,1` epilogue; ebx and
- * esi are pushed INSIDE the boat-loop path; the boat count is re-read from
- * the run local in the latch).  The residual is one allocation choice: the
- * original enregisters the PIECE in ebp and homes the destination cursor in
- * the parameter's own stack slot; VC6 does the reverse for us whichever way
- * the two are spelled.  Ruled out (57-63): a plain `dest` local left
- * uninitialised on the no-neighbour path, reassigning the parameter itself
- * (this form), a merged `n = prev; if (!n) n = next;` temporary, declaring
- * the copy before the run, and indexing `run->boats[i]` instead of walking a
- * cursor. */
-// WIP-FUNCTION: LEGOLAND 0x0040c250  (64/64 insns, 57 strict; piece vs dest spill choice)
+/* WIP: 64/64 instructions, 139/143 bytes, 56 strict, first divergence at
+ * index 1 (2026-09-08, LL9 escalation: 57 with ESCAPES -> 56, no escape).
+ * The `while (s)` spelling of the sub-list walk is what fixed the layout: a
+ * `do/while` gave VC6 a THIRD IsAtPiece call site (the first sub-piece
+ * peeled), 72 instructions and a branch past the extent; with `while` the
+ * body is the original's shape exactly -- two call sites, the sub arm
+ * exiled past `mov eax,1`, the two destination stores cross-jumped into one,
+ * ebx/esi pushed inside the loop path, the boat count re-read from a local.
+ * The remaining residual is one allocation choice.  The original enregisters
+ * the PIECE in ebp, spills the run record at its definition into the single
+ * `push ecx` slot and keeps the destination MEMORY-RESIDENT in the dead
+ * parameter slot (store at every def, `mov eax,[esp+10h]` reload at every
+ * use).  VC6 gives the register to the destination instead and spills the
+ * piece into the parameter slot, reloading it at the loop head.
+ *
+ * Measured this session (33 spellings, /tmp/sll9c_):
+ *  - Appearance count does NOT predict this one.  CSE'd re-reads
+ *    (`if (piece->prev) p = piece->prev;`), an empty `if (piece) ;` pin at
+ *    three positions, a single-def neighbour temporary, run defined after
+ *    the null test or just before the loop, and every declaration order are
+ *    inert at 58 (matchfull's index count).  Forcing the destination into
+ *    memory with a one-use volatile at the store site (`boat->piece =
+ *    *(LFPiece* volatile*)&p`) hands the fourth register to RUN, not the
+ *    piece -- so VC6 ranks the piece copy below both, whatever its count.
+ *  - `&p` through a pointer and a 4-byte struct parameter are scalarised
+ *    straight back to the same code; a volatile at the null test grows the
+ *    frame (`sub esp,8`) because the parameter slot stops being dead.
+ *  - The one regime that DOES put the piece in a register and the
+ *    destination memory-resident in the parameter slot -- with the original's
+ *    exact `mov [esp+8],eax / mov eax,[esp+8]` idiom -- is the parameter
+ *    used as the piece, an UNINITIALISED `dest` local with no else arm (the
+ *    LFTrack_Add lever), and `piece->run` spelled inline for `boats` and the
+ *    latch: 62 instructions, i.e. the original minus the run spill/reload,
+ *    but with piece/i swapped between ebx and ebp.  Naming `run` back as a
+ *    local (any position, plain or `*(LFRun* volatile*)&run = ...`) returns
+ *    the register to the destination.  Subscripting `run->boats[i]` gives
+ *    the original's run-coalesced-with-cursor edi and a spilled dest, but
+ *    anchors the cursor on `.piece` (`add edi,54h`) and takes a fresh slot.
+ *    The two halves have not been combined; that combination is the lever
+ *    still missing. */
+// WIP-FUNCTION: LEGOLAND 0x0040c250  (64/64 insns, 56 strict; piece vs dest spill choice)
 int LFPiece_MoveBoatsOff(LFPiece* p)
 {
     LFPiece* piece = p;
@@ -795,13 +823,13 @@ int LFPiece_MoveBoatsOff(LFPiece* p)
             if (LFBoat_IsAtPiece(boat, piece))
                 boat->piece = p;
         } else {
-            do {
+            while (s) {
                 if (LFBoat_IsAtPiece(boat, s)) {
                     boat->piece = p;
                     break;
                 }
                 s = s->next;
-            } while (s);
+            }
         }
     }
     return 1;
