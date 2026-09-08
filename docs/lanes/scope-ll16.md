@@ -499,3 +499,50 @@ register allocation once the prologue is right.
    (`lea edi,[esp+eax*4+0xbc]` = `&lines[i].nids`, `lea ebp,[esp+eax*4+0x20c4]`
    = `&narr[nnarr]`), so the shortfall is in the input/narration tail, not in
    the walk's addressing.
+
+## 2026-09-08 (third pass) — the `box`/`cur` aggregate is a regression
+
+The escaping-aggregate spelling was tried in full: `typedef struct
+AppraisalRects { AppraisalBox box, cur; }` with a `static __inline int
+NewPage(AppraisalRects*)` doing the page's rect reset and returning
+`box.top`.  It does reproduce the reload behaviour the lane wanted, but it
+costs more than it buys:
+
+| | HEAD (`box`, `cur` separate) | the aggregate |
+| --- | --- | --- |
+| emitted | 7,565 | 7,658 |
+| bytes | 33,549 | 32,557 |
+| frame | **`0x23d4` exact** | `0x23e4` (**+0x10, broken**) |
+| `FULL MATCH` | **2789/7565 = 36.9%** | 2475/7658 = 32.3% |
+| mismatch | 8,029 | 8,016 |
+
+The aggregate wins 13 on the mismatch counter and 93 on the emitted count
+and loses everything that matters: the exact frame and 4.6 points of full
+match.  Taking the address of a 32-byte aggregate makes it unpackable, and
+the frame grows by exactly the 16 bytes VC6 was previously overlapping out
+of `cur`.  **Reverted.**  Do not retry this shape; if the reloads are ever
+wanted again they have to come from a second *definition* of the fields
+(the render phase re-assigning `cur`), not from an escaping address.
+
+Two sub-questions settled on the way, both from the original:
+
+- **`cur.top` is never written by the build.**  `[esp+0x30]` has exactly
+  three references in the whole 8,085-instruction body — `mov edx,[esp+0x30]`
+  at 0x0044d9bd and 0x0044d9f6 and `mov [esp+0x30],edx` at 0x0044da07, all
+  three inside the render loop.  The build's page break writes only
+  `cur.left` (`[esp+0x2c]`), `cur.right` (`[esp+0x34]`) and, on the
+  section-alone arm, `cur.bottom` (`[esp+0x38]`); the new `y` and the new
+  bottom stay in `edi` and `eax`.  So the current source, which assigns all
+  four, is one store per site too generous — but see the caveat below.
+- **Neither `box` nor `cur` is address-taken in the original.**  There is no
+  `lea` anywhere in the body that points into `[esp+0x1c..0x38]`.  That kills
+  the escaping-aggregate hypothesis at the source and confirms the earlier
+  reading: the reloads come from the render phase giving the fields a second
+  definition.
+
+**Caveat on the raw slot counts.** `tools/disasm.py` does not track `esp`,
+and this body pushes arguments constantly, so a bare `grep 'esp + 0x1c'`
+mixes `box.left` with the `n*0x4c` byte-offset temp seen through one pending
+push (`[esp+0x18]` + 4).  Only counts taken between pushes — such as the
+`0x30` count above, which sits in the push-free render loop — can be
+trusted.  Use the `/FAs` listing for anything else.
