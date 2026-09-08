@@ -9,14 +9,17 @@ one function.
 | --- | --- |
 | address | `0x004453a0` |
 | original | 8,085 instructions, 34,662 bytes, frame `0x23d4` |
-| ours | see the `// WIP-FUNCTION:` marker on the body |
+| ours | 7,572 instructions, 33,584 bytes, frame `0x23cc` (see the marker) |
 | audit | `[WIP]`, file ends `PASS` |
 | relocs | zero `MISMATCH` (a WIP body is skipped) |
 | `/W3` | clean |
 
-Not exact. The body written so far covers the prologue, the report's title
-line and the whole of the "what the park holds" section; the rest is
-recovered structurally (below) but not yet transcribed.
+Not exact. **The whole build phase is now transcribed** — all nine sections,
+the advice chain, the closing sprintf line and the hint section — and the
+render and input loops are written approximately. What is left is
+register/slot placement, not missing code: the first diverging index is
+still 0 because the frame is 8 bytes short (`0x23cc` vs `0x23d4`) and the
+callee-saved assignment differs (see "What is left" at the end).
 
 ## What the screen is
 
@@ -216,3 +219,174 @@ folded into the running `all_passed` / `all_total`.
 None yet: every callee is declared with the types `appraisal.c` uses.
 `ReadGameButtons` (0x00452460) is named `ReadGameButton` in the scope brief
 and `ReadGameButtons` in `bighelp.c`; this file uses `ReadGameButtons`.
+
+
+## 2026-09-08 — the rest of the build, recovered and transcribed
+
+`g_appraisal_flags` = 0x00665ff8, `g_goal[]` = 0x0066600c,
+`g_num_visitors` = 0x00832bd0, `g_appraisal_rank` = 0x0083297c,
+`g_appraisal_rank_bias` = 0x00832b9c.
+
+### Sections 3-7 (all the same five-part shape as section 2)
+
+| # | guard | header id | helper | statistics (guard, value, goal, range, id, fail bit) |
+| --- | --- | --- | --- | --- |
+| 3 scenery | `0x38000000` | 0x144 | `CountScenery(&num,&var)` | `0x8000000` num g\_goal[25]/[26] 0x132 bit 0x1000; `0x10000000` var g\_goal[27]/[28] 0x133 bit 0x2000 |
+| 4 food | `0xc0000000` | 0x145 | `CountFood` | `0x40000000` num g\_goal[31]/[32] 0x132 bit 0x8000; `0x80000000` var g\_goal[33]/[34] 0x133 bit 0x10000 |
+| 5 shops | `0x30000` | 0x146 | `CountShops` | `0x10000` num g\_goal[13]/[14] 0x132 bit 0x20000; `0x20000` var g\_goal[15]/[16] 0x133 bit 0x40000 |
+| 6 visitors | `0x5080000` | 0x147 | `CountVisitors(&a,&b,&c)` | `0x80000` a vs g\_goal[11] **no line** bit 0x80000; `0x1000000` b g\_goal[17]/[18] 0x148 bit 0x100000; `0x4000000` c g\_goal[17]/[18] 0x149 bit 0x200000 |
+| 7 the park at work | `0xe00000` | 0x14a | — | `0x200000` `g_num_visitors` g\_goal[19]/[20] 0x14b bit 0x400000; `0x400000` the running-object count g\_goal[21]/[22] 0x14c bit 0x800000; `0x800000` `MapCellCount()` g\_goal[23]/[24] 0x14d bit 0x1000000 |
+
+**Original bugs reproduced.** Section 3's guard has a third bit
+(`0x20000000`) with no statistic behind it, so fail bit `0x4000` is never
+set. Section 6's first statistic advances `y` by a line but writes none,
+leaving a blank row. Section 6's third statistic is graded against
+`g_goal[17]/[18]`, the *second* statistic's goal, not its own.
+
+Section 7's object count is an open-coded walk:
+
+```c
+nrun = 0;
+obj = GetFirstRenderObject();
+while (obj) {
+    kind = obj->kind;                       /* a short at obj+4 */
+    if (obj->p->q->type != 0 && obj->p->q->type != 2)
+        if (IsObjectRunning(obj->p->q, &kind)) nrun++;
+    obj = GetNextRenderObject(obj);
+}
+```
+
+`obj->p` is at `obj+0`, `p->q` at `p+0x0c`, `q->type` a short at `q+0x20`.
+`kind` is the only short local in the frame; it sits at `[esp+0x66]`.
+
+### The out-parameter block, 0x68..0x90
+
+Eleven address-taken ints, in the original's slot order:
+
+| slot | 0x68 | 0x6c | 0x70 | 0x74 | 0x78 | 0x7c | 0x80 | 0x84 | 0x88 | 0x8c | 0x90 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| what | attr var | vis c | shop var | vis b | food var | scen var | scen num | food num | shop num | attr num | vis a |
+
+Getting these eleven plus `textbuf` into the source is what took the frame
+from `0x2190` to `0x23cc`; the surviving 8-byte shortfall is two scalars
+still missing (see below).
+
+### Section 8, the advice chain (0x00447e73, unguarded)
+
+Header line `0x230` with `ok = -2`, then `indent += 0x30`, then a verdict
+and one piece of advice per fail bit. `ok` is the bullet form: `-2` the
+verdict lines, `-1` a piece of advice, `-3` its continuation.
+
+```
+all_passed <  all_total/2 : 0x14f +NARR, 0x150
+all_passed <  all_total   : 0x151 +NARR, 0x150
+else                      : 0x153 +NARR, 0x154
+bit 0x1 0x155 | 0x2 0x156 | 0x4 0x157 | 0x8 0x158
+(failmask & 0x30):    0x10 -> 0x159 | 0x20 -> 0x15a | 0x30 -> 0x15b, 0x133(-3)
+bit 0x40  0x15c +NARR, 0x15d(-3)
+bit 0x80  0x15e | 0x100 0x15f | 0x200 0x160 | 0x400 0x161 | 0x800 0x162
+(failmask & 0x3000):  0x1000 -> 0x163 | 0x2000 -> 0x164 | 0x3000 -> 0x165
+(failmask & 0x18000): 0x8000 -> 0x166 | 0x10000 -> 0x167 | 0x18000 -> 0x168
+(failmask & 0x60000): 0x20000 -> 0x169 | 0x40000 -> 0x16a
+                    | 0x60000 -> 0x16b +NARR, 0x231(-3)
+bit 0x80000 0x16c | 0x100000 0x16d | 0x200000 0x16f | 0x400000 0x170
+bit 0x800000 0x171 +NARR, 0x172(-3) | 0x1000000 0x173
+```
+
+String id `0x16e` is skipped: original.
+
+**`NARR(id)`** is `lines[n-1].ids[lines[n-1].nids] = id; lines[n-1].nids++;`
+— the object forms `&lines[n].nids` once (`lea eax,[esp+off+0xbc]`, kept in
+a temp) and indexes the id array as `[esp + (19*n + nids)*4 + 0xc0]`.
+
+### The closing "next time" block (0x0044a70c)
+
+```c
+if (failmask != 0 && g_appraisal_rank != 0) {
+    if (g_appraisal_rank_bias < 0) v = g_appraisal_rank_bias + g_appraisal_rank - 1;
+    else                           v = g_appraisal_rank - 1;
+    if (v > 1) {
+        sprintf(textbuf, GetString(0x235), GetString(v + 0x514));
+        BUF_LINE(-2)  NARR(0x235) NARR(v+0x514) NARR(0x236)  LINE(-2, 0x236)
+    } else if (v > 0) {  LINE(-2, 0x514) NARR(0x514)  LINE(-2, 0x236) }
+    else              {  LINE(-2, 0x237) NARR(0x237)  LINE(-2, 0x238) }
+}
+indent -= 0x30;
+```
+
+Two original quirks here, both reproduced. **None of these five lines
+advances `y`**, so they all land on the same row and each one's page check
+re-reads the previous line's cached `cur.bottom` (`cmp [esp+0x38],0x1b5`)
+instead of recomputing `y+0x16`. And their page-break arm restarts at
+**section 9's** label, not section 8's, so a break here throws the whole
+advice section away instead of re-emitting it.
+
+### Section 9, the hints (0x0044acbb)
+
+Header `0x174` (`ok = -2`) + `NARR`, then `nhint = 0`, `indent += 0x30`.
+Each group picks its phrasing with a fresh `rand()`; **`nhint++` lives
+inside each case, not after the switch** — the switch's default jumps past
+it, which is how you can tell. Every hint line is also queued for
+narration.
+
+| group | selector | cases |
+| --- | --- | --- |
+| `failmask & 0xf` | `rand() & 3`, **jump table** at 0x0044db08 | 0: 0x17c,0x17d · 1: 0x187,0x188 · 2: 0x190,0x191,0x192 · 3: 0x19a,0x19b |
+| `failmask & 0x70` | `rand() & 3`, compare chain | 0: 0x1a4,0x1a5,0x1a6 · 1: 0x1ae,0x1af,0x1b0 · 2: 0x1b8,0x1b9 |
+| `failmask & 0x7000` | `rand() % 3` | 0: 0x1c2,0x1c3,0x1c4 · 1: 0x1cc,0x1cd |
+| `failmask & 0x18000` | `rand() % 3` | 0: 0x1d6,0x1d7,0x1d8 · 1: 0x1e0,0x1e1 |
+| `failmask & 0x260000` | `rand() % 3` | 0: *if* `failmask & 0x200000` 0x1ea,0x1eb,0x1ec · 1: 0x1f4,0x1f5 · 2: *if* `FLAGS & 0xf` 0x1fe,0x1ff |
+| `failmask & 0x1080000` | `rand() & 1` | set: 0x208 · clear: 0x212,0x213 |
+| `failmask & 0xc00000` | `rand() & 1` | set: *if* `failmask & 0x800000` 0x21c,0x21d · clear: *if* `failmask & 0x400000` 0x226,0x227 |
+
+The build ends with `if (nhint == 0) n--;` at 0x0044d744 — the local the
+earlier draft called `nclose` is this hint counter.
+
+## Levers learned (2026-09-08)
+
+- **The page check is `cur.bottom = y + 0x16; if (cur.bottom > 0x1b5)`.**
+  Five sites compare `[esp+0x38]` (cur.bottom's home) against `0x1b5`
+  instead of recomputing `lea eax,[edi+0x16]`, and they are exactly the
+  sites where the previous line did not advance `y`. Writing that spelling
+  into `PAGE_CHECK` was measured: it makes VC6 CSE **66 of the ~140** page
+  checks into a memory reload, far more than the original's five, and
+  drops the emitted count from 4966 to 4900. The inline `y + 0x16` form is
+  kept; the five cached sites are a scheduling artefact, not the source.
+- **`passed`/`total` move stack slots between sections** (0x4c/0x50 in
+  section 2, 0x40/0x50 in section 3) and so does the `n*0x4c` byte-offset
+  temp (0x18, then 0x4c, then 0x50, then `ebp` in section 9). VC6 is
+  packing this frame's temps, so do not treat a slot as naming a variable
+  across the whole body.
+- **`failmask |= K` is spelled two ways by VC6**: `mov eax,[esp+0x48] / or
+  al,K / mov [esp+0x48],eax` for K < 0x10000 and `or dword ptr
+  [esp+0x48],K` above it. Same source.
+- **A section header line's `ok` is `0` in section 2 but the live `ok`
+  variable in sections 3-7.** Section 2's header runs before `ok` has ever
+  been assigned, so the original really does write a literal 0 there and
+  the later headers really do write the previous statistic's `ok`; both are
+  overwritten by `lines[sect_start].ok = (passed == total)` at the section
+  end.
+- **`all_passed += passed` reads as `=` in section 2** because both are
+  provably 0 there — write `+=` everywhere and let VC6 fold it.
+
+## What is left
+
+1. **The frame is 8 bytes short** (`0x23cc` vs `0x23d4`). The scalar area
+   below `lines` is 0x8c in our object and 0x94 in the original, i.e. two
+   more memory-homed dwords are wanted. The out-param block (0x68..0x90)
+   and the narration cursor block (0x54..0x64) are both accounted for; the
+   two missing slots are most likely in the render/input loop, which is
+   still approximate.
+2. **The render loop should be rewritten around a walking pointer.** The
+   original keeps `edi = &lines[i].nids` (`lea edi,[esp+19*i*4+0xbc]`) and
+   reads every field as a displacement off it: `[edi-0x28]` page,
+   `[edi-0x24]` indent, `[edi-0x20]` ok, `[edi-0x1c]` step, `[edi-0x18]`
+   text, `[edi-0x14]` colour, `[edi-0x10]` bar, `[edi]` nids, `[edi+4..]`
+   ids. The narration queue cursor is a second walking pointer
+   `ebp = &narr[nnarr]` (`lea ebp,[esp+nnarr*4+0x20c4]`). Our indexed
+   spelling is roughly 500 instructions short of the original's 8,085.
+3. **Register assignment.** The original wants `ebx` = the zero constant,
+   `ebp` = `page_start`, `esi` = `n`, `edi` = `y`; ours currently puts the
+   zero in `edi` and gives `page_start` no register. That is expected to
+   settle once (1) and (2) are right — everything downstream of the
+   prologue shifts with the frame.
