@@ -120,6 +120,8 @@ extern Sprite* g_backdrop;                                  /* 0x00810148 */
 extern int     g_report_open;                               /* 0x0081c038 */
 extern void*   g_focussed_icon;                             /* 0x006687d0 */
 extern int     g_num_visitors;                              /* 0x00832bd0 */
+extern int     g_appraisal_rank;                            /* 0x0083297c */
+extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
 
 #define FLAGS g_appraisal_flags
 
@@ -179,13 +181,47 @@ extern int     g_num_visitors;                              /* 0x00832bd0 */
     n++;                                                                  \
     y += 0x18;
 
+/* The five closing lines below do NOT advance y: the original never emits
+ * `y += 0x18` for them, so each one's page check re-reads the previous
+ * line's `cur.bottom` and they all land on the same row.  Reproduced. */
+#define TEXT_LINE_NOY(LBL, MARK, ID)                                      \
+    PAGE_CHECK(LBL)                                                       \
+    lines[n].page = g_report_pages;                                       \
+    lines[n].indent = indent;                                             \
+    lines[n].ok = (MARK);                                                 \
+    lines[n].step = rand() % 5;                                           \
+    lines[n].text = GetString(ID);                                        \
+    lines[n].colour = 0;                                                  \
+    lines[n].bar = 0;                                                     \
+    lines[n].value = 0;                                                   \
+    lines[n].mark = 0;                                                    \
+    lines[n].range = 0;                                                   \
+    lines[n].nids = 0;                                                    \
+    n++;
+
+/* The one line whose text is the sprintf buffer rather than a string id. */
+#define BUF_LINE(LBL, MARK)                                               \
+    PAGE_CHECK(LBL)                                                       \
+    lines[n].page = g_report_pages;                                       \
+    lines[n].indent = indent;                                             \
+    lines[n].ok = (MARK);                                                 \
+    lines[n].step = rand() % 5;                                           \
+    lines[n].text = textbuf;                                              \
+    lines[n].colour = 0;                                                  \
+    lines[n].bar = 0;                                                     \
+    lines[n].value = 0;                                                   \
+    lines[n].mark = 0;                                                    \
+    lines[n].range = 0;                                                   \
+    lines[n].nids = 0;                                                    \
+    n++;
+
 /* Append a narration string id to the line that was just written.  The
  * render loop copies these into the narration queue when the page turns. */
 #define NARR(ID)                                                          \
     lines[n - 1].ids[lines[n - 1].nids] = (ID);                           \
     lines[n - 1].nids++;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (4644/8085 insns emitted, first diverging index 0, frame 0x21cc vs 0x23d4; report sections 1-7, the advice chain, the render and input loops)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (4966/8085 insns emitted, first diverging index 0, frame 0x23cc vs 0x23d4; sections 1-8, the advice chain and its closing lines, the render and input loops)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -220,7 +256,6 @@ int RunAppraisalScreen(void)
     int nnarr, narr_cur;
     AppraisalBox title;
 
-    (void)textbuf;      /* until the section at 0x0044a75d is written */
     n = 0;
     page_start = 0;
     indent = 0;
@@ -628,6 +663,36 @@ sect8:
     if (failmask & 0x1000000) {
         TEXT_LINE(sect8, -1, 0x173)
     }
+
+    /* The closing "next time" line.  Its page checks restart at sect9, not
+     * at sect8: original.  A page break here therefore throws the whole
+     * advice section away instead of re-emitting it. */
+    if (failmask != 0 && g_appraisal_rank != 0) {
+        if (g_appraisal_rank_bias < 0)
+            v = g_appraisal_rank_bias + g_appraisal_rank - 1;
+        else
+            v = g_appraisal_rank - 1;
+        if (v > 1) {
+            sprintf(textbuf, GetString(0x235), GetString(v + 0x514));
+            BUF_LINE(sect9, -2)
+            NARR(0x235)
+            NARR(v + 0x514)
+            NARR(0x236)
+            TEXT_LINE_NOY(sect9, -2, 0x236)
+        } else if (v > 0) {
+            TEXT_LINE_NOY(sect9, -2, 0x514)
+            NARR(0x514)
+            TEXT_LINE_NOY(sect9, -2, 0x236)
+        } else {
+            TEXT_LINE_NOY(sect9, -2, 0x237)
+            NARR(0x237)
+            TEXT_LINE_NOY(sect9, -2, 0x238)
+        }
+    }
+    indent -= 0x30;
+sect9:
+    sect_start = n;
+    lines[n].indent = indent;
 
     /* ================================================================== */
     /* Put the screen up and run it.                                      */
