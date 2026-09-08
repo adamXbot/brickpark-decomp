@@ -546,3 +546,95 @@ mixes `box.left` with the `n*0x4c` byte-offset temp seen through one pending
 push (`[esp+0x18]` + 4).  Only counts taken between pushes — such as the
 `0x30` count above, which sits in the push-free render loop — can be
 trusted.  Use the `/FAs` listing for anything else.
+
+## 2026-09-08 (fourth pass) — the page reset belongs on BOTH arms
+
+| | before | after |
+| --- | --- | --- |
+| emitted | 7,565 | 6,821 |
+| bytes | 33,549 | 29,309 |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 1 | **6** |
+| mismatch | 8,029 | **8,005** |
+| `FULL MATCH` | 2789/7565 = 36.9% | **2914/6821 = 42.7%** |
+
+Reading the original's first two page-break sites (0x00445450 and 0x0044557a)
+against their fall-through arms (0x00445481, 0x0044559a) shows the four `box`
+loads and *two* of the `cur` stores emitted **above** the `cmp ebp,esi`, and
+then the same stores emitted **again** in the fall-through arm.  A store is
+not speculated above a branch unless it is on both paths, so the reset is in
+both arms of the source:
+
+```c
+if (y + 0x16 > 0x1b5) {
+    if (page_start != sect_start) {
+        page_start = sect_start;  n = sect_start;
+        indent = lines[sect_start].indent;
+        g_report_pages++;
+        cur.right = box.right; cur.left = box.left; cur.bottom = box.bottom;
+        y = box.top;
+        goto LBL;
+    }
+    g_report_pages++;  page_start = n;
+    cur.right = box.right; cur.left = box.left; cur.bottom = box.bottom;
+    y = box.top;
+}
+```
+
+It is also the only spelling that is *correct*.  The rewind arm jumps back to
+the section label whose first act is this same page check; with the old `y`
+still in hand the check fires a second time and `g_report_pages` is bumped
+twice.  The draft on disk had that bug.
+
+`cur.top` is dropped from the reset (see the third pass): the build never
+writes it.
+
+**The prologue moved on its own.**  With the reset on both arms VC6's
+allocator flips the zero constant from `ebp` into `ebx`, which is where the
+original keeps it, and the first six instructions now match:
+
+```
+mov eax,0x23d4 / call __chkstk / push ebx / push ebp / push esi / xor ebx,ebx
+```
+
+Index 6 is `xor ebp,ebp` in the original (`page_start = 0`) against `push edi`
+in ours -- ours still enregisters `indent` in `ebp` and spills `page_start`.
+
+### Measured: six spellings of the page reset
+
+Object prefix `/tmp/sll16_v`.  "agg" is the escaping `AppraisalRects`
+aggregate of the third pass, "plain" the two separate structs.
+
+| where the reset goes | emitted | mismatch | `FULL MATCH` | frame |
+| --- | --- | --- | --- | --- |
+| else arm only, plain | 7,449 | 8,040 | 36.8% | `0x23d4` |
+| else arm only, agg | 7,658 | 8,016 | 32.3% | `0x23e4` |
+| hoisted above the test, plain | 7,048 | 8,031 | 36.2% | `0x23d4` |
+| hoisted above the test, agg | 7,268 | 8,018 | 37.4% | `0x23e4` |
+| **both arms, plain** | **6,821** | **8,005** | **42.7%** | **`0x23d4`** |
+| both arms, agg | 7,675 | 8,035 | 44.5% | `0x23e4` |
+
+Two things to read off this table.  First, *hoisting* the reset above the
+rewind test is not the same as putting it on both arms and is measurably
+worse -- with one copy in the source VC6 constant-folds `box` and then
+deletes the store as redundant against the previous site's, which is how the
+instruction count falls to 7,048.  Second, the aggregate still buys 1.8
+points of `FULL MATCH` on top of the both-arms spelling (44.5% vs 42.7%)
+because it is the only thing that reproduces the original's *memory* reloads
+of `box` -- but it costs the exact frame and 30 on the mismatch counter, so
+the plain spelling is what is on disk.  Closing the aggregate's `+0x10` is
+the obvious next lever: if a 32-byte address-taken aggregate can be made to
+pack the way two separate 16-byte structs do, both/agg should dominate.
+
+### Why the instruction count went DOWN
+
+6,821 against the original's 8,085 is 1,264 short, worse than the 520 the
+third pass reported, and that is expected: the shortfall is entirely the
+`box` reloads.  The original spends seven instructions per page-break site
+reloading `box.left/top/right/bottom` from `[esp+0x1c..0x28]`; ours spends
+two, because `box` has a single reaching definition in the build and VC6
+constant-folds `0x50/0x6d/0x1a4/0x83` into the `cur` stores and then deletes
+the ones that are redundant against the previous site.  **Do not chase the
+instruction count here** -- it is a proxy for the `box` opacity question and
+nothing else.  `mismatch` and `FULL MATCH` are the honest measures, and both
+improved.

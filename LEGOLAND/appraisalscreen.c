@@ -128,7 +128,19 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
 /* The page break every report line runs before it is written.  A section
  * that will not fit on what is left of the page is rewound and re-emitted
  * on a fresh page; a section that would not fit on a whole page is simply
- * broken.  LBL is the section's restart label. */
+ * broken.  LBL is the section's restart label.
+ *
+ * The new page's rectangle is reset on BOTH arms.  The rewind arm needs it
+ * as much as the other one: it jumps back to the section label, whose first
+ * act is this same page check, so without a fresh `y` the check would fire a
+ * second time and bump `g_report_pages` twice.  The original's object shows
+ * the duplication plainly -- VC6 speculates the four `box` loads and two of
+ * the stores above the `cmp ebp,esi`, then re-emits the stores in the
+ * fall-through arm (0x00445450 and 0x00445481).
+ *
+ * `cur.top` is deliberately not among them: `[esp+0x30]` is touched exactly
+ * three times in the whole original body and all three are inside the render
+ * loop.  The build's page break leaves the new top in `y` alone. */
 #define PAGE_CHECK(LBL)                                                   \
     if (y + 0x16 > 0x1b5) {                                               \
         if (page_start != sect_start) {                                   \
@@ -136,13 +148,16 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
             n = sect_start;                                               \
             indent = lines[sect_start].indent;                            \
             g_report_pages++;                                             \
+            cur.right = box.right;                                        \
+            cur.left = box.left;                                          \
+            cur.bottom = box.bottom;                                      \
+            y = box.top;                                                  \
             goto LBL;                                                     \
         }                                                                 \
         g_report_pages++;                                                 \
         page_start = n;                                                   \
-        cur.left = box.left;                                              \
-        cur.top = box.top;                                                \
         cur.right = box.right;                                            \
+        cur.left = box.left;                                              \
         cur.bottom = box.bottom;                                          \
         y = box.top;                                                      \
     }
@@ -221,7 +236,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     lines[n - 1].ids[lines[n - 1].nids] = (ID);                           \
     lines[n - 1].nids++;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (7565/8085 insns emitted, 33549/34662 bytes, frame 0x23d4 exact, first diverging index 1, mismatch 8029; the whole build is transcribed, the render and input loops are approximate)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (6821/8085 insns emitted, 29309/34662 bytes, frame 0x23d4 exact, first diverging index 6, mismatch 8005; the build's page break constant-propagates box where the original reloads it, and indent is enregistered where the original spills it and keeps page_start in ebp)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
