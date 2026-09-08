@@ -92,6 +92,7 @@ extern int g_copter_ord_b[3];                       /* 0x004b42ac = {0,2,1} */
 extern int g_copter_sign_a[3];                      /* 0x004b42b8 = {1,-1,-1} */
 extern int g_copter_sign_b[3];                      /* 0x004b42c4 = {-1,1,1} */
 
+typedef struct Person3D { char pad[0x58]; int matrix[9]; } Person3D;
 #define RIDE_TILE(r) ((RideTile*)&(r)->ride_id)
 
 /* Advance one copter car: bump frame, wrap, then stage; clear flying at 0. */
@@ -247,33 +248,27 @@ void SpaceTower_UpdateRiders(TowerRec* rec)
 }
 
 /* Place one seated copter rider: screen+layer offset, POS-frame lift, then
- * bake a signed fixed-point 3x3 into person+0x58 from the POS matrix.
+ * bake a signed fixed-point 3x3 into person->matrix from the POS matrix.
  *
  * Jump table (NOT identity): 0->(3,0xd7) 1->(0,0xeb) 2->(4,0xe1)
  * 3->(1,0xe6) 4->(2,0xe6).  The POS slot for an anim is an array of
  * 12-float frames (pos, a, b, n); the frame's normal is rebuilt as b x a
  * before the bake, and the bake reads vector 1+oa of the frame.
  *
- * WIP (86/168 strict; audit normalised below).  Structure, jump table,
- * frame size, both loops and every call sequence match.  Residual is one
- * allocation decision plus its fallout: the original does NOT enregister
- * `seat` -- it spills at the def (`mov [ebp+8],edi`, the dead `rec` slot),
- * keeps edi through the pre-loop code, and reloads `mov edi,[ebp+8]` at the
- * head of every inner iteration, giving esi to `oa` and ebx to `anim`; this
- * build keeps seat in esi and spills `oa` instead.  A single extra inner-loop
- * store (`m[j*3+1] = 0`) flips the build to the original's whole register
- * picture (seat edi+spill, anim ebx, scale at [ebp-0xc]) at 113/174, so the
- * decision is a near tie the original's source breaks with something that
- * emits no code.  Measured inert: register/unsigned/volatile qualifiers,
- * declaration order, parameter reassignment (`void* rec`, punned SEAT),
- * `*(T* volatile*)&rec` store (homes seat but splits the lea and duplicates
- * the load), explicit inner `mp` cursor, pointer-walked `ip` outer loop
- * (swaps seat/anim to edi/ebx but changes the loop), Vec3 struct spellings,
- * inline cross-product helpers, single-block asm, union for f.  The FP
- * operand order of products 2/3 (`fld [eax+0x20]` first) is a separate
- * value-numbering phase issue: `while (0) { mode++; }` before the FP block
- * shifts it one step (fp 00 -> 10) with no emitted code; do/while(0) and
- * if(0) blocks are inert. */
+ * WIP (50 audit mismatches, was 146; matchfull 154/176).  The scope-V
+ * cancelled-pair lever (DECOMP.md, SCOPE V) is applied twice: the float
+ * index and `oa` are struct members carrying `+= t.oy; -= t.oy` against a
+ * pointer-valued anchor.  The add/sub cancel at instruction selection but
+ * the allocator has already weighted those webs, which gives the original's
+ * whole picture outside the loop (seat spilled to the dead `rec` slot with
+ * edi as its cache, chain esi, anim ebx, ip/m at [ebp-4]/[ebp-8], scale at
+ * [ebp-0xc]) and the original's IV registers (j ecx, cursor edx, temp eax).
+ * Residual: `u.ox` (oa) is memory-homed at [ebp-0x30] (frame 0x30 vs 0x28)
+ * and reloaded instead of living in esi, and the two cross products that
+ * read kf[8] load it second.  An EAX write inside the asm block plus a
+ * pre-asm `sb = sign_b[oa]` reaches 163/175: the original was allocated as
+ * if the fld/fmul/fistp block wrote EAX.  Everything measured on the way is
+ * in docs/lanes/codex-f.md. */
 // WIP-FUNCTION: LEGOLAND 0x00404630
 void Copters_UpdateCarRider(CoptersRec* rec, int index)
 {
@@ -283,7 +278,7 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
     Offset ofs;
     Offset pos;
     SprHdr* sprite;
-    void* person;
+    Person3D* person;
     float* kf1;
     float scale;
     float f;
@@ -292,8 +287,8 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
     int layer;
     float* kf;
     int i, j;
-    int* m;
-    int oa;
+    Offset t;
+    Offset u;
 
     screen = GetScreenCoordsForObject(rec, g_copters_def);
     if (seat->rider == 0)
@@ -320,23 +315,27 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
     pos.ox = layer_ofs.ox + screen.ox + ofs.ox;
     pos.oy = layer_ofs.oy + screen.oy + ofs.oy;
     AdjustBlokePosition(&pos);
-    person = seat->rider->person;
+    person = (Person3D*)seat->rider->person;
     SetPersonPosition(person, pos.ox, pos.oy);
 
     scale = 65536.0f;
+    t.oy = (int)person;
     kf = (float*)((char*)g_copters_postable->slots[anim] + seat->frame * 0x30);
     kf[9] = kf[5] * kf[7] - kf[8] * kf[4];
     kf[10] = kf[8] * kf[3] - kf[6] * kf[5];
     kf[11] = kf[6] * kf[4] - kf[3] * kf[7];
 
-    m = (int*)((char*)person + 0x58);
     for (i = 0; i < 3; i++) {
-        oa = g_copter_ord_a[i];
+        u.ox = g_copter_ord_a[i];
+        u.ox += t.oy;
+        u.ox -= t.oy;
         for (j = 0; j < 3; j++) {
-            f = g_copters_postable->slots[anim][(oa + seat->frame * 4 + 1) * 3 + g_copter_ord_b[j]];
+            t.ox = (u.ox + seat->frame * 4 + 1) * 3 + g_copter_ord_b[j];
+            t.ox += t.oy;
+            t.ox -= t.oy;
+            f = g_copters_postable->slots[anim][t.ox];
             FSCALEF(f, scale);
-            m[j * 3] = g_copter_sign_a[j] * g_copter_sign_b[oa] * *(int*)&f;
+            person->matrix[j * 3 + i] = g_copter_sign_a[j] * g_copter_sign_b[u.ox] * *(int*)&f;
         }
-        m++;
     }
 }

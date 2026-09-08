@@ -154,12 +154,18 @@ int FindAltNameIndex(char* list, char* name)
 /* Place one 3D rider: clamp frame, sample the seat track into person->matrix
  * (column-major 3x3 via the four channel tables), then SetPersonPosition.
  *
- * FLOOR: 81i/221B size-exact, 34 mism. Index loads into ESI then track reuses
- * ESI (`mov esi,[edx+esi*4]`) instead of EDI; that permutation cascades the
- * nested-loop regs (si/base_i/col). Counted for-i is size-exact; pointer-walk
- * outer SRs dest against chan. idx-live / volatile-sink / rebuild-after-call
- * probes all broke size or homes without flipping the EDI choice. */
-// WIP-FUNCTION: LEGOLAND 0x00441980  (58%, 81i/221B; track in ESI not EDI)
+ * FLOOR: 81i/221B size-exact, 8 mism (was 34). The scope-V cancelled-pair
+ * lever (DECOMP.md, SCOPE V): the row index is computed into a struct member
+ * and given `t.x += t.y; t.x -= t.y;` against a pointer-valued anchor
+ * (`t.y = (int)track`). The add/sub cancel in instruction selection but the
+ * allocator has already weighted the index web, so it takes EAX first and the
+ * j/cursor IVs fall to ECX/EDX, the sign product is emitted after the asm and
+ * hoisted `si*3+3` lands in EBX -- the original's loop. Residual: `si` and
+ * `track` are swapped (esi/edi); an EAX write inside the asm block would give
+ * 81/82 exact-but-for-the-clobber, i.e. the original was allocated as if the
+ * fld/fmul/fistp block wrote EAX; see docs/lanes/codex-f.md (fourth/fifth
+ * sweeps) for everything that does not reproduce that. */
+// WIP-FUNCTION: LEGOLAND 0x00441980  (8 mism, 81i/221B; si/track esi<->edi)
 void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
                          PersonXY* person, int screen_x, int screen_y)
 {
@@ -167,6 +173,7 @@ void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
     Pos    out;
     Pos    base;
     int    i;
+    Pos    t;
 
     if (frame < 0)
         frame = 0;
@@ -175,6 +182,7 @@ void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
     track = (float*)anim->seat_tracks[index];
     track = (float*)((char*)track + frame * 48);
     RiderTrackToScreen(anim, (Vec2f*)track, &base);
+    t.y = (int)track;
     out.x = base.x + screen_x;
     out.y = base.y + screen_y;
     *(float*)&screen_y = 65536.0f;
@@ -183,7 +191,10 @@ void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
         int* dest = &person->matrix[i];
         int  j;
         for (j = 0; j < 3; j++) {
-            *(float*)&frame = track[g_ride_mtx_row[j] + si * 3 + 3];
+            t.x = g_ride_mtx_row[j] + si * 3 + 3;
+            t.x += t.y;
+            t.x -= t.y;
+            *(float*)&frame = track[t.x];
             __asm {
                 fld   dword ptr frame
                 fmul  dword ptr screen_y

@@ -58,7 +58,7 @@ Object prefix: `/tmp/cf_`.
 | `0x0043a940` | `SpaceTower_StepCar` | 37 | OK | — |
 | `0x004049a0` | `Copters_StopRide` | 71 | OK | — |
 | `0x0043b810` | `SpaceTower_UpdateRiders` | 116 | OK | — |
-| `0x00404630` | `Copters_UpdateCarRider` | 168 | WIP | 64.9% full, 86/168 strict; seat spill tie |
+| `0x00404630` | `Copters_UpdateCarRider` | 168 | WIP | 50 audit mismatches (matchfull 154/176); oa memory-homed instead of esi, kf[8] load order |
 
 ## Closed this wave (levers)
 
@@ -292,6 +292,33 @@ Fourth sweep (2026-09-08, sibling-first, ~300 variants on
 - 0x00458930 is the game's own three-instruction `_ftol` replacement
   (`fistp [scratch]; mov eax,[scratch]; ret`), so `(int)` casts call it
   and the loop's bare fistp is inline asm, not /QIfist.
+
+Fifth sweep (2026-09-08, after the V completion agent pointed here at
+DECOMP.md's SCOPE V entry): the scope-V cancelled-pair lever IS byte-free
+IR. `t.x = <expr>; t.x += t.y; t.x -= t.y;` on a struct member with a
+pointer-valued anchor (`t.y = (int)track` / `(int)person`) survives to the
+allocator as real defs and uses and cancels at instruction selection.
+Applied to the float index temp it raises that web above the j IV, so the
+temp takes EAX and j/cursor fall to ECX/EDX with the sign product after
+the asm -- the original's loop without any clobber:
+
+- mantex `PutOne3DBlokeOnRide`: 34 -> 8 audit mismatches, 81i/221B
+  size-exact, relocs 0, /W3 clean (committed). Residual is only the
+  `si`/`track` esi<->edi swap. That order is not a weight tie: a real
+  extra use of `si`, the cancel on `si` itself (before or after the
+  inner loop), and a dying copy web of `index` at the track def all
+  leave `track` in esi or cost registers; only the EAX write in the asm
+  classifies `si` early enough to take esi before `track`.
+- `Copters_UpdateCarRider`: 146 -> 50 audit mismatches (matchfull
+  154/176; committed) with the lever on the index and on `oa` (as
+  `u.ox`). Everything outside the loop is now the original's; `u.ox` is
+  memory-homed at [ebp-0x30] (frame 0x30 vs 0x28) instead of esi, and
+  the kf[8] product order is unchanged. Plain-int identities fold in the
+  front end (as the V notes say); the member cancel adds defs, so a
+  chain of webs, not weight on one web.
+- Anchors matter: `(int)track` coalesces with track at no cost;
+  `(int)person` / `(int)anim` make the anchor its own callee-saved web
+  and spill something else.
 
 Next: the missing piece is whatever made VC6 mark EAX as written by
 this asm block with no extra bytes. Nothing in the C or asm syntax
