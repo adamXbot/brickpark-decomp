@@ -283,7 +283,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK8(LBL)                                                      \
     LINE8_BODY(MARK, textbuf)
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (7824/8085 insns emitted, 34224/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7922, index-for-index MATCH 163, true LCS 55.5%; the residual is the stack SLOT PERMUTATION.  The lane's "descending reference weight" rule is only a rough guide -- the ORIGINAL's own frame breaks it at exactly the three slots in question: its n*0x4c byte-offset temp has 222 references and sits at 0x18, below page_start's 173 at 0x10 and indent's 171 at 0x14.  Our temp has the same shape and count and sits at 0x10, which shifts every scalar displacement by one slot)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (7824/8085 insns emitted, 34224/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7920, index-for-index MATCH 165, true LCS 55.5%; the residual is the stack SLOT PERMUTATION.  The lane's "descending reference weight" rule is only a rough guide -- the ORIGINAL's own frame breaks it at exactly the three slots in question: its n*0x4c byte-offset temp has 222 references and sits at 0x18, below page_start's 173 at 0x10 and indent's 171 at 0x14.  Our temp has the same shape and count and sits at 0x10, which shifts every scalar displacement by one slot)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -340,11 +340,16 @@ int RunAppraisalScreen(void)
     AppraisalBox title;
     AppraisalBox bar;
 
+    /* This order is the original's, and it is not free: VC6 emits the
+     * entry zero-stores in source order, and the original's is
+     * `mov [esp+0x14],ebx / xor esi,esi / mov [esp+0x10],ebp / ...` --
+     * indent, then n, then page_start.  Any other order costs two
+     * index-for-index matches. */
+    indent = 0;
     n = 0;
     page_start = 0;
-    indent = 0;
-    all_total = 0;
     all_passed = 0;
+    all_total = 0;
     failmask = 0;
     if (ScriptRunning())
         return 0;
