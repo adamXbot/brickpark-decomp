@@ -636,10 +636,52 @@ extern void GetTileBounds(const Pos* tile, TileBounds* out);  /* 0x0045acc0 */
  * spellings of either loop, and a free volatile on each footprint load or on
  * the queue (14-20; v[2] breaks the hoist, 49).  Spelling a span inline in
  * the compare makes VC6 hoist only the load and keep the subtract in the
- * loop (28 / 42 / 49), so the spans were named locals.  At its floor for this
- * regime; a lever that ranks a twice-read PARAMETER above a twice-read local
- * is what is still missing (LEVERS RA16 records the parameter tie-break but
- * not this cross-kind one). */
+ * loop (28 / 42 / 49), so the spans were named locals.
+ *
+ * 2026-09-09 (LL9 escalation 3, ~70 more spellings, /tmp/sll9d_): the tie is
+ * now MEASURED rather than guessed, and the old framing above was wrong --
+ * the residual is not "a parameter outranking a local", it is y ranking
+ * BELOW both spans.  Cut-down predicates (one-use x, one-use y, `y == py+h`)
+ * expose VC6's preference order on this body: eax to the return-coalesced
+ * piece cursor, ecx to px, edx to py, then esi, edi, ebp, ebx to the four
+ * survivors in rank order.  Ours ranks x > y > span > span; the original
+ * ranks x > w > h > y.
+ *   NEW LEVER, reproducible: the two spans split ebp/ebx by ASSIGNMENT order
+ * -- first-assigned takes ebp, second takes ebx (h first is our committed 14;
+ * w first is 15, with w in ebp and h in ebx).  Ten probes obey it: run
+ * defined before, between or after the spans; initialiser versus separate
+ * declaration plus assignment; and every aggregate spelling.
+ *   AGGREGATES DO NOT RANK AS A UNIT HERE (unlike LFPiece_ShadeForRow):
+ * `int s[2]`, `int s[3]`, `struct { int w, h; }`, `struct { int h, w; }`,
+ * `struct { int w, h, y; }`, `struct { int y, w, h; }` and `Pos` all
+ * scalarise and merely obey the assignment-order rule.  A `Pos` passed BY
+ * VALUE is byte-identical to two int parameters.
+ *   DEMOTING y always over-shoots.  One-use volatile reads at BOTH y uses
+ * leave three webs and give x/w/h exactly esi/edi/ebp -- the original's span
+ * placement -- but y is then memory-resident (35, 126B).  Sinking the py load
+ * into the second test block (nested if, goto-threaded arms, or raw
+ * `p->sq.b.y`) frees edx, y takes it, and again w=edi, h=ebp, x=esi (45).
+ * So edi/ebp IS the spans' natural home; y holding a callee-saved register is
+ * exactly what pushes them down to ebp/ebx.
+ *   PROMOTING a span needs a REAL extra definition: `if (w < 0) w = 0;` puts
+ * w in edi (39, and h then falls to ebx).  Every free extra reference folds
+ * before ranking -- two-statement spans (`w = v[2]; w -= v[0];`), a dead
+ * `w = 0;` prefix, `w = w;`, `-(-w)` and a duplicated `x <= px + w` clause
+ * are all byte-identical to the plain form.  Copying a parameter into a local
+ * coalesces at every position (function level, after the spans, at the outer
+ * head, plain or through a volatile read), confirming RA16.
+ *   Also inert this session: clause permutations (y-clause first, interleaved
+ * lo/hi tests), `px + w >= x` operand order (45), spans hoisted from the outer
+ * loop head (20) or the inner loop (35), unsigned spans, a `Footprint*` local,
+ * comma-list spans in a `for` init, a named `ok` predicate temporary, py
+ * declared before px, `register int y`, and the 16 cursor regimes formed by
+ * crossing {plain, volatile-store} definition x {plain, volatile-read} head x
+ * {plain, volatile-read, volatile-store, both} latch -- of which only the
+ * committed read/read pair reaches 14 (next best 25).
+ *   Floor argument: a match needs y ranked below two one-use invariant hoists
+ * while y still holds a callee-saved register.  Every measured demotion of y
+ * removes it from the callee-saved set entirely, and no free reference can
+ * promote a span past it. */
 // WIP-FUNCTION: LEGOLAND 0x00408f90  (50/50 insns, 123/123 B, 14 strict; y/w register naming)
 LFPiece* LFTrack_FindPieceCovering(int x, int y)
 {
