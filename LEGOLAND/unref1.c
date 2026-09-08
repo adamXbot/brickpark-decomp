@@ -647,40 +647,40 @@ LFPiece* LFTrack_FindPieceCovering(int x, int y)
  * measured from the TOP corner's top edge against the BOTTOM corner's bottom
  * edge, scaled, clamped to 0..1 and mapped onto 0x20..0xe0 -- the game's
  * darkness ramp, which is why the multiplier is -192 and the base is 32. */
-/* WIP: 68 of the original's 69 instructions, first divergence at index 3.
- * Everything from the second GetTileBounds on is right, including the frame
- * (one Pos + one TileBounds reused by both calls), the merged `add esp,0x10`,
- * the two spills into the dead arg-2 slot, the fild/fmul/fdivp order, both
- * clamp arms and the `0x20 - __ftol(r * -192)` tail.  The deficit is ONE
- * callee-saved push: the original holds seven values at once (fp, sq.x, sq.y
- * and all four corner sums) and so pushes ebx/ebp/esi/edi, putting x0 in edx
- * and y0 in edi; VC6 lets sq.x die before it loads v[1], needs only six, and
- * pushes three.  Ruled out (all 65-67): loading all four v[] before the adds,
- * every permutation of the four sum statements, named sq.x/sq.y locals, a
- * `const int* v = fp->v` cursor, storing the first point early or y-before-x,
- * and moving the `(void)unused`. */
-// WIP-FUNCTION: LEGOLAND 0x0040adb0  (68/69 insns, 66 strict; one callee-saved push short)
+/* Closed 2026-09-08 (LL9 escalation) from 68/69, 66 strict.  The deficit
+ * was ONE callee-saved push: the original holds seven values at once (fp,
+ * sq.x, sq.y and all four corner sums) and pushes ebx/ebp/esi/edi.  Four
+ * scalar sum locals let VC6 fold each `v[k]` load into its add, so sq.x dies
+ * before v[1] loads and six registers suffice -- every permutation, named
+ * sq.x/sq.y, named v[k], a `const int*` cursor and a volatile v[1] (64) were
+ * inert.  Spelling the four sums as ONE aggregate (`int b[4]`, or two
+ * non-escaped `Pos` copied whole into `t` -- both byte-exact) makes VC6
+ * compute the aggregate as a unit: all four loads are issued before any add,
+ * sq.x stays live across the v[1] load, and the fourth push appears.  This is
+ * the aggregate-as-live-value form of RA03. */
+// FUNCTION: LEGOLAND 0x0040adb0
 int LFPiece_ShadeForRow(BPos sq, const Footprint* fp, void* unused,
                         int y, float scale)
 {
     Pos        t;
     TileBounds tb;
-    int        x0, x1, y0, y1, top, bottom;
+    int        b[4];            /* the footprint moved onto the square */
+    int        top, bottom;
     float      r;
 
     (void)unused;
-    x0 = fp->v[0] + sq.x;
-    x1 = fp->v[2] + sq.x;
-    y0 = fp->v[1] + sq.y;
-    y1 = fp->v[3] + sq.y;
+    b[0] = fp->v[0] + sq.x;
+    b[1] = fp->v[1] + sq.y;
+    b[2] = fp->v[2] + sq.x;
+    b[3] = fp->v[3] + sq.y;
 
-    t.x = x0;
-    t.y = y0;
+    t.x = b[0];
+    t.y = b[1];
     GetTileBounds(&t, &tb);
     top = tb.top;
 
-    t.x = x1;
-    t.y = y1;
+    t.x = b[2];
+    t.y = b[3];
     GetTileBounds(&t, &tb);
     bottom = tb.bottom;
 
