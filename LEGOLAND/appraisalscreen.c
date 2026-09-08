@@ -221,15 +221,18 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     lines[n - 1].ids[lines[n - 1].nids] = (ID);                           \
     lines[n - 1].nids++;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (7572/8085 insns emitted, 33584/34662 bytes, first diverging index 0, frame 0x23cc vs 0x23d4; the whole build is transcribed, the render and input loops are approximate)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (7565/8085 insns emitted, 33549/34662 bytes, frame 0x23d4 exact, first diverging index 1, mismatch 8029; the whole build is transcribed, the render and input loops are approximate)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
     char  namebuf[0x80];
-    /* The 0x200-byte line buffer at frame offset 0x1ec4; the report section
-     * that sprintf()s into it (0x0044a75d) is not transcribed yet. */
+    /* The 0x200-byte line buffer at frame offset 0x1ec4. */
     char  textbuf[0x200];
-    int   narr[196];
+    /* 200, not 196: the frame's top is 0x23e4 and the queue starts at
+     * 0x20c4.  nnarr and narr_cur are deliberately NOT zeroed here -- the
+     * original leaves them undefined until the render loop's first page
+     * turn, which is what lets VC6 pack them onto build-phase slots. */
+    int   narr[200];
     AppraisalBox box;
     AppraisalBox cur;
     int n;
@@ -252,7 +255,6 @@ int RunAppraisalScreen(void)
     RObj* obj;
     short kind;
     int i;
-    int x;
     int nnarr, narr_cur;
     AppraisalBox title;
 
@@ -261,8 +263,6 @@ int RunAppraisalScreen(void)
     indent = 0;
     all_total = 0;
     all_passed = 0;
-    nnarr = 0;
-    narr_cur = 0;
     failmask = 0;
     if (ScriptRunning())
         return 0;
@@ -876,11 +876,10 @@ sect9:
                 if (lines[i].nids > 7) narr[nnarr++] = lines[i].ids[7];
             }
             if (lines[i].ok == -2)
-                x = lines[i].indent + 0x28;
+                cur.left = lines[i].indent + 0x28;
             else
-                x = lines[i].indent + 0x50;
-            cur.left = x;
-            BlitAppraisalSprite(x - 0x28, cur.top, lines[i].ok, lines[i].step);
+                cur.left = lines[i].indent + 0x50;
+            BlitAppraisalSprite(cur.left - 0x28, cur.top, lines[i].ok, lines[i].step);
             cur.right = 0x1a4;
             cur.bottom = cur.top + 0x16;
             NewPrintColoured(lines[i].text, 2, cur, lines[i].colour);

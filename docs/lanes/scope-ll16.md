@@ -9,7 +9,7 @@ one function.
 | --- | --- |
 | address | `0x004453a0` |
 | original | 8,085 instructions, 34,662 bytes, frame `0x23d4` |
-| ours | 7,572 instructions, 33,584 bytes, frame `0x23cc` (see the marker) |
+| ours | 7,565 instructions, 33,549 bytes, frame **`0x23d4` (exact)** |
 | audit | `[WIP]`, file ends `PASS` |
 | relocs | zero `MISMATCH` (a WIP body is skipped) |
 | `/W3` | clean |
@@ -397,3 +397,105 @@ earlier draft called `nclose` is this hint counter.
    zero in `edi` and gives `page_start` no register. That is expected to
    settle once (1) and (2) are right — everything downstream of the
    prologue shifts with the frame.
+
+
+## 2026-09-08 (second pass) — the frame is exact
+
+`0x23cc` -> `0x23d4`.  Two changes, both measured, both forced by the same
+diagnosis:
+
+1. **`int narr[200]`, not `[196]`.**  The locals occupy
+   `[esp+0x10, esp+0x10+0x23d4)` = `[0x10, 0x23e4)` in post-prologue
+   coordinates (the four pushed registers are `[esp+0x00..0x0f]`), so the
+   top-of-frame array runs `0x20c4..0x23e4` = `0x320` bytes = 200 ints.
+2. **Do not zero `nnarr` and `narr_cur` at function entry.**  The draft had
+   `nnarr = 0; narr_cur = 0;` in the entry block.  That gives both a live
+   range starting at instruction 0, so VC6's stack packer cannot fold them
+   onto a build-phase slot and they each cost a dword.  The original zeroes
+   only five things at entry (`indent`, `page_start`, `all_total`,
+   `all_passed`, `failmask` -- `mov [esp+0x14],ebx / [esp+0x10],ebp /
+   [esp+0x60],ebx / [esp+0x5c],ebx / [esp+0x48],ebx`) and leaves the two
+   narration counters undefined until the first page turn.  Dropping the two
+   stores made VC6 pack `nnarr` onto `passed`/`nhint` and `narr_cur` onto the
+   section pointer temp, exactly as the original does.
+
+Net: scalar area `0x8c` -> `0x84` (35 -> 33 dwords) and the queue `0x310` ->
+`0x320`; `lines`, `namebuf`, `textbuf` and `narr` now sit at the original's
+`0x94`, `0x1e44`, `0x1ec4`, `0x20c4`.  First diverging index 0 -> 1, mismatch
+8043 -> 8029, `FULL MATCH` 32.5% -> 36.9%.
+
+Also landed: the render loop writes `cur.left` directly instead of through a
+separate `x` local, which is what the original does (`mov [esp+0x2c],eax`
+then `add eax,-0x28` for `BlitAppraisalSprite`).
+
+### The tool that made this tractable: `/FAs`
+
+`cl /nologo /c /W3 /O2 /Gy /Gd /FAs /Fa<out>.asm` emits an assembly listing
+whose head carries **one equate per named local** (`_lines$ = -9024`,
+`_page_start$ = -9164`, ...), and CSE temps appear in the body as
+`-9152+[esp+9180]`.  Convert with `esp_off = frame_size + equate + 16`.
+That gives the whole frame map with names in one compile -- no esp tracking,
+no guessing -- and two locals sharing an equate is VC6 telling you it packed
+them.  A helper is worth keeping around:
+
+```
+grep -E '^_\w+\$ = ' listing.asm      # named slots
+grep -oE '(-9[0-9]+)\+\[esp' listing.asm | sort -u   # the CSE temps
+```
+
+Measured with it: **declaration order does not affect the packing at all**
+(moving `nnarr, narr_cur` next to `failmask` changed nothing), and neither
+does renaming.  Only live ranges matter.
+
+### The two frames side by side
+
+| slot | original | ours now |
+| --- | --- | --- |
+| 0x10 | `page_start` | `page_start` |
+| 0x14 | `indent` | `nrun` + temp |
+| 0x18 | `nrun`/`nhint` | `indent`/`total` |
+| 0x1c..0x28 | `box` | `n*0x4c` temp |
+| 0x20 | | `ok`/`obj` + temp |
+| 0x24 | | `sect_start` |
+| 0x28..0x34 | | `cur` |
+| 0x2c..0x38 | `cur` | |
+| 0x38 | | `passed`/`nhint`/`nnarr` |
+| 0x3c | `ok`/`obj` | `failmask` |
+| 0x40 | `passed` / section ptr temp | `v` + temp |
+| 0x44 | `sect_start` | section ptr temp / `narr_cur` |
+| 0x48 | `failmask`/`nnarr` | `all_passed`/`i` |
+| 0x4c | `n*0x4c` temp | `all_total` |
+| 0x50 | `total` | `sect_start*0x4c` temp |
+| 0x54 | section ptr temp / `narr_cur` | out-params (11) |
+| 0x58 | `sect_start*0x4c` temp / `v+0x514` | |
+| 0x5c | `all_total`/`i` | |
+| 0x60 | `all_passed` | `box` |
+| 0x64 | `kind` (short at 0x66) | |
+| 0x68..0x90 | out-params (11) | |
+| 0x90 | | `kind` |
+| 0x94 | `lines[100]` | `lines[100]` |
+
+The *sizes* now agree; the *assignment* still does not.  Both have exactly
+the same 33 dwords with the same contents, just permuted -- VC6 numbers the
+slots in the order it first needs them, so this permutation will follow the
+register allocation once the prologue is right.
+
+## What is left (updated)
+
+1. **The prologue's callee-saved assignment.**  The original wants
+   `ebx` = the zero constant, `ebp` = `page_start`, `esi` = `n`,
+   `edi` = `y`; ours gives `ebp` = zero, `esi` = `n`, `ebx` = `y`,
+   `edi` = **`indent`**.  Five candidates, four registers: the original
+   spills `indent` (162 refs to `[esp+0x14]`) and keeps `page_start`
+   in `ebp` with a store at every one of its 133 definitions; we spill
+   `page_start` (338 symbol refs) and keep `indent`.  Everything downstream
+   shifts with this, so it is the next thing to chase.  Per line, `PAGE_CHECK`
+   makes three references to `page_start` and two to `indent`, so the naive
+   count does not explain the choice -- try the LL14 lever
+   (`git show origin/scope/LL14:docs/lanes/scope-ll14.md`, "Closing
+   0x0046f9a0") and try spellings that change how many *reads* each gets.
+2. **The render loop is still ~500 instructions short of the original.**
+   VC6 already strength-reduces it the way the original does
+   (`lea edi,[esp+eax*4+0xbc]` = `&lines[i].nids`, `lea ebp,[esp+eax*4+0x20c4]`
+   = `&narr[nnarr]`), so the shortfall is in the input/narration tail, not in
+   the walk's addressing.
