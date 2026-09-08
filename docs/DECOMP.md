@@ -447,6 +447,50 @@ of them CRT) re-walk to the same extent. `inventory.py`'s own
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **`ZBuffer_FillPoly` `0x00423350` (closed 2026-09-08, 101 of 101 exact,
+  `schoolcar6.c`).** The hand-written `__asm` span filler; the same levers
+  closed its shaded twin `ZBuffer_FillShadedPoly` `0x0041fa10` on the
+  still-unmerged `scope/LL9`:
+  - **A multi-member aggregate local outranks every spilled scalar for a
+    frame home.** VC6 places such an aggregate deepest-first in declaration
+    order AHEAD of the scalars it still enregisters, so whatever scalars
+    remain fall back to the dead argument slots. Grouping the dead-store
+    copy, the row pointer and `pitch` as
+    `struct { int dead; short* row; int pitch; } r` — with `r.row` named
+    inside the `__asm` block — pins those three at `-0x10`/`-0xc`/`-8` and
+    drops `ylast` and `y` into the dead `n` and `key` slots the original
+    uses. As five plain scalars VC6 hands `ylast` the `-0xc` home and the
+    row pointer the argument slot, which is the residual this body sat on
+    for 46 strict mismatches. The aggregate must exceed four bytes to
+    rank: a four-byte `dead` in ANY aggregate shape (`short[2]`,
+    `char[4]`, a two-short struct, a one-member struct or array) is
+    scalarised and sorts with the scalars. This is the local-frame
+    counterpart to the by-value parameter rule under SCOPES Y AND Z.
+  - **A plain store into a memory-resident aggregate member survives
+    dead-store elimination — and must NOT be made `volatile`.**
+    `r.dead = g_zb_4b5b20;` reproduces the original's dead store on its
+    own. A volatile cast on the member, a volatile cast on `&r`, or a
+    `volatile` member makes the whole aggregate address-exposed: the frame
+    grows to `0x64`, `pitch*2` is hoisted into the `n` slot, and the body
+    loses 40 instructions. Only a STANDALONE scalar dead store needs the
+    volatile cast (a plain scalar store is deleted outright even in a
+    function containing `__asm`), which is why the earlier WIP body
+    carried one.
+  - **Stores then a read-modify-write hoist the FIRST field.** The original
+    lifts `e->x` above the `e->side` branch ahead of `e->step`; written
+    `ed[k].x = e->x - e->step;` VC6 forms the `e->step` CSE temporary first
+    and hoists that instead. Written
+    `ed[k].x = e->x; ed[k+1].x = e->step; ed[k].x -= ed[k+1].x;` through
+    the address-taken array the pair comes out in the original's order, and
+    store-to-load forwarding folds the RMW back to one register subtract,
+    so the instruction count does not move.
+  - With the row pointer and `pitch` inside the aggregate the body no
+    longer wants the free `volatile` read of `y` that the old WIP note
+    prescribed — it is one instruction long with it. Set-up order stays
+    load-bearing at one to three instructions apiece: `pitch` before `row`,
+    or the dead store moved to either side of `ylast`, each shifts a load
+    in the head.
+
 - **SCOPE V (closed 2026-09-08, 62 of 62 exact; evidence in
   `docs/lanes/scope-v.md`).** Script-event tick handlers + goal checks
   (`eventtick.c`, `eventgoal.c`). `EventTick_Clear` took nine documented
@@ -1990,8 +2034,9 @@ of them CRT) re-walk to the same extent. `inventory.py`'s own
   asm site after the four `tri3d.c` rasterisers.** Three independent proofs:
   an EBP frame in an `/O2` file; `xchg ebx,eax` (0x93) and `add ebx,1` where
   VC6 always emits `inc`; and a `jns/jmp` pair where `js` alone would do. The
-  boundary is visible in VC6's post-`__asm` reloads. Recorded as a WIP with
-  the proofs; the same triage applies to any body showing those signatures.
+  boundary is visible in VC6's post-`__asm` reloads. Closed 2026-09-08 at 101 of
+  101 with the proofs (levers at the top of this section); the same triage
+  applies to any body showing those signatures.
 - **An address-taken out-param local declared in the BLOCK where it is used
   takes a dead argument slot; at function level it takes a frame slot and
   pushes a float temporary into the argument slot instead.** All 24
@@ -2015,9 +2060,12 @@ of them CRT) re-walk to the same extent. `inventory.py`'s own
   **the shared `lea` base register for a three-scalar snapshot group is
   unreachable from C** — pointer, array, walking-cursor, struct-copy and
   volatile spellings all fold back to `esi + disp`. **`row` and `ylast`
-  holding each other's frame homes** (`ZBuffer_FillPoly`) survived 135
-  statement orders, 11 declaration orders and six volatile reads — the
-  dead-argument-slot tie-break as a floor.
+  holding each other's frame homes** (`ZBuffer_FillPoly`) was recorded here
+  as a floor after 135 statement orders, 11 declaration orders and six
+  volatile reads — WRONGLY: it fell on 2026-09-08 to the aggregate
+  frame-home rule at the top of this section. A tie-break that resists every
+  spelling of the SCALARS can still move when one of them joins an
+  aggregate; retire a frame-home floor before trusting it.
 - Mechanics worth knowing across the coaster: the route's physics object is an
   **RK4 solver descriptor** (nodes 0, 1/2, 1/2, 1; weights 1/6, 1/3, 1/3, 1/6)
   over a car-shaped state vector; a piece boundary is landed by BISECTION
