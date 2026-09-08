@@ -255,24 +255,23 @@ void SpaceTower_UpdateRiders(TowerRec* rec)
  * 12-float frames (pos, a, b, n); the frame's normal is rebuilt as b x a
  * before the bake, and the bake reads vector 1+oa of the frame.
  *
- * WIP: 168i/528B -- instruction-, byte- and frame-exact (0x28); 15 audit
- * mismatches, was 50.  The scope-V cancelled-pair lever (DECOMP.md, SCOPE V)
- * carries the float index in a struct member, and the anchor is `oa` taken
- * where `oa` is defined.  The anchor choice is the whole lever here: an
- * anchor is live wherever the cancel is, so anchoring on `person` (the
- * earlier body) kept `person` alive through the inner loop and blocked esi,
- * which the original frees at the cursor `lea` and hands to `oa`.  Anchoring
- * on `oa` itself leaves every other web where the original has it: seat
- * spilled to the dead `rec` slot with edi as its cache, anim ebx, ip/m at
- * [ebp-4]/[ebp-8], scale at [ebp-0xc], j ecx, temp eax.
+ * WIP: 168i/528B, frame 0x28 -- instruction-, byte- and frame-exact, THREE
+ * audit mismatches, and the only real one is a single instruction scheduled
+ * late (`mov esi,[eax]`, the oa load, belongs between `lea edx,[esi+0x58]`
+ * and the two IV spill stores; we emit it after both).  The `test al,0x46`
+ * line in every diff is the .rdata jump table, not code.
  *
- * Residual (two items): `oa` and the store cursor are swapped (original
- * oa=esi with `lea edx,[esi+0x58]` for the cursor, ours oa=edx with
- * `add esi,0x58`), and the second factor of two cross products loads in the
- * other order (`fld [eax+0x20]` first).  Both are rank/phase decisions no
- * source form reached: see docs/lanes/codex-f.md, which also records that
- * the FP operand order is inert under every source spelling and dead-loop
- * counter, and that the EAX-clobber reading was falsified. */
+ * Two levers, both zero-cost (docs/lanes/codex-f.md, ninth sweep):
+ *  - The scope-V cancelled pair anchors on `j * 4`.  An anchor receives a
+ *    priority bump, so it must be a value that is ALREADY register-resident
+ *    and already ranked where it needs to be: ecx literally holds j*4, so
+ *    this bumps nothing.  Anchoring on `oa` (the previous body) ranked oa
+ *    above the store cursor and cost the 11-line register swap; anchoring
+ *    on `anim` fixed that but rotated the callee-saved trio (45).
+ *  - Spelling kf[8] through a char* cast defeats VC6's canonicalisation of
+ *    the two commutative fmuls whose operand is at 0x20, which is what
+ *    reversed their fld/fmul order.  Source operand order is inert (all 64
+ *    permutations measured); only the operand's SPELLING moves it. */
 // WIP-FUNCTION: LEGOLAND 0x00404630
 void Copters_UpdateCarRider(CoptersRec* rec, int index)
 {
@@ -324,14 +323,14 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
 
     scale = 65536.0f;
     kf = (float*)((char*)g_copters_postable->slots[anim] + seat->frame * 0x30);
-    kf[9] = kf[5] * kf[7] - kf[8] * kf[4];
-    kf[10] = kf[8] * kf[3] - kf[6] * kf[5];
+    kf[9] = kf[5] * kf[7] - (*(float*)((char*)kf + 0x20)) * kf[4];
+    kf[10] = (*(float*)((char*)kf + 0x20)) * kf[3] - kf[6] * kf[5];
     kf[11] = kf[6] * kf[4] - kf[3] * kf[7];
 
     for (i = 0; i < 3; i++) {
         oa = g_copter_ord_a[i];
-        t.oy = oa;
         for (j = 0; j < 3; j++) {
+            t.oy = j * 4;
             t.ox = (oa + seat->frame * 4 + 1) * 3 + g_copter_ord_b[j];
             t.ox += t.oy;
             t.ox -= t.oy;
