@@ -1599,3 +1599,41 @@ onto `ecx`. Both bodies agree on the nine section-head sites (`cmp ebp, esi`).
 2. **`box = cur;`** — keep it in hand. The moment (1) is solved, apply it.
 3. The rewind test's register (75 sites) and the out-param slot order (11
    slots) are the two remaining named residuals, both downstream of (1) and (2).
+
+### Lab result: what makes the temp take a slot of its own
+
+`/tmp/sll16f/mklab2.py` (rebuild from this description) emits a scaled model of
+this function: `R arr[100]` with a 19-int record, a `struct { B box, cur; }`,
+`n`/`ps`/`ind`/`ss`/`ok`/`tot`/`pas`, the same `LINE` macro with its page check,
+struct-copy reset, `rand`/`GetString`-shaped calls and a shared `rew_sectK`
+block per section. Sweeping the number of sections and the lines per section:
+
+| lines per section | where the `n*0x4c` temp goes |
+| --- | --- |
+| <= 12 (any number of sections, up to 12) | **never spilled** — VC6 keeps the offset in a register, `ps` takes `0x10` |
+| >= 18 | spilled, and it takes `0x10` ahead of `ps` |
+
+With *mixed* section sizes the trigger is sharper still, and it is a pair:
+
+| section sizes | slot `0x10` |
+| --- | --- |
+| `5,5,5,5,5,5,5,5,40` | `ps` (the temp packs onto `ps`'s slot) |
+| `5,5,5,5,5,5,5,5,25` | `ps` |
+| `1,6,3,3,3,3,3,40` | `tot` |
+| `1,6,3,3,3,3,3,25` | `ps` |
+| `1,6,3,3,3,3,3,40,25` | **TEMP** |
+| `5,5,5,5,5,5,5,5,40,25` | **TEMP** |
+
+**One big line-run is absorbable; two are not.** Our body has exactly the
+pathological pair — section 8's ~40 advice lines and section 9's ~25 hint lines
+— which is why our temp gets a slot of its own at the bottom of the frame. So
+does the original's, and the original still keeps it at `0x18`, so this is the
+shape of the question but not yet the answer. Adding section-local counters to
+the lab in `nrun`/`nhint`'s positions does **not** reproduce the original
+(the temp still takes `0x10`); neither does `#define nhint nrun` on the real
+body, which packs the temp onto `nrun` but leaves it at `0x10` and costs the
+frame. The next lever to hunt is whatever lets VC6 absorb the SECOND big
+run — if section 9's offset can be made to live somewhere else (the original
+is reported to keep it in `ebp` there, though `[esp+0x18]` is still used at
+section 9's head), the temp should fall back onto a named local and the
+scalars should move down to `0x10`/`0x14`.
