@@ -142,20 +142,15 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
  * three times in the whole original body and all three are inside the render
  * loop.  The build's page break leaves the new top in `y` alone. */
 #define PAGE_CHECK(LBL)                                                   \
-    if (y + 0x16 > 0x1b5) {                                               \
+    cur.bottom = cur.top + 0x16;                                          \
+    if (cur.bottom > 0x1b5) {                                             \
         if (page_start != sect_start) {                                   \
-            page_start = sect_start;                                      \
-            n = sect_start;                                               \
-            indent = lines[sect_start].indent;                            \
-            g_report_pages++;                                             \
             cur = box;                                                    \
-            y = cur.top;                                                  \
-            goto LBL;                                                     \
+            goto rew_##LBL;                                               \
         }                                                                 \
         g_report_pages++;                                                 \
         page_start = n;                                                   \
         cur = box;                                                        \
-        y = cur.top;                                                      \
     }
 
 /* A plain line: no bar, no measured value. */
@@ -173,7 +168,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     lines[n].range = 0;                                                   \
     lines[n].nids = 0;                                                     \
     n++;                                                                  \
-    y += 0x18;
+    cur.top += 0x18;
 
 /* A graded line: a bar from 0 to RANGE with its marker at MARKV. */
 #define BAR_LINE(LBL, ID, VALUE, MARKV, RANGE)                            \
@@ -190,7 +185,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     lines[n].range = (RANGE);                                             \
     lines[n].nids = 0;                                                     \
     n++;                                                                  \
-    y += 0x18;
+    cur.top += 0x18;
 
 /* The five closing lines below do NOT advance y: the original never emits
  * `y += 0x18` for them, so each one's page check re-reads the previous
@@ -232,7 +227,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     lines[n - 1].ids[lines[n - 1].nids] = (ID);                           \
     lines[n - 1].nids++;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (8094/8085 insns emitted, 34413/34662 bytes, frame 0x23d4 exact, first diverging index 5, mismatch 7970; the page reset is a struct copy so box is reloaded at every site as in the original, but y is still constant-propagated where the original reloads box.top, cur.top is stored where the original never writes it, and indent is enregistered where the original spills it)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (7251/8085 insns emitted, 31791/34662 bytes, frame 0x23d4 exact, first diverging index 6, mismatch 8007, FULL MATCH 46.4%; the page check is cur.bottom = cur.top + 0x16 with the reset a struct copy and one shared rewind block per section, so the sites load box.left/right/top and store left/right/bottom as the original does; still ours keeps indent in ebp where the original keeps page_start, folds box.bottom to 0x83 where the original reloads it, and keeps cur.bottom in a register where the original spills it across section 8's failmask tests)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -247,7 +242,6 @@ int RunAppraisalScreen(void)
     AppraisalBox box;
     AppraisalBox cur;
     int n;
-    int y;
     int page_start;
     int indent;
     int sect_start;
@@ -285,7 +279,7 @@ int RunAppraisalScreen(void)
     PushRenderingStatusAndUnlockVideoSurface();
     ReadGameButtons();
 
-    y = 0x6d;
+    cur.top = 0x6d;
     box.left = 0x50;
     box.top = 0x6d;
     box.right = 0x1a4;
@@ -487,7 +481,7 @@ sect6:
             if (ok) passed++; else failmask |= 0x80000;
             /* Original bug: this statistic advances the report's y by a line
              * but never writes one, so it leaves a blank gap. */
-            y += 0x18;
+            cur.top += 0x18;
         }
         if (FLAGS & 0x1000000) {
             total++;
@@ -839,10 +833,66 @@ sect9:
     /* Put the screen up and run it.                                      */
     /* ================================================================== */
 
+    goto build_done;
+rew_sect1:
+    page_start = sect_start;
+    n = sect_start;
+    indent = lines[sect_start].indent;
+    g_report_pages++;
+    goto sect1;
+rew_sect2:
+    page_start = sect_start;
+    n = sect_start;
+    indent = lines[sect_start].indent;
+    g_report_pages++;
+    goto sect2;
+rew_sect3:
+    page_start = sect_start;
+    n = sect_start;
+    indent = lines[sect_start].indent;
+    g_report_pages++;
+    goto sect3;
+rew_sect4:
+    page_start = sect_start;
+    n = sect_start;
+    indent = lines[sect_start].indent;
+    g_report_pages++;
+    goto sect4;
+rew_sect5:
+    page_start = sect_start;
+    n = sect_start;
+    indent = lines[sect_start].indent;
+    g_report_pages++;
+    goto sect5;
+rew_sect6:
+    page_start = sect_start;
+    n = sect_start;
+    indent = lines[sect_start].indent;
+    g_report_pages++;
+    goto sect6;
+rew_sect7:
+    page_start = sect_start;
+    n = sect_start;
+    indent = lines[sect_start].indent;
+    g_report_pages++;
+    goto sect7;
+rew_sect8:
+    page_start = sect_start;
+    n = sect_start;
+    indent = lines[sect_start].indent;
+    g_report_pages++;
+    goto sect8;
+rew_sect9:
+    page_start = sect_start;
+    n = sect_start;
+    indent = lines[sect_start].indent;
+    g_report_pages++;
+    goto sect9;
+build_done:
     /* Only the lines up to the last hint are kept. */
     if (nhint == 0)
         n--;
-    cur.bottom = y + 0x16;
+    cur.bottom = cur.top + 0x16;
     cur.left = indent + 0x20;
     cur.right = 0x1a4;
     g_report_pages++;
@@ -864,10 +914,7 @@ sect9:
         title.bottom = 0x6d;
         NewPrintCent(GetString(0x228), 3, title, 0);
 
-        cur.left = box.left;
-        cur.top = box.top;
-        cur.right = box.right;
-        cur.bottom = box.bottom;
+        cur = box;
 
         i = 0;
         while (i < n && lines[i].page != g_report_page)

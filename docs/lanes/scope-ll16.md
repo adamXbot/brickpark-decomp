@@ -749,3 +749,69 @@ spelling cost `title` is understood and avoided: it was VC6 hoisting
 `title.right = 0x1a4` out of the frame loop because the pre-loop
 `cur.right = 0x1a4` store makes the constant available in a register; it
 does not happen with the spellings above.
+
+## 2026-09-08 (seventh pass) — `cur.top` is the build's y; one rewind block per section
+
+| | struct-copy sites (d543f87a) | now |
+| --- | --- | --- |
+| emitted | 8,094 | 7,251 |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 5 | 6 |
+| mismatch | 7,970 | 8,007 |
+| `FULL MATCH` | 39.0% | **46.4%** |
+
+Three changes, each measured on its own and together (object prefix
+`/tmp/sll16b_`):
+
+1. **There is no separate `y`: the build's row is `cur.top`.**  With `y` a
+   separate scalar VC6 constant-propagates `y = cur.top` to `mov edi,0x6d`
+   at every site; with `cur.top` itself the enregistered row (`edi`), the
+   struct copy loads `box.top` straight into `edi` and never stores
+   `cur.top`'s home in the build — exactly the original's three stores
+   (left, right, bottom) plus the `edi` load per site.  `[esp+0x30]` is then
+   touched only by the render loop, as the original.
+2. **One rewind block per section, reached by `goto rew_sectK`.**  The
+   per-site arm is just the struct copy and the jump; the block does
+   `page_start = sect_start; n = sect_start; indent = lines[sect_start].indent;
+   g_report_pages++; goto sectK;`.  This is what spills `indent` (the
+   original never enregisters it) and gives `page_start` its home with a
+   store at every definition; with the rewind inlined at every site
+   `indent` has ~140 extra definitions and always wins a register.  It also
+   makes the two label bugs (section two's first line restarting at
+   section one, the closing lines restarting at section nine) ordinary
+   copy-paste mistakes in a `goto` target rather than in a macro argument.
+   VC6 lays the blocks out next to their sections whatever the source order.
+3. **The page check is `cur.bottom = cur.top + 0x16; if (cur.bottom > 0x1b5)`.**
+   On top of 1 and 2 this is worth +0.4 points of `FULL MATCH` and 41 on the
+   mismatch counter; it is also the only spelling under which the original's
+   section-8 memory compares of `[esp+0x38]` can arise at all.
+
+The render head has to be the block copy `cur = box;` in this shape (the
+fieldwise head lets VC6 form register webs for the box constants and then
+hoist `title.right = 0x1a4` out of the frame loop, +0x10 on the frame).
+
+### Measured and rejected on the way
+
+| spelling | result |
+| --- | --- |
+| the reset copy placed *before* the inner rewind test (the original's hoisted loads as source) | frame `0x23d8`, 35.8% |
+| `cur.bottom` updated at the line end instead of at the check | frame `0x23e4` (bar rect homed), 37.9% |
+| `volatile int indent` | frame `0x23d8`, ESCAPES |
+| declaration order of `indent` / `page_start` (three orders) | byte-identical |
+| `y = box.top` instead of `y = cur.top` (struct-copy sites) | mismatch 8004 vs 7970 |
+| initializer list / `const` / `box.top = y` for the box init | inert or stores hoisted above `ScriptRunning` |
+
+### What is left
+
+- **`ebp`: ours caches `indent` there, the original `page_start`** (both
+  are homed with a store at every def in the original's style; only the
+  cached one differs).  Every ranking lever tried is inert; the two are
+  within a hair of each other in VC6's weighting.
+- **`box.bottom` is constant-folded to `mov eax,0x83`** at the fall-through
+  arm (130 sites) where the original reloads `[esp+0x28]`; the other three
+  fields reload as the original does.  `cur.bottom` being a register scalar
+  is what lets VC6 propagate the constant into it.
+- **`cur.bottom` never touches memory in ours**; the original spills it at
+  28 section-8 checks (`cmp [esp+0x38],0x1b5`) and stores `y+0x16` to it 23
+  times, always across a `failmask` test.  The line-end update reproduces
+  that pattern but currently costs the frame (see the table).
