@@ -255,24 +255,25 @@ void SpaceTower_UpdateRiders(TowerRec* rec)
  * 12-float frames (pos, a, b, n); the frame's normal is rebuilt as b x a
  * before the bake, and the bake reads vector 1+oa of the frame.
  *
- * WIP: 168i/528B, frame 0x28 -- instruction-, byte- and frame-exact, THREE
- * audit mismatches, and the only real one is a single instruction scheduled
- * late (`mov esi,[eax]`, the oa load, belongs between `lea edx,[esi+0x58]`
- * and the two IV spill stores; we emit it after both).  The `test al,0x46`
- * line in every diff is the .rdata jump table, not code.
+ * Two zero-cost levers close this body; both are documented in
+ * docs/lanes/codex-f.md (ninth sweep) and generalise to other lanes:
  *
- * Two levers, both zero-cost (docs/lanes/codex-f.md, ninth sweep):
- *  - The scope-V cancelled pair anchors on `j * 4`.  An anchor receives a
- *    priority bump, so it must be a value that is ALREADY register-resident
- *    and already ranked where it needs to be: ecx literally holds j*4, so
- *    this bumps nothing.  Anchoring on `oa` (the previous body) ranked oa
- *    above the store cursor and cost the 11-line register swap; anchoring
- *    on `anim` fixed that but rotated the callee-saved trio (45).
- *  - Spelling kf[8] through a char* cast defeats VC6's canonicalisation of
- *    the two commutative fmuls whose operand is at 0x20, which is what
- *    reversed their fld/fmul order.  Source operand order is inert (all 64
- *    permutations measured); only the operand's SPELLING moves it. */
-// WIP-FUNCTION: LEGOLAND 0x00404630
+ *  - `kg = kf` and reading four of the twelve cross-product operands through
+ *    the alias.  VC6 canonicalises a commutative `fmul` whose operands are
+ *    two constant offsets off ONE pointer, which reversed the fld/fmul order
+ *    of the two products containing kf[8]; two different base pointers can
+ *    no longer be ordered, so source order survives.  Source operand order
+ *    is itself inert -- all 64 permutations measured.
+ *
+ *  - The scope-V cancelled pair anchors on the link-time address constant
+ *    `(int)g_copter_ord_a`, hoisted out of the loop.  An anchor receives an
+ *    allocator priority bump, so it must not be a value whose ranking
+ *    matters: anchoring on `oa` ranked oa above the store cursor and cost an
+ *    11-line register swap, and anchoring on `anim` rotated the callee-saved
+ *    trio instead.  An address constant is already materialised and bumps
+ *    nothing.  (The constant must be assigned to the struct MEMBER first --
+ *    a constant used directly in the cancel folds in the front end.) */
+// FUNCTION: LEGOLAND 0x00404630
 void Copters_UpdateCarRider(CoptersRec* rec, int index)
 {
     CopterSeat* seat = &rec->seat[index];
@@ -289,6 +290,7 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
     int mode;
     int layer;
     float* kf;
+    float* kg;
     int i, j;
     int oa;
     Offset t;
@@ -323,14 +325,15 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
 
     scale = 65536.0f;
     kf = (float*)((char*)g_copters_postable->slots[anim] + seat->frame * 0x30);
-    kf[9] = kf[5] * kf[7] - (*(float*)((char*)kf + 0x20)) * kf[4];
-    kf[10] = (*(float*)((char*)kf + 0x20)) * kf[3] - kf[6] * kf[5];
-    kf[11] = kf[6] * kf[4] - kf[3] * kf[7];
+    kg = kf;
+    kf[9] = kf[5] * kf[7] - kg[8] * kg[4];
+    kf[10] = kg[8] * kg[3] - kf[6] * kf[5];
+    kf[11] = kf[6] * kf[4] - kg[3] * kg[7];
 
+    t.oy = (int)g_copter_ord_a;
     for (i = 0; i < 3; i++) {
         oa = g_copter_ord_a[i];
         for (j = 0; j < 3; j++) {
-            t.oy = j * 4;
             t.ox = (oa + seat->frame * 4 + 1) * 3 + g_copter_ord_b[j];
             t.ox += t.oy;
             t.ox -= t.oy;

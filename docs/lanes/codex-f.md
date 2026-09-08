@@ -1,4 +1,4 @@
-# Codex-F — in progress, 25/26 (2026-09-07)
+# Codex-F — CLOSED, 26/26 exact (2026-09-09)
 
 Branch: `codex/scope-f`.
 Worktree: `.worktrees/codex-f`.
@@ -12,8 +12,8 @@ Object prefix: `/tmp/cf_`.
 | --- | ---: | ---: | ---: |
 | `uistubs2.c` | 5 | 0 | 5 |
 | `coaster10.c` | 16 | 0 | 16 |
-| `ridemachine2.c` | 4 | 1 | 5 |
-| **lane** | **25** | **1** | **26** |
+| `ridemachine2.c` | 5 | 0 | 5 |
+| **lane** | **26** | **0** | **26** |
 
 `/W3` clean. Exact bodies: audit `[OK]`, relocs zero MISMATCH.
 
@@ -50,7 +50,7 @@ Object prefix: `/tmp/cf_`.
 | `0x00420a20` | `CoasterModel_DrawPass2` | 165 | OK | — |
 | `0x00420c40` | `CoasterModel_DrawPass3` | 182 | OK | — |
 
-### `ridemachine2.c` — 4/5 exact, 1 WIP
+### `ridemachine2.c` — 5/5 exact
 
 | Address | Function | Insns | Audit | Residual |
 | --- | --- | ---: | --- | --- |
@@ -58,7 +58,7 @@ Object prefix: `/tmp/cf_`.
 | `0x0043a940` | `SpaceTower_StepCar` | 37 | OK | — |
 | `0x004049a0` | `Copters_StopRide` | 71 | OK | — |
 | `0x0043b810` | `SpaceTower_UpdateRiders` | 116 | OK | — |
-| `0x00404630` | `Copters_UpdateCarRider` | 168 | WIP | **168i/528B, frame 0x28 — all exact; 15 audit mismatches.** oa/cursor register swap + two FP operand orders |
+| `0x00404630` | `Copters_UpdateCarRider` | 168 | OK | — |
 
 ## Closed this wave (levers)
 
@@ -445,6 +445,54 @@ function, or in a macro used by both files) that changes how the asm
 blocks in the loop are modelled. Both siblings must be closed by the
 same construct.
 
+## Closed — 2026-09-09
+
+`Copters_UpdateCarRider` is exact: **168 instructions / 528 bytes, frame 0x28,
+0 mismatches**, `audit.py` `[OK]`, `relocs.py` 0 MISMATCH, `/W3` clean. The
+lane is 26 of 26 with no WIP bodies. Two zero-cost levers closed it, found by
+a 15-agent parallel sweep over ~3,000 measured variants:
+
+1. **An alias pointer defeats VC6's commutative-fmul canonicalisation.**
+   `kg = kf;` with four of the twelve cross-product operands read through the
+   alias. VC6 canonicalises a commutative `fmul` whose two operands are
+   constant offsets off ONE pointer, which is what reversed the fld/fmul order
+   of the two products containing `kf[8]` (offset 0x20); it cannot order
+   operands off two different pointers, so source order survives. Source
+   operand order is itself inert — all 64 permutations measured, twice, on two
+   different bases. Interchangeable spellings that also work: a `volatile`
+   alias, a char* cast on the 0x20 operand, and a dead-store seed.
+2. **A cancelled-pair anchor must be a value whose ranking does not matter.**
+   `t.oy = (int)g_copter_ord_a;` — a link-time address constant, hoisted out
+   of the loop. The anchor receives an allocator priority bump; anchoring on
+   `oa` ranked oa above the store cursor (the 11-line register swap, 15
+   mismatches) and anchoring on `anim` fixed that but rotated the callee-saved
+   trio instead (45). An address constant is already materialised, so it bumps
+   nothing. `t.oy = j * 4` works equally well for the same reason — ecx
+   already holds j*4. **The constant must be assigned to the struct MEMBER
+   first**; used directly in the cancel it folds in the front end.
+
+Both levers are independent: a full 2x3 grid of {address-constant anchor,
+`j*4` anchor} x {alias re-read, volatile alias, dead-store seed} all reach 0.
+The match is a basin, not a knife edge.
+
+### Reusable rules for other lanes
+
+- **The anchor of a scope-V cancelled pair is live wherever the cancel is and
+  receives a priority bump.** Pick a value that is already register-resident
+  and already ranked correctly — an address constant, or an existing induction
+  value. Never anchor on a variable whose register assignment you still need.
+- **A struct member that must live across a loop gets a real frame slot and is
+  reloaded; one confined to straight-line code is free.** Check the `/FAcs`
+  equates list: a `_name$ = -N` line for your carrier means it cost a slot.
+- **`/FAcs /Fa<path>` is the tool for this class of residual** — it prints
+  VC6's frame symbol table and attributes every instruction to a source line.
+  It also shows that VC6 overlaps locals onto dead PARAMETER slots
+  (`_value$ = 8` sharing `_person$ = 8` in bnvpath.c), which is why the
+  original's asm operands live in dead parameter homes.
+- **Two constant offsets off one pointer are canonicalised in a commutative
+  float multiply; two different pointers are not.** Reach for an alias when an
+  fld/fmul pair comes out reversed and source order does nothing.
+
 ## Remaining
 
-Close `Copters_UpdateCarRider`. No merge until 26/26 or explicit ask.
+Nothing. The lane is closed at 26/26.
