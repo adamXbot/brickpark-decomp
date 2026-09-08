@@ -9,33 +9,29 @@ one function.
 | --- | --- |
 | address | `0x004453a0` |
 | original | 8,085 instructions, 34,662 bytes, frame `0x23d4` |
-| ours | 7,769 instructions, 33,440 bytes, frame **`0x23d4` (exact)** |
+| ours | 8,181 instructions, 34,928 bytes, frame **`0x23d4` (exact)** |
 | first diverging index | 8 |
-| mismatch | 7,992 of 8,085 |
-| index-for-index `MATCH` | 93 |
-| `FULL MATCH` (difflib) | 42.7% — see the eighth pass, do not read this alone |
-| true LCS vs the whole original | 4,665/8,085 = **57.7%** (lane best) |
-| LCS with the slot permutation removed | 4,968/8,085 = **61.4%** (see the tenth pass) |
-| audit | `[WIP]`, file ends `PASS` |
+| mismatch | 7,845 of 8,085 |
+| index-for-index `MATCH` | 240, in 104 runs, longest 17 |
+| true LCS vs the whole original | 5,216/8,085 = **64.5%** (lane best) |
+| `difflib` alignment | 55.1% (lane best) |
+| audit | `[WIP]` `ESCAPES` (we are 96 instructions longer), file ends `PASS` |
 | relocs | zero `MISMATCH` (a WIP body is skipped) |
 | `/W3` | clean |
 
-Not exact. **The whole build phase is transcribed** — all nine sections, the
-advice chain, the closing sprintf line and the hint section — and so are the
-render and input loops. As of the ninth pass the page reset is the original's
-shape (hoisted above the rewind test AND repeated in the fall-through arm),
-`page_start` is in `ebp` and `indent` is memory-homed exactly as the original
-does it, and the body is within 264 instructions and 438 bytes of the target.
-**The one remaining structural residual is the stack SLOT PERMUTATION**: our
-33 scalar dwords hold the same values as the original's 33 in a different
-order, so almost every `[esp+N]` displacement is wrong. **Read the TWELFTH pass
-first** — it lands the `box` opacity the fifth through eleventh passes were
-hunting and puts `box`, `cur`, `ok`/`obj` and `passed` on the original's own
-stack displacements. What is left of the slot residual is a three-slot
-rotation at `0x10`/`0x14`/`0x18`; the eleventh pass measures the ORIGINAL's
-slot weights and the twelfth shows the rotation is not reachable by any
-weight the source can produce. The earlier "what is left" lists are
-superseded.
+**READ THE CLOSING ASSESSMENT AT THE END OF THIS FILE FIRST.**  It states what
+the function is, everything proved about it and about VC6 along the way, the
+exact remaining deltas with their zones and instruction counts, and a ranked
+list of what to try next with an explicit do-not-retry list.  The pass sections
+below are the working record and are superseded by it where they disagree.
+
+Not exact.  The whole body is transcribed -- all nine build sections, the
+advice chain, the closing line and the hints, plus the render and input loops
+-- and the frame is the original's to the byte.  Three instruction-count
+residuals remain (section 9 at +2 per line, one tail-merge in the closing
+block, and register naming in section 2 and at the guarded section heads) plus
+one that costs no instructions at all: **the three-slot rotation** at the
+bottom of the frame, worth ~6 LCS points and with no known lever.
 
 ## What the screen is
 
@@ -2130,3 +2126,315 @@ Two localised residuals, and they very nearly cancel:
 3. The 38 `cmp ebp,edx` rewind tests, which are downstream of the `box` load
    order in the hoisted block, and section 9's last two hint groups, which
    the original emits in the opposite order.
+
+## 2026-09-09 (fifteenth pass) — the nine section HEADS specialise their rewind arm
+
+| | fourteenth pass | now |
+| --- | --- | --- |
+| emitted | 8,133 | 8,181 (original 8,085) |
+| bytes | 34,784 | 34,928 (original 34,662) |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 8 | 8 |
+| mismatch | 7,976 | **7,845** (lane best) |
+| index-for-index `MATCH` | 109 | **240** (lane best) |
+| match runs / longest | 48 / 15 | **104 / 17** |
+| true LCS vs the whole original | 62.5% | **64.5%** (lane best) |
+| `difflib` alignment | 53.5% | **55.1%** (lane best) |
+
+One change. It improves **every** measure the lane tracks at once — mismatch,
+index matches, match runs, LCS and difflib — with the frame still exact, so
+there is no trade to state. It is the second such state in the lane (the
+thirteenth pass's missing `NARR`s was the first).
+
+### The section heads do not `goto rew_sectK`
+
+At a section head `sect_start` has just been assigned `n` and `indent` has not
+moved since the section's own `lines[n].indent = indent;`, so two of the
+general rewind block's four statements are provably no-ops there:
+
+```c
+    page_start = sect_start;              /* == page_start = n            */
+    n          = sect_start;              /* no-op at a head              */
+    indent     = lines[sect_start].indent;/* no-op at a head              */
+    g_report_pages++;
+    goto sectK;
+```
+
+The original emits only the two that survive, **inline**, at all nine heads,
+and jumps at the SECTION label rather than at the shared rewind block:
+
+| head | the inline arm | jumps to |
+| --- | --- | --- |
+| s1 0x0044546c | `mov ecx,[pages] / mov ebp,esi / inc ecx / mov [esp+0x10],ebp / mov [pages],ecx` | `0x445422` = `sect1` |
+| s2 0x00445594 | `jne 0x44546c` — into section ONE's copy | (the original's label bug) |
+| s3 0x00446795 | `mov ecx,[pages] / mov ebp,esi / inc ecx / mov [pages],ecx` | `0x446a3f`, `rew_sect3`'s tail |
+| s4 0x00446bd8 | as s3 | `0x446e7c` |
+| s5 0x00447012 | as s3 | `0x4472b3` |
+| s6 0x00447449 | as s3 | `0x44772e` |
+| s7 0x004478c4 | as s3 | `0x447d44` |
+| s8 0x00447eb8 | as s1 (with the home store) | `0x447e73` = `sect8` |
+| s9 0x0044ad00 | as s1 | `0x44acbb` = `sect9` |
+
+Sections 3–7 are guarded, so `goto sectK` lands on the section's own `if`, and
+the arm tail-merges with the shared rewind block's suffix — which is why every
+`rew_sectK` block ends `mov [esp+0x10],ebp / mov ecx,[FLAGS] / test / jne / jmp`:
+**the block re-tests the section guard.** Sections 1, 8 and 9 have no guard to
+re-test (1 and 8 are unconditional at the label, 9 likewise) so they keep the
+`page_start` home store inline instead.
+
+Written as `PAGE_CHECK_H`, used by all nine `TEXT_LINE_H` heads, with
+`rew_sect1` deleted (section one is one line long, so nothing else reaches it —
+and the original has no such block either).
+
+### It also closed the fourteenth pass's residual 2 for free
+
+The fourteenth pass measured section 7's header at ~30 instructions SHORT and
+named the mechanism: the original materialises `&lines[n].page`, `.ok`,
+`.step`, `.text`, `.colour`, `.bar`, `.value`, `.mark`, `.range`, `.nids` as
+`lea` temps, spills each one to a stack slot and stores through the register,
+where ours indexed each field directly. Ten of the original's fourteen
+`lea <reg>,[esp+<reg>+K]` / `mov [esp+N],<reg>` address-spill pairs are in that
+one block (the other four are the `&lines[n].indent` pre-store at the heads of
+sections 2, 8 and 9 and one `&lines[n].nids` in the closing block).
+
+**A source-level pointer temp does not produce it.** An `int* p` with
+`p = &lines[n].F; *p = v;` for every field is **byte-identical** to the
+committed build: `p`'s address is never taken, so copy propagation turns each
+pair back into a direct indexed store and DSE removes `p`. The spills are an
+allocator artefact — VC6 spills the address on definition and then
+*rematerialises* it at the use rather than reloading, so the spill is dead and
+survives only because it is inserted after DSE has run.
+
+With the head arm right, our object reproduces the whole block anyway:
+section 7's header is now the original **instruction for instruction** from
+`mov ecx,[esp+0x4c]` through the eleven field stores, all ten address spills
+included, with only the displacements differing (our spill slot is `0x58`
+where the original rotates between `0x18`, `0x3c`, `0x40`, `0x4c` and `0x54`).
+The zone delta across it went from −19 to +1. So residual 2 is closed, and the
+lesson is the general one this lane keeps re-learning: **an allocator artefact
+inside a block is fixed by getting the block's control flow right, not by
+writing the artefact into the source.**
+
+### The censuses after the change
+
+| | original | ours |
+| --- | --- | --- |
+| hoisted page-break blocks that store `cur.bottom` | 0 | **0** |
+| section-head rewind test `cmp ebp,esi` | 9 | **9** |
+| `cmp [esp+0x38],0x1b5` (section 8's memory checks) | 28 | **28** |
+| `lea <reg>,[edi+0x16]` | 107 | 114 |
+| stores to `cur.bottom` | 147 | 153 |
+| calls | 292 | **292** |
+| `rand` / `GetString` | 129 / 112 | **129 / 112** |
+| non-head rewind test `cmp ebp,ecx` | 75 | 37 (+36 `cmp ebp,edx`) |
+| section-9 rewind test `cmp [esp+0x10],ecx` | 39 | 0 (see below) |
+
+### Measured and rejected: reordering the fall-through arm
+
+The page reset's fall-through arm is `g_report_pages++; page_start = n;
+cur = box;`. Three permutations, object prefix `/tmp/sll16j_`:
+
+| arm order | emitted | mismatch | `MATCH` | runs | LCS | difflib |
+| --- | --- | --- | --- | --- | --- | --- |
+| **committed** `pages++, ps, copy` | 8,181 | 7,845 | 240 | 104 | **64.5%** | **55.1%** |
+| `ps, pages++, copy` (all three macros) | 8,165 | **7,779** | **306** | 97 | 63.7% | 54.6% |
+| `ps, pages++, copy` (`PAGE_CHECK_H` only) | 8,165 | 7,777 | 308 | 97 | 64.1% | 54.9% |
+| `ps, pages++, copy` (`PAGE_CHECK8` only) | 8,181 | 7,835 | 250 | 114 | 64.2% | 54.9% |
+| `ps, pages++, copy` (`PAGE_CHECK` only) | 8,181 | 7,845 | 240 | 104 | 64.5% | 55.1% (byte-identical) |
+| `copy, pages++, ps` | 8,172 | 7,832 | 253 | 94 | 63.2% | 53.1% |
+| `pages++, copy, ps` | 8,181 | 7,841 | 244 | 103 | 64.5% | 55.1% |
+
+The whole effect sits in `PAGE_CHECK_H`, and it is **rejected on structure**:
+under it VC6 hoists `page_start = n` and its home store ABOVE the `jne`, so the
+head's fall-through arm shrinks to 8 instructions where the original's is 10
+(0x004478d8: `mov eax,[pages] / mov edx,[box.bottom] / mov [cur.left],ecx /
+mov ecx,[box.right] / inc eax / mov ebp,esi / mov [pages],eax /
+mov [esp+0x10],ebp / mov [cur.right],ecx / mov [cur.bottom],edx`) and the head
+zone's delta goes from −4 to −7. It buys 68 index matches and costs 0.4 LCS by
+shortening the body 16 instructions early; the committed order is the one whose
+emitted arm has the original's shape, and it holds the LCS and difflib bests.
+
+### The zone table after this pass
+
+Both streams anchored on their 122 `push <string id>` instructions
+(`/tmp/sll16j/side.py`, rebuildable from the fourteenth pass's description):
+
+| landmark | original | ours | delta |
+| --- | --- | --- | --- |
+| `0x12c` section 1's title | 84 | 83 | −1 |
+| `0x131` section 2's header | 146 | 146 | **0** |
+| `0x13e` section 2's last statistic | 1,002 | 1,016 | +14 (a flat **+1 per line**) |
+| `0x144` section 3's header | 1,260 | 1,269 | +9 (**−4** at each guarded head) |
+| `0x147` section 6's header | 2,019 | 2,022 | +3 |
+| `0x14a` section 7's header | 2,295 | 2,295 | **0** |
+| `0x14b` section 7's first line | 2,382 | 2,383 | +1 |
+| `0x230` section 8's header | 2,657 | 2,651 | −6 |
+| `0x173` end of section 8 | 4,954 | 4,969 | +15 |
+| `0x236` in the closing block | 5,193 | 5,225 | +32 (**+17** in one step) |
+| `0x174` section 9's header | 5,367 | 5,388 | +21 |
+| `0x228` section 9's last line | 7,840 | 7,926 | +86 (a flat **+2 per line**) |
+| end of the build | 7,796 | 7,892 | **+96** |
+
+## CLOSING ASSESSMENT
+
+### What the function is
+
+`RunAppraisalScreen` (0x004453a0, 8,085 instructions, 34,662 bytes, a
+`0x23d4`-byte frame taken through `__chkstk`) is the whole park-appraisal
+report screen in one function: it **builds** a paginated list of up to 100
+report lines in a stack array, **renders** the current page, and **runs its own
+input loop** until `g_report_open` goes to zero. It returns 1 if every line
+passed, 0 otherwise, and 0 immediately if `ScriptRunning()`.
+
+The build is nine sections of straight-line code, each guarded by bits of the
+control word at 0x00665ff8: the title, what the park holds, scenery, food,
+shops, visitors, the park at work, the advice chain, and the hints. Each
+graded statistic counts something, compares it with a goal from the table at
+0x0066600c, sets a bit of `failmask` on failure, and writes one line whose
+phrasing is chosen by a two-bit field of the control word and whose mark
+sprite is `rand() % 5`. Section 8 turns `failmask` into prose advice; section
+9 turns it into randomly phrased hints. Six original bugs are reproduced and
+commented (section 2's first line restarting at section one's label; section
+3's third guard bit with no statistic behind it; section 6's first statistic
+advancing `y` without writing a line; section 6's third statistic graded
+against the second's goal; the closing lines restarting at section nine's
+label; string id `0x16e` skipped).
+
+### The state this lane leaves
+
+| | |
+| --- | --- |
+| emitted | 8,181 / 8,085 (audit truncates ours to 8,085i / 34,583B) |
+| bytes | 34,928 / 34,662 |
+| frame | **`0x23d4` exact** |
+| first diverging index | 8 |
+| mismatch | 7,845 |
+| index-for-index `MATCH` | 240, in 104 runs, longest 17 |
+| true LCS vs the whole original | **64.5%** |
+| `difflib` | 55.1% |
+| audit / relocs / `/W3` | `PASS` (WIP, ESCAPES) / zero `MISMATCH` / clean |
+
+### What was proved along the way
+
+**About the function.** The line record is 0x4c bytes / 19 dwords with seven
+trailing narration ids; the frame is `lines[100]` at `0x94`, `namebuf` at
+`0x1e44`, `textbuf` at `0x1ec4` and `narr[200]` at `0x20c4` over 33 scalar
+dwords. There is no separate `y`: the build's row is `cur.top`, kept in `edi`
+for the whole build. `box` and `cur` are adjacent and never address-taken.
+Sections 1–7 and 9 recompute `cur.bottom` at the page check; section 8 and the
+closing lines maintain it at the LINE END and check it bare — proved from
+0x00448661, where the `lea` sits above the next arm's `failmask` test. All
+nine section labels are entered with `cur.bottom` already live, which is why
+the hoisted page reset's `cur.bottom` store is dead at all 124 sites. Every
+`-1` advice line is queued for narration and its `-3` continuation is not.
+
+**About VC6 /O2.** Eleven results worth carrying to other lanes:
+
+1. **A single-definition struct local is always constant-folded and
+   dead-stored**, at any size of body, even with its address passed out. The
+   only source-level cure is a second *definition*: seed `cur`, then
+   `box = cur;`. That one line took `box`+`cur` from 901 references to 1,501
+   and turned every page-break site's four `box` reloads on.
+2. **Stack slots are ordered by DESCENDING reference weight per dword, lowest
+   address first**, with an aggregate ranked as one object at roughly its
+   references divided by its size in dwords — and the presence of an array is
+   what makes aggregates interleave with the scalars instead of sitting on
+   top. Declaration order, initialisation order, renaming and `register` are
+   all inert *because none of them changes a reference count*; the count is
+   the only lever.
+3. **The weight key is the plain static reference count summed over the slot**
+   — no loop-frequency weighting, no web decomposition. Refuted in a lab where
+   six webs summing to 66 beat a rival of 60 while six summing to 54 lost.
+4. **Definition order is only a reverse tie-break** for equal weights (the
+   later-defined of a tied pair takes the lower slot).
+5. **`/FAs` is the frame map.** One equate per named local, CSE temps as
+   `-NNNN+[esp]`, `esp_off = frame_size + equate + 16`; two names on one
+   equate is VC6 telling you it packed them. A *linear* `esp`-delta tracker
+   (reset at every branch target) reproduces it on a stripped binary to within
+   5%, which is how the ORIGINAL's slot weights were finally measured.
+6. **A whole-struct copy is not four field copies.** VC6 lowers it as four
+   memory-to-memory moves and refuses to constant-propagate into them; writing
+   any one field of the reset fieldwise collapses the entire opacity.
+7. **Store-to-load forwarding runs before DSE**, and it can kill a store out
+   of a struct copy while leaving the load behind. That surviving dead load is
+   the diagnostic.
+8. **Spill stores are inserted after DSE**, so a dead spill of an address VC6
+   then rematerialises is normal output and cannot be written into the source:
+   a source-level `int* p` is copy-propagated away, byte-identically.
+9. **Jump threading specialises a shared block's callers.** Where a caller can
+   prove the block's leading statements are no-ops it duplicates the survivors
+   and jumps into the middle — which is what the nine section heads do, and
+   what this pass had to write out by hand.
+10. **A memory-homed variable with a cached register copy** looks like a store
+    at every definition and almost no reloads (`page_start`: 133 stores, 2
+    reloads). Do not mistake it for two variables.
+11. **`failmask |= K` is spelled two ways** — `mov/or al,K/mov` below 0x10000
+    and `or dword ptr [mem],K` above — from the same source.
+
+### The exact remaining deltas
+
+**+96 instructions, +266 bytes, in three zones.**
+
+1. **Section 9: +65 over ~33 hint lines, a flat +2 per line.** Both are in the
+   page-break block. (a) The original compares `cmp [esp+0x10],ecx` —
+   `page_start` straight out of its home, 39 times — because `ebp` holds the
+   line byte offset in section 9; ours loads it (`mov ecx,[esp+0x14] /
+   cmp ecx,edx`), one instruction more. (b) The original keeps `box.left` in
+   `edx` across the `jne` and the fall-through arm stores it from there; ours
+   assigns `box.left` to the register that then takes `sect_start`, so the arm
+   reloads it. Both follow from the four `box` loads plus `sect_start` being
+   scheduled into four registers in the original and needing five in ours, and
+   that is downstream of the three-slot rotation. `if (sect_start != page_start)`
+   has been measured and refuted three times.
+2. **The closing block: +17 in one step, at 0x0044aa2d.** The original
+   tail-merges one no-advance line's fall-through arm with the previous site's
+   (`je 0x44aa2d / jmp 0x44abd8`); ours duplicates the 17-instruction arm
+   because our two arms differ by a register. Not a missing construct.
+3. **Section 2: +1 per line, 14 lines**, and **−4 at each of the five guarded
+   section heads**, both register-naming: at a head the original emits
+   `lea/lea/shl / mov [temp] / jmp` and reloads the offset at the rewind entry
+   where ours needs no `jmp`, and it duplicates `g_report_pages++` into the
+   head arm where ours merges it into the shared block's tail.
+
+**And one residual that costs no instructions but ~6 LCS points: the
+three-slot rotation.** Our `n*0x4c` byte-offset CSE temp holds `0x10` with 221
+references, so `page_start`, `indent` and `sect_start` all sit one slot high
+(`0x14`, `0x18`, `0x4c` against the original's `0x10`, `0x14`, `0x44`).
+`box`, `cur`, `ok`/`obj` and `passed` are on the original's own displacements.
+The tenth pass measured the remap: renaming our slots to the original's is
+worth ~6 points. **The original's frame is a genuine violation of the rule its
+own compiler follows everywhere else** — its temp has 222 references and still
+sits at `0x18`, below `page_start`'s 173 and `indent`'s 171 — and after five
+passes of weight arithmetic, web decomposition, loop weighting, aggregate
+padding, scalar absorption and declaration/initialisation reordering, no
+mechanism has been found that reproduces it.
+
+### What a future lane should try first, ranked
+
+1. **The three-slot rotation.** Largest single residual and it gates residual 1
+   above. Do NOT retry: reference-weight arithmetic on the temp (twelfth pass),
+   web decomposition or loop weighting (thirteenth), declaration or
+   initialisation order, `register`, renaming, aggregate padding, absorbing
+   `sect_start`/`failmask`/`total`/`v` into the aggregate, splitting the temp,
+   or the compare's operand order. Only a **non-weight** mechanism can move it.
+   The one shape never tried is a *smaller* body: build a lab function that
+   reproduces the violation (two low-weight always-live scalars below a
+   high-weight CSE temp) and find what distinguishes it. `/tmp/sll16f/slots.py`
+   is the census, `/tmp/sll16h/lab` the harness.
+2. **The closing block's tail-merge**, +17 instructions in one place, with a
+   named mechanism (two fall-through arms that differ only by a register).
+   The cheapest remaining instruction win.
+3. **Section 9's last two hint groups** are emitted `0x21c, 0x226, 0x21d,
+   0x227` by the original and `0x21c, 0x21d, 0x226, 0x227` by us — the two
+   arms' first and second lines interleave in the original. Worth ~20 index
+   matches and nothing on LCS.
+4. **The 38 `cmp ebp,edx` rewind tests** (the original has `cmp ebp,ecx` at all
+   75), which follow from the order VC6 assigns registers to the four `box`
+   loads in the hoisted block. Downstream of 1.
+
+Do not re-open: the render/input tail (transcribed and verified instruction by
+instruction from 0x0044d744 to the epilogue), the four call censuses (all
+equal), the page-break block shape (0 of 124 store `cur.bottom`, as the
+original), the `box` opacity (`box = cur`), section 8's line-end `cur.bottom`
+form, the escaping aggregate, the `AppraisalRects` shape, and `bar`'s stack
+home (killed by writing its top and bottom before its left and right).
