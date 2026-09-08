@@ -1657,7 +1657,23 @@ static __inline SpriteRec* TileSprite(int id)
  * scratch temporary. No sixth tail instruction or extra callback was added;
  * the documented corpus proof for the five-instruction merge still stands.
  * Full measurements: docs/lanes/scope-i.md.
- */
+ *
+ * LL19 (2026-09-08): residual (a) re-probed with the two levers found since
+ * scope I, both inert -- temp1 is still ALWAYS eax and every build below is
+ * byte-identical to the committed body (454i/1438B, mismatch 273):
+ *   - the block-boundary pin `if (k) ;` (LL10) at five positions: before
+ *     the t.x load, between the two loads, after `t.x += x`, after
+ *     `t.y += y` (with k = i, x and th), at the top of the outer loop body
+ *     and before the outer `if`;
+ *   - eliminated-temporary spellings before the loop (the rotation lever):
+ *     `Cursor* cur = c; p = &cur->rect`, `Rect* first = &c->rect`,
+ *     pointer locals for &saved / &view passed to the clipping calls,
+ *     `memcpy(&r, p, sizeof r)` for the struct copy, `flags = c->flags`
+ *     read once before the 0x10 test, a self-assigned `MapHdr* m2 = map`;
+ *   - `int x1 = r.right` as the inner bound (275, worse). A volatile read
+ *     of c->flags at the 0x10 test re-lays the loop (411, worse).
+ * The scratch colouring is decided by something that leaves no trace in the
+ * emitted prologue; residual (b) remains the retired build difference. */
 // WIP-FUNCTION: LEGOLAND 0x0045ff00  (39.9%, 273/454 strict; scratch rotation plus retired merge limit; first 48)
 void RenderCursor(Cursor* c)
 {
