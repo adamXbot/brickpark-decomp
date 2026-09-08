@@ -125,6 +125,16 @@ handler blocks that only the `.rdata` scope table reaches. `tools/match.py`
 full-tree audit before/after changed only WinMain. Relocs 0 MISMATCH;
 `/W3` clean. Lever in `docs/lanes/scope-ag.md`.
 
+**Scope V closed exact (2026-09-08): 62 of 62; coverage 71.6% -> 72.3% exact
+(83.6% with partials).** Exact count **2996**; **79** WIPs.
+`eventtick.c` + `eventgoal.c` (the `g_event_tick[]` executors for kinds 2..37
+and the sixteen goal checks). `EventTick_Clear` closed after nine passes with
+two general levers now in DECOMP: a block copy into a sibling member of a
+local aggregate as a free forwarding kill, and `t.x = bx + (int)d - (int)d`
+for a distinct copy web (Cursor's find in `.worktrees/scope-v-clear`).
+With V in, the level-script subsystem is C end to end. Relocs 0 MISMATCH;
+`/W3` clean.
+
 **Scope LL1 closed exact (2026-09-08): 22 of 22; coverage 70.4% -> 70.7% exact
 (82.1% with partials).** Exact count **2912**; **79** WIPs.
 `logflume8.c` (LFGeom/LFNb/LFPiece/LFTrack/LFRoute neighbour helpers).
@@ -137,7 +147,7 @@ MISMATCH; `/W3` clean.
 
 **Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.0% -> 70.3% exact.**
 `music2.c` + `pathobj2.c` (group 16).
-Parallel still open: FGH, V, Codex-F, AC remainders; LL3–LL4/LL6–LL7 in flight.
+Parallel still open: FGH, Codex-F, AC remainders; LL3–LL4/LL6–LL7 in flight.
 
 **LL wave cut (2026-09-07):** letter scopes end at AK; new scopes are
 `LL1`…`LL8` (`docs/SCOPE_LL_WAVE.md`). Live inventory leftovers after excluding
@@ -511,14 +521,11 @@ coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
 Open for assignment: none cut and idle — Codex-F is in progress (AG merged 2026-09-08, 3 of 3);
-FGH and V remain in their own sessions. AD, AE, AA, AB, AC, AF are DONE
+FGH remains in its own session. AD, AE, AA, AB, AC, AF are DONE
 and merged (several with honest WIPs). Of the seven
 script-tier briefs six are DONE and merged (R, S, T, U, W, X).
-V remains unmerged: its committed `scope/V` checkpoint is 58/62, but
-`.claude/worktrees/scope-v/LEGOLAND/eventtick.c` has three additional exact
-fixes (`Lookat`, `Connect`, `Link`) still uncommitted. A fresh audit on
-2026-09-06 confirmed 61/62; only `EventTick_Clear` remains. Preserve those
-local changes and update its stale lane report when resuming V.
+V is merged (2026-09-08, 62 of 62 exact; `docs/lanes/scope-v.md`); all seven
+script-tier briefs are DONE (R, S, T, U, V, W, X).
 F, G and H are handled in other Codex sessions, per the user's latest
 instruction. None is merged into this main checkpoint; their results and
 the four deferred relocation corrections still need integration. Use the
