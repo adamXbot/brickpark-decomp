@@ -91,7 +91,7 @@ for the live list.
 | --- | --- | --- |
 | exported functions matched | `tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `tools/callees.py` | moves both ways — the frontier, not progress |
-| **bytes of game code matched** | **`tools/coverage.py`** | **66.1% (77.3% with partials)** |
+| **bytes of game code matched** | **`tools/coverage.py`** | **75.1% (92.1% with partials)** — 2026-09-09, after the LL wave |
 
 The first two are both true and both misleading on their own.
 

@@ -38,17 +38,33 @@ NAME = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 
 
 def annotated(path):
+    """(name, address, is_wip) per marker; name is None if no signature follows.
+
+    The signature is looked for on the following lines, skipping comment and
+    blank lines. A marker whose signature was not found within a three-line
+    window used to be dropped SILENTLY, so the body disappeared from the gate
+    while coverage.py still counted it from the marker — unref4.c's
+    JcDeco_CalcCursor, whose note ran to five lines, was invisible this way.
+    Unbound markers are returned with name None so main() can report them.
+    """
     lines = open(path).read().splitlines()
     out = []
     for i, ln in enumerate(lines):
         m = MARK.search(ln)
         if not m:
             continue
-        for j in range(i + 1, min(i + 4, len(lines))):
+        found = False
+        for j in range(i + 1, len(lines)):
+            stripped = lines[j].lstrip()
+            if stripped.startswith("//") or stripped.startswith("*") or not stripped:
+                continue
             nm = NAME.search(lines[j])
-            if nm and not lines[j].lstrip().startswith("//"):
+            if nm:
                 out.append((nm.group(1), m.group(2), bool(m.group(1))))
-                break
+                found = True
+            break
+        if not found:
+            out.append((None, m.group(2), bool(m.group(1))))
     return out
 
 
@@ -64,6 +80,10 @@ def main():
         if r.returncode != 0:
             print("  COMPILE FAILED"); bad += 1; continue
         for name, addr, wip in annotated(f):
+            if name is None:
+                print("  [NOMARK] %s  marker with no signature after it" % addr)
+                bad += 1
+                continue
             rva = int(addr, 16) - 0x400000
             n_ins, n_bytes = true_extent(d, secs, rva)
             comp, escapes = compiled_body(list(md.disasm(obj_function_code(obj, name), 0)), n_ins)

@@ -199,11 +199,11 @@ void JcDeco_Add(RideElem* elem, Pos* pos)
  * plus a second copy six squares to the left; the decoration may only go
  * next to river, so the river two cells to the right must have a WEST arm
  * (bit 8), and then a scratch cursor shows the square it will attach to. */
-// WIP-FUNCTION: LEGOLAND 0x004349b0  (94.7%, 89/94 aligned, strict 7/94, first
-//   divergence i66: the scratch cursor's rect.top temp lands in ecx where the
-//   original uses eax, and the origin pair after ResetCursorFootprint is
-//   edx,eax against the original's ecx,edx -- the whole tail is one scratch
-//   register out of phase; every block, store order and frame slot agrees.)
+/* Residual (LL12, two sessions): first divergence i66 -- the scratch cursor's
+ * rect.top temp lands in ecx where the original uses eax, and the origin pair
+ * after ResetCursorFootprint is edx,eax against the original's ecx,edx. The
+ * whole tail is one scratch register out of phase; every block, store order
+ * and frame slot agrees. See docs/lanes/scope-ll12.md for the mod-3 model. */
 //   Ruled out (first session): all 24 orderings of the four g_jc_deco_rect2
 //   stores; --/-= 1/= x - 1 for the four rect adjustments; .flags before/after
 //   .next = 0; origin as a Pos copy vs two field stores in either order;
@@ -248,6 +248,7 @@ void JcDeco_Add(RideElem* elem, Pos* pos)
 //   original's instructions exactly, so the original's source makes ONE FEWER
 //   value move for the same code -- nothing in this body's vocabulary does
 //   that, and every zero-instruction construct tried is not counted.
+// WIP-FUNCTION: LEGOLAND 0x004349b0  (94.7%, 89/94 aligned, strict 7/94, mod-3 value-move phase floor)
 void JcDeco_CalcCursor(MapObj* o, int sx, int sy)
 {
     ObjDef* cls;
