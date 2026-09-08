@@ -9,12 +9,12 @@ one function.
 | --- | --- |
 | address | `0x004453a0` |
 | original | 8,085 instructions, 34,662 bytes, frame `0x23d4` |
-| ours | 7,824 instructions, 34,224 bytes, frame **`0x23d4` (exact)** |
+| ours | 7,769 instructions, 33,440 bytes, frame **`0x23d4` (exact)** |
 | first diverging index | 8 |
-| mismatch | 7,920 of 8,085 |
-| index-for-index `MATCH` | 165 |
-| `FULL MATCH` (difflib) | 42.4% — see the eighth pass, do not read this alone |
-| true LCS vs the whole original | 4,483/8,085 = 55.5% |
+| mismatch | 7,992 of 8,085 |
+| index-for-index `MATCH` | 93 |
+| `FULL MATCH` (difflib) | 42.7% — see the eighth pass, do not read this alone |
+| true LCS vs the whole original | 4,665/8,085 = **57.7%** (lane best) |
 | LCS with the slot permutation removed | 4,968/8,085 = **61.4%** (see the tenth pass) |
 | audit | `[WIP]`, file ends `PASS` |
 | relocs | zero `MISMATCH` (a WIP body is skipped) |
@@ -28,12 +28,14 @@ shape (hoisted above the rewind test AND repeated in the fall-through arm),
 does it, and the body is within 264 instructions and 438 bytes of the target.
 **The one remaining structural residual is the stack SLOT PERMUTATION**: our
 33 scalar dwords hold the same values as the original's 33 in a different
-order, so almost every `[esp+N]` displacement is wrong. **Read the ELEVENTH pass
-first** — it measures the ORIGINAL's own slot weights for the first time and
-shows they break the tenth pass's descending-weight rule at exactly the three
-slots the lane is chasing, so that rule is a rough guide and not the lever.
-The eleventh pass also has the `box`-opacity mechanism the fifth through tenth
-passes were hunting; the earlier "what is left" lists are superseded.
+order, so almost every `[esp+N]` displacement is wrong. **Read the TWELFTH pass
+first** — it lands the `box` opacity the fifth through eleventh passes were
+hunting and puts `box`, `cur`, `ok`/`obj` and `passed` on the original's own
+stack displacements. What is left of the slot residual is a three-slot
+rotation at `0x10`/`0x14`/`0x18`; the eleventh pass measures the ORIGINAL's
+slot weights and the twelfth shows the rotation is not reachable by any
+weight the source can produce. The earlier "what is left" lists are
+superseded.
 
 ## What the screen is
 
@@ -1637,3 +1639,158 @@ run — if section 9's offset can be made to live somewhere else (the original
 is reported to keep it in `ebp` there, though `[esp+0x18]` is still used at
 section 9's head), the temp should fall back onto a named local and the
 scalars should move down to `0x10`/`0x14`.
+
+## 2026-09-09 (twelfth pass) — `box = cur` lands: four of the original's slots
+
+| | eleventh pass | now |
+| --- | --- | --- |
+| emitted | 7,824 | 7,769 |
+| bytes | 34,224 | 33,440 |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 8 | 8 |
+| mismatch | **7,920** | 7,992 |
+| index-for-index `MATCH` | **165** | 93 |
+| true LCS vs the whole original | 55.5% | **57.7%** (lane best) |
+| `difflib` alignment | 42.4% | **42.7%** |
+
+### What landed
+
+The eleventh pass's `box = cur;` opacity is committed. It was blocked only by
+where the `box`/`cur` aggregate then ranks: at 1,501 references over eight
+dwords it outranks `page_start` and `indent` and moves to `0x14`, shifting
+every scalar by `0x20`. **The fix is to make the aggregate bigger, not
+lighter.** VC6 ranks an aggregate as one object at roughly its references per
+dword, so absorbing scalars that would otherwise need slots of their own both
+lowers the rank and costs the frame nothing:
+
+```c
+    struct {
+        AppraisalBox box, cur;
+        union { int line_ok; RObj* obj; } u;
+        int passed;
+        int all_total;
+    } r;
+```
+
+Eleven dwords carrying 1,611 references rank at ~147, which is below
+`indent` (169) and above `total` (140), and the object lands at `0x1c`:
+
+| | `0x10` | `0x14` | `0x18` | `0x1c` | `0x2c` | `0x3c` | `0x40` | `0x44` | `0x48` | `0x4c` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| original | `page_start` | `indent` | temp | `box` | `cur` | `ok`/`obj` | `passed` | `sect_start` | `failmask` | temp2 |
+| ours | temp | `page_start` | `indent` | `box` | `cur` | `ok`/`obj` | `passed` | `all_total` | `total` | `sect_start` |
+
+**`box`, `cur`, `ok`/`obj` and `passed` are now on the original's own
+displacements** — 1,448 + 153 + 36 of the original's references land on the
+right slot for the first time in this lane. The residual is a three-slot
+rotation at the bottom: our `n*0x4c` byte-offset temp holds `0x10`.
+
+The union is load-bearing: giving `obj` a dword of its own breaks the frame
+to `0x23d8` (measured three ways below), and `all_total` is the only scalar
+whose weight lets the eleven-dword object rank in the window.
+
+`mismatch` and `MATCH` go the wrong way and this is **not** the slots. It is
+the shorter instruction stream: `box = cur` on its own, with the aggregate
+still at `0x14`, scores 7,989 / 96, i.e. the whole regression is already
+there before the slots are fixed, and fixing them recovers none of it. The
+committed state's 165 index matches were three lucky alignment runs around
+indices 516–574 and 4,753–4,781; `box = cur` shortens the body by 50
+instructions early and those runs shift out of phase. Match runs, not match
+counts, are the honest reading of that metric on a body this size:
+
+| | matches | runs | longest run |
+| --- | --- | --- | --- |
+| eleventh pass | 165 | 66 | 18 |
+| `box = cur` alone | 96 | 35 | **21** |
+| committed | 93 | 36 | 15 |
+
+### The slot rule, re-measured: it is weight, and definition order only breaks ties
+
+The brief for this pass asked whether the order is first-definition
+(web-creation) order. **It is not.** Two independent results:
+
+- **Lab (`/tmp/sll16g/lab/gA.c`, `gB.c`).** Ten scalars with weights
+  24/16/12/8/6/4/2/3/2/1 plus an array, compiled twice with the *definition*
+  order reversed. Both frames come out in descending weight order; the only
+  thing that moves is the pair tied at weight 2, and it moves the **other**
+  way — the later-defined of the two takes the lower slot. So definition
+  order is a reverse tie-break and nothing more.
+- **The original's own emission order** contradicts it directly. Its first
+  definitions are `page_start` (`xor ebp,ebp`, index 6), `indent`
+  (`mov [esp+0x14],ebx`, index 8), `all_passed` (`0x60`), `all_total`
+  (`0x5c`), `failmask` (`0x48`), then `box` (`0x1c`) and only then the temp
+  (`0x18`, first stored at 0x0044543c) — yet the frame order is
+  `page_start`, `indent`, temp, `box`. Neither source order nor emission
+  order produces it.
+
+Our object obeys descending weight strictly, aggregates included. Measured by
+padding the aggregate (`int zpad[N]`, object prefix `/tmp/sll16g_P*`):
+
+| dwords in `r` | refs / dword | lands between |
+| --- | --- | --- |
+| 8 | 187.6 | temp (210) and `page_start` (171) |
+| 9 | 166.8 | temp and `page_start` (**still above `page_start`**) |
+| 10 | 150.1 | `indent` (169) and `ok` (151) |
+| 12 | 125.1 | `ok` and `sect_start` (135) |
+| 16 | 93.8 | `sect_start` and `v` (91) |
+| 24 | 62.5 | `failmask` (62) and `passed` (38) |
+
+The nine-dword row is the one that does not fit refs-per-dword exactly; a
+divisor of `size − 1` fits every row but the two extremes. Either way the
+rule is monotone in refs per dword and that is enough to steer with.
+
+### The rotation at `0x10`/`0x14`/`0x18` is not reachable from the source
+
+To put `page_start` at `0x10` the weight model needs either the temp below
+`indent` (shed 42 of its 210 references) or `page_start` and `indent` above
+the temp (add 40 each). Everything tried moves the weight somewhere else
+rather than removing it:
+
+| probe | result |
+| --- | --- |
+| `struct { int page_start, indent; } q;` (2 dwords, 340 refs = 170/dword) | ranks *below* the temp; lands at `0x14`/`0x18`, layout unchanged, LCS 57.8% |
+| hoist `rand() % 5` and `GetString()` into locals in the section-8 line body | temp 210 -> 96 and it falls to `0x50`, but the two new locals pack onto `v` at 166 refs and take `0x10` instead; LCS 52.9% |
+| absorb `sect_start` into the aggregate (11 dwords) | frame `0x23d0` — the freed dword is repacked and the temp grows to 237; LCS 44.4% |
+| absorb `sect_start` + `failmask` (12 dwords) | frame `0x23d0`, LCS 50.0% |
+| `ok` as a plain member with `obj` left outside (11 dwords) | frame `0x23d8`; `obj` takes its own dword and lands at `0x10` with 203 refs |
+| the same with `total` or `v` as the eleventh member | frame `0x23d8` / `0x23dc` |
+| the aggregate without `box = cur` (r = 1,011) | ranks at `0x28`; LCS 52.8% |
+| the hoisted `cur = box` written fieldwise | `box` collapses: 7,082 emitted, LCS 42.3% |
+| the fall-through `cur = box` written fieldwise | 6,857 emitted, LCS 42.0% |
+
+Both fieldwise rows are worth reading for one thing: they take `page_start`
+to **252 references and slot `0x10`**, and the byte-offset temp disappears
+from the frame entirely (VC6 keeps it in registers). So the temp's slot only
+exists because the struct-copy reset ties up `eax`/`ecx`/`edx`/`edi` at every
+one of the ~122 sites — and the original has the same struct copies, the same
+temp, a *heavier* temp (222), and still puts `page_start` at `0x10`. That is
+the whole unexplained residual, stated as sharply as this lane can state it.
+
+Best remaining guess, untested: VC6 ranks a shared slot by its heaviest
+**web** rather than by the sum of the slot's references. The original's
+`0x18` carries the temp plus `nrun` plus `nhint`; if its temp is many short
+per-line webs none of which reaches `indent`'s 171, the original's frame is
+weight-ordered after all and ours is not because our temp is one long web.
+A lab that can count webs rather than references is what would settle it.
+
+### The rewind test's register, re-measured
+
+The original compares `cmp ebp, ecx` at all 75 non-head sites. Before this
+pass we emitted `ebp, eax` x25 and `ebp, edx` x47; now `ebp, eax` x25,
+`ebp, edx` x38, **`ebp, ecx` x9**, exactly the nine the eleventh pass
+predicted `box = cur` would move. The remaining 66 want the original's
+five-load page-break block (`box.right`, `sect_start`, `box.left`,
+`box.top`, `box.bottom`) so that `sect_start` is pushed into `ecx`; ours
+loads fewer `box` fields in the hoisted copy because it keeps the hoisted
+`cur.bottom` store that the original dead-stores away.
+
+### What a thirteenth pass should try
+
+1. **The three-slot rotation**, above — worth ~2.4 LCS and it is the last
+   structural residual in the frame. Do not retry weight arithmetic on the
+   temp; hunt the web-count hypothesis instead.
+2. **The hoisted `cur.bottom` store.** Killing it (the original does) both
+   closes one store per site and should push `sect_start` into `ecx` at the
+   66 remaining rewind tests.
+3. **The 316-instruction shortfall** is now entirely in the render/input
+   tail; the second pass's note about `RepLine*` cursors still governs it.
