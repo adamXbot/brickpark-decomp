@@ -1168,6 +1168,19 @@ void Mechanic_Build(Bloke* b)
  * The six recorded passes were reviewed, not repeated.
  * Full measurements: docs/lanes/scope-i.md.
  */
+/* Scope LL18 (2026-09-08): unchanged, 82/184 strict (difflib 3 lines:
+ * the dead `mov ebp,1` at 102 and `test eax,eax` at 166), 184i/672B.  The
+ * two levers new since Scope I were applied and are inert: the LL10 block
+ * split (`if (found) ;` / `if (cell.y) ;` after the arm's store, and
+ * `if (found) ;` between the if/else and the `if (g_drag_lock)` join) leaves
+ * the object byte-identical, as does a zero-cost re-test of the just-stored
+ * global (`if (g_drag_lock) ;`) and of its sibling (`if (g_icon_clicked) ;`)
+ * in the arm -- VC6 folds every one of them before the threading that turns
+ * the arm into a function-ending block, so the const-1 web still dies before
+ * the arm's store and the store still folds to an immediate.  The LL14
+ * name-count lever does not apply: the residual is a dead rematerialisation,
+ * not a callee-saved ranking (all four assignments already match).  Floor
+ * stands. */
 // WIP-FUNCTION: LEGOLAND 0x00470620  (55.4%, 82/184 strict; dead rematerialization and cmp/test floor; first 102)
 void CheckWorkerOnMouseStatus(WorkOrder* o)
 {
