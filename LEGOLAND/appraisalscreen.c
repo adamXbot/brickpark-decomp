@@ -187,7 +187,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK(LBL)                                                       \
     lines[n].page = g_report_pages;                                       \
     lines[n].indent = indent;                                             \
-    lines[n].ok = ok;                                                     \
+    lines[n].ok = line_ok;                                                     \
     lines[n].step = rand() % 5;                                           \
     lines[n].text = GetString(ID);                                        \
     lines[n].colour = 0;                                                  \
@@ -283,7 +283,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK8(LBL)                                                      \
     LINE8_BODY(MARK, textbuf)
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (7824/8085 insns emitted, 34224/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7920, index-for-index MATCH 165, true LCS 55.5%; the residual is the stack SLOT PERMUTATION.  The lane's "descending reference weight" rule is only a rough guide -- the ORIGINAL's own frame breaks it at exactly the three slots in question: its n*0x4c byte-offset temp has 222 references and sits at 0x18, below page_start's 173 at 0x10 and indent's 171 at 0x14.  Our temp has the same shape and count and sits at 0x10, which shifts every scalar displacement by one slot)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (7769/8085 insns emitted, 33440/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7992, index-for-index MATCH 93, true LCS 57.7%; the residual is a THREE-SLOT ROTATION at the bottom of the frame.  `box`, `cur`, `ok`/`obj` and `passed` now sit on the original's own displacements (0x1c, 0x2c, 0x3c, 0x40); what is left is that the n*0x4c byte-offset CSE temp holds 0x10 with 210 references where the original puts page_start there, so page_start and indent are one slot high at 0x14/0x18.  VC6 orders this frame by descending reference weight and the ORIGINAL's frame breaks that rule at exactly these three slots -- its temp has 222 references and still sits at 0x18, below page_start's 173 and indent's 171)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -295,26 +295,43 @@ int RunAppraisalScreen(void)
      * original leaves them undefined until the render loop's first page
      * turn, which is what lets VC6 pack them onto build-phase slots. */
     int   narr[200];
-    /* `box` and `cur` are ONE aggregate.  The original's frame has them
-     * adjacent at 0x1c and 0x2c with `box` below, and VC6 orders this frame
-     * by descending reference weight (see the lane doc's tenth pass), so two
-     * separate 16-byte structs with different weights get pulled apart --
-     * ours had `cur` at 0x14 and `box` at 0x44.  A non-escaping aggregate
-     * pins them together and is worth 2.6 points of LCS.  It is only free
-     * once `bar` has lost its stack home (see the render loop): inside an
-     * aggregate `box`'s home is live to the end, so `bar` can no longer
-     * share it and the frame grows by 0x10. */
-    struct { AppraisalBox box, cur; } r;
+    /* The frame's 0x1c..0x44 block, spelled as ONE non-escaping aggregate.
+     * VC6 lays this frame out in descending reference weight per dword (the
+     * lane doc's tenth pass) and ranks an aggregate as one object, so an
+     * aggregate is the only handle there is on where a group of slots lands.
+     * The original has `box` at 0x1c, `cur` at 0x2c, `ok`/`obj` at 0x3c and
+     * `passed` at 0x40; separate locals with these weights get scattered
+     * across the frame (`cur` at 0x14, `box` at 0x44 before this).  Eleven
+     * dwords carrying 1,611 references rank at ~147 per dword, which is
+     * below `indent` and above `total`, and puts all four of them on the
+     * original's own displacements.  The `all_total` member is the eleventh
+     * dword: it is what makes the object rank low enough, and it costs the
+     * frame nothing because it is a scalar that would otherwise need a slot
+     * of its own.  `ok` and `obj` are a union because they share a slot in
+     * the original too (their live ranges are disjoint) and giving `obj` a
+     * dword of its own breaks the frame to 0x23d8 -- measured.
+     * This is only free once `bar` has lost its stack home (see the render
+     * loop): inside an aggregate `box`'s home is live to the end, so `bar`
+     * can no longer share it and the frame grows by 0x10. */
+    struct {
+        AppraisalBox box, cur;
+        union { int line_ok; RObj* obj; } u;
+        int passed;
+        int all_total;
+    } r;
 #define box r.box
 #define cur r.cur
+#define line_ok r.u.line_ok
+#define obj r.u.obj
+#define passed r.passed
+#define all_total r.all_total
     int n;
     int page_start;
     int indent;
     int sect_start;
     int failmask;
-    int passed, total;
-    int all_passed, all_total;
-    int ok;
+    int total;
+    int all_passed;
     /* `v` and section 9's hint counter are ONE local, and they have to be.
      * The original's frame holds exactly 33 scalar dwords below `lines`;
      * with the page reset hoisted (above) `indent` loses its register and
@@ -333,7 +350,6 @@ int RunAppraisalScreen(void)
     int nshop, vshop;
     int nvis, vmood, vages;
     int nrun;
-    RObj* obj;
     short kind;
     int i;
     int narr_cur;
@@ -360,11 +376,20 @@ int RunAppraisalScreen(void)
     PushRenderingStatusAndUnlockVideoSurface();
     ReadGameButtons();
 
+    /* `box` is seeded THROUGH `cur`.  Written as four constant stores of its
+     * own, `box` has a single reaching definition and VC6 constant-folds
+     * 0x50/0x6d/0x1a4/0x83 into every page reset, dead-stores `box.bottom`
+     * away and keeps `box.left` in a register for the whole build.  Copying
+     * it out of `cur`, which has ~120 further definitions, makes it opaque:
+     * the entry becomes the original's four-registers-then-four-stores shape
+     * and the page-break sites reload all four fields as the original does.
+     * `box`+`cur` go from 901 references to 1,501 (the original's 1,448). */
+    cur.left   = 0x50;
+    cur.top    = 0x6d;
+    cur.right  = 0x1a4;
+    cur.bottom = 0x83;
+    box = cur;
     cur.top = 0x6d;
-    box.left = 0x50;
-    box.top = 0x6d;
-    box.right = 0x1a4;
-    box.bottom = 0x83;
 
     /* ---- the report's title line ------------------------------------- */
 sect1:
@@ -387,71 +412,71 @@ sect2:
         CountAttractions(&nattr, &vattr);
         if (FLAGS & 0x4000) {
             total++;
-            ok = nattr >= g_goal[5];
-            if (ok) passed++; else failmask |= 0x10;
+            line_ok = nattr >= g_goal[5];
+            if (line_ok) passed++; else failmask |= 0x10;
             BAR_LINE(sect2, 0x132, nattr, g_goal[5], g_goal[6])
         }
         if (FLAGS & 0x8000) {
             total++;
-            ok = vattr >= g_goal[7];
-            if (ok) passed++; else failmask |= 0x20;
+            line_ok = vattr >= g_goal[7];
+            if (line_ok) passed++; else failmask |= 0x20;
             BAR_LINE(sect2, 0x133, vattr, g_goal[7], g_goal[8])
         }
         if (FLAGS & 0x40000) {
             v = PercentObjectsLinked();
             total++;
-            ok = v >= g_goal[9];
-            if (ok) passed++; else failmask |= 0x40;
+            line_ok = v >= g_goal[9];
+            if (line_ok) passed++; else failmask |= 0x40;
             BAR_LINE(sect2, 0x134, v, g_goal[9], g_goal[10])
         }
         if (FLAGS & 0x30) {
             total++;
-            ok = CountCastles() >= g_goal[0];
-            if (ok) passed++; else failmask |= 0x80;
+            line_ok = CountCastles() >= g_goal[0];
+            if (line_ok) passed++; else failmask |= 0x80;
             switch ((FLAGS >> 4) & 3) {
-            case 1: TEXT_LINE(sect2, ok, 0x135) break;
-            case 2: TEXT_LINE(sect2, ok, 0x136) break;
-            case 3: TEXT_LINE(sect2, ok, 0x137) break;
+            case 1: TEXT_LINE(sect2, line_ok, 0x135) break;
+            case 2: TEXT_LINE(sect2, line_ok, 0x136) break;
+            case 3: TEXT_LINE(sect2, line_ok, 0x137) break;
             }
         }
         if (FLAGS & 0xc0) {
             total++;
-            ok = CountDrivingSchools() >= g_goal[1];
-            if (ok) passed++; else failmask |= 0x100;
+            line_ok = CountDrivingSchools() >= g_goal[1];
+            if (line_ok) passed++; else failmask |= 0x100;
             switch ((FLAGS >> 6) & 3) {
-            case 1: TEXT_LINE(sect2, ok, 0x138) break;
-            case 2: TEXT_LINE(sect2, ok, 0x139) break;
-            case 3: TEXT_LINE(sect2, ok, 0x13a) break;
+            case 1: TEXT_LINE(sect2, line_ok, 0x138) break;
+            case 2: TEXT_LINE(sect2, line_ok, 0x139) break;
+            case 3: TEXT_LINE(sect2, line_ok, 0x13a) break;
             }
         }
         if (FLAGS & 0x300) {
             total++;
-            ok = CountLogFlumes() >= g_goal[2];
-            if (ok) passed++; else failmask |= 0x200;
+            line_ok = CountLogFlumes() >= g_goal[2];
+            if (line_ok) passed++; else failmask |= 0x200;
             switch ((FLAGS >> 8) & 3) {
-            case 1: TEXT_LINE(sect2, ok, 0x13b) break;
-            case 2: TEXT_LINE(sect2, ok, 0x13c) break;
-            case 3: TEXT_LINE(sect2, ok, 0x13d) break;
+            case 1: TEXT_LINE(sect2, line_ok, 0x13b) break;
+            case 2: TEXT_LINE(sect2, line_ok, 0x13c) break;
+            case 3: TEXT_LINE(sect2, line_ok, 0x13d) break;
             }
         }
         if (FLAGS & 0xc00) {
             total++;
-            ok = CountBoatingSchools() >= g_goal[3];
-            if (ok) passed++; else failmask |= 0x400;
+            line_ok = CountBoatingSchools() >= g_goal[3];
+            if (line_ok) passed++; else failmask |= 0x400;
             switch ((FLAGS >> 10) & 3) {
-            case 1: TEXT_LINE(sect2, ok, 0x13e) break;
-            case 2: TEXT_LINE(sect2, ok, 0x13f) break;
-            case 3: TEXT_LINE(sect2, ok, 0x140) break;
+            case 1: TEXT_LINE(sect2, line_ok, 0x13e) break;
+            case 2: TEXT_LINE(sect2, line_ok, 0x13f) break;
+            case 3: TEXT_LINE(sect2, line_ok, 0x140) break;
             }
         }
         if (FLAGS & 0x3000) {
             total++;
-            ok = CountJungleCruises() >= g_goal[4];
-            if (ok) passed++; else failmask |= 0x800;
+            line_ok = CountJungleCruises() >= g_goal[4];
+            if (line_ok) passed++; else failmask |= 0x800;
             switch ((FLAGS >> 12) & 3) {
-            case 1: TEXT_LINE(sect2, ok, 0x141) break;
-            case 2: TEXT_LINE(sect2, ok, 0x142) break;
-            case 3: TEXT_LINE(sect2, ok, 0x143) break;
+            case 1: TEXT_LINE(sect2, line_ok, 0x141) break;
+            case 2: TEXT_LINE(sect2, line_ok, 0x142) break;
+            case 3: TEXT_LINE(sect2, line_ok, 0x143) break;
             }
         }
         lines[sect_start].ok = (passed == total);
@@ -467,21 +492,21 @@ sect3:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect3, ok, 0x144)
+        TEXT_LINE(sect3, line_ok, 0x144)
         indent += 0x30;
         CountScenery(&nscen, &vscen);
         if (FLAGS & 0x8000000) {
             total++;
-            ok = nscen >= g_goal[25];
-            if (ok) passed++; else failmask |= 0x1000;
+            line_ok = nscen >= g_goal[25];
+            if (line_ok) passed++; else failmask |= 0x1000;
             BAR_LINE(sect3, 0x132, nscen, g_goal[25], g_goal[26])
         }
         /* The 0x20000000 bit of the section guard has no statistic behind
          * it and fail bit 0x4000 is never set: original, left alone. */
         if (FLAGS & 0x10000000) {
             total++;
-            ok = vscen >= g_goal[27];
-            if (ok) passed++; else failmask |= 0x2000;
+            line_ok = vscen >= g_goal[27];
+            if (line_ok) passed++; else failmask |= 0x2000;
             BAR_LINE(sect3, 0x133, vscen, g_goal[27], g_goal[28])
         }
         lines[sect_start].ok = (passed == total);
@@ -497,19 +522,19 @@ sect4:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect4, ok, 0x145)
+        TEXT_LINE(sect4, line_ok, 0x145)
         indent += 0x30;
         CountFood(&nfood, &vfood);
         if (FLAGS & 0x40000000) {
             total++;
-            ok = nfood >= g_goal[31];
-            if (ok) passed++; else failmask |= 0x8000;
+            line_ok = nfood >= g_goal[31];
+            if (line_ok) passed++; else failmask |= 0x8000;
             BAR_LINE(sect4, 0x132, nfood, g_goal[31], g_goal[32])
         }
         if (FLAGS & 0x80000000) {
             total++;
-            ok = vfood >= g_goal[33];
-            if (ok) passed++; else failmask |= 0x10000;
+            line_ok = vfood >= g_goal[33];
+            if (line_ok) passed++; else failmask |= 0x10000;
             BAR_LINE(sect4, 0x133, vfood, g_goal[33], g_goal[34])
         }
         lines[sect_start].ok = (passed == total);
@@ -525,19 +550,19 @@ sect5:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect5, ok, 0x146)
+        TEXT_LINE(sect5, line_ok, 0x146)
         indent += 0x30;
         CountShops(&nshop, &vshop);
         if (FLAGS & 0x10000) {
             total++;
-            ok = nshop >= g_goal[13];
-            if (ok) passed++; else failmask |= 0x20000;
+            line_ok = nshop >= g_goal[13];
+            if (line_ok) passed++; else failmask |= 0x20000;
             BAR_LINE(sect5, 0x132, nshop, g_goal[13], g_goal[14])
         }
         if (FLAGS & 0x20000) {
             total++;
-            ok = vshop >= g_goal[15];
-            if (ok) passed++; else failmask |= 0x40000;
+            line_ok = vshop >= g_goal[15];
+            if (line_ok) passed++; else failmask |= 0x40000;
             BAR_LINE(sect5, 0x133, vshop, g_goal[15], g_goal[16])
         }
         lines[sect_start].ok = (passed == total);
@@ -553,28 +578,28 @@ sect6:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect6, ok, 0x147)
+        TEXT_LINE(sect6, line_ok, 0x147)
         indent += 0x30;
         CountVisitors(&nvis, &vmood, &vages);
         if (FLAGS & 0x80000) {
             total++;
-            ok = nvis >= g_goal[11];
-            if (ok) passed++; else failmask |= 0x80000;
+            line_ok = nvis >= g_goal[11];
+            if (line_ok) passed++; else failmask |= 0x80000;
             /* Original bug: this statistic advances the report's y by a line
              * but never writes one, so it leaves a blank gap. */
             cur.top += 0x18;
         }
         if (FLAGS & 0x1000000) {
             total++;
-            ok = vmood >= g_goal[17];
-            if (ok) passed++; else failmask |= 0x100000;
+            line_ok = vmood >= g_goal[17];
+            if (line_ok) passed++; else failmask |= 0x100000;
             BAR_LINE(sect6, 0x148, vmood, g_goal[17], g_goal[18])
         }
         if (FLAGS & 0x4000000) {
             total++;
             /* Original bug: graded against the mood goal, not its own. */
-            ok = vages >= g_goal[17];
-            if (ok) passed++; else failmask |= 0x200000;
+            line_ok = vages >= g_goal[17];
+            if (line_ok) passed++; else failmask |= 0x200000;
             BAR_LINE(sect6, 0x149, vages, g_goal[17], g_goal[18])
         }
         lines[sect_start].ok = (passed == total);
@@ -590,12 +615,12 @@ sect7:
         passed = 0;
         sect_start = n;
         lines[n].indent = indent;
-        TEXT_LINE(sect7, ok, 0x14a)
+        TEXT_LINE(sect7, line_ok, 0x14a)
         indent += 0x30;
         if (FLAGS & 0x200000) {
             total++;
-            ok = g_num_visitors >= g_goal[19];
-            if (ok) passed++; else failmask |= 0x400000;
+            line_ok = g_num_visitors >= g_goal[19];
+            if (line_ok) passed++; else failmask |= 0x400000;
             BAR_LINE(sect7, 0x14b, g_num_visitors, g_goal[19], g_goal[20])
         }
         if (FLAGS & 0x400000) {
@@ -610,15 +635,15 @@ sect7:
                 obj = GetNextRenderObject(obj);
             }
             total++;
-            ok = nrun >= g_goal[21];
-            if (ok) passed++; else failmask |= 0x800000;
+            line_ok = nrun >= g_goal[21];
+            if (line_ok) passed++; else failmask |= 0x800000;
             BAR_LINE(sect7, 0x14c, nrun, g_goal[21], g_goal[22])
         }
         if (FLAGS & 0x800000) {
             v = MapCellCount();
             total++;
-            ok = v >= g_goal[23];
-            if (ok) passed++; else failmask |= 0x1000000;
+            line_ok = v >= g_goal[23];
+            if (line_ok) passed++; else failmask |= 0x1000000;
             BAR_LINE(sect7, 0x14d, v, g_goal[23], g_goal[24])
         }
         lines[sect_start].ok = (passed == total);
@@ -629,7 +654,7 @@ sect7:
 
     /* ---- the advice ---------------------------------------------------- */
     /* Unguarded: every report ends with a verdict line and one piece of
-     * advice per failed statistic.  ok is the bullet form here: -2 the
+     * advice per failed statistic.  line_ok is the bullet form here: -2 the
      * verdict/plain bullet, -1 a piece of advice, -3 its continuation. */
     cur.bottom = cur.top + 0x16;
 sect8:
