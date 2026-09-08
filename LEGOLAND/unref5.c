@@ -340,6 +340,15 @@ int UnlockPhysicalVolume(void* h, unsigned char drive)
  * the p stores.  The volatile drive read below is load-bearing for index 8
  * (without it the load hoists above the p stores, 16); the rest of the
  * body is the exact 0x00451410 shape.
+ * THIRD PASS (2026-09-08, 5 more probes, all 14 or worse).  Aimed straight
+ * at the zero web: a `void* ov` with a dead first definition (`ov = &p;
+ * ov = 0;`) so the constant is a two-definition web, the two byte stores
+ * fed from one `unsigned char z = 0;` local, `p` written by a whole-struct
+ * copy from a zeroed twin (LL16's memory-to-memory lowering -- 41i/133B,
+ * the copy survives), and both byte stores and the NULL taken from the
+ * memset-zeroed `r.reg_EDI` field (40-41i, the loads survive).  The first
+ * two are byte-identical to the committed body: VC6 forwards them to the
+ * same literal zero and still counts three uses.  Floor stands.
  * ========================================================================= */
 
 // WIP-FUNCTION: LEGOLAND 0x00451390  (64%, 14/39 strict, first diverging index 8: zero-web count puts the drive in ecx -- see the note)
@@ -434,6 +443,28 @@ int __stdcall UnlockLogicalVolume(void* h, unsigned char drive)
  * reproduces ours and U31's inline form exactly and cannot produce the
  * original's from this CFG, so the original's IR differs in a way no
  * measured construct reaches; retired here as the tail-order floor.
+ * THIRD PASS (2026-09-08, 27 more spellings, every one 10 or worse).  The
+ * tail order is [G = the guards' no-ebx epilogue][F = the loop's `xor
+ * eax,eax`][EXIT = the pop-ebx epilogue] in the original and
+ * [F][EXIT][G] here, with identical bytes per block.  Layout-identical
+ * (10): guard 2's arms swapped (`if (eax == 0xb0 || eax == 1) ok = 1; else
+ * return 0;`), `else { return 0; }` on guard 1, an empty trailing `else {}`
+ * on the loop guard or on guard 2 (LL17's BL12 token -- inert here, nothing
+ * falls through), `return ok;` moved out of the `if`, `ok = 0; return ok;`
+ * for both guards, the latch as `if (i < n) continue; break;`, the two
+ * in-loop failures merged into one `||` break, `i = i + 1`, `ok = call &&
+ * (flags & 1) == 0; if (!ok) break;`, `if (ok != 0)`, `ok` scoped inside
+ * the `if` with a separate call-result variable, and `goto out;` at the end
+ * of the `if` body with `out: return ok;` textually after the trailing
+ * `return 0` (VC6 forwards the jumps and re-normalises the order).  Worse:
+ * `goto fail` for both guards 42, a single guard-2 `||` chain 14, a
+ * `return ok` inside the loop 87, and every form that folds the `i = 0;
+ * if (i < p.nlocks)` preheader away 47.  The single-definition lever that
+ * closed 0x0045ade0 does not apply -- `ok`'s definitions are already
+ * exactly the original's.  Textual position of the `return 0` demonstrably
+ * does not order the tail (the `else { return 0; }` form puts it lexically
+ * between the loop and `return ok` and still emits [F][EXIT][G]), so the
+ * key is internal to VC6's block list.  Confirmed floor.
  * ========================================================================= */
 
 // WIP-FUNCTION: LEGOLAND 0x00451280  (89%, 10/88 strict, first diverging index 75: the two tail epilogues are laid out in the other order)
@@ -824,6 +855,18 @@ void DrawTileDebugOverlay(void)
  * leaves the calls in; `hr = DDERR_X` per arm folds only on fall-through
  * arms.  The decoded case set is committed as-is; the true residual is the
  * pruning, and it needs a source shape this toolchain does not reach.
+ * THIRD PASS (2026-09-08, 6 more spellings).  The remaining hypothesis was
+ * that the arms fold because they are ONE block: give each cluster its own
+ * `return hr;` statement with at least TWO case labels on it, so `hr` is
+ * not a known constant in any arm and cannot fold to `mov eax,K`.  Measured
+ * as {20,40,55,95,100} / {10,110} / {222,430} / {120,121} and four other
+ * groupings, with and without a `default:`, and with a distinct named local
+ * per arm (`a = hr; return a;`): every one still prunes to `cmp eax,100 /
+ * jg / je` plus one table, i.e. VC6 cross-jumps the identical arm blocks
+ * BEFORE it builds the search tree, so source-level distinctness cannot
+ * survive to the lowering.  That closes the last construct the diagnosis
+ * left open; the residual needs an arm that is genuinely different code at
+ * tree-build time and empty afterwards, which nothing in C reaches at /O2.
  * ========================================================================= */
 
 #define DDERR(n) (long)(0x88760000 | (n))

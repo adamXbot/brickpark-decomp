@@ -10,6 +10,14 @@ Second pass (2026-09-08, escalation): `UnlockAllPhysicalLocks` 48% -> 89%;
 retired as measured floors with their mechanisms recorded above each marker
 and under "Residuals" below.
 
+Third pass (2026-09-08, second escalation): **`DrawTileDebugOverlay` CLOSED
+at 291i/885B, 0 mismatches** -- `savecol` had to be single-definition
+(`cur.c = savecol + 1` at both restore sites instead of `savecol++;
+cur.c = savecol;`), which puts the three contended spill slots back in the
+original's order.  The other three did not move: 27 more spellings on
+`UnlockAllPhysicalLocks` (all 10 or worse), 5 more probes on
+`LockPhysicalVolume` (14), 6 more on `DDrawErrorPassThrough` (16).
+
 | address | name | insns | % | audit | marker |
 | --- | --- | ---: | ---: | --- | --- |
 | 0x004514b0 | LockLogicalVolume | 55 | 100 | [OK] | FUNCTION |
@@ -27,14 +35,18 @@ and under "Residuals" below.
 | 0x00455220 | PrintWrappedTextOnSurface | 120 | 100 | [OK] | FUNCTION |
 | 0x00455de0 | FindCachedTextByString | 51 | 100 | [OK] | FUNCTION |
 | 0x00466070 | PresentNoOp | 1 | 100 | [OK] | FUNCTION |
-| 0x0045ade0 | DrawTileDebugOverlay | 291 | 71 | — | WIP-FUNCTION |
+| 0x0045ade0 | DrawTileDebugOverlay | 291 | 100 | [OK] | FUNCTION |
 | 0x00453c20 | DDrawErrorPassThrough | 20 | 20 | — | WIP-FUNCTION |
 
-**13 of 17 bodies are byte-exact** (408 of 846 instructions), of which
-**11 print `[OK]`** under `audit.py` (355 instructions). Three exact bodies
+**14 of 17 bodies are byte-exact** (699 of 846 instructions), of which
+**12 print `[OK]`** under `audit.py` (646 instructions). Two exact bodies
 cannot be *gated*: see "Tooling" below.
-`audit.py` ends **PASS**, `relocs.py` reports **zero MISMATCH** over the 11
-`// FUNCTION:` bodies (41 relocations, 0 unresolved), `/W3` is clean.
+`relocs.py` reports **zero MISMATCH** over the 12 `// FUNCTION:` bodies
+(62 relocations, 61 matched, 1 unresolved -- `DrawTileDebugOverlay`'s own
+jump-table label `$L619`), `/W3` is clean.  `audit.py` prints two
+`[REJECT]`s in this worktree for `CloseVWin32` and `UnlockLogicalVolume`
+and therefore ends FAIL; both are 0-mismatch `__stdcall` bodies that this
+worktree's `match.py` cannot look up (see "Tooling").
 
 ## Tooling — only ONE `__stdcall` body per file can pass `audit.py`
 
@@ -317,6 +329,20 @@ what does and does not keep an empty switch alive.
   `__inline` empty calls, `__asm {}`, loop/goto wrappers, copied variables)
   is optimised away before lowering; a static non-inline empty call keeps
   the tree but leaves the calls.
+- **A loop-carried save variable must be SINGLE-DEFINITION or its frame
+  slot moves (closed `DrawTileDebugOverlay`).** `savecol++; cur.c =
+  savecol;` gives `savecol` a second definition inside the outer loop; its
+  web is split at the back edge and the allocator hands it the FIRST of the
+  three contended 4-byte slots (+0x24), pushing `w` and `qx`+`saverow` up.
+  Spelled `cur.c = savecol + 1;` at both restore sites -- the same value,
+  since `savecol` is only ever read as `savecol + 1` after loop A --
+  `savecol` is defined once per iteration, its web is created last, and the
+  slots land as `w`@+0x24, `qx`+`saverow`@+0x28, `savecol`@+0x2c exactly as
+  the original.  That one change took the body from 84/291 to **0/291**;
+  every aggregate, declaration-order and initialiser lever tried before it
+  failed because they all left the extra definition in place.  Corollary of
+  LL16's "slot order follows first-definition order": what is ordered is
+  the WEB, and a self-increment creates a second one.
 - **Statement order inside a switch arm decides where a reload is
   scheduled, not just the store order.** `cur.c--; rx += hw; ry += hh;`
   costs six fewer instructions than `rx += hw; cur.c--; ry += hh;` in
@@ -327,8 +353,9 @@ what does and does not keep an empty switch alive.
 
 ## Residuals — what a stronger model could still move
 
-- **0x0045ade0 `DrawTileDebugOverlay` (84/291 strict, rb 78, ob 65, first
-  index 42).** Instruction count and byte count are exact and the body lines
+- **0x0045ade0 `DrawTileDebugOverlay` — CLOSED 0/291 (single-def
+  `savecol`, third pass).** Historical record of the residual follows.
+  (84/291 strict, rb 78, ob 65, first index 42). Instruction count and byte count are exact and the body lines
   up shape-for-shape. Eight of the eleven 4-byte spill slots now agree; the
   residual is a THREE-WAY permutation of the remaining ones — the original
   has `w`@+0x24, `qx`(coalesced with the outer `row`)@+0x28 and
@@ -347,7 +374,8 @@ what does and does not keep an empty switch alive.
   94; `= 0` initialisers on any of the four, block-scoped save locals and a
   pre-loop `savecol = cur.c` are byte-identical to 84. Appearance counts do
   not order the frame. Floor.
-- **0x00451280 `UnlockAllPhysicalLocks` (10/88, first index 75; was 46).**
+- **0x00451280 `UnlockAllPhysicalLocks` (10/88, first index 75; was 46;
+  27 more spellings in the third pass, none better).**
   `push ebx` now sinks, the guards share one exiled xor block, the latch is
   the original's `jge exit / jmp body`, and the instruction and byte counts
   are exact. The residual is the ORDER of the two tail epilogues: the
@@ -360,8 +388,20 @@ what does and does not keep an empty switch alive.
   `goto fail` 42; `ok = 0` at a post-loop join breaks the region (87); early
   returns inline the guards (61). A taken-edge-first DFS/RPO layout model
   reproduces ours and the early-return form exactly and cannot yield the
-  original's order from this CFG.
-- **0x00451390 `LockPhysicalVolume` (14/39, first index 8).** Diagnosed:
+  original's order from this CFG. Third pass: guard-2 arms swapped, `else
+  { return 0; }`, empty trailing `else {}` (LL17/BL12 — inert, nothing
+  falls through here), `return ok` hoisted out of the `if`, `ok = 0;
+  return ok;` on both guards, `if (i < n) continue; break;` latch, the two
+  in-loop failures merged with `||`, `ok = call && !(flags & 1)`,
+  `i = i + 1`, `if (ok != 0)`, a scoped `ok` with a separate call-result
+  variable, and `goto out;` with `out: return ok;` textually after the
+  trailing `return 0` — all 10. Textual position of the `return 0`
+  provably does not order the tail. Floor.
+- **0x00451390 `LockPhysicalVolume` (14/39, first index 8; 5 more probes
+  in the third pass — a two-definition `void* ov` web, the byte stores fed
+  from one `unsigned char z = 0`, `p` written by a whole-struct copy from a
+  zeroed twin, and both zeros taken from the memset-zeroed `r.reg_EDI` —
+  14 or worse).** Diagnosed:
   RA08's zero-web count. Three literal zeros after the memset (two byte
   stores + NULL) give the constant a register, so the push is `push eax` and
   the drive load is displaced to ecx; deleting one store (diagnostic) is the
