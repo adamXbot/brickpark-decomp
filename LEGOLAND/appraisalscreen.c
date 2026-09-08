@@ -227,7 +227,52 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     lines[n - 1].ids[lines[n - 1].nids] = (ID);                           \
     lines[n - 1].nids++;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (7251/8085 insns emitted, 31791/34662 bytes, frame 0x23d4 exact, first diverging index 6, mismatch 8007, FULL MATCH 46.4%; the page check is cur.bottom = cur.top + 0x16 with the reset a struct copy and one shared rewind block per section, so the sites load box.left/right/top and store left/right/bottom as the original does; still ours keeps indent in ebp where the original keeps page_start, folds box.bottom to 0x83 where the original reloads it, and keeps cur.bottom in a register where the original spills it across section 8's failmask tests)
+/* Section 8's lines update `cur.bottom` at the LINE END and check it bare.
+ * The original says so at 0x00448661: `add edi,0x18 / lea eax,[edi+0x16] /
+ * mov [esp+0x38],eax` sits BEFORE the `test byte ptr [esp+0x48],2` of the
+ * next piece of advice, whose check is then `cmp [esp+0x38],0x1b5`.  The
+ * section header's own check reads the value computed at 0x00447e6c, just
+ * above the `sect8:` label. */
+#define PAGE_CHECK8(LBL)                                                  \
+    if (cur.bottom > 0x1b5) {                                             \
+        if (page_start != sect_start) {                                   \
+            cur = box;                                                    \
+            goto rew_##LBL;                                               \
+        }                                                                 \
+        g_report_pages++;                                                 \
+        page_start = n;                                                   \
+        cur = box;                                                        \
+    }
+
+#define LINE8_BODY(MARK, TEXTEXPR)                                        \
+    lines[n].page = g_report_pages;                                       \
+    lines[n].indent = indent;                                             \
+    lines[n].ok = (MARK);                                                 \
+    lines[n].step = rand() % 5;                                           \
+    lines[n].text = (TEXTEXPR);                                           \
+    lines[n].colour = 0;                                                  \
+    lines[n].bar = 0;                                                     \
+    lines[n].value = 0;                                                   \
+    lines[n].mark = 0;                                                    \
+    lines[n].range = 0;                                                   \
+    lines[n].nids = 0;                                                    \
+    n++;
+
+#define TEXT_LINE8(LBL, MARK, ID)                                         \
+    PAGE_CHECK8(LBL)                                                      \
+    LINE8_BODY(MARK, GetString(ID))                                       \
+    cur.top += 0x18;                                                      \
+    cur.bottom = cur.top + 0x16;
+
+#define TEXT_LINE_NOY8(LBL, MARK, ID)                                     \
+    PAGE_CHECK8(LBL)                                                      \
+    LINE8_BODY(MARK, GetString(ID))
+
+#define BUF_LINE8(LBL, MARK)                                              \
+    PAGE_CHECK8(LBL)                                                      \
+    LINE8_BODY(MARK, textbuf)
+
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (7272/8085 insns emitted, 31952/34662 bytes, frame 0x23d4 exact, first diverging index 6, mismatch 7937, FULL MATCH 39.9% difflib / 50.2% true-LCS; section 8 and the closing lines now update cur.bottom at the LINE END and check it bare, which reproduces the original's 28 memory compares of [esp+0x38]; what is left is that box is reloaded at only 59 of the ~246 page-break arms the original reloads it at, and that ours caches indent in ebp where the original caches page_start)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -550,123 +595,124 @@ sect7:
     /* Unguarded: every report ends with a verdict line and one piece of
      * advice per failed statistic.  ok is the bullet form here: -2 the
      * verdict/plain bullet, -1 a piece of advice, -3 its continuation. */
+    cur.bottom = cur.top + 0x16;
 sect8:
     sect_start = n;
     lines[n].indent = indent;
-    TEXT_LINE(sect8, -2, 0x230)
+    TEXT_LINE8(sect8, -2, 0x230)
     indent += 0x30;
     if (all_passed < all_total / 2) {
-        TEXT_LINE(sect8, -2, 0x14f)
+        TEXT_LINE8(sect8, -2, 0x14f)
         NARR(0x14f)
-        TEXT_LINE(sect8, -2, 0x150)
+        TEXT_LINE8(sect8, -2, 0x150)
     } else if (all_passed < all_total) {
-        TEXT_LINE(sect8, -2, 0x151)
+        TEXT_LINE8(sect8, -2, 0x151)
         NARR(0x151)
-        TEXT_LINE(sect8, -2, 0x150)
+        TEXT_LINE8(sect8, -2, 0x150)
     } else {
-        TEXT_LINE(sect8, -2, 0x153)
+        TEXT_LINE8(sect8, -2, 0x153)
         NARR(0x153)
-        TEXT_LINE(sect8, -2, 0x154)
+        TEXT_LINE8(sect8, -2, 0x154)
     }
     if (failmask & 0x1) {
-        TEXT_LINE(sect8, -1, 0x155)
+        TEXT_LINE8(sect8, -1, 0x155)
     }
     if (failmask & 0x2) {
-        TEXT_LINE(sect8, -1, 0x156)
+        TEXT_LINE8(sect8, -1, 0x156)
     }
     if (failmask & 0x4) {
-        TEXT_LINE(sect8, -1, 0x157)
+        TEXT_LINE8(sect8, -1, 0x157)
     }
     if (failmask & 0x8) {
-        TEXT_LINE(sect8, -1, 0x158)
+        TEXT_LINE8(sect8, -1, 0x158)
     }
     switch (failmask & 0x30) {
     case 0x10:
-        TEXT_LINE(sect8, -1, 0x159)
+        TEXT_LINE8(sect8, -1, 0x159)
         break;
     case 0x20:
-        TEXT_LINE(sect8, -1, 0x15a)
+        TEXT_LINE8(sect8, -1, 0x15a)
         break;
     case 0x30:
-        TEXT_LINE(sect8, -1, 0x15b)
-        TEXT_LINE(sect8, -3, 0x133)
+        TEXT_LINE8(sect8, -1, 0x15b)
+        TEXT_LINE8(sect8, -3, 0x133)
         break;
     }
     if (failmask & 0x40) {
-        TEXT_LINE(sect8, -1, 0x15c)
+        TEXT_LINE8(sect8, -1, 0x15c)
         NARR(0x15c)
-        TEXT_LINE(sect8, -3, 0x15d)
+        TEXT_LINE8(sect8, -3, 0x15d)
     }
     if (failmask & 0x80) {
-        TEXT_LINE(sect8, -1, 0x15e)
+        TEXT_LINE8(sect8, -1, 0x15e)
     }
     if (failmask & 0x100) {
-        TEXT_LINE(sect8, -1, 0x15f)
+        TEXT_LINE8(sect8, -1, 0x15f)
     }
     if (failmask & 0x200) {
-        TEXT_LINE(sect8, -1, 0x160)
+        TEXT_LINE8(sect8, -1, 0x160)
     }
     if (failmask & 0x400) {
-        TEXT_LINE(sect8, -1, 0x161)
+        TEXT_LINE8(sect8, -1, 0x161)
     }
     if (failmask & 0x800) {
-        TEXT_LINE(sect8, -1, 0x162)
+        TEXT_LINE8(sect8, -1, 0x162)
     }
     switch (failmask & 0x3000) {
     case 0x1000:
-        TEXT_LINE(sect8, -1, 0x163)
+        TEXT_LINE8(sect8, -1, 0x163)
         break;
     case 0x2000:
-        TEXT_LINE(sect8, -1, 0x164)
+        TEXT_LINE8(sect8, -1, 0x164)
         break;
     case 0x3000:
-        TEXT_LINE(sect8, -1, 0x165)
+        TEXT_LINE8(sect8, -1, 0x165)
         break;
     }
     switch (failmask & 0x18000) {
     case 0x8000:
-        TEXT_LINE(sect8, -1, 0x166)
+        TEXT_LINE8(sect8, -1, 0x166)
         break;
     case 0x10000:
-        TEXT_LINE(sect8, -1, 0x167)
+        TEXT_LINE8(sect8, -1, 0x167)
         break;
     case 0x18000:
-        TEXT_LINE(sect8, -1, 0x168)
+        TEXT_LINE8(sect8, -1, 0x168)
         break;
     }
     switch (failmask & 0x60000) {
     case 0x20000:
-        TEXT_LINE(sect8, -1, 0x169)
+        TEXT_LINE8(sect8, -1, 0x169)
         break;
     case 0x40000:
-        TEXT_LINE(sect8, -1, 0x16a)
+        TEXT_LINE8(sect8, -1, 0x16a)
         break;
     case 0x60000:
-        TEXT_LINE(sect8, -1, 0x16b)
+        TEXT_LINE8(sect8, -1, 0x16b)
         NARR(0x16b)
-        TEXT_LINE(sect8, -3, 0x231)
+        TEXT_LINE8(sect8, -3, 0x231)
         break;
     }
     if (failmask & 0x80000) {
-        TEXT_LINE(sect8, -1, 0x16c)
+        TEXT_LINE8(sect8, -1, 0x16c)
     }
     if (failmask & 0x100000) {
-        TEXT_LINE(sect8, -1, 0x16d)
+        TEXT_LINE8(sect8, -1, 0x16d)
     }
     /* String id 0x16e is skipped: original. */
     if (failmask & 0x200000) {
-        TEXT_LINE(sect8, -1, 0x16f)
+        TEXT_LINE8(sect8, -1, 0x16f)
     }
     if (failmask & 0x400000) {
-        TEXT_LINE(sect8, -1, 0x170)
+        TEXT_LINE8(sect8, -1, 0x170)
     }
     if (failmask & 0x800000) {
-        TEXT_LINE(sect8, -1, 0x171)
+        TEXT_LINE8(sect8, -1, 0x171)
         NARR(0x171)
-        TEXT_LINE(sect8, -3, 0x172)
+        TEXT_LINE8(sect8, -3, 0x172)
     }
     if (failmask & 0x1000000) {
-        TEXT_LINE(sect8, -1, 0x173)
+        TEXT_LINE8(sect8, -1, 0x173)
     }
 
     /* The closing "next time" line.  Its page checks restart at sect9, not
@@ -679,19 +725,19 @@ sect8:
             v = g_appraisal_rank - 1;
         if (v > 1) {
             sprintf(textbuf, GetString(0x235), GetString(v + 0x514));
-            BUF_LINE(sect9, -2)
+            BUF_LINE8(sect9, -2)
             NARR(0x235)
             NARR(v + 0x514)
             NARR(0x236)
-            TEXT_LINE_NOY(sect9, -2, 0x236)
+            TEXT_LINE_NOY8(sect9, -2, 0x236)
         } else if (v > 0) {
-            TEXT_LINE_NOY(sect9, -2, 0x514)
+            TEXT_LINE_NOY8(sect9, -2, 0x514)
             NARR(0x514)
-            TEXT_LINE_NOY(sect9, -2, 0x236)
+            TEXT_LINE_NOY8(sect9, -2, 0x236)
         } else {
-            TEXT_LINE_NOY(sect9, -2, 0x237)
+            TEXT_LINE_NOY8(sect9, -2, 0x237)
             NARR(0x237)
-            TEXT_LINE_NOY(sect9, -2, 0x238)
+            TEXT_LINE_NOY8(sect9, -2, 0x238)
         }
     }
     indent -= 0x30;
