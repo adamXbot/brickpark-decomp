@@ -34,6 +34,12 @@ struct Icon {
 };
 
 typedef struct Pos { int x, y; } Pos;
+
+/* The render-object walk section 7 uses: obj->p->q->type is a short, and
+ * obj->kind (a short at +4) is handed to IsObjectRunning by address. */
+typedef struct RObjQ { char pad00[0x20]; short type; } RObjQ;
+typedef struct RObjP { char pad00[0x0c]; RObjQ* q; } RObjP;
+typedef struct RObj  { RObjP* p; short kind; } RObj;
 typedef struct AppraisalBox { int left, top, right, bottom; } AppraisalBox;
 
 /* One line of the report: 0x4c bytes, the array lives at [esp+0x94]. */
@@ -79,6 +85,9 @@ extern int   CountCastles(void);                            /* 0x00444320 */
 extern int   CountLogFlumes(void);                          /* 0x00444350 */
 extern int   CountJungleCruises(void);                      /* 0x00444380 */
 extern int   MapCellCount(void);                            /* 0x004636c0 */
+extern RObj* GetFirstRenderObject(void);                    /* 0x0045a850 */
+extern RObj* GetNextRenderObject(RObj* o);                  /* 0x0045a8b0 */
+extern int   IsObjectRunning(RObjQ* q, short* kind);        /* 0x0044f360 */
 extern void  BlitAppraisalSprite(int x, int y, int kind, int step);           /* 0x00444b70 */
 extern void  DrawAppraisalBar(AppraisalBox box, int value, int range, int mark); /* 0x00444a70 */
 extern void  LoadAppraisalTickSprites(void);                /* 0x004449b0 */
@@ -110,6 +119,7 @@ extern void  sub_498b40(void);                              /* 0x00498b40 */
 extern Sprite* g_backdrop;                                  /* 0x00810148 */
 extern int     g_report_open;                               /* 0x0081c038 */
 extern void*   g_focussed_icon;                             /* 0x006687d0 */
+extern int     g_num_visitors;                              /* 0x00832bd0 */
 
 #define FLAGS g_appraisal_flags
 
@@ -169,7 +179,7 @@ extern void*   g_focussed_icon;                             /* 0x006687d0 */
     n++;                                                                  \
     y += 0x18;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (2052/8085 insns emitted, first diverging index 0, frame 0x21ac vs 0x23d4; report sections 1-5 plus the render and input loops)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (2596/8085 insns emitted, first diverging index 0, frame 0x21c4 vs 0x23d4; report sections 1-7 plus the render and input loops)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -194,6 +204,10 @@ int RunAppraisalScreen(void)
     int nscen, vscen;
     int nfood, vfood;
     int nshop, vshop;
+    int nvis, vmood, vages;
+    int nrun;
+    RObj* obj;
+    short kind;
     int i;
     int x;
     int nclose;
@@ -398,6 +412,87 @@ sect5:
             ok = vshop >= g_goal[15];
             if (ok) passed++; else failmask |= 0x40000;
             BAR_LINE(sect5, 0x133, vshop, g_goal[15], g_goal[16])
+        }
+        lines[sect_start].ok = (passed == total);
+        all_total += total;
+        indent -= 0x30;
+        all_passed += passed;
+    }
+
+    /* ---- visitors ----------------------------------------------------- */
+sect6:
+    if (FLAGS & 0x5080000) {
+        total = 0;
+        passed = 0;
+        sect_start = n;
+        lines[n].indent = indent;
+        TEXT_LINE(sect6, ok, 0x147)
+        indent += 0x30;
+        CountVisitors(&nvis, &vmood, &vages);
+        if (FLAGS & 0x80000) {
+            total++;
+            ok = nvis >= g_goal[11];
+            if (ok) passed++; else failmask |= 0x80000;
+            /* Original bug: this statistic advances the report's y by a line
+             * but never writes one, so it leaves a blank gap. */
+            y += 0x18;
+        }
+        if (FLAGS & 0x1000000) {
+            total++;
+            ok = vmood >= g_goal[17];
+            if (ok) passed++; else failmask |= 0x100000;
+            BAR_LINE(sect6, 0x148, vmood, g_goal[17], g_goal[18])
+        }
+        if (FLAGS & 0x4000000) {
+            total++;
+            /* Original bug: graded against the mood goal, not its own. */
+            ok = vages >= g_goal[17];
+            if (ok) passed++; else failmask |= 0x200000;
+            BAR_LINE(sect6, 0x149, vages, g_goal[17], g_goal[18])
+        }
+        lines[sect_start].ok = (passed == total);
+        all_total += total;
+        indent -= 0x30;
+        all_passed += passed;
+    }
+
+    /* ---- the park at work --------------------------------------------- */
+sect7:
+    if (FLAGS & 0xe00000) {
+        total = 0;
+        passed = 0;
+        sect_start = n;
+        lines[n].indent = indent;
+        TEXT_LINE(sect7, ok, 0x14a)
+        indent += 0x30;
+        if (FLAGS & 0x200000) {
+            total++;
+            ok = g_num_visitors >= g_goal[19];
+            if (ok) passed++; else failmask |= 0x400000;
+            BAR_LINE(sect7, 0x14b, g_num_visitors, g_goal[19], g_goal[20])
+        }
+        if (FLAGS & 0x400000) {
+            nrun = 0;
+            obj = GetFirstRenderObject();
+            while (obj) {
+                kind = obj->kind;
+                if (obj->p->q->type != 0 && obj->p->q->type != 2) {
+                    if (IsObjectRunning(obj->p->q, &kind))
+                        nrun++;
+                }
+                obj = GetNextRenderObject(obj);
+            }
+            total++;
+            ok = nrun >= g_goal[21];
+            if (ok) passed++; else failmask |= 0x800000;
+            BAR_LINE(sect7, 0x14c, nrun, g_goal[21], g_goal[22])
+        }
+        if (FLAGS & 0x800000) {
+            v = MapCellCount();
+            total++;
+            ok = v >= g_goal[23];
+            if (ok) passed++; else failmask |= 0x1000000;
+            BAR_LINE(sect7, 0x14d, v, g_goal[23], g_goal[24])
         }
         lines[sect_start].ok = (passed == total);
         all_total += total;
