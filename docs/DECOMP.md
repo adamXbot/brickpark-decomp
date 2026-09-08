@@ -422,6 +422,29 @@ sentinel and are external by construction). Both functions sat at `// WIP-FUNCTI
 ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 `verify.py` confirms all of them.
 
+### SEH scope-table functions (`match.py` change — applied 2026-09-08)
+
+A VC6 `__try/__except` body whose try block is straight-line ends in a `jmp`
+over its filter and handler blocks, and nothing in the code branches to
+those blocks: they are reached only through the scope table in `.rdata`
+that the SEH prologue pushes (`push -1 / push <scopetable> /
+push __except_handler3 / mov eax, fs:[0]`). `true_extent` took that `jmp`
+as the function's end, so `WinMain` (0x00453d10) walked 31i/93B of its
+48i/143B, the compiled epilogue jump was flagged ESCAPES, and a
+byte-identical body could never print `[OK]`. `WriteExceptionReport` and
+`ReportModuleDetails` only passed because forward branches inside their try
+blocks had already carried `furthest` past the `jmp`. No C spelling moves
+the original's terminator, so the walker learned the table: on an SEH
+prologue it records the scope-table VA, and at every `mov dword ptr
+[ebp-4], K` that enters trylevel K it adds entry K's filter and handler
+(`{EnclosingLevel, Filter, Handler}`, 12 bytes each) to `furthest`. Reading
+only the levels the body enters bounds the table — the next SEH function's
+entries follow contiguously (0x00453da0's are followed by 0x00454380's).
+A full-tree `audit.py` before/after over 2,972 annotated bodies changed one
+line, WinMain REJECT -> OK; the other six SEH frames in the binary (three
+of them CRT) re-walk to the same extent. `inventory.py`'s own
+`seh_extent` fallback is now redundant for game code.
+
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
 - **SCOPE V (closed 2026-09-08, 62 of 62 exact; evidence in
@@ -444,6 +467,38 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
     with a byte need displaces `next` from ebx before it accepts a fix-up
     copy. A `volatile` load is pinned at its statement; the store it feeds
     sinks into the address-sorted free-store group.
+
+- **SCOPE AG (closed 2026-09-08, 3 of 3 exact; evidence in
+  `docs/lanes/scope-ag.md`).** Certificate print path + WinMain SEH shell
+  (`certificate.c`, `winmain.c`):
+  - **Gate: a straight-line `__try` body's only path to its filter is the
+    SEH scope table.** `true_extent` now reads it (section above); a
+    future SEH body needs nothing special. The filter call belongs in the
+    `__except (...)` expression, not the handler: `__except
+    (WriteExceptionReport(_exception_info(), "main thread")) {}` puts the
+    call before the filter's `ret` and leaves the handler as
+    `mov esp,[ebp-0x18]`; `__except (1) { report(); }` swaps them.
+    `int r = -1` is the `or esi,-1 / mov [ebp-0x1c],esi` pair.
+  - **SaveScreenshotBmp (620 insns):** `StretchDIBits`'s destination
+    width must stay an unnamed argument written as
+    `pageW - (pageW/8) - (pageW/8)` — a named `destW` reused at `TextOut`
+    back-propagates into the call and swaps the sub destination (97.7%);
+    `2*(pageW/8)` finishes destW before `mov edx,[pBmi]` (94.6%).
+    `TextOut` X is `pageW / 2`, Y is `pageH * 678 / pBmi->biHeight`
+    (`idiv [pBmi+8]`, keeps pBmi live past `font1`).
+  - Field-by-field `BITMAPINFOHEADER` stores (not `*dst = src`, which is
+    `rep movsd`); the palette shift count from the stack header
+    (`[esp+0x46]`), not the dest; DOCINFO zeroes `lpszOutput` /
+    `lpszDatatype` / `fwType` before `lpszDocName` so the name store sinks
+    past the `StartDocA` pushes.
+  - **A direct `call` to an import thunk (`call 0x49e442` -> `jmp [IAT]`,
+    5 bytes) is a plain `extern` declaration; `__declspec(dllimport)`
+    emits `call dword ptr [IAT]` (6 bytes).** `EnumPrintersA` is the
+    thunk form; every other import in the body is `call [IAT]`.
+  - Frame: `{returned, pBits, needed, memdc}` as one 16-byte addressed
+    object packs the 0x28..0x34 run and needs `char printers[0xA80]` for
+    the 0xb88 frame (cbBuf is 0x540; the tail is unused high space).
+  - `returned <= 0` on an `unsigned long` is `jbe`; `== 0` is `je`.
 
 - **SCOPE AI (closed 2026-09-07, 18 of 18 exact; evidence in
   `docs/lanes/scope-ai.md`).** MIDI + path-square / class companions
