@@ -424,6 +424,27 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
 
+- **SCOPE V (closed 2026-09-08, 62 of 62 exact; evidence in
+  `docs/lanes/scope-v.md`).** Script-event tick handlers + goal checks
+  (`eventtick.c`, `eventgoal.c`). `EventTick_Clear` took nine documented
+  passes and two levers:
+  - **Sibling-copy forwarding kill:** a `rep movsd` into one member of a
+    local aggregate stops store-to-load forwarding for every other member
+    (a plain narrowing read reloads: `mov dl, [esp+N]`). Hole members
+    (`int pad0, top, pad1, bottom`) reproduce a Rect's two never-stored
+    slots without memory-homing the two that are; write member sums as one
+    statement each (`L.top = f.top + by`), never `=` then `+=`.
+  - **Cancelled-pointer copy web:** `t.x = bx; t.x += (int)d; t.x -= (int)d;`
+    through a struct member keeps `t.x` a separate web from `bx` (isel drops
+    the add/sub), so a byte store from `t.x` costs `mov ecx, ebp` instead of
+    recolouring `bx` into edx. Every identity expression written on `bx`
+    itself folds and moves x.
+  - Allocator rule measured on the way: webs are coloured by weighted use
+    count (a register byte use adds ~2), ties to the first-defined; a web
+    with a byte need displaces `next` from ebx before it accepts a fix-up
+    copy. A `volatile` load is pinned at its statement; the store it feeds
+    sinks into the address-sorted free-store group.
+
 - **SCOPE AI (closed 2026-09-07, 18 of 18 exact; evidence in
   `docs/lanes/scope-ai.md`).** MIDI + path-square / class companions
   (`music2.c`, `pathobj2.c`):
