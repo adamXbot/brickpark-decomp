@@ -638,3 +638,72 @@ the ones that are redundant against the previous site.  **Do not chase the
 instruction count here** -- it is a proxy for the `box` opacity question and
 nothing else.  `mismatch` and `FULL MATCH` are the honest measures, and both
 improved.
+
+## 2026-09-08 (fifth pass) — `box` opacity is the whole remaining residual
+
+Everything left in this function funnels into one question: the original
+keeps `box` in memory at `[esp+0x1c..0x28]` and reloads all four fields at
+each of the ~140 page-break sites; ours constant-folds `0x50/0x6d/0x1a4/0x83`
+into the `cur` stores.  Three consequences, all measured:
+
+1. **The 1,264-instruction shortfall.**  Seven instructions per site against
+   our two.
+2. **`y` never gets a callee-saved register.**  With `box.top` a constant,
+   `y` is a constant at every page-break site, so VC6 rematerialises it and
+   uses `edi` as a scratch; the original keeps `edi = y` for the whole build.
+   Our first page check disappears outright — `0x6d + 0x16 <= 0x1b5` folds —
+   which is why our object jumps straight from `test byte ptr [FLAGS],0xf`
+   into the line stores.
+3. **The `indent` / `page_start` register flip.**  With `y` not competing,
+   ours has three live candidates for four registers and puts `indent` in
+   `ebp`; the original has four (`zero`, `page_start`, `n`, `y`) and spills
+   `indent`.  So the flip is downstream of the opacity, not a separate
+   problem — do not chase it on its own.
+
+### Every opacity spelling costs exactly `+0x10`, and it is always `title`
+
+`/FAs` says so directly.  In the committed build `title` has **no equate** —
+VC6 builds the `NewPrintCent` rectangle straight onto the pushed arguments
+(`sub esp,0x10 / mov edx,esp / mov [edx],0x28 / ...`), exactly as the
+original does at 0x0044d7c6.  In *every* spelling that makes `box` memory-
+resident, `_title$` appears at `esp+0x1e44` and `namebuf`, `textbuf` and
+`narr` all shift up by 16.  Nothing tried moves it:
+
+| spelling | emitted | mismatch | `FULL MATCH` | frame | fdi |
+| --- | --- | --- | --- | --- | --- |
+| **committed (both arms, plain)** | 6,821 | **8,005** | 42.7% | **`0x23d4`** | **6** |
+| escaping aggregate `{box, cur}` | 7,793 | 8,022 | 44.0% | `0x23e4` | 0 |
+| escaping aggregate `{box, cur, title}` | 7,795 | 8,016 | 35.7% | `0x23e4` | 0 |
+| non-escaping aggregate `{box, cur}` | 6,831 | 8,005 | 42.3% | `0x23d4` | 6 |
+| non-escaping aggregate `{box, cur, title}` | 6,830 | 8,014 | 36.5% | `0x23e4` | 0 |
+| `union { AppraisalBox b; int w[4]; }` | 6,821 | 8,005 | 42.7% | `0x23d4` | 6 |
+| a second identical `box` init at `sect1:` | 6,829 | 8,028 | 44.5% | `0x23e4` | 0 |
+| the title rect moved into a `static __inline` | 6,821 | 8,005 | 42.7% | `0x23d4` | 6 |
+| that inline **+** the second init | 6,829 | 8,028 | 44.5% | `0x23e4` | 0 |
+
+Read off: the **union is completely inert** (byte-identical to the baseline),
+so is declaration order (`cur` before `box`), and so is a non-escaping
+aggregate — lever 11 of scope LL9 does not bite here.  Two things *do*
+produce the reloads: an aggregate whose address escapes, and **a second
+reaching definition of `box`'s fields** (`twodef` — re-running the same four
+constant stores at the `sect1:` label, which section two's restart branches
+back to).  The second one is new and is the more promising of the two: it
+needs no address to be taken, and it reaches the best `FULL MATCH` measured
+so far, 44.5%.
+
+**So the next agent's question is narrow: why does the original have `box` in
+memory and no `title` home at the same time?**  Our 33 scalar dwords plus a
+homed `title` is 37; the original has 33 with `box` memory-resident, so four
+dwords of ours are spurious under opacity — or the original's title rect is
+not a struct local at all.  Moving it into a `static __inline` with its own
+local was tried and is inert, so the elision is a copy-propagation that the
+memory-resident `box` disables, not a scoping effect.  Worth trying next:
+a spelling that gives `box` its second definition *without* a duplicate
+constant block (something in the render loop that VC6 believes reaches the
+build), and checking whether any of `nrun`, the `[esp+0x1c]` temp or the
+`[esp+0x40]` temp can be folded away to pay for `title`.
+
+**Do not chase the instruction count.**  6,821 against 8,085 looks like a
+regression against the fourth pass's predecessor at 7,565, but the count is
+purely a proxy for the `box` reloads; `mismatch` and `FULL MATCH` both
+improved and the frame stayed exact.
