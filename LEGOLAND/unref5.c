@@ -378,16 +378,17 @@ int __stdcall UnlockLogicalVolume(void* h, unsigned char drive)
  *  0x00451280 -- drop every outstanding physical lock on one drive
  * ========================================================================= */
 
-// WIP-FUNCTION: LEGOLAND 0x00451280  (48%, 46/88 strict, first diverging index 1: push ebx does not sink)
+// WIP-FUNCTION: LEGOLAND 0x00451280  (89%, 10/88 strict, first diverging index 75: the two tail epilogues are laid out in the other order)
 int UnlockAllPhysicalLocks(void* h, unsigned char drive)
 {
     DiocRegs       r;
     PhysLockParams p;
     unsigned long  returned;
     int            ok;
+    int            i;
 
-    p.nlocks = 0;
     memset(&r.reg_EDX, 0, sizeof(r) - sizeof(r.reg_EBX));
+    p.nlocks = 0;
     p.op = 2;
     r.reg_EDX = (unsigned long)&p;
     r.reg_EAX = DOS_GENERIC_BLOCK_IOCTL;
@@ -395,31 +396,38 @@ int UnlockAllPhysicalLocks(void* h, unsigned char drive)
     r.reg_ECX = 0x0848;
     ok = DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL, &r, sizeof(r), &r, sizeof(r),
                          &returned, 0);
-    if (!ok)
-        return 0;
-    if (r.reg_Flags & 1) {
-        if (r.reg_EAX != 0xb0 && r.reg_EAX != 1)
-            return 0;
-        ok = 1;
-    }
-    {
-        int i;
-
-        for (i = 0; i < p.nlocks; i++) {
-            p.op = 1;
-            r.reg_EDX = (unsigned long)&p;
-            r.reg_EAX = DOS_GENERIC_BLOCK_IOCTL;
-            r.reg_EBX = drive;
-            r.reg_ECX = 0x0848;
-            if (!DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL, &r, sizeof(r), &r, sizeof(r),
-                                 &returned, 0))
-                return 0;
-            if (r.reg_Flags & 1)
+    if (ok) {
+        if (r.reg_Flags & 1) {
+            if (r.reg_EAX != 0xb0 && r.reg_EAX != 1)
                 return 0;
             ok = 1;
         }
+        i = 0;
+        if (i < p.nlocks) {
+            while (1) {
+                p.op = 1;
+                r.reg_EDX = (unsigned long)&p;
+                r.reg_EAX = DOS_GENERIC_BLOCK_IOCTL;
+                r.reg_EBX = drive;
+                r.reg_ECX = 0x0848;
+                if (!DeviceIoControl(h, VWIN32_DIOC_DOS_IOCTL, &r, sizeof(r), &r, sizeof(r),
+                                     &returned, 0)) {
+                    ok = 0;
+                    break;
+                }
+                if (r.reg_Flags & 1) {
+                    ok = 0;
+                    break;
+                }
+                ok = 1;
+                i++;
+                if (i >= p.nlocks)
+                    break;
+            }
+        }
+        return ok;
     }
-    return ok;
+    return 0;
 }
 
 /* =========================================================================
