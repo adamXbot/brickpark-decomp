@@ -285,7 +285,7 @@ void* OpenVWin32(void)
  *  0x004514a0 -- close it again
  * ========================================================================= */
 
-// WIP-FUNCTION: LEGOLAND 0x004514a0  (100% exact, 4/4i 14/14B; __stdcall COMDAT unreachable by audit.py's name lookup -- see the note above)
+// FUNCTION: LEGOLAND 0x004514a0
 void __stdcall CloseVWin32(void* h)
 {
     CloseHandle(h);
@@ -368,7 +368,7 @@ int LockPhysicalVolume(void* h, unsigned long drive)
  *  0x00451550 -- unlock a logical volume (minor 6Ah), FAT32 category first
  * ========================================================================= */
 
-// WIP-FUNCTION: LEGOLAND 0x00451550  (100% exact, 49/49i 132/132B; __stdcall COMDAT unreachable by audit.py's name lookup -- see the note above)
+// FUNCTION: LEGOLAND 0x00451550
 int __stdcall UnlockLogicalVolume(void* h, unsigned char drive)
 {
     DiocRegs       r;
