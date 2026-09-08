@@ -283,7 +283,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK8(LBL)                                                      \
     LINE8_BODY(MARK, textbuf)
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (7769/8085 insns emitted, 33440/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7992, index-for-index MATCH 93, true LCS 57.7%; the residual is a THREE-SLOT ROTATION at the bottom of the frame.  `box`, `cur`, `ok`/`obj` and `passed` now sit on the original's own displacements (0x1c, 0x2c, 0x3c, 0x40); what is left is that the n*0x4c byte-offset CSE temp holds 0x10 with 210 references where the original puts page_start there, so page_start and indent are one slot high at 0x14/0x18.  VC6 orders this frame by descending reference weight and the ORIGINAL's frame breaks that rule at exactly these three slots -- its temp has 222 references and still sits at 0x18, below page_start's 173 and indent's 171)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (8148/8085 insns emitted, 34928/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7956, index-for-index MATCH 129, true LCS 59.4%; the build phase is now COMPLETE -- 129 rand, 112 GetString, 292 calls and 76 narration-queue stores, every census equal to the original's.  Two residuals remain: the hoisted cur.bottom store that the original dead-stores away (82 sites, which is the whole 63-instruction overshoot), and a THREE-SLOT ROTATION at the bottom of the frame -- our n*0x4c byte-offset CSE temp holds 0x10 with 221 references where the original puts page_start, so page_start and indent sit one slot high at 0x14/0x18.  VC6 orders this frame by descending reference weight per dword and the ORIGINAL's frame breaks that rule at exactly these three slots: its temp has 222 references and still sits at 0x18, below page_start's 173 and indent's 171)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -666,6 +666,7 @@ sect8:
         TEXT_LINE8(sect8, -2, 0x14f)
         NARR(0x14f)
         TEXT_LINE8(sect8, -2, 0x150)
+        NARR(0x150)
     } else if (all_passed < all_total) {
         TEXT_LINE8(sect8, -2, 0x151)
         NARR(0x151)
@@ -677,25 +678,32 @@ sect8:
     }
     if (failmask & 0x1) {
         TEXT_LINE8(sect8, -1, 0x155)
+        NARR(0x155)
     }
     if (failmask & 0x2) {
         TEXT_LINE8(sect8, -1, 0x156)
+        NARR(0x156)
     }
     if (failmask & 0x4) {
         TEXT_LINE8(sect8, -1, 0x157)
+        NARR(0x157)
     }
     if (failmask & 0x8) {
         TEXT_LINE8(sect8, -1, 0x158)
+        NARR(0x158)
     }
     switch (failmask & 0x30) {
     case 0x10:
         TEXT_LINE8(sect8, -1, 0x159)
+        NARR(0x159)
         break;
     case 0x20:
         TEXT_LINE8(sect8, -1, 0x15a)
+        NARR(0x15a)
         break;
     case 0x30:
         TEXT_LINE8(sect8, -1, 0x15b)
+        NARR(0x15b)
         TEXT_LINE8(sect8, -3, 0x133)
         break;
     }
@@ -706,47 +714,60 @@ sect8:
     }
     if (failmask & 0x80) {
         TEXT_LINE8(sect8, -1, 0x15e)
+        NARR(0x15e)
     }
     if (failmask & 0x100) {
         TEXT_LINE8(sect8, -1, 0x15f)
+        NARR(0x15f)
     }
     if (failmask & 0x200) {
         TEXT_LINE8(sect8, -1, 0x160)
+        NARR(0x160)
     }
     if (failmask & 0x400) {
         TEXT_LINE8(sect8, -1, 0x161)
+        NARR(0x161)
     }
     if (failmask & 0x800) {
         TEXT_LINE8(sect8, -1, 0x162)
+        NARR(0x162)
     }
     switch (failmask & 0x3000) {
     case 0x1000:
         TEXT_LINE8(sect8, -1, 0x163)
+        NARR(0x163)
         break;
     case 0x2000:
         TEXT_LINE8(sect8, -1, 0x164)
+        NARR(0x164)
         break;
     case 0x3000:
         TEXT_LINE8(sect8, -1, 0x165)
+        NARR(0x165)
         break;
     }
     switch (failmask & 0x18000) {
     case 0x8000:
         TEXT_LINE8(sect8, -1, 0x166)
+        NARR(0x166)
         break;
     case 0x10000:
         TEXT_LINE8(sect8, -1, 0x167)
+        NARR(0x167)
         break;
     case 0x18000:
         TEXT_LINE8(sect8, -1, 0x168)
+        NARR(0x168)
         break;
     }
     switch (failmask & 0x60000) {
     case 0x20000:
         TEXT_LINE8(sect8, -1, 0x169)
+        NARR(0x169)
         break;
     case 0x40000:
         TEXT_LINE8(sect8, -1, 0x16a)
+        NARR(0x16a)
         break;
     case 0x60000:
         TEXT_LINE8(sect8, -1, 0x16b)
@@ -756,16 +777,20 @@ sect8:
     }
     if (failmask & 0x80000) {
         TEXT_LINE8(sect8, -1, 0x16c)
+        NARR(0x16c)
     }
     if (failmask & 0x100000) {
         TEXT_LINE8(sect8, -1, 0x16d)
+        NARR(0x16d)
     }
     /* String id 0x16e is skipped: original. */
     if (failmask & 0x200000) {
         TEXT_LINE8(sect8, -1, 0x16f)
+        NARR(0x16f)
     }
     if (failmask & 0x400000) {
         TEXT_LINE8(sect8, -1, 0x170)
+        NARR(0x170)
     }
     if (failmask & 0x800000) {
         TEXT_LINE8(sect8, -1, 0x171)
@@ -774,6 +799,7 @@ sect8:
     }
     if (failmask & 0x1000000) {
         TEXT_LINE8(sect8, -1, 0x173)
+        NARR(0x173)
     }
 
     /* The closing "next time" line.  Its page checks restart at sect9, not

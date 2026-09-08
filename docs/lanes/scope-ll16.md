@@ -1794,3 +1794,167 @@ loads fewer `box` fields in the hoisted copy because it keeps the hoisted
    66 remaining rewind tests.
 3. **The 316-instruction shortfall** is now entirely in the render/input
    tail; the second pass's note about `RepLine*` cursors still governs it.
+
+## 2026-09-09 (thirteenth pass) — the build phase was 26 NARR calls short
+
+| | twelfth pass | now |
+| --- | --- | --- |
+| emitted | 7,769 | **8,148** (original 8,085) |
+| bytes | 33,440 | **34,928** (original 34,662) |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 8 | 8 |
+| mismatch | 7,992 | **7,956** (lane best) |
+| index-for-index `MATCH` | 93 | **129** |
+| true LCS vs the whole original | 57.7% | **59.4%** (lane best) |
+| `difflib` alignment | 42.7% | **50.0%** (lane best) |
+
+One change, and it improves **every** metric the lane tracks at once — the
+first state in this lane that costs nothing.
+
+### The 316-instruction shortfall was never in the render/input tail
+
+The ninth and twelfth passes both recorded the shortfall as "entirely in the
+render/input tail". It is not, and the tail needs no work at all. Anchor both
+streams on `if (nhint == 0) n--;` (ours index 7,479, the original's 7,796 at
+0x0044d744): the original's tail is 289 instructions and ours was 290. The
+whole 317-instruction deficit was already present when the build ended.
+
+The tail was checked instruction by instruction against the original from
+0x0044d744 to the `mov eax,1 / pop ebx / add esp,0x23d4 / ret` and is
+essentially transcribed: the frame loop, the title `NewPrintCent` rectangle,
+the `lea edi,[esp+…+0xbc]` / `lea ebp,[esp+…+0x20c4]` walking pointers, the
+eight-way unrolled narration append (`[edi+4]`..`[edi+0x20]`) and the
+narration-file block all line up one for one. The only differences found are
+scheduling noise plus one arm order: the original lays the
+`narr_cur >= nnarr` arm as the fall-through (`cmp eax,edx / jl`), ours the
+`narr_cur < nnarr` arm (`cmp edx,eax / jge`), and the original repeats
+`IsNarrationPlaying` in **both** arms where ours has it in one. Worth ~4
+instructions; not chased this pass.
+
+### The census tool that found it, and what it said
+
+A call census by callee is decisive on a body this size and costs one grep:
+
+| | original | ours (twelfth) | ours (now) |
+| --- | --- | --- | --- |
+| `rand` (0x49e4b2) | 129 | 128 | **129** |
+| `GetString` (0x498f50) | 112 | 104 | **112** |
+| total calls | 292 | 283 | **292** |
+| narration-queue stores `mov [esp+<r>*4+0x74],<id>` | 76 | 50 | **76** |
+
+Aligning the two *sequences* of pushed `GetString` ids named the eight missing
+calls outright — `0x150`, `0x15a`+`0x133`, `0x165`+`0x164`, `0x168`+`0x167`,
+`0x16a` — and the narration census explained them: **every `-1` advice line in
+section 8 is queued for narration and our source queued only six of them.**
+Twenty-six `NARR` calls were missing. They are not merely 260 instructions of
+content: a `NARR(id)` ends the case body with a store of a *different*
+constant, which is what stops VC6 cross-jumping the three case blocks of
+`switch (failmask & 0x30)`, `& 0x3000`, `& 0x18000` and `& 0x60000` into one
+shared `call GetString` tail. That is where the eight lost calls went.
+
+The rule, read off the object: **the `-1` advice line always gets a `NARR`;
+its `-3` continuation never does** (`0x133`, `0x15d`, `0x231`, `0x172`,
+`0x154`, `0x236`, `0x238` have none). The section header `0x230` has none.
+
+**Original quirk, reproduced.** The verdict block's three arms are asymmetric:
+`0x14f`+NARR then `0x150`+NARR in the first arm, `0x151`+NARR then `0x150`
+with **no** NARR in the second, `0x153`+NARR then `0x154` with none in the
+third. Addresses 0x00448025/0x0044809c/0x00448130/0x00448191 against
+0x00448249/0x004482c0/0x00448354 settle it.
+
+### Confirmation from the frame weights
+
+The slot weights moved onto the original's almost exactly, which is
+independent evidence that the transcription is now right:
+
+| | temp | `page_start` | `indent` | `box`+`cur` |
+| --- | --- | --- | --- | --- |
+| original | 222 | 173 | 171 | 1,448 |
+| ours (twelfth) | 210 | 171 | 169 | — |
+| ours (now) | **221** | **172** | **170** | 1,634 (in the 11-dword `r`) |
+
+### What it costs
+
+Nothing on the lane's metrics. It does take the body 63 instructions
+**over** the original (8,148 vs 8,085), so `tools/audit.py` now prints
+`ESCAPES` — that is only the audit truncating our body to the original's
+extent and finding a branch past the cut. The overshoot has a known cause
+that is larger than itself: the 82 hoisted `cur.bottom` stores below.
+
+## Thirteenth pass, item 1: the web-ranking hypothesis is REFUTED
+
+The twelfth pass's best remaining guess was that VC6 ranks a shared stack slot
+by its heaviest **web** rather than by the sum of the slot's references. It
+does not. Lab in `/tmp/sll16h/lab` (`mkweb.py`, `mkloop.py`, `build.sh`);
+each function has an array (so VC6 is in the interleaved mode this body is in),
+`nl` long-lived locals to soak up the callee-saved registers, one rival scalar
+`R` with a single long web, and `nw` scalars `w1..wN` with disjoint live ranges
+that VC6 packs onto **one** slot (the `/FAs` equates show them sharing).
+
+| variant | webs x refs | sum | max web | `R` | lower slot |
+| --- | --- | --- | --- | --- | --- |
+| `wE` | 6 x 5 | 30 | 5 | 60 | `R` |
+| `wH` | 6 x 9 | **54** | 9 | 60 | `R` |
+| `wI` | 6 x 11 | **66** | 11 | 60 | **the packed slot** |
+| `wF` | 6 x 15 | 90 | 15 | 60 | the packed slot |
+| `wJ` | 12 x 6 | 72 | **6** | 60 | the packed slot |
+| `wA` | 6 x 10 | 60 | 10 | 40 | the packed slot |
+
+The crossover is exactly at the **sum**: 54 loses to 60, 66 beats it, and
+`wJ` beats a rival of 60 with a heaviest web of 6. So splitting the `n*0x4c`
+temp into per-line-site webs cannot move it — a split preserves the total.
+**Do not spend another pass on the temp's weight.**
+
+Loop-frequency weighting was killed in the same lab (`mkloop.py`): a scalar
+with 11 static references *inside a ten-iteration loop* ranks below three
+straight-line scalars with 15, and the loop counter itself takes the last
+scalar slot. The ranking key is the plain static reference count, summed over
+the slot, with no loop weighting and no web decomposition. Combined with the
+twelfth pass's exhausted weight arithmetic, **the three-slot rotation at
+`0x10`/`0x14`/`0x18` has no known lever left**, and the original's frame
+remains a genuine violation of the rule its own compiler follows everywhere
+else.
+
+## Thirteenth pass, item 2: the hoisted `cur.bottom` store — measured, no lever
+
+Quantified exactly (`/tmp/sll16h/hoist2.py`, `hoist3.py`): 123 hoisted
+page-break blocks in ours, **82 store `cur.bottom`**; the original's 124 store
+it **zero** times, and both load `box.bottom` ~120 times — the original's
+surviving dead load is the tell. Median hoisted block is 9 instructions
+against the original's 8: exactly the one extra store. The register census
+follows from it — the original compares `cmp ebp,ecx` at all 75 non-head
+sites; ours is `edx` x38, `eax` x25, `ecx` x9, because our block stores
+`cur.bottom` from `edx` and keeps `ecx`/`edx` live across the branch, so
+`sect_start` lands in `eax` and the shared rewind block has to **reload** it
+(`mov esi,[esp+0x4c]`) where the original just uses `ecx`.
+
+The 41 sites that *do* drop the store are precisely section 8 and the closing
+lines (contiguous indices 2,560..4,497 plus 7,540..7,750), i.e. exactly where
+`cur.bottom` has a maintained memory home from the line-end form. Everything
+tried to extend that to sections 1-7 and 9:
+
+| probe | emitted | mismatch | `MATCH` | LCS | note |
+| --- | --- | --- | --- | --- | --- |
+| `cur.bottom = cur.top + 0x16;` at every `rew_sectK` head | 7,762 | 8,011 | 74 | 53.5% | identical to doing it at `rew_sect8` alone |
+| `cur.bottom = box.bottom;` at every `rew_sectK` head | 7,761 | **7,959** | **126** | 53.5% | mismatch/`MATCH` improve, LCS -4.2; and it makes **all 120** blocks store the bottom and loses the nine `ecx` compares — alignment noise, rejected |
+| hoisted copy fieldwise, `right`/`left`/`top` only (the original's exact two stores) | 6,902 | 8,030 | 55 | 43.0% | `box` collapses |
+| the same plus `bottom` | 6,919 | 7,969 | 116 | 41.5% | `box` collapses |
+| `int ss_ = sect_start;` read before the hoisted copy | — | — | — | — | byte-identical |
+| a redundant `cur = box;` in the rewind arm as well | 7,387 | 8,014 | 71 | 44.7% | |
+| `if (page_start == sect_start) {…} else goto rew;` | 7,769 | 7,990 | 95 | 57.7% | structurally identical (same 82 stores, same cmp registers); ±2 of scheduling noise, not taken |
+
+So the store cannot be removed without losing `box`'s opacity, which is worth
+far more. It stays, and it is the whole 63-instruction overshoot.
+
+### What a fourteenth pass should try
+
+1. **The render/input tail's two small divergences**: the narration arm order
+   (`if (narr_cur >= nnarr)` as the then-arm) and the duplicated
+   `IsNarrationPlaying` call in both arms. Cheap, ~4 instructions, and the
+   tail is otherwise transcribed.
+2. **The hoisted `cur.bottom` store**, above — 82 instructions and 66
+   wrong-register rewind tests, but every known spelling trades `box`'s
+   opacity for it. A shape that keeps the struct copy and still lets DSE
+   reach across the `jne` is what it needs.
+3. The three-slot rotation is **not** worth another pass on weight arithmetic
+   (item 1 above closes that off); only a non-weight mechanism would move it.
