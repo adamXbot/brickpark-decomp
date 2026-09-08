@@ -722,19 +722,18 @@ extern char*  strcpy(char* d, const char* s);
 /* The name the browser hands back (and the directory it walks into). */
 extern char g_browse_name[];    /* 0x0081c8e0 */
 
-// WIP-FUNCTION: LEGOLAND 0x0043f0b0  (60.7%, 190/313 aligned; 313i/958B vs
-//   313i/944B -- the instruction COUNT is exact and every call, every block
-//   and both epilogues line up.  Two frame defects account for the residual:
-//   (1) our frame is 0x64c, the original's 0x650 -- the original spills one
-//   more 4-byte scalar than we do (its twelve slots are n, list, names,
-//   isdir, icons, spr_file, spr_folder, pass, spr_drive, head, drive[3] and
-//   the `diff` temp; we produce eleven), so EVERY [esp+x] is 4 off;
-//   (2) `dir` and `fname` (both char[0x100]) are swapped in the frame --
-//   the original puts `dir` at the top (E-0x100) and `fname` below `cwd`,
-//   and declaration order does not move them.
-//   Ruled out: drive[4]/[8], fd.name[264], pattern[0x108] (each fixes the
-//   frame SIZE but shifts every scalar instead); swapped/j/node hoisted to
-//   function scope; a single vs duplicated HeapAlloc_w in the append.)
+/* Levers that closed this body (escalation, 2026-09-08; see the lane doc):
+ *  - the bubble sort's swap is ONE shared block behind
+ *    `(diff && dir) || (!diff && NameCompare(...) < 0)`; naming `diff` and
+ *    reading it twice gives it the original's memory home at E+0x3c, which
+ *    is the twelfth scalar slot the frame (0x650) needed -- every [esp+x]
+ *    displacement and the `dir`/`fname` order followed from that alone;
+ *  - `prev = head` is assigned BEFORE the `n > 0` guard of the list walk
+ *    (the original loads `head` above the `test ebx,ebx`);
+ *  - `result = g_browse_name; strcpy(result, names[sel]);` -- the result
+ *    pointer is a variable (ebp) that feeds the intrinsic's destination,
+ *    not a copy of the strcpy return. */
+// FUNCTION: LEGOLAND 0x0043f0b0
 char* BrowseForFile(const char* title, void* backdrop, IRect* r,
                     const char* pathspec)
 {
@@ -793,13 +792,13 @@ char* BrowseForFile(const char* title, void* backdrop, IRect* r,
         icons = (void**)HeapAlloc_w(n * 4);
         list = (FileEnt**)HeapAlloc_w(n * 4);
         names[n] = 0;
+        prev = head;
         if (n > 0) {
             FileEnt** p = list;
-            FileEnt*  node = head;
 
             for (i = n; i != 0; i--) {
-                *p = node;
-                node = node->next;
+                *p = prev;
+                prev = prev->next;
                 p++;
             }
         }
@@ -832,7 +831,8 @@ char* BrowseForFile(const char* title, void* backdrop, IRect* r,
         if (sel != -1) {
             if (list[sel]->attrib & 0x10)
                 isdir = 1;
-            result = strcpy(g_browse_name, names[sel]);
+            result = g_browse_name;
+            strcpy(result, names[sel]);
         } else {
             result = 0;
         }
