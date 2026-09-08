@@ -221,7 +221,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     lines[n - 1].ids[lines[n - 1].nids] = (ID);                           \
     lines[n - 1].nids++;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (4966/8085 insns emitted, first diverging index 0, frame 0x23cc vs 0x23d4; sections 1-8, the advice chain and its closing lines, the render and input loops)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (6657/8085 insns emitted, first diverging index 0, frame 0x23cc vs 0x23d4; sections 1-9 less the last hint group, plus the render and input loops)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -247,6 +247,7 @@ int RunAppraisalScreen(void)
     int nfood, vfood;
     int nshop, vshop;
     int nvis, vmood, vages;
+    int nhint;
     int nrun;
     RObj* obj;
     short kind;
@@ -693,6 +694,83 @@ sect8:
 sect9:
     sect_start = n;
     lines[n].indent = indent;
+    TEXT_LINE(sect9, -2, 0x174)
+    NARR(0x174)
+    nhint = 0;
+    indent += 0x30;
+    /* One hint per failed group, its phrasing picked at random.  Every hint
+     * line is also queued for narration. */
+    if (failmask & 0xf) {
+        switch (rand() & 3) {
+        case 0:
+            TEXT_LINE(sect9, -1, 0x17c) NARR(0x17c)
+            TEXT_LINE(sect9, -3, 0x17d) NARR(0x17d)
+            break;
+        case 1:
+            TEXT_LINE(sect9, -1, 0x187) NARR(0x187)
+            TEXT_LINE(sect9, -3, 0x188) NARR(0x188)
+            break;
+        case 2:
+            TEXT_LINE(sect9, -1, 0x190) NARR(0x190)
+            TEXT_LINE(sect9, -3, 0x191) NARR(0x191)
+            TEXT_LINE(sect9, -3, 0x192) NARR(0x192)
+            break;
+        case 3:
+            TEXT_LINE(sect9, -1, 0x19a) NARR(0x19a)
+            TEXT_LINE(sect9, -3, 0x19b) NARR(0x19b)
+            break;
+        }
+        nhint++;
+    }
+    if (failmask & 0x70) {
+        switch (rand() & 3) {
+        case 0:
+            TEXT_LINE(sect9, -1, 0x1a4) NARR(0x1a4)
+            TEXT_LINE(sect9, -3, 0x1a5) NARR(0x1a5)
+            TEXT_LINE(sect9, -3, 0x1a6) NARR(0x1a6)
+            break;
+        case 1:
+            TEXT_LINE(sect9, -1, 0x1ae) NARR(0x1ae)
+            TEXT_LINE(sect9, -3, 0x1af) NARR(0x1af)
+            TEXT_LINE(sect9, -3, 0x1b0) NARR(0x1b0)
+            break;
+        case 2:
+            TEXT_LINE(sect9, -1, 0x1b8) NARR(0x1b8)
+            TEXT_LINE(sect9, -3, 0x1b9) NARR(0x1b9)
+            break;
+        }
+        nhint++;
+    }
+    if (failmask & 0x7000) {
+        switch (rand() % 3) {
+        case 0:
+            TEXT_LINE(sect9, -1, 0x1c2) NARR(0x1c2)
+            TEXT_LINE(sect9, -3, 0x1c3) NARR(0x1c3)
+            TEXT_LINE(sect9, -3, 0x1c4) NARR(0x1c4)
+            break;
+        case 1:
+            TEXT_LINE(sect9, -1, 0x1cc) NARR(0x1cc)
+            TEXT_LINE(sect9, -3, 0x1cd) NARR(0x1cd)
+            break;
+        }
+        nhint++;
+    }
+    if (failmask & 0x18000) {
+        switch (rand() % 3) {
+        case 0:
+            TEXT_LINE(sect9, -1, 0x1d6) NARR(0x1d6)
+            TEXT_LINE(sect9, -3, 0x1d7) NARR(0x1d7)
+            TEXT_LINE(sect9, -3, 0x1d8) NARR(0x1d8)
+            break;
+        case 1:
+            TEXT_LINE(sect9, -1, 0x1e0) NARR(0x1e0)
+            TEXT_LINE(sect9, -3, 0x1e1) NARR(0x1e1)
+            break;
+        }
+        nhint++;
+    }
+    /* The rest of the hint section (the failmask & 0x260000 group at
+     * 0x0044c8ef onwards) is not transcribed yet. */
 
     /* ================================================================== */
     /* Put the screen up and run it.                                      */
