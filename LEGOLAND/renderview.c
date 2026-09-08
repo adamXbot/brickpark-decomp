@@ -924,6 +924,47 @@ static __inline void EmitObjectSprite(SpriteDesc* desc, Pos at, int key,
  * unobservable placement discrepancies explicitly documented above.
  * Full measurements: docs/lanes/scope-i.md.
  */
+/* Scope LL20 (2026-09-08): unchanged at 381/903, first 67, 2893/2880 B.
+ * Re-measured the qx-first attractor with a frame map that resolves homes by
+ * push depth (scratch fm.py; the LL9/LL10/LL14/LL17/LL18/LL19 levers were
+ * the brief).  What the qx-first order (sx, th, tw, qx, hw, hh, sy, rx, qy,
+ * ry; limits after the switch) actually does, read off its object:
+ *   - 64..87 become shape-identical to the original with ONE swap, sx in ebx
+ *     and tw in ebp (original ebp/ebx); th is spilled at frame+0xc instead
+ *     of +0x0 and stays a MEMORY divisor at 91/96 (the original reloads it
+ *     into ebx at 88 and gives ebx to rx only at 97).
+ *   - the gather loop flips count/px: the original keeps `count` in memory
+ *     (248-253 `mov edx,[count] / inc / mov`) and px in ebx; the variant
+ *     keeps count in ebx (`inc ebx`, spilled at the row-loop exit) and px in
+ *     ecx+memory.
+ *   - the entry const-0 web (edi) is then EXTENDED with rematerialisations at
+ *     352 (class walk: `cmp eax,edi` / `cmp esi,edi`), 378 (queue head: all
+ *     six sd zero stores, g_sort_count and the obj test, where the original
+ *     materialises the two scratch zeros edx/ecx) and 863 (tail: count > 0,
+ *     cell->obj, g_show_cursor).  In the tail the zero holds edi, so n goes
+ *     to ebx, ebx lives to the epilogue, the {ebx,ebp} save pair can no
+ *     longer bracket [58,866] (the original pops them at 866/868) and both
+ *     pushes move to the entry: pushes ebx@5 ebp@7 esi@15 edi@21, strict
+ *     519 / rb 479 / ob 476, first 5, 2875 B.  This is the RA09 tail-zero
+ *     mechanism, now traced to its root in the gather loop.
+ * Fourteen spellings on top of that order, all aimed at the extended zero web
+ * or the count/px rank, and ALL byte-identical to it (519) unless noted:
+ * `while (--count)` as the tail counter (533); `if (count > 0) { n = count;`
+ * (533); a volatile count reload (614, frame 0x2f8c); a volatile
+ * g_show_cursor read; a volatile cell->obj read (527); the LL10 pin
+ * `if (count) ;`; block-scope n/pp; `g_sort_count = 0` inside the non-null
+ * arm (520 at exactly 2880 B); the same plus the count loop (534);
+ * `visible[count] = owner; count++;`; px declared ahead of count; px
+ * block-scoped in the row loop.  On the committed order the same
+ * `g_sort_count` move is 386 / 2894 B (matches round w10).  The zero-web
+ * extension is not reachable from the tail, the counter or the sort-count
+ * placement; it is decided with the geometry allocation.  Retired at 381:
+ * the committed order is the only one measured that keeps the split
+ * prologue, and every order that fixes 64..101 pays the prologue and the
+ * whole low frame.  Frame map (push-depth resolved) agrees slot for slot
+ * from +0x34 up; the low thirteen carry 134 references against the
+ * original's 130.
+ */
 // WIP-FUNCTION: LEGOLAND 0x0045b180  (57.8%, 381/903 strict; paired placement corrections tested and rejected; first 67)
 void RenderView(void)
 {
@@ -2562,6 +2603,57 @@ static __inline int FullMapY(TileBounds* t, int scale_y)
  * The stack frame remains 0xf4 against the original 0xf8, and the current
  * address spelling is the best measured reachable improvement.
  * Full measurements: docs/lanes/scope-i.md.
+ */
+/* Scope LL20 (2026-09-08): unchanged at 827/1161, first 0, 4216/4225 B,
+ * frame 0xf4.  Index 0 is two things, both measured this round with a
+ * push-depth frame map (scratch fm.py) and the LL9/LL10/LL14/LL17/LL18/LL19
+ * levers as the brief:
+ *  1. `push ebp` vs our `push ebx` at index 1.  The register is the whole
+ *     zero web: CreatePen's 0, the busy guard, g_fm_view.x, clip.left/top,
+ *     g_fm_oy, the five GetNearestColour/RenderBlock zeros, the two origin
+ *     clears, the height/width guards, x = 0 in pass 1 -- and it COALESCES
+ *     with pass 2's outer counter y (323 `xor ebp,ebp` is both the zero and
+ *     y = 0; 347 `[ecx+ebp*4]`, 430 `inc ebp`).  Pass 2's x takes the other
+ *     register (329 `xor ebx,ebx`).  Ours is the same web with ebx/ebp
+ *     swapped everywhere (zero/y in ebx, x in ebp); the zero-use count is
+ *     identical (25 through pass 2) and in BOTH bodies neither ebx nor ebp
+ *     is otherwise written anywhere over the web's range (the original's
+ *     first ebx write is `set` at 216, ours the same).  So it is a pure
+ *     ebx/ebp tie-break between the zero/y node and x, decided by VC6's
+ *     colouring order, not by interference.  Inert (byte-identical):
+ *     `int y, x` declaration order; block-scope `int x, y` around pass 2;
+ *     pass 2 on fresh names x2/y2.
+ *  2. Frame 0xf4 vs 0xf8, and it is NOT one missing 4-byte slot: the pool
+ *     differs by +20 and -16.  Original pool: sd at +0xac, Pos +0xc4 (roads)
+ *     +0xcc (single sprite) +0xd4 (mark) +0xdc (p1), the pass-4 Cell copy at
+ *     +0xe4..+0xf8 (525 `lea edi,[esp+0xf4]`).  Ours: three ElemID homes
+ *     and `link` at +0xac..+0xb8, sd at +0xbc, the four Pos at +0xd4..+0xf0,
+ *     and NO Cell in the pool -- our pass-4 copy lands on the pass-1/2 slot
+ *     (521 `lea edi,[esp+0x6c]`), because VC6 forwards `c`'s fields into the
+ *     by-value CellMarkTest(c) and never makes the inline temporary the
+ *     helper's comment promises.
+ *     *** THE LEVER THAT MOVES INDEX 0 (measured, not committed): put the
+ *     WHOLE pass-4 loop body in one `static __inline void
+ *     FullMap_ChainCell(Cell c, BPos bpos, int scale_x, int scale_y,
+ *     Elem* ... x6, Sprite* ... x3, void* pen, TileBounds* tbp, Pos* tilep,
+ *     Pos* gtbp, SpriteDesc* sdp)` taking the cell BY VALUE, called as
+ *     `FullMap_ChainCell(*chain, bpos, ...)` with every `continue` a
+ *     `return`. ***  Result: frame 0xf8, first diverging index 1, the pool
+ *     EXACTLY the original's (sd +0xac, Pos +0xc4/+0xcc/+0xd4/+0xdc in the
+ *     original's order, Cell +0xe4, 521-526 `lea edi,[esp+0xf4] / rep movsd
+ *     / mov eax,[esp+0x100]`), still three `rep movsd`, 260 = 260 frame
+ *     references.  Cost: strict 864, rb 814, ob 786 (from 827/763/758),
+ *     three instructions long (ESCAPES: the trimmed body hides a jump
+ *     target), because the block layout moves AGAIN -- the track arm is now
+ *     laid out LAST (876..1121, after the ILF loop) and the sd fill stays
+ *     before the join.  So an inlined by-value body is the first thing
+ *     found that moves the layout bit at all; it just moves it the wrong
+ *     way.  Two respellings of the helper are byte-identical to it: the
+ *     track arm as `} else {` around the sprite path instead of `return`,
+ *     and the mark test as a direct `c.flags` expression.  Retired at 827
+ *     with the helper recorded as the next lane's starting point (its text
+ *     is in docs/lanes/scope-ll20.md); it is the only construct measured in
+ *     eleven rounds that reproduces the original's pool.
  */
 // WIP-FUNCTION: LEGOLAND 0x004567a0  (28.8%, 827/1161 strict, 4216/4225 bytes; ILF address carrier improved; first 0)
 void RenderFullMap(void)
