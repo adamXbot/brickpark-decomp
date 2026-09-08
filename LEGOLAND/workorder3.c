@@ -66,7 +66,24 @@ extern void DBPrintf(const char* fmt, ...);   /* 0x00453a20 */
  * missing vararg is preserved.
  * Full measurements: docs/lanes/scope-i.md.
  */
-// WIP-FUNCTION: LEGOLAND 0x00499d60  (50.0%, 34/68 strict; shared-tail ordering floor; first 34)
+/* Scope LL17 (2026-09-08): CLOSED 68/68 by the BL12 empty-trailing-else
+ * lever (see the comment inside the body).  What the earlier fifteen-plus
+ * spellings established still holds and explains WHY this is the fix: the
+ * tail is ONE block whose layout follows its fall-through predecessor; two
+ * written-out copies never cross-jump backward here (a found-arm copy made
+ * machine-identical to the head copy with a volatile tail read is still
+ * emitted, 77 instructions; IR-identical copies merge onto the LAST arm,
+ * 68 wrong-way), and swapping the arms flips the compare to `je`.  Measured
+ * on the way (all rejected): head-only volatile copy + plain found copy
+ * (77), found copy via plain locals (77), found copy with volatile tail
+ * (77, machine-identical, no merge), both copies volatile (57/68, merged
+ * onto the search arm), `!=` arms with `if (!p) return` (43/78) and with
+ * `if (p) {} else {}` (43/68), `if (!p) return` on the original arm order
+ * (56/78, not-found block cloned), the U4 copies plus `else if (p) / else
+ * { }` on the outer or inner chain (57/68 both).  Corpus witnesses for the
+ * layout: SetMechanicsOrderAtPostion 0x49b430 and SetGardenerWorkOrderAt-
+ * Postion 0x49b2c0 (same subsystem), LevelKw_SELECTTHEME/SELECTTAB. */
+// FUNCTION: LEGOLAND 0x00499d60
 void UnlinkGardenerOrder(WorkOrder* o)
 {
     WorkOrder* p = g_gardener_orders;
@@ -81,7 +98,7 @@ void UnlinkGardenerOrder(WorkOrder* o)
         g_gardener_orders = o->next;
         if (!g_gardener_orders)
             g_gardener_order_tail = g_gardener_orders;
-    } else {
+    } else if (p) {
         while (p) {
             if (p->next == o)
                 break;
@@ -100,6 +117,16 @@ void UnlinkGardenerOrder(WorkOrder* o)
                      o->pos.x, o->pos.y);
             return;
         }
+    } else {
+        /* Empty trailing else: a LAYOUT lever, not dead code (LEVERS BL12,
+         * Restaurant2_Draw).  With a plain `else` the search arm is the last
+         * arm and falls through into the START printf, so VC6 lays the tail
+         * after it.  As `else if (p) ... else { }` the `(p)` test folds (the
+         * early `if (!p) return` proves p non-null, so nothing is emitted)
+         * and the search arm must JUMP to the tail like any non-last arm;
+         * the tail is then glued to the head arm's fall-through and the
+         * whole search arm is exiled past it, ending in the original's
+         * backward `jmp` (0x499e1f -> 0x499dcc).  68/68. */
     }
     DBPrintf("    Work orders START (%x), END (%x)\n",
              g_gardener_orders, g_gardener_order_tail);

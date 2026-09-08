@@ -17,7 +17,7 @@ count). Object prefix `/tmp/sll17_`. Brief:
 | 0x0048f0f0 | InitExitCheckBox | screens2.c | 118/119 | 118/119 | PASS, 11 OK | WIP (floor, note extended) |
 | 0x0048a3e0 | GetObjectUID | objmap2.c | 20/191 | 20/191 | PASS, 14 OK | WIP (floor, note extended) |
 | 0x00459970 | TallyBuildFootprints | mapbuild2.c | 6/116 | 6/116 | PASS, 3 OK | WIP (floor, note extended) |
-| 0x00499d60 | UnlinkGardenerOrder | workorder3.c | | | | |
+| 0x00499d60 | UnlinkGardenerOrder | workorder3.c | 34/68 | **0/68** | PASS, 3 OK | **FUNCTION** |
 
 (`[OK]` counts are the whole-file `audit.py` totals; baselines were fpui4.c 6,
 workorder3.c 1, mapbuild2.c 2, objmap2.c 14, screens2.c 11.)
@@ -171,3 +171,33 @@ before the store with the counter defined first — a shape no C statement
 reproduces here. Committed body unchanged (strict best). LL14: not applicable
 (scratch, definition-ordered). LL10: inert (forward substitution hoists the
 consumer to the definition site rather than the reverse).
+
+### 0x00499d60 UnlinkGardenerOrder — CLOSED 68/68 (BL12 empty trailing else, 11 spellings)
+
+The residual was the layout of ONE shared tail (the START printf): the
+original glues it to the head arm's fall-through and exiles the search arm
+after it with a backward `jmp`; ours placed the tail after the search arm.
+
+| spelling | result |
+| --- | --- |
+| head copy of the tail with volatile reads, found copy plain | 64/77 — layout right, found copy in the ecx/edx phase, not merged |
+| found copy through plain locals (tail, head order) | 64/77, same |
+| found copy with a volatile tail read | 64/77 — copy MACHINE-IDENTICAL to the head's and still not cross-jumped |
+| both copies volatile (IR-identical) | 57/68 — merged onto the search arm, head copy becomes a forward `jmp` |
+| `!=` arms, `if (!p) { notfound; return; }` | 43/78 (`je`) |
+| `!=` arms, `if (p) {} else {}` | 43/68 (`je`) |
+| original arm order, `if (!p) { notfound; return; }` | 56/78 — not-found block cloned |
+| U4 copies + `else if (p) … else { }` on the outer chain | 57/68 |
+| U4 copies + `else if (!p) … else { }` on the inner chain | 57/68 |
+| **single tail, `} else if (p) { search } else { }`** | **68/68** |
+
+Corpus scan (`scan_backtail.py`: exact bodies with a backward `jmp` into a
+`ret`-ending tail and no loop) found four witnesses — SetMechanicsOrderAtPostion
+0x49b430, SetGardenerWorkOrderAtPostion 0x49b2c0, LevelKw_SELECTTHEME /
+SELECTTAB — all "later arm exiled with a back-jump, first arm falls into the
+tail". LEVERS BL12 (Restaurant2_Draw) names the token: an empty trailing
+`else { }` stops the last arm falling through, so it must jump like the rest
+and the tail is hosted at the head arm. Here the `(p)` test folds (p is proven
+non-null by the early return), so the token costs nothing. Machine-identical
+copies are NOT cross-jumped backward in this shape (U3), which is why the
+copy route could never work. LL14/LL10: not applicable (pure block layout).
