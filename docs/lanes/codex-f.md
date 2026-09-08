@@ -320,6 +320,44 @@ the asm -- the original's loop without any clobber:
   `(int)person` / `(int)anim` make the anchor its own callee-saved web
   and spill something else.
 
+Sixth sweep (2026-09-08): the cancelled-pair lever characterised, and the
+sibling residual reduced to a three-web rotation.
+
+- **The cancel survives only when BOTH operands are struct members.** With a
+  plain-scalar anchor (`t.x += si; t.x -= si;`, and the same with `i`, `j`,
+  `frame`, `(int)dest`, `(int)person`, `anim->frame_count`) the front end
+  folds it and the body returns to the pre-lever baseline exactly. This is
+  the V note's "every identity written on the value itself folds", stated
+  from the other side.
+- **The lever DEMOTES the carrier; it does not promote the anchor.** A
+  carrier member takes a scratch register and a frame home. The anchor only
+  keeps its host's rank, and only because `t.y = (int)track` coalesces with
+  an existing plain variable. Making the value of interest the anchor member
+  instead (`t.y = g_ride_mtx_chan[i]`, with or without a third member for
+  the cancel) DEMOTES it to edx and lifts the cursor to esi, because a
+  member carries a frame home. So the lever cannot be used to raise a web.
+- **Sibling residual is a pure rotation** of {si, track, cursor} over
+  {esi, edi, edx}. The original ranks si > track > cursor; the committed
+  body ranks track > si > cursor (8 mismatches, all of them that swap);
+  every si-as-member form ranks cursor > track > si. A second carrier on
+  si, under eight different anchors, always pushes si to edx and the
+  cursor to edi.
+- **Reusing the dead `index` parameter as the channel variable is inert**
+  (the original's prologue keeps `index` in esi and deliberately loads the
+  track base into edi, which is what suggested it). A modified parameter is
+  an ordinary local to VC6, as the third sweep already found.
+- **Frame cost.** On mantex the carrier is free: 81i/221B and frame 0x10,
+  both size-exact. On Copters it costs a slot (frame 0x30 against the
+  original's 0x28, 534B against 528B). Rehousing both carriers in the
+  members of the four dead `Offset` locals (`screen`, `layer_ofs`, `ofs`,
+  `pos`) restores frame 0x28 — all 48 assignments measured — but the best
+  non-escaping one is 70 mismatches against the committed 50, and the four
+  49-mismatch ones all report ESCAPES at 536B. The committed body is kept.
+
+Because the original's frame has no spare slot, the cancelled pair is
+probably a proxy for whatever the original wrote, not the original
+construct itself, on Copters at least.
+
 Next: the missing piece is whatever made VC6 mark EAX as written by
 this asm block with no extra bytes. Nothing in the C or asm syntax
 tried so far does it; the two remaining ideas are (a) an instruction
