@@ -815,3 +815,22 @@ hoist `title.right = 0x1a4` out of the frame loop, +0x10 on the frame).
   28 section-8 checks (`cmp [esp+0x38],0x1b5`) and stores `y+0x16` to it 23
   times, always across a `failmask` test.  The line-end update reproduces
   that pattern but currently costs the frame (see the table).
+
+### Section 8's page checks (measured after the seventh pass)
+
+The original's 28 memory compares `cmp [esp+0x38],0x1b5` and 23
+`cur.bottom = y+0x16` stores are all in section 8, each across a
+`failmask` test, and the five `mov eax,[esp+0x38]` re-reads are the closing
+no-advance lines.  Spelling section 8's lines with the update at the LINE
+END (`cur.top += 0x18; cur.bottom = cur.top + 0x16;`) and their check as a
+bare `if (cur.bottom > 0x1b5)` reproduces that census almost exactly
+(`/tmp/sll16b_g57`: 27 memory compares, 4 re-reads, 153 bottom stores vs
+the original's 28 / 5 / 147; mismatch 8007 -> 7989) — but under that
+spelling VC6 constant-folds the whole `cur = box` copy in section 8 to
+`mov eax,0x50 / 0x1a4 / 0x83` and `mov edi,0x6d`, so the alignment drops to
+39.8% and the sites lose the `box` reloads.  Applying the line-end form to
+the closing lines only is worse still (22.3%).  Sections 1-7 and 9 are
+certainly the check-site form (their checks recompute `lea eax,[edi+0x16]`
+after `rand`/`GetString` calls).  The check-site form is what is committed;
+section 8's true spelling is still open and is coupled to the `box`
+folding question.
