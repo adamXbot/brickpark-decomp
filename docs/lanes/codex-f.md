@@ -356,10 +356,45 @@ sibling residual reduced to a three-web rotation.
 
 Because the original's frame has no spare slot, the cancelled pair is
 probably a proxy for whatever the original wrote, not the original
-construct itself, on Copters at least.
+construct itself, on Copters at least. The seventh sweep supports that:
+the lever fixes the loop shape but cannot set the register ranking.
 
-Next: the missing piece is whatever made VC6 mark EAX as written by
-this asm block with no extra bytes. Nothing in the C or asm syntax
+Seventh sweep (2026-09-08) — **the EAX hypothesis is FALSIFIED. Do not
+spend more time on it.**
+
+- All 34 files containing `__asm` pass the gate. Only two EXACT functions in
+  the tree share the target shape (fld/fmul/fistp on a frame local):
+  `ApplyObjectOrientationToPerson` 0x00484950 (bnvpath.c, 95i/273B, **0
+  mismatches**) and `ComputeVertexBounds` 0x00440980 (person3d.c).
+- **`ApplyObjectOrientationToPerson` keeps `person` in EAX across NINE
+  consecutive fld/fmul/fistp blocks and is byte-exact.** So VC6 does not
+  model this asm as writing EAX, and neither did the original compiler.
+  The fourth sweep's "the original was allocated as if the asm wrote EAX"
+  reading is wrong.
+- Confirmed directly: on the current (cancelled-pair) base an added
+  `xor eax,eax` no longer flips anything — same rotation, one extra
+  instruction. The old 81/82 result was an artefact of a pre-lever base
+  sitting on a knife edge, not evidence about the original.
+- The game's house style for this conversion, read off the exact bnvpath
+  body (`float scale = 65536.0f;` + `float value;` + bare `__asm fld value`
+  lines + `*(int*)&value`), leaves the sibling's register picture
+  completely unchanged when applied on top of the lever. Float locals home
+  themselves in the dead parameter slots either way.
+- Anchor sweep completed: an anchor that is a **constant** (an array
+  address, `&arr[0]`, a literal, 1) always folds back to the pre-lever
+  baseline, so the anchor must hold a runtime value and therefore must
+  occupy one of the six registers the loop already needs. Anchor
+  **position** is inert (before the call, after it, in either loop). The
+  anchor's HOST is the only thing that selects the rotation, and only
+  `(int)track` gives the correct cursor and product order.
+
+Next: the residual on both bodies is a rank ordering among the loop's
+webs that no source-level construct found so far can set. The EAX story
+is dead; the remaining leads are (a) the /FAc listing route — compile the
+exact bnvpath and person3d asm bodies with `/FAc` and compare VC6's own
+frame/register annotations against ours to find what ranks a web, and
+(b) accepting these two as honest WIPs, since both are size- or
+instruction-exact with a documented one-rotation residual. Nothing in the C or asm syntax
 tried so far does it; the two remaining ideas are (a) an instruction
 the compiler emits for C code inside the loop that we have attributed
 to the asm and that VC6 models as an EAX def, and (b) an inline-asm
