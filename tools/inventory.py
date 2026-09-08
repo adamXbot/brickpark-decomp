@@ -53,7 +53,8 @@ printable may be text; a function that has no other evidence is flagged.
 Extents come from `match.true_extent`. That walker disassembles a 16 KB
 window and returns nothing for a function longer than that; `long_extent`
 below applies the SAME rules over a 128 KB window and is used only then
-(one game function, 0x004453a0, needs it). Extents that overlap another known
+(one game function, 0x004453a0, needs it). `__try/__except` bodies need no
+help here: since 2026-09-08 the walker reads the SEH scope table itself. Extents that overlap another known
 start are reported, never silently trimmed.
 
 Read-only: never compiles, never edits anything, safe to run alongside other
@@ -177,7 +178,7 @@ def long_extent(d, secs, rva, window=LONG_WINDOW):
 
 class Fn:
     __slots__ = ('va', 'n_ins', 'n_bytes', 'sources', 'name', 'marker', 'file',
-                 'kind', 'declared', 'jump_tables', 'note', 'group', 'long', 'seh', 'live')
+                 'kind', 'declared', 'jump_tables', 'note', 'group', 'long', 'live')
 
     def __init__(self, va):
         self.va = va
@@ -192,7 +193,6 @@ class Fn:
         self.note = []
         self.group = None
         self.long = False        # extent needed long_extent
-        self.seh = False         # extent extended over __except blocks
         self.live = False        # reachable from a root (marker/export/table/crt)
 
     @property
@@ -234,43 +234,15 @@ class Inventory:
 
     # --- helpers ------------------------------------------------------------ #
     def extent(self, va):
-        """(n_ins, n_bytes, needed_long_window, is_seh) for the function at va."""
+        """(n_ins, n_bytes, needed_long_window) for the function at va."""
         if va not in self._ext_cache:
             n, b = true_extent(self.d, self.secs, va - IMAGE_BASE)
-            lng = seh = False
+            lng = False
             if not n:
                 n, b = long_extent(self.d, self.secs, va - IMAGE_BASE)
                 lng = bool(n)
-            if n and self.seh_prologue(va):
-                n2, b2 = self.seh_extent(va, b)
-                seh = (n2, b2) != (n, b)
-                n, b = n2, b2
-            self._ext_cache[va] = (n, b, lng, seh)
+            self._ext_cache[va] = (n, b, lng)
         return self._ext_cache[va]
-
-    def seh_prologue(self, va):
-        """`push -1 / push scopetable / push __except_handler3 / mov fs:[0], esp`."""
-        head = list(MD.disasm(self.code(va, 48), va))[:12]
-        return any(x.mnemonic == 'mov' and x.op_str.startswith('dword ptr fs:[0], esp') for x in head)
-
-    def seh_extent(self, va, walked):
-        """A `__try`/`__except` body: its filter and handler blocks follow the
-        walked extent and are reached only through the scope table in .rdata,
-        so the walker stops at the `jmp` over them. The function runs to the
-        next 16-aligned boundary that padding precedes; disassemble linearly
-        to there. Three such functions exist (0x00453d10, 0x00453da0,
-        0x00454380)."""
-        end = va + walked
-        i = bisect.bisect_right(self._starts, va)
-        limit = min(GAME_HI, self._starts[i] if i < len(self._starts) else GAME_HI)
-        a = (end + 15) & ~15
-        while a < limit and not (self.byte(a - 1) in PADDING and self.byte(a) not in PADDING):
-            a += 16
-        stop = min(a, limit)
-        while stop > end and self.byte(stop - 1) in PADDING:
-            stop -= 1
-        insns = list(MD.disasm(self.code(va, stop - va), va))
-        return len(insns), sum(x.size for x in insns)
 
     def byte(self, va):
         off = rva2off(self.secs, va - IMAGE_BASE)
@@ -299,7 +271,7 @@ class Inventory:
         fn = self.fns.get(va)
         if fn is None:
             fn = self.fns[va] = Fn(va)
-            n, b, lng, seh = self.extent(va)
+            n, b, lng = self.extent(va)
             if kind != 'marker' and self.is_thunk_at(va):
                 # Import thunk: the walker has no terminator for an indirect
                 # jmp and would run on into the next thunk. A marker on such
@@ -307,7 +279,7 @@ class Inventory:
                 n, b = 1, list(MD.disasm(self.code(va, 8), va))[0].size
                 fn.kind = 'thunk'
             if n:
-                fn.n_ins, fn.n_bytes, fn.long, fn.seh = n, b, lng, seh
+                fn.n_ins, fn.n_bytes, fn.long = n, b, lng
                 bisect.insort(self._starts, va)
                 self._max_bytes = max(self._max_bytes, b)
             else:
@@ -328,7 +300,7 @@ class Inventory:
         c = self.containing(va)
         if c is not None:
             return 'inside 0x%08x' % c.va
-        n, b, _, _ = self.extent(va)
+        n, b, _ = self.extent(va)
         if not n:
             return 'no extent'
         first = self.byte(va)
@@ -604,7 +576,7 @@ class Inventory:
                                        or self.containing(va - 1) is not None
                                        or (va - 1) in self.fns)
                 if ok:
-                    n, b, _, _ = self.extent(va)
+                    n, b, _ = self.extent(va)
                     ok = bool(n) and va + b <= hi
                     if ok:
                         body = list(MD.disasm(self.code(va, b), va))[:n]
@@ -964,10 +936,6 @@ def main():
     if lng:
         print('extents beyond true_extent\'s 16 KB window (bounded by long_extent): %s'
               % ' '.join('0x%08x (%di/%dB)' % (f.va, f.n_ins, f.n_bytes) for f in lng))
-    seh = [fn for fn in fns.values() if fn.seh]
-    if seh:
-        print('__try/__except bodies extended over their handler blocks (the gate walker will stop short): %s'
-              % ' '.join('0x%08x (%di/%dB)' % (f.va, f.n_ins, f.n_bytes) for f in seh))
     print()
     print('bytes: matched %d (exact %d + wip %d) = %.1f%% of game code (coverage.py method)'
           % (matched_b, exact_b, matched_b - exact_b, 100.0 * matched_b / game_bytes))
@@ -996,8 +964,6 @@ def main():
             extra += '  DEAD'
         if fn.long:
             extra += '  LONG'
-        if fn.seh:
-            extra += '  SEH'
         if inv.weak(fn):
             extra += '  WEAK (pointer bytes are printable)'
         if fn.note:
@@ -1094,7 +1060,7 @@ def main():
             out['functions'].append({
                 'va': va, 'name': fn.name, 'marker': fn.marker, 'file': fn.file, 'kind': fn.kind,
                 'insns': fn.n_ins, 'bytes': fn.n_bytes, 'matched': fn.matched, 'live': fn.live,
-                'long_extent': fn.long, 'seh': fn.seh, 'weak': inv.weak(fn),
+                'long_extent': fn.long, 'weak': inv.weak(fn),
                 'sources': [[k, r] for k, r in fn.sources],
                 'reached_by': inv.reach_text(fn), 'callers': inv.callers(fn),
                 'declared': fn.declared, 'jump_tables': fn.jump_tables, 'note': fn.note,
