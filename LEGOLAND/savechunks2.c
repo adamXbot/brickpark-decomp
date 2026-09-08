@@ -205,6 +205,25 @@ int SaveScriptEvent(ScriptEvent* ev)
  * ownership cleanup and name-error leak rather than trading them for score.
  * Full measurements: docs/lanes/scope-i.md.
  */
+/* Scope LL18 (2026-09-08): unchanged, 26/124, first 95.  Read against the
+ * layout: the original's cold blocks sit in the order of the branch that
+ * reaches each -- terminator (from 17), err-after-name (34), err-after-text
+ * (52), then `head = 0` (from 87, INSIDE the terminator block) -- so the
+ * head-zero block is the ONLY cold block not placed adjacent to its single
+ * predecessor.  Six more forms confirm the two walls above: `if (prev == 0)
+ * goto empty; prev->next = 0; goto done;` with `empty: head = 0; done:
+ * return head;` textually after the read-failure return (15 -- VC6 pulls
+ * the single-predecessor block back next to the terminator and INVERTS the
+ * branch), the same with `if (prev) { ...; goto done; } goto empty;` (14,
+ * block adjacent again); a `for (;;)` with the read test at the top and
+ * `if (prev) { prev->next = 0; return head; } break;` plus a post-loop
+ * `head = 0; return head;` / `return head;` / the `prev == 0` polarity (all
+ * 117 instructions: the zero is folded into `return 0` and cross-jumped into
+ * the last error handler's tail, as recorded); and the same `for (;;)` with
+ * `if (prev) prev->next = 0; else head = 0; break;` (the committed object
+ * exactly).  A block that VC6 leaves last must have had a second predecessor
+ * or a non-foldable value at layout time, and no C reaching this instruction
+ * stream provides one.  Floor stands. */
 // WIP-FUNCTION: LEGOLAND 0x0046c7e0  (79.0%, 26/124 strict; cold-block ordering floor; first 95)
 ScriptEvent* LoadScriptEvent(void)
 {

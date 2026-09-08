@@ -438,6 +438,30 @@ __declspec(dllimport) unsigned long __stdcall
  * and sinks the shutdown pair into the epilogue's pops.  It is the flag the
  * starter polls after CreateThread, so the qualifier is also what the
  * original must have meant; other files declare it plain `int`. */
+/* Scope LL18 (2026-09-08): still 7, first 2917, 11325/11335 bytes -- AT ITS
+ * FLOOR, and now with the MECHANISM.  A 96-instruction stand-alone model of
+ * the message loop (two imports called twice each, the pump loop with the
+ * memcmp intrinsic, `beat`; docs/lanes/scope-ll18.md) shows VC6 hoists an
+ * `__imp__` load to the outer-loop PREHEADER only when it can give the web a
+ * callee-saved register that is free across the WHOLE outer loop (drop
+ * `beat` and Wait hoists into ebx; add a third call site and it hoists into
+ * ebp), and otherwise defines the web at the loop HEAD -- our shape.  Here
+ * every candidate is taken inside the pump (esi/edi by `repe cmpsd`, ebx by
+ * the const-4 web, ebp by the promoted `beat`), so the original's esi/edi
+ * hoist WITH a split (reload on the pump's exit edge, in the allocator's
+ * edi/esi order rather than the scheduler's esi/edi) is an allocation-order
+ * or cost-tie outcome the visible code does not determine.  Measured inert
+ * on the real body (byte-identical objects): `if (beat) ;` block splits
+ * before the loop, at the head and inside the pump; `beat = beat;` twice;
+ * dead `if (0) { WaitForSingleObject(..); ResetEvent(..); }` before the loop
+ * and inside the pump; `if (WaitForSingleObject && ResetEvent) ;`; a named
+ * `guid` pointer for the memcmp; `beat` declared first; the two dllimport
+ * declarations moved ahead of memcmp's; all five other orders of the
+ * compare-chain `switch (g_imt_cmd)` cases.  Worse: any other order of the
+ * jump-table notify switch (16 / 18 -- the source order IS the block order)
+ * and swapping case 4's arms (33).  In the model `for (;;)`, `while (1)`,
+ * `do .. while (1)`, a goto loop, a guarded do-while pump and a for/break
+ * pump are byte-identical, so no loop syntax reaches it. */
 // WIP-FUNCTION: LEGOLAND 0x00492db0  (3161/3161 insns, 11325/11335 bytes, mismatch 7; see the note above)
 unsigned long __stdcall MusicThread(void* param)
 {
