@@ -665,6 +665,22 @@ extern int  SnapIconScroll(int mask, short limit, short edge, short group,
  * move. Keep the asymmetric horizontal/vertical snapping and short ABI.
  * Full measurements: docs/lanes/scope-i.md.
  */
+/* Scope LL17 (2026-09-08): the LL14 appearance-count lever measured and
+ * inert, 13 spellings, still 35 strict / 304 B.  Post-call the four webs
+ * (list_x0, list_y0 loads; nx, ny sums) each have three surviving refs
+ * (def + two uses) and the measurements fit one model: equal ranks are
+ * coloured LATEST-DEFINED FIRST with register preference edi, edx, ebx,
+ * ebp (baseline ny->edi nx->edx list_y0->ebx list_x0->ebp; defining ny
+ * before nx gives nx->edi ny->edx, exactly as predicted).  The original's
+ * list_y0->edi list_x0->edx ny->ebx nx->ebp is that same model with the
+ * two LOADS ranked above the two sums, so a fourth surviving ref on each
+ * load would close it -- but none exists: naming the loads (x0/y0) is
+ * byte-identical; spelling the compare as `x0 + dx` is CSE'd with nx
+ * BEFORE ranking (counts stay tied, 86); a fourth algebraic use in the
+ * list_x1/list_y1 write-backs is folded before ranking (89, identical);
+ * defining x0/y0 above the early exits keeps them in ebx/edi across the
+ * call (50-56).  Every use the original has of the load registers is
+ * already in our source, so the load web cannot gain a ref.  Floor. */
 // WIP-FUNCTION: LEGOLAND 0x0046d850  (71.1%, 35/121 strict; four-value allocation floor; first 62)
 void ScrollIconPanel(ObjListPanel* w, int dx, int dy)
 {
