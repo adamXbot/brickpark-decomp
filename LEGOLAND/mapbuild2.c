@@ -44,6 +44,33 @@ extern int  ObjHasExit(ObjDef* d);                                     /* 0x0045
  * counter with `pt.x = x` at the top of the body moves x into a
  * callee-saved register and costs 50. strict == rb == ob: a permutation of
  * one store and one load. */
+/* Scope LL17 (2026-09-08): 20 spellings; body unchanged (110/116 is still
+ * the strict best) but the residual is now MECHANISED and bounded by two
+ * floors.  The original's latch reads sq->x1 BEFORE it stores pt.x (and so
+ * do both loop entries: `mov eax,[x0] / mov ecx,[x1] / mov [pt.x],eax`),
+ * ours after.  Diagnostic: a GLOBAL as the bound hoists exactly as the
+ * original (x loop exact), so the pin is the scheduler's pointer-load vs
+ * frame-store dependence, which `/Oa`, `/Ow`, `#pragma optimize("a")`, an
+ * `unsigned` view and a volatile view of the bound all leave in place --
+ * the order is therefore SOURCE order in the original.  Every spelling that
+ * reads the bound into a temp before the increment (`end = sq->x1; pt.x++`
+ * in a do/while, `for (...; pt.x <= end; end = sq->x1, pt.x++)`, and
+ * `pt.x = pt.x + ((end = sq->x1), 1)` in any operand order -- VC6 hoists
+ * the side-effecting subexpression first) gives the original's instruction
+ * sequence EXACTLY with eax/ecx swapped in both latches: 106/116 strict,
+ * register-blind ZERO.  Scratch registers go by definition order and `end`
+ * is always defined first; the only construct that defines the counter
+ * first and still keeps `inc` in one web is the bundled memory increment,
+ * whose store then precedes the bound read.  Named-temp forms (`v = pt.x;
+ * v++; end = ...; pt.x = v`, with `v += 1`, with the +1 in the load
+ * statement) are forward-substituted into `lea eax,[ecx+1]` (two webs) and
+ * an LL10 empty-if pin between load and increment or after the increment
+ * does not stop it.  The temp ENTRY (`v = sq->x0; end = sq->x1; pt.x = v;
+ * if (v <= end)`) is exact and the natural entry is not, so the original's
+ * entry has the same load-before-store property.  Pick: strict 6 with a
+ * 3-instruction permutation per latch (this body) or strict 10 with a pure
+ * eax/ecx swap (the `end` temp spelling).  LL14's ranking model does not
+ * apply to scratch registers here (definition order decides).  FLOOR. */
 // WIP-FUNCTION: LEGOLAND 0x00459970  (94.8%, both loop latches: the original sinks the pt.x store below the compare and hoists the sq->x1 load above the cleanup; ours stores first)
 void TallyBuildFootprints(void)
 {

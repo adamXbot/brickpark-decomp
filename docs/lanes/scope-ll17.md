@@ -16,7 +16,7 @@ count). Object prefix `/tmp/sll17_`. Brief:
 | 0x0045e960 | FindObjDoorTile | mapbuild2.c | 6/89 | **0/89** | PASS, 3 OK | **FUNCTION** |
 | 0x0048f0f0 | InitExitCheckBox | screens2.c | 118/119 | 118/119 | PASS, 11 OK | WIP (floor, note extended) |
 | 0x0048a3e0 | GetObjectUID | objmap2.c | 20/191 | 20/191 | PASS, 14 OK | WIP (floor, note extended) |
-| 0x00459970 | TallyBuildFootprints | mapbuild2.c | | | | |
+| 0x00459970 | TallyBuildFootprints | mapbuild2.c | 6/116 | 6/116 | PASS, 3 OK | WIP (floor, note extended) |
 | 0x00499d60 | UnlinkGardenerOrder | workorder3.c | | | | |
 
 (`[OK]` counts are the whole-file `audit.py` totals; baselines were fpui4.c 6,
@@ -143,3 +143,31 @@ pointer (1–3 appearances already measured identical) and an unnamed
 compiler scratch, so no reference count can move. Prediction: none.
 Retired; PASS 6's volatile proof (register-blind zero) remains the sharpest
 statement.
+
+### 0x00459970 TallyBuildFootprints — two floors, mechanism recovered (20 spellings)
+
+Residual: in both latches (and both entries) the original reads `sq->x1`
+before it stores `pt.x`; ours after. `strict == rb == ob`.
+
+| spelling | result |
+| --- | --- |
+| baseline `for (pt.x = sq->x0; pt.x <= sq->x1; pt.x++)` | 110/116 (6) |
+| do/while with `++pt.x <= sq->x1` | identical |
+| do/while with `pt.x++ < sq->x1` | 93/118 |
+| **diagnostic: a global as the bound** | x loop EXACT — the pin is a pointer-load vs frame-store dependence |
+| all `pt` accesses through `Pos* pp` | identical |
+| `/Oa`, `/Ow`, `#pragma optimize("a", on)`, `(unsigned)` view, volatile view | identical — the dependence is not lifted by any aliasing switch |
+| `end = sq->x1` before `pt.x++` (do/while); `for (...; end = sq->x1, pt.x++)`; `pt.x = pt.x + ((end = sq->x1), 1)` (3 operand orders) | **106/116, register-blind ZERO**: exact sequence, eax/ecx swapped in both latches |
+| `v = pt.x; end = ...; v++; pt.x = v` and `v += 1`, `v = pt.x + 1` forms | 94–96: `lea eax,[ecx+1]`, two webs |
+| LL10 pin `if (v) ;` between load and `++`, and after `++` | identical to the unpinned form |
+| temp entry `v = sq->x0; end = sq->x1; pt.x = v; if (v <= end)` | entry block EXACT (natural entry is not) |
+
+Mechanism: scratch registers follow definition order; VC6 hoists the
+side-effecting subexpression (`end = ...`) to the front of any statement, so
+the bound always defines first; the only construct that defines the counter
+first and keeps `inc` in one web is the bundled memory increment, whose store
+then precedes the bound read. The original's source therefore read the bound
+before the store with the counter defined first — a shape no C statement
+reproduces here. Committed body unchanged (strict best). LL14: not applicable
+(scratch, definition-ordered). LL10: inert (forward substitution hoists the
+consumer to the definition site rather than the reverse).
