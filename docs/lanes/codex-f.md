@@ -248,10 +248,60 @@ scratchpad, not committed):
 - 0x00458930 is the CRT `_ftol` (used for `(int)kf1[1]`), so the loop's
   bare fistp is inline asm, not /QIfist.
 
-Next: find a code-neutral way to give the inner loop a fourth value that
-is live across the asm block (or that outranks the j IV for EAX). The
-pre-asm `sb`/`s` forms prove the rest of the body, including every spill
-slot, is already right.
+Fourth sweep (2026-09-08, sibling-first, ~300 variants on
+`PutOne3DBlokeOnRide` 0x00441980 in mantex.c, then applied back):
+
+- DECISIVE: adding any EAX write to the asm block (`xor eax,eax`,
+  `inc eax`, `mov eax,0` after the fistp) makes the mantex sibling 81/82
+  (matchfull) -- every instruction of the original including the
+  post-asm `sign_a[j]` load, the `add ecx,4` placement, esi/ebx/edi for
+  si/hoisted/track and ecx/edx for the j and cursor IVs; the only
+  difference is the clobber instruction itself. A read of EAX (`test`,
+  `cmp`) does nothing; a write to ECX or EDX gives a different, wrong
+  picture. On Copters the same clobber plus the pre-asm
+  `sb = sign_b[oa]` gives 163/175. So both originals were compiled by a
+  VC6 that believed this fld/fmul/fistp block wrote EAX.
+- That belief is NOT a compiler build: the decomp.me packages msvc6.0
+  (12.00.8168), 6.4, 6.5 and 6.6 (12.00.8804, distinct C2.DLL checksums)
+  produce byte-identical output to our SP3 8447 for the base bodies and
+  for the parameter-reassignment variants. Not the front end either
+  (`/TP` with `extern "C"` is identical), nor any flag (/Oa /Ow /Op /Za
+  /Ge /Gh /G3-/G6 /Ob0-2 /Oy- /Os /Oi- /Gf /GX /GR /Zp /J /MT /MD /ML /Gs
+  /QIfist /Zi /Z7 all measured on the sibling).
+- Not the asm text: `fld frame`/`dword ptr [frame]`/`frame[0]`/
+  `[ebp+frame]`/`ss:`/upper case/`(frame)`/raw `[ebp+16]` (which
+  additionally drops the 65536 store as dead), one block vs bare lines,
+  a label, an empty block, a comment, `even`, and a C statement placed
+  between the asm lines (VC6 keeps C code exactly where it sits between
+  asm statements; the scheduler hoists loads above C stores but never
+  across an asm line).
+- Not the variables: `float f` / `float scale` locals land in the dead
+  `frame`/`screen_x` parameter slots by themselves (the pointer puns are
+  unnecessary but harmless); a union, `register`, a float-typed
+  parameter, an int fistp target other than the fld source, an inlined
+  FixMul helper (return value or out-param), a real call in place of
+  the asm (everything then goes callee-saved and ebp is freed) -- none
+  reproduce the picture without bytes. The clamp is not written back to
+  [ebp+0x10] in the original, so `frame` itself is not the asm's
+  variable there; a float local homed in its slot is.
+- `sa = sign_a[j]` before the asm (77/81) and a `_ftol` call before the
+  loop (63/82) flip the same core (j=ecx, cursor=edx, si=esi, track=edi)
+  by other routes; 90 random spellings of every other axis leave the
+  base picture untouched, so the base is a knife-edge that only an
+  extra EAX occupant across the asm resolves the original's way.
+- 0x00458930 is the game's own three-instruction `_ftol` replacement
+  (`fistp [scratch]; mov eax,[scratch]; ret`), so `(int)` casts call it
+  and the loop's bare fistp is inline asm, not /QIfist.
+
+Next: the missing piece is whatever made VC6 mark EAX as written by
+this asm block with no extra bytes. Nothing in the C or asm syntax
+tried so far does it; the two remaining ideas are (a) an instruction
+the compiler emits for C code inside the loop that we have attributed
+to the asm and that VC6 models as an EAX def, and (b) an inline-asm
+construct outside the loop body (e.g. an asm block earlier in the
+function, or in a macro used by both files) that changes how the asm
+blocks in the loop are modelled. Both siblings must be closed by the
+same construct.
 
 ## Remaining
 
