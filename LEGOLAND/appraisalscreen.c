@@ -278,7 +278,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK8(LBL)                                                      \
     LINE8_BODY(MARK, textbuf)
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (7821/8085 insns emitted, 34224/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7933, index-for-index MATCH 152, true LCS 52.3%; the page reset is now hoisted above the rewind test and repeated in the fall-through arm, which is the original's shape and closes the double-copy residual -- the page-break blocks now hold 2778 instructions against the original's 2605, up from 1981.  page_start is in ebp and indent is memory-homed, as the original.  What is left is the stack SLOT PERMUTATION: our 33 dwords hold the same values as the original's in a different order, and remapping them mechanically takes the LCS from 50.6% to 59.8%)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (7824/8085 insns emitted, 34224/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7923, index-for-index MATCH 162, true LCS 54.9%; VC6 orders this frame by DESCENDING reference weight (per dword for aggregates), which is why our slots were permuted against the original's.  `box` and `cur` are now one non-escaping aggregate so they sit adjacent as the original has them, paid for by writing the bar rectangle's top/bottom before its two constants, which takes `bar`'s stack home away.  What is left of the permutation is the `n*0x4c` byte-offset temp, whose 210 references outrank `page_start` and hold it off slot 0x10)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -290,8 +290,18 @@ int RunAppraisalScreen(void)
      * original leaves them undefined until the render loop's first page
      * turn, which is what lets VC6 pack them onto build-phase slots. */
     int   narr[200];
-    AppraisalBox box;
-    AppraisalBox cur;
+    /* `box` and `cur` are ONE aggregate.  The original's frame has them
+     * adjacent at 0x1c and 0x2c with `box` below, and VC6 orders this frame
+     * by descending reference weight (see the lane doc's tenth pass), so two
+     * separate 16-byte structs with different weights get pulled apart --
+     * ours had `cur` at 0x14 and `box` at 0x44.  A non-escaping aggregate
+     * pins them together and is worth 2.6 points of LCS.  It is only free
+     * once `bar` has lost its stack home (see the render loop): inside an
+     * aggregate `box`'s home is live to the end, so `bar` can no longer
+     * share it and the frame grows by 0x10. */
+    struct { AppraisalBox box, cur; } r;
+#define box r.box
+#define cur r.cur
     int n;
     int page_start;
     int indent;
@@ -1005,10 +1015,16 @@ build_done:
             cur.bottom = cur.top + 0x16;
             NewPrintColoured(lines[i].text, 2, cur, lines[i].colour);
             if (lines[i].bar) {
-                bar.left = 0x126;
+                /* Top and bottom FIRST: with the two constants written first VC6
+                 * holds `cur.top + 8` in a register that the argument pushes then
+                 * clobber and spills it, which gives `bar` a stack home of its own
+                 * (`_bar$` stops sharing `_box$`).  The original has no `bar` slot
+                 * at all -- it builds the rectangle straight onto the pushed
+                 * arguments at 0x0044d9d5 -- and this order reproduces that. */
                 bar.top = cur.top;
-                bar.right = 0x1a4;
                 bar.bottom = cur.top + 8;
+                bar.left = 0x126;
+                bar.right = 0x1a4;
                 DrawAppraisalBar(bar, lines[i].value, lines[i].range, lines[i].mark);
             }
             cur.top += 0x18;
