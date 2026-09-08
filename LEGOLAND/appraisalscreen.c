@@ -255,6 +255,40 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
         cur = box;                                                        \
     }
 
+/* The nine section HEADS specialise the rewind arm.  At a head
+ * `sect_start == n` and `indent` has not moved since the section's own
+ * `lines[n].indent = indent`, so the general rewind's `n = sect_start` and
+ * `indent = lines[sect_start].indent` are both no-ops there and only
+ * `page_start = n; g_report_pages++;` survives; the original emits exactly
+ * that inline at all nine head sites and jumps straight at the SECTION
+ * label rather than at the shared rewind block:
+ *
+ *     0x0044546c  s1   ... mov [esp+0x10],ebp ... jmp 0x445422 (sect1)
+ *     0x00445594  s2   jne 0x44546c  -- into section ONE's copy (the bug)
+ *     0x00446795  s3   jmp 0x446a3f  -- into rew_sect3's tail
+ *     0x00446bd8  s4   jmp 0x446e7c        0x00447012  s5  jmp 0x4472b3
+ *     0x00447449  s6   jmp 0x44772e        0x004478c4  s7  jmp 0x447d44
+ *     0x00447eb8  s8   ... mov [esp+0x10],ebp ... jmp 0x447e73 (sect8)
+ *     0x0044ad00  s9   ... mov [esp+0x10],ebp ... jmp 0x44acbb (sect9)
+ *
+ * Sections 3-7 are guarded, so their arm tail-merges with the shared rewind
+ * block's `mov [esp+0x10],ebp / mov ecx,[FLAGS] / test / jne` suffix -- the
+ * block re-tests the section guard because `goto sectK` lands on the `if`.
+ * Sections 1, 8 and 9 have nothing to merge with and keep the store inline.
+ * Worth 131 on the mismatch counter and 2.0 points of LCS. */
+#define PAGE_CHECK_H(LBL)                                                 \
+    if (cur.bottom > 0x1b5) {                                             \
+        cur = box;                                                        \
+        if (page_start != sect_start) {                                   \
+            page_start = n;                                               \
+            g_report_pages++;                                             \
+            goto LBL;                                                     \
+        }                                                                 \
+        g_report_pages++;                                                 \
+        page_start = n;                                                   \
+        cur = box;                                                        \
+    }
+
 /* A section HEADER line.  The original's nine section labels are all
  * entered with `cur.bottom` already computed: at every one of them the
  * `lea eax,[edi+0x16]` sits ABOVE the label and the head's own check is a
@@ -265,7 +299,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
  * what lets the rewind arm's `cur = box` feed the check through `eax` and
  * is why the hoisted copy never stores `cur.bottom`. */
 #define TEXT_LINE_H(LBL, MARK, ID)                                        \
-    PAGE_CHECK8(LBL)                                                      \
+    PAGE_CHECK_H(LBL)                                                      \
     lines[n].page = g_report_pages;                                       \
     lines[n].indent = indent;                                             \
     lines[n].ok = (MARK);                                                 \
@@ -308,7 +342,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     PAGE_CHECK8(LBL)                                                      \
     LINE8_BODY(MARK, textbuf)
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (8133/8085 insns emitted, 34784/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7976, index-for-index MATCH 109, true LCS 62.5%; audit prints ESCAPES only because the body is still 48 instructions longer than the original.  The hoisted cur.bottom store is GONE -- all 124 page-break blocks now match the original's 124/0 census, and the typical block is instruction-for-instruction the original's apart from sect_start's displacement.  ONE residual remains: the THREE-SLOT ROTATION at the bottom of the frame -- our n*0x4c byte-offset CSE temp holds 0x10 with 221 references where the original puts page_start, so page_start, indent and sect_start all sit one slot high.  VC6 orders this frame by descending reference weight per dword and the ORIGINAL's frame breaks that rule at exactly these three slots: its temp has 222 references and still sits at 0x18, below page_start's 173 and indent's 171)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (8181/8085 insns emitted, 34928/34662 bytes, frame 0x23d4 exact, first diverging index 8, mismatch 7845, index-for-index MATCH 240, true LCS 64.5%, difflib 55.1% -- all four lane bests; audit prints ESCAPES only because the body is 96 instructions longer than the original.  The nine section HEADS now specialise their rewind arm the way the original does (PAGE_CHECK_H): +131 mismatch, +131 MATCH, +2.0 LCS at no cost to the frame.  Two residuals remain, and they are both zone-located.  (1) SECTION 9 is +86 over its ~37 hint lines, a flat +2 per line, and both instructions are downstream of the THREE-SLOT ROTATION at the bottom of the frame -- our n*0x4c byte-offset CSE temp holds 0x10 with 221 references where the original puts page_start, so page_start, indent and sect_start all sit one slot high, and section 9 (where ebp holds the line offset) then loads page_start where the original compares it in place.  (2) SECTION 7's header writes every field of the line record through a materialised `lea`+spill address temp where ours indexes directly, ~19 instructions; a plain `int* p` in the source is byte-identical -- VC6 copy-propagates it away)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -1000,12 +1034,8 @@ sect9:
     /* ================================================================== */
 
     goto build_done;
-rew_sect1:
-    page_start = sect_start;
-    n = sect_start;
-    indent = lines[sect_start].indent;
-    g_report_pages++;
-    goto sect1;
+    /* No rew_sect1: section one is one line long, so its only page check is
+     * the head's, and the head's arm is the specialised one above. */
 rew_sect2:
     page_start = sect_start;
     n = sect_start;
