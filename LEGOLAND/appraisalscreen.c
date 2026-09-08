@@ -169,7 +169,7 @@ extern void*   g_focussed_icon;                             /* 0x006687d0 */
     n++;                                                                  \
     y += 0x18;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (1286/8085 insns emitted, first diverging index 5, frame 0x2190 vs 0x23d4; report sections 1-2 plus the render and input loops)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (2052/8085 insns emitted, first diverging index 0, frame 0x21ac vs 0x23d4; report sections 1-5 plus the render and input loops)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -191,6 +191,9 @@ int RunAppraisalScreen(void)
     int ok;
     int v;
     int nattr, vattr;
+    int nscen, vscen;
+    int nfood, vfood;
+    int nshop, vshop;
     int i;
     int x;
     int nclose;
@@ -311,9 +314,95 @@ sect2:
             }
         }
         lines[sect_start].ok = (passed == total);
-        all_passed = passed;
+        all_passed += passed;
         indent -= 0x30;
-        all_total = total;
+        all_total += total;
+    }
+
+    /* ---- scenery ------------------------------------------------------ */
+sect3:
+    if (FLAGS & 0x38000000) {
+        total = 0;
+        passed = 0;
+        sect_start = n;
+        lines[n].indent = indent;
+        TEXT_LINE(sect3, ok, 0x144)
+        indent += 0x30;
+        CountScenery(&nscen, &vscen);
+        if (FLAGS & 0x8000000) {
+            total++;
+            ok = nscen >= g_goal[25];
+            if (ok) passed++; else failmask |= 0x1000;
+            BAR_LINE(sect3, 0x132, nscen, g_goal[25], g_goal[26])
+        }
+        /* The 0x20000000 bit of the section guard has no statistic behind
+         * it and fail bit 0x4000 is never set: original, left alone. */
+        if (FLAGS & 0x10000000) {
+            total++;
+            ok = vscen >= g_goal[27];
+            if (ok) passed++; else failmask |= 0x2000;
+            BAR_LINE(sect3, 0x133, vscen, g_goal[27], g_goal[28])
+        }
+        lines[sect_start].ok = (passed == total);
+        all_total += total;
+        indent -= 0x30;
+        all_passed += passed;
+    }
+
+    /* ---- food --------------------------------------------------------- */
+sect4:
+    if (FLAGS & 0xc0000000) {
+        total = 0;
+        passed = 0;
+        sect_start = n;
+        lines[n].indent = indent;
+        TEXT_LINE(sect4, ok, 0x145)
+        indent += 0x30;
+        CountFood(&nfood, &vfood);
+        if (FLAGS & 0x40000000) {
+            total++;
+            ok = nfood >= g_goal[31];
+            if (ok) passed++; else failmask |= 0x8000;
+            BAR_LINE(sect4, 0x132, nfood, g_goal[31], g_goal[32])
+        }
+        if (FLAGS & 0x80000000) {
+            total++;
+            ok = vfood >= g_goal[33];
+            if (ok) passed++; else failmask |= 0x10000;
+            BAR_LINE(sect4, 0x133, vfood, g_goal[33], g_goal[34])
+        }
+        lines[sect_start].ok = (passed == total);
+        all_total += total;
+        indent -= 0x30;
+        all_passed += passed;
+    }
+
+    /* ---- shops -------------------------------------------------------- */
+sect5:
+    if (FLAGS & 0x30000) {
+        total = 0;
+        passed = 0;
+        sect_start = n;
+        lines[n].indent = indent;
+        TEXT_LINE(sect5, ok, 0x146)
+        indent += 0x30;
+        CountShops(&nshop, &vshop);
+        if (FLAGS & 0x10000) {
+            total++;
+            ok = nshop >= g_goal[13];
+            if (ok) passed++; else failmask |= 0x20000;
+            BAR_LINE(sect5, 0x132, nshop, g_goal[13], g_goal[14])
+        }
+        if (FLAGS & 0x20000) {
+            total++;
+            ok = vshop >= g_goal[15];
+            if (ok) passed++; else failmask |= 0x40000;
+            BAR_LINE(sect5, 0x133, vshop, g_goal[15], g_goal[16])
+        }
+        lines[sect_start].ok = (passed == total);
+        all_total += total;
+        indent -= 0x30;
+        all_passed += passed;
     }
 
     /* ================================================================== */
