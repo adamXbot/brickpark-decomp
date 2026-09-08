@@ -2077,14 +2077,56 @@ two forms are close but not identical — some of sections 1-7's per-line checks
 in the original may also be line-end rather than check-site. That is the next
 thing to census, and it is now a much smaller question than it was.
 
+### Where the remaining 48 instructions are, zone by zone
+
+Aligning the 122 `push <string id>` instructions of the two streams (they are
+in the same order except section 9's last two hint groups, which the original
+lays out `0x226` then `0x21d` and ours the other way round) gives a running
+delta with no `esp` tracking and no guesswork. It is the sharpest zone tool
+this lane has had; rebuild it from this paragraph.
+
+| landmark | original | ours | delta |
+| --- | --- | --- | --- |
+| `0x12c` section 1's title | 84 | 76 | −8 |
+| `0x143` end of section 2 | 1,117 | 1,129 | +12 |
+| `0x147` section 6's header | 2,019 | 2,011 | −8 |
+| `0x14b` section 7's first line | 2,382 | 2,343 | **−39** |
+| `0x230` section 8's header | 2,657 | 2,610 | −47 |
+| `0x173` end of section 8 | 4,954 | 4,928 | −26 |
+| `0x174` section 9's header | 5,367 | 5,341 | −26 |
+| `0x21c` section 9's last group | 7,589 | 7,649 | **+60** |
+| end of the build | 7,796 | 7,844 | **+48** |
+
+Two localised residuals, and they very nearly cancel:
+
+1. **Section 9 is +86 over ~37 hint lines — a flat +2 per line**, and both
+   instructions are downstream of the three-slot rotation. Diffed at
+   `0x17c` (original 5,435, ours 5,411): the original's page-break block does
+   `cmp [esp+0x10],ecx` — `page_start` straight from its home, because `ebp`
+   holds the line byte offset in section 9 — where ours loads it
+   (`mov ecx,[esp+0x14] / cmp ecx,edx`); and the original keeps `box.left` in
+   `edx` across the branch where ours has to reload it in the fall-through
+   arm. Writing the test as `if (sect_start != page_start)` does **not** move
+   it (measured this pass: identical 8,133 emitted, LCS 62.5% -> 62.0%),
+   which is the eleventh pass's result again under the new shape.
+2. **Section 7's header is ~30 instructions SHORT.** The original builds
+   `&lines[n].page`, `&lines[n].indent`, `&lines[n].ok` and `&lines[n].text`
+   as `lea eax,[esp+ecx+0x94]` pointer temps and stores through them
+   (`mov [esp+0x18],eax / mov [eax],edx`), where ours indexes each field
+   directly. Those are the original's `0x40` and `0x58` pointer temps. This is
+   the second pass's `RepLine*` cursor question in a much narrower form — it
+   is only some sites, not the whole build.
+
 ### What a fifteenth pass should try
 
 1. **The three-slot rotation** at `0x10`/`0x14`/`0x18` — unchanged, and still
    the largest single residual (worth ~2.4 LCS by the tenth pass's remap
-   measurement). Do NOT retry weight arithmetic or web decomposition: the
-   thirteenth pass refuted both. Only a non-weight mechanism would move it.
-2. **The remaining 48-instruction overshoot**, above: census which of
-   sections 1-7's per-line page checks are line-end rather than check-site
-   form, using the `lea [edi+0x16]` count (102 vs 76) as the target.
+   measurement, plus the 86 instructions of residual 1 above, which is
+   downstream of it). Do NOT retry weight arithmetic or web decomposition:
+   the thirteenth pass refuted both, and the operand-order lever was retried
+   and refuted again this pass. Only a non-weight mechanism would move it.
+2. **Section 7's pointer temps**, residual 2 above — a self-contained ~30
+   instructions with a named mechanism.
 3. The 38 `cmp ebp,edx` rewind tests, which are downstream of the `box` load
-   order in the hoisted block.
+   order in the hoisted block, and section 9's last two hint groups, which
+   the original emits in the opposite order.
