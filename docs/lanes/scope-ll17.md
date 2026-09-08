@@ -201,3 +201,41 @@ and the tail is hosted at the head arm. Here the `(p)` test folds (p is proven
 non-null by the early return), so the token costs nothing. Machine-identical
 copies are NOT cross-jumped backward in this shape (U3), which is why the
 copy route could never work. LL14/LL10: not applicable (pure block layout).
+
+## Scope verdict (resumed session, 2026-09-08)
+
+Seven bodies: **three closed** (BuildPTPRoute 76/76, FindObjDoorTile 89/89,
+UnlinkGardenerOrder 68/68), four retired at their floors with the mechanism
+recorded. Whole-file gates at every commit: fpui4.c 6 OK, workorder3.c
+1 → 3 OK, mapbuild2.c 2 → 3 OK, objmap2.c 14 OK, screens2.c 11 OK; relocs
+zero MISMATCH and `/W3` silent on every touched file.
+
+Did the LL14 appearance-count model predict the allocations?
+
+| body | class | model's prediction | what actually decided it |
+| --- | --- | --- | --- |
+| ScrollIconPanel | callee-saved ranking | correct in form (loads must outrank sums), unreachable from C | — |
+| BuildPTPRoute | callee-saved pair swap | predicted a ref must move; none did | block graph: one source return + `break` (late tail duplication) |
+| FindObjDoorTile | callee-saved vs scratch | silent | RA02: direct field expression vs named aggregate copy |
+| InitExitCheckBox | zero web | out of domain (one candidate, no ranking) | hoist threshold; phi(0,0) folds |
+| GetObjectUID | esi/edx role swap | out of domain (unnamed scratch temp) | re-materialisation placement of a global load |
+| TallyBuildFootprints | scratch eax/ecx | out of domain | definition order; pointer-load vs frame-store dependence |
+| UnlinkGardenerOrder | block layout | out of domain | BL12 empty trailing `else { }` |
+
+Net: the count model explained none of the seven closures or floors. Its one
+correct structural statement (ScrollIconPanel) had no reachable spelling. The
+levers that paid were block-graph levers (single return + break; empty trailing
+else) and a reconstruction correction (direct field reads). The LL10 empty-if
+pin was measured inert on constant-valued locals, on global loads and on a
+forward-substituted increment temp — it moves register-resident locals only.
+
+Two new mechanism notes for LEVERS candidates:
+- **Scratch registers follow definition order and VC6 hoists a side-effecting
+  subexpression to the front of its statement**, so a bound temp defined in
+  the same statement as a memory increment always takes eax
+  (TallyBuildFootprints). A pointer load is never scheduled across a store to
+  an address-taken frame local, and `/Oa`, `/Ow`, `#pragma optimize("a")` do
+  not lift that.
+- **Machine-identical tail copies are not cross-jumped backward** when each
+  ends in its own cloned epilogue (UnlinkGardenerOrder U3); the backward jump
+  into an earlier tail comes from layout (the exiled arm), reachable with BL12.
