@@ -9,17 +9,22 @@ one function.
 | --- | --- |
 | address | `0x004453a0` |
 | original | 8,085 instructions, 34,662 bytes, frame `0x23d4` |
-| ours | 7,565 instructions, 33,549 bytes, frame **`0x23d4` (exact)** |
+| ours | 6,821 instructions, 29,309 bytes, frame **`0x23d4` (exact)** |
+| first diverging index | 6 |
+| mismatch | 8,005 of 8,085 |
+| `FULL MATCH` | 2,914/6,821 = 42.7% |
 | audit | `[WIP]`, file ends `PASS` |
 | relocs | zero `MISMATCH` (a WIP body is skipped) |
 | `/W3` | clean |
 
-Not exact. **The whole build phase is now transcribed** — all nine sections,
-the advice chain, the closing sprintf line and the hint section — and the
-render and input loops are written approximately. What is left is
-register/slot placement, not missing code: the first diverging index is
-still 0 because the frame is 8 bytes short (`0x23cc` vs `0x23d4`) and the
-callee-saved assignment differs (see "What is left" at the end).
+Not exact. **The whole build phase is transcribed** — all nine sections, the
+advice chain, the closing sprintf line and the hint section — and so are the
+render and input loops, whose length now agrees with the original's to within
+a handful of instructions. What is left is one thing and its consequences:
+the original keeps `box` in memory and reloads it at every page-break site
+while ours constant-folds it. See the fifth pass at the end; the instruction
+shortfall, the missing `edi = y`, and the `indent` / `page_start` register
+flip are all downstream of it, so they are not separate work items.
 
 ## What the screen is
 
