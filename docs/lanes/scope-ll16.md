@@ -834,3 +834,187 @@ certainly the check-site form (their checks recompute `lea eax,[edi+0x16]`
 after `rand`/`GetString` calls).  The check-site form is what is committed;
 section 8's true spelling is still open and is coupled to the `box`
 folding question.
+
+## 2026-09-08 (eighth pass) — section 8's line-end form, proved from the object
+
+| | seventh pass | now |
+| --- | --- | --- |
+| emitted | 7,252 | 7,272 |
+| bytes | 31,792 | 31,952 |
+| frame | `0x23d4` exact | `0x23d4` exact |
+| first diverging index | 6 | 6 |
+| mismatch | 8,007 | **7,937** (the lane's best) |
+| index-for-index `MATCH` | 78 | **148** |
+| `FULL MATCH` (difflib) | 46.4% | 39.9% |
+| true LCS vs the whole original | 51.2% | 50.2% |
+
+### Read the metrics in this order: mismatch, `MATCH`, LCS — not `FULL MATCH`
+
+`matchfull.py` truncates the ORIGINAL to `len(comp)` and then runs
+`difflib.SequenceMatcher`, whose result is a greedy longest-matching-block
+approximation, not an LCS.  On a 7,000-element sequence it swings several
+points when a single anchor block moves, so a 6-point `FULL MATCH` change on
+a twenty-instruction edit means nothing on its own.  A bit-parallel LCS
+(Allison–Dix) over the FULL original is stable and moved only 51.2% -> 50.2%
+for the same edit that took mismatch down 70 and index-for-index matches up
+70.  Keep `/tmp/sll16c/lcs.py`-style scoring alongside the two committed
+tools; the shape is
+
+```python
+idx = {}
+for j, b in enumerate(B): idx[b] = idx.get(b, 0) | (1 << j)
+V = (1 << len(B)) - 1
+for a in A:
+    u = V & idx.get(a, 0)
+    V = ((V + u) | (V - u)) & ((1 << len(B)) - 1)
+lcs = bin(V ^ ((1 << len(B)) - 1)).count('1')
+```
+
+### Section 8 updates `cur.bottom` at the LINE END — no longer a hypothesis
+
+0x00448661, in the middle of the advice chain:
+
+```
+add  edi, 0x18                  ; cur.top += 0x18
+mov  [eax], ecx                 ; the NARR nids++
+lea  eax, [edi + 0x16]          ; cur.bottom = cur.top + 0x16
+mov  [esp + 0x38], eax          ; ...stored
+test byte ptr [esp + 0x48], 2   ; if (failmask & 2)
+je   0x44877f
+cmp  [esp + 0x38], 0x1b5        ; if (cur.bottom > 0x1b5)
+```
+
+The bottom is computed at the END of the previous line, *above* the next
+piece of advice's `failmask` test, and the check only reads it.  VC6 does not
+sink a computation past a branch, so this cannot be the check-site form.
+Three independent confirmations:
+
+- **All 28 `cmp [esp+0x38],0x1b5` memory compares in the body are in section
+  8** and nowhere else (zone census below).  Under the check-site form the
+  compare always has a fresh `lea` in the same block.
+- **Section 8 is entered with `cur.bottom` already live.**  The `sect8:`
+  label is 0x00447e73; the `lea eax,[edi+0x16]` its header check consumes is
+  at 0x00447e6c, *above* the label, so it cannot be part of a check that the
+  rewind (`jmp 0x447e73`) has to re-run.  The rewind path instead arrives
+  with `eax = box.bottom` from its own `cur = box`.
+- **Sections 1–7 are not the line-end form.**  At 0x00445791, 0x004458c5 and
+  0x00445a02 a line ends `add edi,0x18` and the very next instruction is the
+  next statistic's `test [FLAGS],K` — no `lea eax,[edi+0x16]` in between.
+
+Zone census of the original (`s8` = 0x447e73..0x44a70c):
+
+| idiom | s1 | s2 | s3–7 | s8 | close | s9 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `cmp [esp+0x38],0x1b5` | | | | **28** | | |
+| `cmp <reg>,0x1b5` | 1 | 20 | 15 | 11 | 6 | 42 |
+| `lea <reg>,[edi+0x16]` | 1 | 19 | 16 | 30 | 1 | 40 |
+
+### What is on disk
+
+Section 8 and the closing "next time" lines use `PAGE_CHECK8` — a bare
+`if (cur.bottom > 0x1b5)` — with `cur.top += 0x18; cur.bottom = cur.top +
+0x16;` at the line end of the advancing ones and nothing at the end of the
+five no-advance ones; a single `cur.bottom = cur.top + 0x16;` sits just above
+the `sect8:` label.  Sections 1–7 and 9 keep `PAGE_CHECK`.  Resulting census,
+ours against the original:
+
+| | ours | original |
+| --- | --- | --- |
+| `cmp` cur.bottom in memory | 27 | 28 |
+| `cmp` cur.bottom in a register | 96 | 95 |
+| `lea <reg>,[edi+0x16]` | 106 | 107 |
+| stores to cur.bottom | 152 | 147 |
+
+Variants measured: the line-end form for section 8 *without* the closing
+lines is mismatch 8,019; without the pre-`sect8:` update the frame breaks to
+`0x23d8` and mismatch is 8,049.  The seventh pass's report that this spelling
+constant-folds section 8's `cur = box` **did not reproduce** — `box`'s read
+count is identical (177) before and after.
+
+### Residual 2, quantified: the missing box reload is the REWIND arm's
+
+Summing the instructions between each `cmp …,0x1b5`'s `jle` and its target:
+
+| | sites | instructions in page-break blocks | median |
+| --- | --- | --- | --- |
+| original | 113 | 2,561 | 19 |
+| ours | 106 | 1,981 | 15 |
+
+580 of the body's 813-instruction shortfall is here, four per site.  The
+original emits the `box` reload TWICE per site: once speculated **above** the
+`cmp ebp,esi` (serving the rewind arm) and once inside the `je` arm.  Ours
+emits it above the `cmp` only where the rewind block is not shared — at every
+later site VC6 tail-merges `cur = box; goto rew_sectK;` into the shared
+rewind block (`jne $L888`) and the copy disappears.  `box` is read 177 times
+in our object against roughly 2 per site in the original.
+
+Writing the hoist into the source — `cur = box;` above the inner test **and**
+`cur = box;` in the fall-through arm — does reproduce it: 7,820 emitted,
+mismatch 7,950.  **It costs the frame**: `0x23d8`, which moves `lines` off
+`0x94` and is therefore fatal.  Rejected, but this is now the sharpest
+statement of the residual: *a shape that emits both copies per site without
+adding a scalar dword closes 580 instructions.*  Measured on the way (all
+frame-exact unless noted):
+
+| shape | emitted | mismatch | LCS |
+| --- | --- | --- | --- |
+| **committed** (copy in each arm) | 7,272 | **7,937** | 50.2% |
+| hoisted + fall-through copy | 7,820 | 7,950 | 42.3% (frame `0x23d8`) |
+| hoisted + rewind-arm copy | 7,193 | 7,993 | **51.5%** |
+| hoisted, one copy only | 7,096 | 8,048 | 50.0% |
+| hoisted + fieldwise fall-through | 6,875 | 8,029 | 42.0% |
+| `if/else` instead of the early `goto` | 7,178 | 7,998 | 50.1% |
+
+### `box.bottom`'s fold is real, and it is `box`'s constant
+
+Compiling with `box.bottom = 0x84` moves the 131 `mov <reg>,0x83` in the
+object to `mov <reg>,0x84`, so the fold is of `box.bottom`'s own initialiser
+and not of `cur.top + 0x16`.  `box.bottom`'s home is then dead-stored away,
+which is why the object has only three `box` stores.  Every reordering and
+respelling of the four-store init is **byte-identical**: bottom first, `box
+.bottom = box.top + 0x16`, `cur.bottom = box.bottom`, `cur.top = box.top`,
+`cur.top`/`cur.bottom` seeded before the init.  An explicit `cur = box;`
+after the init is NOT inert (7,268 emitted, mismatch 8,031, LCS 51.4%) but it
+makes VC6 emit six entry stores where the original emits four.
+
+### Residual 1 (`ebp`): one lever found, and it is not free
+
+Reference counts do not explain the choice.  In the original `page_start`'s
+home is written 133 times and read twice, with 84 register compares — 181
+references — against `indent`'s 142 memory reads and 20 writes; in ours
+`page_start` has 122 reads and 131 writes in memory (253) while `indent`
+lives in `ebp` with 43 spill references.  Both bodies rank the same two names
+the same way by count and allocate them oppositely, so the LL14
+appearance-count model does not transfer: post-expansion `page_start` already
+appears more often than `indent` in our source.
+
+Newly measured and **inert** (byte-identical objects): `register int
+page_start`, `register` on `page_start` and `n` together, `unsigned int
+indent`, hoisting `page_start` into a named temp inside the check,
+`page_start = n` before `g_report_pages++`.
+
+Newly measured and **worse**: `lines[n].indent = indent;` moved above the
+page check (mismatch 8,027); splitting `indent` into two webs at `sect8:`
+through an `INDENT` macro (frame `0x23cc`, mismatch 8,014) — so the
+"two short webs lose to one long one" idea is refuted here.
+
+The one lever that bites is **narrowing `indent`**.  `short indent` takes the
+first diverging index from 6 to **8** — `xor ebp,ebp` and `push edi` fall into
+place — and puts `page_start`'s home at the original's `0x10`, i.e. it flips
+exactly the allocation this residual is about.  It costs mismatch (8,020) and
+LCS (40.7%) because every `lines[n].indent = indent` grows a `movsx`, so it
+is not the answer, but it proves the ranking is a hair's breadth and that the
+lever is on `indent`'s side, not `page_start`'s.  The next spelling to find
+is one that lowers `indent`'s rank without changing its width: something that
+makes its 140 reads cheaper-looking to the allocator than `page_start`'s 84
+compares plus 133 write-throughs.
+
+### A warning about slot censuses
+
+`tools/disasm.py` does not track `esp`, and a naive `[esp + 0xNN]` census of
+this body is wrong by whole slots: at 0x00445650 `mov [esp+0x20],eax` reads
+as `box.top` but three pushes are pending, so it is `[esp+0x14]` — `indent +=
+0x30`.  A CFG-propagated `esp` delta does not converge either (128 conflicts,
+389 unreachable) because VC6 defers its argument pops across branches.  Only
+counts taken at push-free points — the page-break blocks, the render loop —
+can be trusted; use `/FAs` for everything else.
