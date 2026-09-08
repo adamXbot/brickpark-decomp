@@ -221,7 +221,7 @@ extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
     lines[n - 1].ids[lines[n - 1].nids] = (ID);                           \
     lines[n - 1].nids++;
 
-// WIP-FUNCTION: LEGOLAND 0x004453a0  (6657/8085 insns emitted, first diverging index 0, frame 0x23cc vs 0x23d4; sections 1-9 less the last hint group, plus the render and input loops)
+// WIP-FUNCTION: LEGOLAND 0x004453a0  (7572/8085 insns emitted, 33584/34662 bytes, first diverging index 0, frame 0x23cc vs 0x23d4; the whole build is transcribed, the render and input loops are approximate)
 int RunAppraisalScreen(void)
 {
     RepLine lines[100];
@@ -253,7 +253,6 @@ int RunAppraisalScreen(void)
     short kind;
     int i;
     int x;
-    int nclose;
     int nnarr, narr_cur;
     AppraisalBox title;
 
@@ -262,7 +261,6 @@ int RunAppraisalScreen(void)
     indent = 0;
     all_total = 0;
     all_passed = 0;
-    nclose = 0;
     nnarr = 0;
     narr_cur = 0;
     failmask = 0;
@@ -705,22 +703,25 @@ sect9:
         case 0:
             TEXT_LINE(sect9, -1, 0x17c) NARR(0x17c)
             TEXT_LINE(sect9, -3, 0x17d) NARR(0x17d)
+            nhint++;
             break;
         case 1:
             TEXT_LINE(sect9, -1, 0x187) NARR(0x187)
             TEXT_LINE(sect9, -3, 0x188) NARR(0x188)
+            nhint++;
             break;
         case 2:
             TEXT_LINE(sect9, -1, 0x190) NARR(0x190)
             TEXT_LINE(sect9, -3, 0x191) NARR(0x191)
             TEXT_LINE(sect9, -3, 0x192) NARR(0x192)
+            nhint++;
             break;
         case 3:
             TEXT_LINE(sect9, -1, 0x19a) NARR(0x19a)
             TEXT_LINE(sect9, -3, 0x19b) NARR(0x19b)
+            nhint++;
             break;
         }
-        nhint++;
     }
     if (failmask & 0x70) {
         switch (rand() & 3) {
@@ -728,18 +729,20 @@ sect9:
             TEXT_LINE(sect9, -1, 0x1a4) NARR(0x1a4)
             TEXT_LINE(sect9, -3, 0x1a5) NARR(0x1a5)
             TEXT_LINE(sect9, -3, 0x1a6) NARR(0x1a6)
+            nhint++;
             break;
         case 1:
             TEXT_LINE(sect9, -1, 0x1ae) NARR(0x1ae)
             TEXT_LINE(sect9, -3, 0x1af) NARR(0x1af)
             TEXT_LINE(sect9, -3, 0x1b0) NARR(0x1b0)
+            nhint++;
             break;
         case 2:
             TEXT_LINE(sect9, -1, 0x1b8) NARR(0x1b8)
             TEXT_LINE(sect9, -3, 0x1b9) NARR(0x1b9)
+            nhint++;
             break;
         }
-        nhint++;
     }
     if (failmask & 0x7000) {
         switch (rand() % 3) {
@@ -747,13 +750,14 @@ sect9:
             TEXT_LINE(sect9, -1, 0x1c2) NARR(0x1c2)
             TEXT_LINE(sect9, -3, 0x1c3) NARR(0x1c3)
             TEXT_LINE(sect9, -3, 0x1c4) NARR(0x1c4)
+            nhint++;
             break;
         case 1:
             TEXT_LINE(sect9, -1, 0x1cc) NARR(0x1cc)
             TEXT_LINE(sect9, -3, 0x1cd) NARR(0x1cd)
+            nhint++;
             break;
         }
-        nhint++;
     }
     if (failmask & 0x18000) {
         switch (rand() % 3) {
@@ -761,22 +765,70 @@ sect9:
             TEXT_LINE(sect9, -1, 0x1d6) NARR(0x1d6)
             TEXT_LINE(sect9, -3, 0x1d7) NARR(0x1d7)
             TEXT_LINE(sect9, -3, 0x1d8) NARR(0x1d8)
+            nhint++;
             break;
         case 1:
             TEXT_LINE(sect9, -1, 0x1e0) NARR(0x1e0)
             TEXT_LINE(sect9, -3, 0x1e1) NARR(0x1e1)
+            nhint++;
             break;
+        }
+    }
+    if (failmask & 0x260000) {
+        switch (rand() % 3) {
+        case 0:
+            if (failmask & 0x200000) {
+                TEXT_LINE(sect9, -1, 0x1ea) NARR(0x1ea)
+                TEXT_LINE(sect9, -3, 0x1eb) NARR(0x1eb)
+                TEXT_LINE(sect9, -3, 0x1ec) NARR(0x1ec)
+                nhint++;
+            }
+            break;
+        case 1:
+            TEXT_LINE(sect9, -1, 0x1f4) NARR(0x1f4)
+            TEXT_LINE(sect9, -3, 0x1f5) NARR(0x1f5)
+            nhint++;
+            break;
+        case 2:
+            if (FLAGS & 0xf) {
+                TEXT_LINE(sect9, -1, 0x1fe) NARR(0x1fe)
+                TEXT_LINE(sect9, -3, 0x1ff) NARR(0x1ff)
+                nhint++;
+            }
+            break;
+        }
+    }
+    if (failmask & 0x1080000) {
+        if (rand() & 1) {
+            TEXT_LINE(sect9, -1, 0x208) NARR(0x208)
+        } else {
+            TEXT_LINE(sect9, -1, 0x212) NARR(0x212)
+            TEXT_LINE(sect9, -3, 0x213) NARR(0x213)
         }
         nhint++;
     }
-    /* The rest of the hint section (the failmask & 0x260000 group at
-     * 0x0044c8ef onwards) is not transcribed yet. */
+    if (failmask & 0xc00000) {
+        if (rand() & 1) {
+            if (failmask & 0x800000) {
+                TEXT_LINE(sect9, -1, 0x21c) NARR(0x21c)
+                TEXT_LINE(sect9, -3, 0x21d) NARR(0x21d)
+                nhint++;
+            }
+        } else {
+            if (failmask & 0x400000) {
+                TEXT_LINE(sect9, -1, 0x226) NARR(0x226)
+                TEXT_LINE(sect9, -3, 0x227) NARR(0x227)
+                nhint++;
+            }
+        }
+    }
 
     /* ================================================================== */
     /* Put the screen up and run it.                                      */
     /* ================================================================== */
 
-    if (nclose == 0)
+    /* Only the lines up to the last hint are kept. */
+    if (nhint == 0)
         n--;
     cur.bottom = y + 0x16;
     cur.left = indent + 0x20;
