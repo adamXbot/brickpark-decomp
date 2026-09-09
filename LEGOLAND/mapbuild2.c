@@ -44,6 +44,33 @@ extern int  ObjHasExit(ObjDef* d);                                     /* 0x0045
  * counter with `pt.x = x` at the top of the body moves x into a
  * callee-saved register and costs 50. strict == rb == ob: a permutation of
  * one store and one load. */
+/* Scope LL17 (2026-09-08): 20 spellings; body unchanged (110/116 is still
+ * the strict best) but the residual is now MECHANISED and bounded by two
+ * floors.  The original's latch reads sq->x1 BEFORE it stores pt.x (and so
+ * do both loop entries: `mov eax,[x0] / mov ecx,[x1] / mov [pt.x],eax`),
+ * ours after.  Diagnostic: a GLOBAL as the bound hoists exactly as the
+ * original (x loop exact), so the pin is the scheduler's pointer-load vs
+ * frame-store dependence, which `/Oa`, `/Ow`, `#pragma optimize("a")`, an
+ * `unsigned` view and a volatile view of the bound all leave in place --
+ * the order is therefore SOURCE order in the original.  Every spelling that
+ * reads the bound into a temp before the increment (`end = sq->x1; pt.x++`
+ * in a do/while, `for (...; pt.x <= end; end = sq->x1, pt.x++)`, and
+ * `pt.x = pt.x + ((end = sq->x1), 1)` in any operand order -- VC6 hoists
+ * the side-effecting subexpression first) gives the original's instruction
+ * sequence EXACTLY with eax/ecx swapped in both latches: 106/116 strict,
+ * register-blind ZERO.  Scratch registers go by definition order and `end`
+ * is always defined first; the only construct that defines the counter
+ * first and still keeps `inc` in one web is the bundled memory increment,
+ * whose store then precedes the bound read.  Named-temp forms (`v = pt.x;
+ * v++; end = ...; pt.x = v`, with `v += 1`, with the +1 in the load
+ * statement) are forward-substituted into `lea eax,[ecx+1]` (two webs) and
+ * an LL10 empty-if pin between load and increment or after the increment
+ * does not stop it.  The temp ENTRY (`v = sq->x0; end = sq->x1; pt.x = v;
+ * if (v <= end)`) is exact and the natural entry is not, so the original's
+ * entry has the same load-before-store property.  Pick: strict 6 with a
+ * 3-instruction permutation per latch (this body) or strict 10 with a pure
+ * eax/ecx swap (the `end` temp spelling).  LL14's ranking model does not
+ * apply to scratch registers here (definition order decides).  FLOOR. */
 // WIP-FUNCTION: LEGOLAND 0x00459970  (94.8%, both loop latches: the original sinks the pt.x store below the compare and hoists the sq->x1 load above the cleanup; ours stores first)
 void TallyBuildFootprints(void)
 {
@@ -121,19 +148,24 @@ static __inline Cell* MapCellAt(int x, int y)
  * block and d.x/d.y into ebx/edi in the exit block (pos's edi freed by its
  * last read); ours uses edx and ecx/esi. rb == 0 by inspection. Spellings
  * measured: separate `dx`/`dy` temporaries (79), a Pos copy in the entrance
- * block only (69), Pos copies in both (82), then nesting (83). */
-// WIP-FUNCTION: LEGOLAND 0x0045e960  (93.3%, callee-saved register choice for the two door-offset copies; rb 0)
+ * block only (69), Pos copies in both (82), then nesting (83).
+ * Scope LL17 (2026-09-08): closed, 89/89.  The residual was the `Pos d`
+ * copy itself: reading `cls->door.x` / `cls->door.y` directly in the sums
+ * (no local aggregate, no scalars, no pointer to the door) gives the
+ * original's callee-saved choices in both blocks (RA02 -- a named copy and
+ * a direct field expression are different webs).  Either operand order of
+ * the sums is exact; `Pos* dp = &cls->door` is 80, block-scope dx/dy
+ * scalars 84, two separate Pos copies 83, y before x 73. */
+// FUNCTION: LEGOLAND 0x0045e960
 int FindObjDoorTile(MapInst* inst, Pos* pos)
 {
     ObjDef* cls = inst->cls;
     int   x, y, r;
-    Pos   d;
     Cell* cell;
 
     if (ObjHasEntrance(cls)) {
-        d = cls->door;
-        x = pos->x + d.x;
-        y = pos->y + d.y;
+        x = pos->x + cls->door.x;
+        y = pos->y + cls->door.y;
         cell = MapCellAt(x, y);
         if (cell) {
             r = DoorTileStep(cell);
@@ -141,9 +173,8 @@ int FindObjDoorTile(MapInst* inst, Pos* pos)
                 return r;
         }
         if (ObjHasExit(cls)) {
-            d = cls->door;
-            x = d.x + pos->x;
-            y = d.y + pos->y;
+            x = pos->x + cls->door.x;
+            y = pos->y + cls->door.y;
             cell = MapCellAt(x, y);
             if (cell) {
                 r = DoorTileStep(cell);

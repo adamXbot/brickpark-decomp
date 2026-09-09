@@ -314,7 +314,37 @@ static __inline Cell* MapCellAt(int x, int y)
  * The remaining head allocation and frame homes do not close. The second
  * cell's unshifted object-without-callback bug remains unchanged.
  * Full measurements: docs/lanes/scope-i.md.
- */
+ *
+ * LL19 (2026-09-08): ~25 spellings, kept at scope I's form. What was learned:
+ * FRAME MODEL (measured over T1/T2/T3/T5/U1/U9 below): the address-taken
+ * aggregate goes to the top, then every other local is laid top-down in
+ * ASCENDING weight -- the original reads tile +0x3c, dx +0x38, dy +0x34,
+ * rowy +0x30, rowx +0x2c, ylimit +0x28, xlimit +0x24, halfw +0x20, e +0x1c,
+ * py+halfh +0x18, tw +0x14, th +0x10. Under that model a PLAIN `int halfw`
+ * lands at +0x20 and plain `dx`/`dy` at +0x38/+0x34 on their own; the
+ * struct only forces what falls out naturally, at the price of putting
+ * halfw one slot below tile. dx/dy AS PLAIN LOCALS (or as a non-address-
+ * taken two-int aggregate, identical) fix the head: the original's
+ * `sub ecx,edx / mov [dx],ecx / mov ecx,[scroll+4] / sub ecx,ebp / mov
+ * [dy],ecx` is a spill-at-definition, not a field store, and with it the
+ * first divergence moves 14 -> 27 and the perimeter loop's `ebp = dy /
+ * esi = dx` loads match -- but the same change lets VC6 hoist the bridge
+ * offset loads above the first push in the perimeter pass (`mov ecx,[ox]
+ * / add ecx,edi` for the original's lazy `push / mov edx,[ox] / lea
+ * ecx,[edi+edx]`), so the whole body measures WORSE (LCS strict 72 / rb 26
+ * against 65 / 22; positional 390 against 378) and it is not applied.
+ * `ox + x` operand order, y before x, x/y hoisted to the outer block, a
+ * named `y + oy`, volatile reads of dx/dy at the use: all leave that
+ * schedule. `halfw` as a plain local always regrows the derived IV
+ * (frame 0x38): `unsigned`, two inline `px + halfw` instead of a named x2,
+ * `(void)&halfw`, an `int* phw = &halfw` (with and without `*phw` at the
+ * use) are all the IV; only a real address escape (`if (0)
+ * DrawPathTileOverlay((Pos*)&halfw, ...)`) refuses it, and that places
+ * halfw at +0x28 (above ylimit/xlimit, its weight now counted as memory).
+ * Inline loop bounds instead of ylimit/xlimit recompute through `view` in
+ * the latches (worse, 393/310 positional with a false first divergence);
+ * `Pos row` for rowx/rowy 392; halfw declared first or last: inert. The tw
+ * -> ebp allocation at index 27 was not reached. */
 // WIP-FUNCTION: LEGOLAND 0x004608c0  (12.3%, 378/431 strict, 1322/1315 bytes; nonvolatile halfw home; first 14)
 void PaintTileLayer(Pos* scroll, WinRect* view)
 {

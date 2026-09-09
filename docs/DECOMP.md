@@ -91,7 +91,7 @@ for the live list.
 | --- | --- | --- |
 | exported functions matched | `tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `tools/callees.py` | moves both ways — the frontier, not progress |
-| **bytes of game code matched** | **`tools/coverage.py`** | **66.1% (77.3% with partials)** |
+| **bytes of game code matched** | **`tools/coverage.py`** | **75.1% (92.1% with partials)** — 2026-09-09, after the LL wave |
 
 The first two are both true and both misleading on their own.
 
@@ -422,7 +422,127 @@ sentinel and are external by construction). Both functions sat at `// WIP-FUNCTI
 ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
 `verify.py` confirms all of them.
 
+### SEH scope-table functions (`match.py` change — applied 2026-09-08)
+
+A VC6 `__try/__except` body whose try block is straight-line ends in a `jmp`
+over its filter and handler blocks, and nothing in the code branches to
+those blocks: they are reached only through the scope table in `.rdata`
+that the SEH prologue pushes (`push -1 / push <scopetable> /
+push __except_handler3 / mov eax, fs:[0]`). `true_extent` took that `jmp`
+as the function's end, so `WinMain` (0x00453d10) walked 31i/93B of its
+48i/143B, the compiled epilogue jump was flagged ESCAPES, and a
+byte-identical body could never print `[OK]`. `WriteExceptionReport` and
+`ReportModuleDetails` only passed because forward branches inside their try
+blocks had already carried `furthest` past the `jmp`. No C spelling moves
+the original's terminator, so the walker learned the table: on an SEH
+prologue it records the scope-table VA, and at every `mov dword ptr
+[ebp-4], K` that enters trylevel K it adds entry K's filter and handler
+(`{EnclosingLevel, Filter, Handler}`, 12 bytes each) to `furthest`. Reading
+only the levels the body enters bounds the table — the next SEH function's
+entries follow contiguously (0x00453da0's are followed by 0x00454380's).
+A full-tree `audit.py` before/after over 2,972 annotated bodies changed one
+line, WinMain REJECT -> OK; the other six SEH frames in the binary (three
+of them CRT) re-walk to the same extent. `inventory.py`'s own
+`seh_extent` fallback is now redundant for game code.
+
 ### VC6 SP3 codegen levers (learned the hard way on `LoadBaseMap`)
+
+- **`ZBuffer_FillPoly` `0x00423350` (closed 2026-09-08, 101 of 101 exact,
+  `schoolcar6.c`).** The hand-written `__asm` span filler; the same levers
+  closed its shaded twin `ZBuffer_FillShadedPoly` `0x0041fa10` on the
+  still-unmerged `scope/LL9`:
+  - **A multi-member aggregate local outranks every spilled scalar for a
+    frame home.** VC6 places such an aggregate deepest-first in declaration
+    order AHEAD of the scalars it still enregisters, so whatever scalars
+    remain fall back to the dead argument slots. Grouping the dead-store
+    copy, the row pointer and `pitch` as
+    `struct { int dead; short* row; int pitch; } r` — with `r.row` named
+    inside the `__asm` block — pins those three at `-0x10`/`-0xc`/`-8` and
+    drops `ylast` and `y` into the dead `n` and `key` slots the original
+    uses. As five plain scalars VC6 hands `ylast` the `-0xc` home and the
+    row pointer the argument slot, which is the residual this body sat on
+    for 46 strict mismatches. The aggregate must exceed four bytes to
+    rank: a four-byte `dead` in ANY aggregate shape (`short[2]`,
+    `char[4]`, a two-short struct, a one-member struct or array) is
+    scalarised and sorts with the scalars. This is the local-frame
+    counterpart to the by-value parameter rule under SCOPES Y AND Z.
+  - **A plain store into a memory-resident aggregate member survives
+    dead-store elimination — and must NOT be made `volatile`.**
+    `r.dead = g_zb_4b5b20;` reproduces the original's dead store on its
+    own. A volatile cast on the member, a volatile cast on `&r`, or a
+    `volatile` member makes the whole aggregate address-exposed: the frame
+    grows to `0x64`, `pitch*2` is hoisted into the `n` slot, and the body
+    loses 40 instructions. Only a STANDALONE scalar dead store needs the
+    volatile cast (a plain scalar store is deleted outright even in a
+    function containing `__asm`), which is why the earlier WIP body
+    carried one.
+  - **Stores then a read-modify-write hoist the FIRST field.** The original
+    lifts `e->x` above the `e->side` branch ahead of `e->step`; written
+    `ed[k].x = e->x - e->step;` VC6 forms the `e->step` CSE temporary first
+    and hoists that instead. Written
+    `ed[k].x = e->x; ed[k+1].x = e->step; ed[k].x -= ed[k+1].x;` through
+    the address-taken array the pair comes out in the original's order, and
+    store-to-load forwarding folds the RMW back to one register subtract,
+    so the instruction count does not move.
+  - With the row pointer and `pitch` inside the aggregate the body no
+    longer wants the free `volatile` read of `y` that the old WIP note
+    prescribed — it is one instruction long with it. Set-up order stays
+    load-bearing at one to three instructions apiece: `pitch` before `row`,
+    or the dead store moved to either side of `ylast`, each shifts a load
+    in the head.
+
+- **SCOPE V (closed 2026-09-08, 62 of 62 exact; evidence in
+  `docs/lanes/scope-v.md`).** Script-event tick handlers + goal checks
+  (`eventtick.c`, `eventgoal.c`). `EventTick_Clear` took nine documented
+  passes and two levers:
+  - **Sibling-copy forwarding kill:** a `rep movsd` into one member of a
+    local aggregate stops store-to-load forwarding for every other member
+    (a plain narrowing read reloads: `mov dl, [esp+N]`). Hole members
+    (`int pad0, top, pad1, bottom`) reproduce a Rect's two never-stored
+    slots without memory-homing the two that are; write member sums as one
+    statement each (`L.top = f.top + by`), never `=` then `+=`.
+  - **Cancelled-pointer copy web:** `t.x = bx; t.x += (int)d; t.x -= (int)d;`
+    through a struct member keeps `t.x` a separate web from `bx` (isel drops
+    the add/sub), so a byte store from `t.x` costs `mov ecx, ebp` instead of
+    recolouring `bx` into edx. Every identity expression written on `bx`
+    itself folds and moves x.
+  - Allocator rule measured on the way: webs are coloured by weighted use
+    count (a register byte use adds ~2), ties to the first-defined; a web
+    with a byte need displaces `next` from ebx before it accepts a fix-up
+    copy. A `volatile` load is pinned at its statement; the store it feeds
+    sinks into the address-sorted free-store group.
+
+- **SCOPE AG (closed 2026-09-08, 3 of 3 exact; evidence in
+  `docs/lanes/scope-ag.md`).** Certificate print path + WinMain SEH shell
+  (`certificate.c`, `winmain.c`):
+  - **Gate: a straight-line `__try` body's only path to its filter is the
+    SEH scope table.** `true_extent` now reads it (section above); a
+    future SEH body needs nothing special. The filter call belongs in the
+    `__except (...)` expression, not the handler: `__except
+    (WriteExceptionReport(_exception_info(), "main thread")) {}` puts the
+    call before the filter's `ret` and leaves the handler as
+    `mov esp,[ebp-0x18]`; `__except (1) { report(); }` swaps them.
+    `int r = -1` is the `or esi,-1 / mov [ebp-0x1c],esi` pair.
+  - **SaveScreenshotBmp (620 insns):** `StretchDIBits`'s destination
+    width must stay an unnamed argument written as
+    `pageW - (pageW/8) - (pageW/8)` — a named `destW` reused at `TextOut`
+    back-propagates into the call and swaps the sub destination (97.7%);
+    `2*(pageW/8)` finishes destW before `mov edx,[pBmi]` (94.6%).
+    `TextOut` X is `pageW / 2`, Y is `pageH * 678 / pBmi->biHeight`
+    (`idiv [pBmi+8]`, keeps pBmi live past `font1`).
+  - Field-by-field `BITMAPINFOHEADER` stores (not `*dst = src`, which is
+    `rep movsd`); the palette shift count from the stack header
+    (`[esp+0x46]`), not the dest; DOCINFO zeroes `lpszOutput` /
+    `lpszDatatype` / `fwType` before `lpszDocName` so the name store sinks
+    past the `StartDocA` pushes.
+  - **A direct `call` to an import thunk (`call 0x49e442` -> `jmp [IAT]`,
+    5 bytes) is a plain `extern` declaration; `__declspec(dllimport)`
+    emits `call dword ptr [IAT]` (6 bytes).** `EnumPrintersA` is the
+    thunk form; every other import in the body is `call [IAT]`.
+  - Frame: `{returned, pBits, needed, memdc}` as one 16-byte addressed
+    object packs the 0x28..0x34 run and needs `char printers[0xA80]` for
+    the 0xb88 frame (cbBuf is 0x540; the tail is unused high space).
+  - `returned <= 0` on an `unsigned long` is `jbe`; `== 0` is `je`.
 
 - **SCOPE AI (closed 2026-09-07, 18 of 18 exact; evidence in
   `docs/lanes/scope-ai.md`).** MIDI + path-square / class companions
@@ -1914,8 +2034,9 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   asm site after the four `tri3d.c` rasterisers.** Three independent proofs:
   an EBP frame in an `/O2` file; `xchg ebx,eax` (0x93) and `add ebx,1` where
   VC6 always emits `inc`; and a `jns/jmp` pair where `js` alone would do. The
-  boundary is visible in VC6's post-`__asm` reloads. Recorded as a WIP with
-  the proofs; the same triage applies to any body showing those signatures.
+  boundary is visible in VC6's post-`__asm` reloads. Closed 2026-09-08 at 101 of
+  101 with the proofs (levers at the top of this section); the same triage
+  applies to any body showing those signatures.
 - **An address-taken out-param local declared in the BLOCK where it is used
   takes a dead argument slot; at function level it takes a frame slot and
   pushes a float temporary into the argument slot instead.** All 24
@@ -1939,9 +2060,12 @@ ported; they and the other 60 audit-exact WIPs are now `// FUNCTION:` and
   **the shared `lea` base register for a three-scalar snapshot group is
   unreachable from C** — pointer, array, walking-cursor, struct-copy and
   volatile spellings all fold back to `esi + disp`. **`row` and `ylast`
-  holding each other's frame homes** (`ZBuffer_FillPoly`) survived 135
-  statement orders, 11 declaration orders and six volatile reads — the
-  dead-argument-slot tie-break as a floor.
+  holding each other's frame homes** (`ZBuffer_FillPoly`) was recorded here
+  as a floor after 135 statement orders, 11 declaration orders and six
+  volatile reads — WRONGLY: it fell on 2026-09-08 to the aggregate
+  frame-home rule at the top of this section. A tie-break that resists every
+  spelling of the SCALARS can still move when one of them joins an
+  aggregate; retire a frame-home floor before trusting it.
 - Mechanics worth knowing across the coaster: the route's physics object is an
   **RK4 solver descriptor** (nodes 0, 1/2, 1/2, 1; weights 1/6, 1/3, 1/3, 1/6)
   over a car-shaped state vector; a piece boundary is landed by BISECTION

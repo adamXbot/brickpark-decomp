@@ -1015,6 +1015,20 @@ extern char* strcat(char*, const char*);
  * additional call or global store was introduced; the best form stays here.
  * Full measurements: docs/lanes/scope-i.md.
  */
+/* Scope LL18 (2026-09-08): unchanged, 13/962, first 590, 3141/3141 bytes.
+ * The LL10 block split was the one lever new since Scope I and it is inert
+ * here in every position: `if (w) ;` or `if (halfw) ;` between the halfw
+ * definition and the `ty` statement, and `if (halfw) ;` after it, compile
+ * byte-identically both with the volatile-read shim (13) and without it
+ * (plain halfw: 960 instructions, halfw kept in ecx to its push and spilled
+ * only for the second call, frame 0x444).  The split changes forward
+ * substitution, not residency, and the residual is residency: the original
+ * spills halfw AT THE DEFINITION and reloads it for BOTH calls as a spilled
+ * web with an ordinary load the scheduler lifts to the block top.  Nothing
+ * in the block competes for a callee-saved register (w = ebx, box.left =
+ * ebp, box.right = edi all match), so the LL14 name-count ranking has no
+ * candidate to move either.  Floor stands; the shim remains the honest
+ * best form. */
 // WIP-FUNCTION: LEGOLAND 0x004724a0  (98.6%, 13/962 strict; memory-home/scheduling floor; first 590)
 void DrawPopUpInfo(void)
 {

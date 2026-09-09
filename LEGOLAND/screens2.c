@@ -984,6 +984,25 @@ void InitNewSaveGamePOPUP(Icon* popup)
  * fourth store, narrowed store, or fabricated saved-register use was added.
  * Full measurements: docs/lanes/scope-i.md.
  */
+/* Scope LL17 (2026-09-08): re-opened for the two new levers and RETIRED
+ * again, six spellings, every one byte-identical to the baseline (116
+ * instructions, three immediates, no push):
+ *  - LL14 appearance-count ranking does not apply: the zero is the ONLY
+ *    callee-saved candidate in the body, so there is no ranking to flip,
+ *    only the hoist threshold, which the earlier passes measured.
+ *  - the "variable with two reaching definitions" shape the N+4 note asked
+ *    for: an `int z = 0` at the top plus a second `z = 0` in the else arm,
+ *    and `z = 0` written in all three arms with no top definition.  VC6
+ *    folds phi(0,0) -- both compile to the baseline, so a same-constant
+ *    redefinition is not a second reaching definition.
+ *  - LL10's empty `if (z) ;` pin (Mesh_DropBackFaces) after a `char z = 0`
+ *    definition, before the shared-block store, and before the tail stores:
+ *    the pin is folded with the carrier because z is a known constant at
+ *    every pin site.  (The char carrier itself compiles to the baseline on
+ *    this toolchain, confirming PASS N+2's correction of PASS N+1.)
+ * FLOOR stands; do not reopen without a matched corpus witness of an
+ * unweighted three-use callee-saved constant.
+ */
 // WIP-FUNCTION: LEGOLAND 0x0048f0f0  (0.8%, 118/119 strict; three-instruction zero-web shift; first 0)
 void InitExitCheckBox(int x, int y)
 {

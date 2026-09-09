@@ -66,7 +66,24 @@ extern void DBPrintf(const char* fmt, ...);   /* 0x00453a20 */
  * missing vararg is preserved.
  * Full measurements: docs/lanes/scope-i.md.
  */
-// WIP-FUNCTION: LEGOLAND 0x00499d60  (50.0%, 34/68 strict; shared-tail ordering floor; first 34)
+/* Scope LL17 (2026-09-08): CLOSED 68/68 by the BL12 empty-trailing-else
+ * lever (see the comment inside the body).  What the earlier fifteen-plus
+ * spellings established still holds and explains WHY this is the fix: the
+ * tail is ONE block whose layout follows its fall-through predecessor; two
+ * written-out copies never cross-jump backward here (a found-arm copy made
+ * machine-identical to the head copy with a volatile tail read is still
+ * emitted, 77 instructions; IR-identical copies merge onto the LAST arm,
+ * 68 wrong-way), and swapping the arms flips the compare to `je`.  Measured
+ * on the way (all rejected): head-only volatile copy + plain found copy
+ * (77), found copy via plain locals (77), found copy with volatile tail
+ * (77, machine-identical, no merge), both copies volatile (57/68, merged
+ * onto the search arm), `!=` arms with `if (!p) return` (43/78) and with
+ * `if (p) {} else {}` (43/68), `if (!p) return` on the original arm order
+ * (56/78, not-found block cloned), the U4 copies plus `else if (p) / else
+ * { }` on the outer or inner chain (57/68 both).  Corpus witnesses for the
+ * layout: SetMechanicsOrderAtPostion 0x49b430 and SetGardenerWorkOrderAt-
+ * Postion 0x49b2c0 (same subsystem), LevelKw_SELECTTHEME/SELECTTAB. */
+// FUNCTION: LEGOLAND 0x00499d60
 void UnlinkGardenerOrder(WorkOrder* o)
 {
     WorkOrder* p = g_gardener_orders;
@@ -81,7 +98,7 @@ void UnlinkGardenerOrder(WorkOrder* o)
         g_gardener_orders = o->next;
         if (!g_gardener_orders)
             g_gardener_order_tail = g_gardener_orders;
-    } else {
+    } else if (p) {
         while (p) {
             if (p->next == o)
                 break;
@@ -100,6 +117,16 @@ void UnlinkGardenerOrder(WorkOrder* o)
                      o->pos.x, o->pos.y);
             return;
         }
+    } else {
+        /* Empty trailing else: a LAYOUT lever, not dead code (LEVERS BL12,
+         * Restaurant2_Draw).  With a plain `else` the search arm is the last
+         * arm and falls through into the START printf, so VC6 lays the tail
+         * after it.  As `else if (p) ... else { }` the `(p)` test folds (the
+         * early `if (!p) return` proves p non-null, so nothing is emitted)
+         * and the search arm must JUMP to the tail like any non-last arm;
+         * the tail is then glued to the head arm's fall-through and the
+         * whole search arm is exiled past it, ending in the original's
+         * backward `jmp` (0x499e1f -> 0x499dcc).  68/68. */
     }
     DBPrintf("    Work orders START (%x), END (%x)\n",
              g_gardener_orders, g_gardener_order_tail);
@@ -143,9 +170,9 @@ extern void AddPTPRouteNode(int x, int y);            /* 0x00482300 */
 /* 0, 1 or 2: how many of b, c, d the walker may step past in one go. */
 extern int  PTPShortcutSteps(PTPNode* a, PTPNode* b, PTPNode* c, PTPNode* d); /* 0x00482330 */
 
-/* Note on the shape: `c` is declared before `b` because that is the order the
- * original zeroes the two registers in (the three `xor`s follow declaration
- * order; the register CHOICE does not).
+/* Note on the shape: the three zero initialisations are written b, c, d
+ * because that is the order the original zeroes the registers in (the three
+ * `xor`s follow INITIALISATION order; the register CHOICE does not).
  *
  * RESIDUAL, 10 of 76 (76/76 instructions, every instruction right): `b` and
  * `c` have each other's callee-saved register -- the original puts b (the
@@ -168,12 +195,27 @@ extern int  PTPShortcutSteps(PTPNode* a, PTPNode* b, PTPNode* c, PTPNode* d); /*
  * order negatives without adding a guard or a non-original reference.
  * Full measurements: docs/lanes/scope-i.md.
  */
-// WIP-FUNCTION: LEGOLAND 0x00482430  (86.8%, 10/76 strict; allocation floor; first 16)
+/* Scope LL17 (2026-09-08): closed, 76/76.  The b/c register swap was NOT a
+ * reference-count tie after all: it was the three SOURCE `return d == 0;`
+ * sites.  Written as one `return d == 0;` after the switch, with every
+ * case ending in `break`, the b/c allocation flips to the original's on
+ * its own (75/76) and the original's three return copies still appear --
+ * they are late tail duplication of the ONE source return (LP05 / BL14:
+ * small ret-ending blocks clone after allocation, same registers in each
+ * copy).  Three source returns instead create three pre-allocation blocks
+ * and change the ranking between b and c.  The last instruction was the
+ * xor order, which follows the INITIALISATION order (declaration order and
+ * copy/constant init chains such as `d = c` were measured inert for the
+ * register choice, moving only the xors): b, c, d gives esi, edi, ebx.
+ * Measured on the way: named pointer copies (`n = b`) and zero chains are
+ * propagated before ranking and never change a count; the guard as `break`
+ * or as a load-carrying temporary stays 10. */
+// FUNCTION: LEGOLAND 0x00482430
 int BuildPTPRoute(void)
 {
     PTPNode* a = g_ptp_found;
-    PTPNode* c = 0;
     PTPNode* b = 0;
+    PTPNode* c = 0;
     PTPNode* d = 0;
 
     if (!a)
@@ -191,10 +233,10 @@ int BuildPTPRoute(void)
         break;
     case 1:
         AddPTPRouteNode(c->x, c->y);
-        return d == 0;
+        break;
     case 2:
         AddPTPRouteNode(d->x, d->y);
-        return d == 0;
+        break;
     }
     return d == 0;
 }

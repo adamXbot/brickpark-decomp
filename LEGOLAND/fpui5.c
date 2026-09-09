@@ -458,7 +458,12 @@ extern void KillSprite(Sprite* s);                               /* 0x00497bd0 *
  * is preserved. The recorded pointer/counter/order/volatile families already
  * test the coupled anchor and induction scheduling; they were not repeated.
  * Full measurements: docs/lanes/scope-i.md.
- */
+ *
+ * LL19 (2026-09-08): the block-boundary pin `if (k) ;` (LL10) does not move
+ * the anchor either -- byte-identical at 5/53 with the pin between the two
+ * copy statements (k = i and k = j), after them, before the inner loop, and
+ * with the def copy first and the pin between (that one anchors the cursor
+ * on def, `lea eax,[esi-0x4c]`, still 5). Retired at the recorded floor. */
 // WIP-FUNCTION: LEGOLAND 0x00471ca0  (90.6%, 5/53 strict; cursor-anchor floor; first 22)
 void RemoveNewObjectMarker(void* def)
 {

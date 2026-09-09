@@ -92,12 +92,74 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **70.4% exact, 81.7% with partials** |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 2890 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **75.1% exact, 92.1% with partials** (2026-09-09) |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3147 |
+| `verify.py` | `python3 tools/verify.py` (ALONE) | 3147/3147 at 100% (2026-09-09) |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F own part of this list; use `tools/inventory.py` for game-code targets. |
-| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 79 |
-| **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-07) | **495: 340 live (26,952 insns), 155 dead; includes the 8,085-instruction appraisal screen.** Excludes 121 import thunks and the 77 partials already represented in C. |
+| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 82 — all listed in §6B with their residuals |
+| **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-09) | **94: 94 live (4,958 insns, 14,538 bytes), 0 dead.** The dead tier is finished — every one of the 153 bodies nothing live references is now written (LL9–LL15). Excludes 121 import thunks and the 82 partials already represented in C. |
+| **the ceiling** | `tools/inventory.py` residue line | 35,370 bytes (5.5%) is padding, `switch` tables in `.text` and CRT data that no C body can ever claim, so **~94.5% exact is the theoretical maximum**, not 100%. |
+
+**The LL wave closed 2026-09-09: scopes LL9–LL20 merged, +213 exact functions,
+coverage 71.0% -> 75.1% exact (92.1% with partials).** LL9–LL15 wrote the
+binary's DEAD functions — the 153 bodies nothing live references, which the
+linker kept because the game was built without `/OPT:REF` — into
+`LEGOLAND/unref1.c`..`unref7.c`: **147 of 153 exact**, the six open ones each
+with a named mechanism in §6B. LL16 wrote `appraisalscreen.c`, the
+8,085-instruction park-appraisal report screen (5.4% of all game code), which
+was previously unassignable because `true_extent` could not bound it; it now
+emits exactly 8,085 instructions with the original's frame and matches 64.5%
+of its instruction sequence, and stays an honest WIP. LL17–LL20 reopened
+partials on main: three closed, twelve retired with proofs, three improved.
+Three `tools/` defects were fixed along the way — `true_extent`'s fixed 16 KB
+window, `obj_function_code`'s inability to find a `__stdcall` COMDAT that is
+not first in its file, and `annotated()` silently dropping a marker whose note
+ran past three lines (that last one had hidden a whole WIP body from the gate
+while `coverage.py` still counted it). Per-lane evidence:
+`docs/lanes/scope-ll9.md` .. `scope-ll20.md`.
+
+**Scope LL8 closed exact (2026-09-08): 13 of 13; coverage 71.3% -> 71.6% exact
+(82.9% with partials).** Exact count **2934**; **79** WIPs.
+`gameframe2.c` (frame/icon-UI leftovers + AddScriptString). AddScriptString
+fail tails: `table[count]=0; goto bump` for eax-primary `!a`, and
+`slot=&table[count]; *slot=a` for EDX `!copy`. Relocs 0 MISMATCH; `/W3`
+clean (one jump-table UNRESOLVED on UpdateIconPage, same class as other
+exact switch bodies).
+
+**Scope LL2 closed exact (2026-09-08): 6 of 6; coverage 71.0% -> 71.3% exact
+(82.7% with partials).** Exact count **2921**; **79** WIPs.
+`logflume9.c` (LFGeom/LFPiece/LFTrack drop/track helpers). UpdateCommon SIB
+closed via RTL helper `LFUpd_Fst(v0, o.x=ox)` keeping ox-first moffs and
+`lea edx,[eax+ecx]`. Relocs 0 MISMATCH; `/W3` clean.
+
+**Scope AG closed exact (2026-09-08): 3 of 3; coverage 70.7% -> 71.0% exact
+(82.4% with partials).** Exact count **2915**; **79** WIPs.
+`certificate.c` (KillControllers, SaveScreenshotBmp — the certificate
+*print* path, not a BMP writer) and `winmain.c` (WinMain, the SEH shell).
+WinMain's C was byte-identical from the start; it was held at WIP by the
+extent walker, which stopped at the try body's `jmp` over the filter and
+handler blocks that only the `.rdata` scope table reaches. `tools/match.py`
+`true_extent` now reads the VC6 SEH scope table (trylevel store
+`mov [ebp-4], K` makes entry K's filter/handler branch targets); a
+full-tree audit before/after changed only WinMain. Relocs 0 MISMATCH;
+`/W3` clean. Lever in `docs/lanes/scope-ag.md`.
+
+**Scope V closed exact (2026-09-08): 62 of 62; coverage 71.6% -> 72.3% exact
+(83.6% with partials).** Exact count **2996**; **79** WIPs.
+`eventtick.c` + `eventgoal.c` (the `g_event_tick[]` executors for kinds 2..37
+and the sixteen goal checks). `EventTick_Clear` closed after nine passes with
+two general levers now in DECOMP: a block copy into a sibling member of a
+local aggregate as a free forwarding kill, and `t.x = bx + (int)d - (int)d`
+for a distinct copy web (Cursor's find in `.worktrees/scope-v-clear`).
+With V in, the level-script subsystem is C end to end. Relocs 0 MISMATCH;
+`/W3` clean.
+
+**Scope LL1 closed exact (2026-09-08): 22 of 22; coverage 70.4% -> 70.7% exact
+(82.1% with partials).** Exact count **2912**; **79** WIPs.
+`logflume8.c` (LFGeom/LFNb/LFPiece/LFTrack/LFRoute neighbour helpers).
+AttachE closed via `p->kind = 2` (literal) in the dir==2 arm. Relocs 0
+MISMATCH; `/W3` clean.
 
 **Scope LL5 closed exact (2026-09-08): 3 of 3; coverage 70.3% -> 70.4% exact
 (81.7% with partials).** Exact count **2890**; **79** WIPs.
@@ -105,12 +167,12 @@ and commit messages are that runtime's spec.
 
 **Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.0% -> 70.3% exact.**
 `music2.c` + `pathobj2.c` (group 16).
-Parallel still open: FGH, V, Codex-F, AG, AC remainders; LL1–LL4/LL6–LL8 in flight.
+Parallel still open: FGH, Codex-F, AC remainders; LL3–LL4/LL6–LL7 in flight.
 
 **LL wave cut (2026-09-07):** letter scopes end at AK; new scopes are
 `LL1`…`LL8` (`docs/SCOPE_LL_WAVE.md`). Live inventory leftovers after excluding
 V/X, Codex-F, AG, AC, F/G/H, LONG appraisal, SEH WinMain — **112 functions,
-≈5.8k instructions**. LL5 merged; others allocated.
+≈5.8k instructions**. LL1+LL2+LL5+LL8 merged, AG (incl. SEH WinMain) merged; LL3/4/6/7 remain.
 
 **Scope AK closed exact (2026-09-07): 20 of 20; coverage 69.5% -> 70.0% exact.**
 `narration2.c` (group 18).
@@ -478,15 +540,12 @@ Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
 coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
-Open for assignment: none cut and idle — Codex-F and AG are in progress;
-FGH and V remain in their own sessions. AD, AE, AA, AB, AC, AF are DONE
+Open for assignment: none cut and idle — Codex-F is in progress (AG merged 2026-09-08, 3 of 3);
+FGH remains in its own session. AD, AE, AA, AB, AC, AF are DONE
 and merged (several with honest WIPs). Of the seven
 script-tier briefs six are DONE and merged (R, S, T, U, W, X).
-V remains unmerged: its committed `scope/V` checkpoint is 58/62, but
-`.claude/worktrees/scope-v/LEGOLAND/eventtick.c` has three additional exact
-fixes (`Lookat`, `Connect`, `Link`) still uncommitted. A fresh audit on
-2026-09-06 confirmed 61/62; only `EventTick_Clear` remains. Preserve those
-local changes and update its stale lane report when resuming V.
+V is merged (2026-09-08, 62 of 62 exact; `docs/lanes/scope-v.md`); all seven
+script-tier briefs are DONE (R, S, T, U, V, W, X).
 F, G and H are handled in other Codex sessions, per the user's latest
 instruction. None is merged into this main checkpoint; their results and
 the four deferred relocation corrections still need integration. Use the
@@ -599,6 +658,19 @@ constant-web floor), `RenderCursor`, `RenderView` (the two documented
 placement corrections regress when applied together, 381 -> 549). "Floor"
 there means the best measured form after the listed tests, not a proof over
 all C — reopen only with new reconstruction or compiler evidence.
+
+**Two of those twelve were wrong, and the LL wave closed them (2026-09-09).**
+`BuildPTPRoute` (0x00482430) closed with a single return plus `break`, and
+`UnlinkGardenerOrder` (0x00499d60) with a one-token change — `} else if (p) {
+search } else { }`, where the `(p)` test folds because `p` is proven non-null
+by the early return, and the empty trailing `else` makes the search arm jump
+instead of falling through, so the tail is hosted at the head arm. Scope LL17
+also closed `FindObjDoorTile` (0x0045e960). The lesson is the one that
+sentence already states: "floor" in scope I means best-measured, not proved,
+and this wave reopened three such rows and closed all three. The rows carrying
+a NAMED MECHANISM in the table above (the LL-wave floors, and the EXHAUSTED
+entries) are a different class — those record why no source form reaches the
+original, not merely that none was found.
 
 **Five more retired at wave eleven (2026-09-05).** All were chosen as the
 project's closest partials by strict mismatch and all turned out to be AT their
@@ -742,54 +814,97 @@ Lanes that had been running, all resumable from `docs/LANE_BRIEF.md`:
 **A. Done (2026-09-03 afternoon):** the 62 audit-exact WIPs are promoted and
 `verify.py` is green at 1473/1473. Start at B.
 
-**B. The closest genuine partials — refreshed 2026-09-05 from a full sweep.**
+**B. The closest genuine partials — refreshed 2026-09-09 after the LL wave.**
 Each carries a note above its marker recording its measured residual, its first
 diverging instruction index, and what previous agents ruled out. *Read that note
-before touching one.* All 41 partials, by mismatch (the four `cursorseg.c`/`mapbuild2.c` rows are scope Q, 2026-09-05):
+before touching one.* All 82 partials, by mismatch. A row tagged **EXHAUSTED**
+or **… floor** has a recorded proof — do not re-grind it; the LL-wave floors name
+their mechanism inline and the evidence is in the matching `docs/lanes/scope-llN.md`.
 
-| mismatch | insns | address | function | file |
-| --- | --- | --- | --- | --- |
+| mismatch | insns | address | function | file — status |
+| ---: | ---: | --- | --- | --- |
+| 2 | 144 | 0x0040ca60 | LFTrack_DrawAlt | logflume4.c |
 | 3 | 43 | 0x004718c0 | ClampPopUpToScreen | misc3.c — **EXHAUSTED** |
+| 3 | 109 | 0x0041c4c0 | BsWater_SetTile | bswater.c |
+| 3 | 207 | 0x00401080 | SchoolCarManoeuvreC | schoolcar2.c |
 | 3 | 330 | 0x00433840 | JcBoat_Animate | roads.c — **EXHAUSTED** |
+| 3 | 334 | 0x004198a0 | BsBoat_Animate | bswater3.c |
 | 3 | 482 | 0x00477bd0 | RequestRoute | simcore.c — **EXHAUSTED** |
+| 4 | 60 | 0x00428750 | InitTrackDrawModes | coaster4.c |
+| 5 | 53 | 0x00471ca0 | RemoveNewObjectMarker | fpui5.c |
+| 5 | 66 | 0x004966a0 | UpdateSampleSource | sysmisc.c |
 | 5 | 205 | 0x0045f810 | ValidateCursor | objmap2.c — **EXHAUSTED, leave** |
+| 5 | 217 | 0x0040f050 | LFTunnel_Place | logflume3.c |
 | 5 | 637 | 0x0042aa90 | Balloonz_Tick | ridecb3.c |
+| 6 | 70 | 0x00422000 | TrackCurve_GatherParams | schoolcar4.c |
+| 6 | 129 | 0x00422e40 | Shade_BuildRamp | schoolcar6.c |
+| 6 | 521 | 0x004227c0 | Mesh_DropBackFaces | unref2.c — **LL10 floor: SIB rank has two reachable states, original in neither** |
+| 7 | 94 | 0x004349b0 | JcDeco_CalcCursor | unref4.c — **LL12 floor: mod-3 count of real memory-to-memory value moves** |
+| 7 | 3161 | 0x00492db0 | MusicThread | musicthread.c — **LL18 floor: import hoisting needs a register free across the whole loop** |
+| 8 | 151 | 0x00428cb0 | Coaster3D_BuildTrackMesh | schoolcar3.c |
+| 8 | 173 | 0x004234e0 | Coaster3D_DrawMesh | schoolcar3.c |
 | 8 | 218 | 0x0041a040 | BoatingSchool_Add | ridecb5.c — **EXHAUSTED, leave** |
-| 8 | 89 | 0x0045e960 | FindObjDoorTile | mapbuild2.c |
+| 10 | 88 | 0x00451280 | UnlockAllPhysicalLocks | unref5.c — **LL13 floor: an exiled return-0 is laid last or inlined early, never first** |
+| 10 | 129 | 0x00425e20 | Coaster3D_SetupView | coaster3d.c |
+| 10 | 207 | 0x00401320 | SchoolCarManoeuvreA | schoolcar2.c |
 | 10 | 222 | 0x0040bf70 | LFEntrance_Activate | lfentrance.c |
+| 10 | 574 | 0x0040dc00 | LFCorner_Place | logflume3.c |
 | 11 | 102 | 0x0040abf0 | LFEntrance_Remove | logflume.c |
 | 12 | 31 | 0x00417e70 | WW_AnyBlokeInRect | waterworks.c — **EXHAUSTED** |
+| 12 | 191 | 0x00421660 | CoasterCar_BuildRider | coaster6.c |
 | 13 | 109 | 0x00473b00 | UpdateControllerFromMouseData | input.c — **EXHAUSTED** |
-| 13 | 962 | 0x004724a0 | DrawPopUpInfo | popup.c |
+| 13 | 962 | 0x004724a0 | DrawPopUpInfo | popup.c — **LL18 floor: residency, not forward substitution** |
+| 14 | 39 | 0x00451390 | LockPhysicalVolume | unref5.c — **LL13 floor: RA08 zero-web count is three either way** |
+| 14 | 50 | 0x00408f90 | LFTrack_FindPieceCovering | unref1.c — **LL9 floor: y ranks below two span hoists** |
+| 15 | 116 | 0x00459970 | TallyBuildFootprints | mapbuild2.c — **LL17 floor: the bound is read before the store in source order** |
 | 15 | 141 | 0x00434f90 | JungleCruise_Add | ridecb9.c |
 | 15 | 376 | 0x00416330 | SpiderRide_Activate | mechrides.c |
-| 15 | 116 | 0x00459970 | TallyBuildFootprints | mapbuild2.c |
+| 16 | 20 | 0x00453c20 | DDrawErrorPassThrough | unref5.c — **LL13 floor: VC6 cross-jumps identical arms before the search tree** |
+| 16 | 703 | 0x00407c30 | Joust_Update | joust2.c |
+| 18 | 33 | 0x00411dc0 | Pump_SnapToRoad | ridemisc3.c |
 | 19 | 362 | 0x0043c950 | SpinningBarrels_Activate | mechrides.c |
 | 19 | 387 | 0x0043e410 | PlaneRide_Activate | mechrides.c |
-| 20 | 191 | 0x0048a3e0 | GetObjectUID | objmap2.c |
+| 20 | 191 | 0x0048a3e0 | GetObjectUID | objmap2.c — **LL17 floor: a global load is rematerialised at its use** |
 | 22 | 68 | 0x00475630 | InsertChildIntoList | fpui.c — **EXHAUSTED** |
 | 22 | 347 | 0x00417430 | TempleSlide_Update | joust.c |
+| 26 | 124 | 0x0046c7e0 | LoadScriptEvent | savechunks2.c — **LL18 floor: a single-predecessor cold block is laid next to its predecessor** |
+| 27 | 63 | 0x00402490 | SchoolCarBlockedAhead | schoolcar4.c |
 | 27 | 64 | 0x00413450 | Road_FindDiagonals | ridecb5.c |
 | 27 | 116 | 0x00436dc0 | JungleCruise_UpdateRiverTile | junglecruise.c |
 | 29 | 378 | 0x0042c820 | Carousel_Tick | ridecb3.c |
 | 30 | 212 | 0x00418fe0 | BoatingSchool_DrawBoats | anim2.c |
+| 32 | 129 | 0x0041bfb0 | BsWater_DrawSelection | screencb.c |
+| 32 | 129 | 0x00436470 | JcWater_DrawSelection | screencb.c |
+| 34 | 81 | 0x00441980 | PutOne3DBlokeOnRide | mantex.c |
+| 35 | 121 | 0x0046d850 | ScrollIconPanel | fpui4.c — **LL17 floor: appearance-count model out of domain** |
+| 37 | 58 | 0x004070b0 | GoldRush_KneelAtPan | goldrush3.c |
+| 38 | 143 | 0x004284d0 | Coaster3D_BuildPieceGeometry | coaster3d.c |
 | 44 | 111 | 0x00410180 | LFDrop_Place | logflume2.c |
 | 47 | 358 | 0x0041a720 | BoatingSchool_Tick | ridecb5.c |
-| 82 | 184 | 0x00470620 | CheckWorkerOnMouseStatus | workers2.c |
-| 93 | 160 | 0x0045fad0 | DrawCursorSegmentB | cursorseg.c |
-| 111 | 195 | 0x0045fca0 | DrawCursorSegmentA | cursorseg.c |
+| 53 | 76 | 0x0041e000 | Route_StepFree | schoolcar5.c |
+| 53 | 174 | 0x00428f00 | Coaster3D_InitTrackTopology | schoolcar3.c |
+| 78 | 84 | 0x0041df00 | Route_StepToPieceEnd | schoolcar6.c |
+| 78 | 229 | 0x00442980 | LoadAltTextures | mantex.c |
+| 82 | 184 | 0x00470620 | CheckWorkerOnMouseStatus | workers2.c — **LL18 floor: const-1 web threading** |
+| 93 | 160 | 0x0045fad0 | DrawCursorSegmentB | cursorseg.c — **LL19 floor: a void default arm is threaded away before layout** |
+| 99 | 110 | 0x00421e90 | TrackCurve_Refine | schoolcar5.c |
+| 105 | 130 | 0x00437260 | JungleCruise_TraceRoute | jcroute.c |
+| 111 | 195 | 0x0045fca0 | DrawCursorSegmentA | cursorseg.c — **LL19 floor: same default-arm layout as DrawCursorSegmentB** |
 | 112 | 422 | 0x00432d00 | JungleCruise_UpdateRiverAnim | junglecruise.c |
-| 118 | 119 | 0x0048f0f0 | InitExitCheckBox | screens2.c |
+| 118 | 119 | 0x0048f0f0 | InitExitCheckBox | screens2.c — **LL17 floor: VC6 folds phi(0,0)** |
 | 132 | 402 | 0x00415220 | SafariRide_Activate | mechrides.c |
 | 138 | 222 | 0x0043bac0 | SpaceTower_Activate | mechrides.c |
 | 182 | 331 | 0x00442040 | AnimApplyPart | anim2.c |
 | 206 | 256 | 0x0040a600 | LFEntrance_Add | lfentrance.c |
 | 208 | 354 | 0x00435750 | JungleCruise_Tick | ridecb2.c |
+| 231 | 252 | 0x0042a2f0 | Raster_SubmitPoly | coaster3d.c |
 | 273 | 454 | 0x0045ff00 | RenderCursor | bigrender.c |
 | 319 | 351 | 0x00402780 | StepSchoolCar | goldrush.c |
 | 377 | 1023 | 0x00440a30 | Draw3DPersonModel | person3d.c — **EXHAUSTED, leave** |
-| 381 | 903 | 0x0045b180 | RenderView | renderview.c |
-| 844 | 1161 | 0x004567a0 | RenderFullMap | renderview.c |
+| 378 | 431 | 0x004608c0 | PaintTileLayer | render4.c |
+| 381 | 903 | 0x0045b180 | RenderView | renderview.c — **LL20 floor: zero-web extension decided with the geometry allocation** |
+| 864 | 1161 | 0x004567a0 | RenderFullMap | renderview.c — ESCAPES — **LL20: frame pool exact; block order unreachable from this CFG** |
+| 7845 | 8085 | 0x004453a0 | RunAppraisalScreen | appraisalscreen.c — ESCAPES — **LL16: instruction count exact, 64.5% aligned; 96 insns in 3 zones** |
 
 **Target from the TOP of this table, and re-sweep before each wave.** Waves five
 to ten repeatedly sent lanes at `RenderFullMap`, `RenderView`,

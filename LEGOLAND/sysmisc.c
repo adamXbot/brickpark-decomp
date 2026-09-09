@@ -85,8 +85,23 @@ extern int  SetSampleScreenPos(Sample* s, int x, int y);   /* 0x004965a0 (intern
  * input and scroll pairs, and named accumulators give 27-32. Keep this form;
  * changing the shared tail to improve one arm regresses the other.
  * Full measurements: docs/lanes/scope-i.md.
- */
-// WIP-FUNCTION: LEGOLAND 0x004966a0  (90.9%, 6/66 strict; scheduling/tail-merge floor; first 46)
+ *
+ * LL19 (2026-09-08): 6 -> 5 with the block-boundary pin (LL10). `int py =
+ * s->src.pos.y; if (py) ;` replaces the volatile read of pos.y: the empty
+ * test costs nothing, keeps the pos.y load on the near side of the p.x
+ * store like the volatile did, but no longer pins it FIRST -- the three
+ * loads now come out in the original's order scroll_x / pos.x / pos.y and
+ * the block is 175/175 bytes. The last 5 are one scratch swap (scroll_x in
+ * ecx and pos.x in edx where the original has edx / ecx; the sar / sub /
+ * store follow), register-blind 0. Measured around it, all worse: a volatile
+ * read of g_scroll_x with the pin (pos.y load first again, 6) or without it
+ * (12); the pin on the old volatile pos.y read (6); `if (s) ;` as the pin
+ * (identical, 5); naming px as well, with or without a volatile read on it
+ * (loses the case-1 tail merge, 28); a named `sx = g_scroll_x >> 8` (28);
+ * sx / px / py all named with the pin and plain or volatile p stores (28);
+ * plain stores with the pin between them (32). At its floor: the swap has
+ * no C handle that survives the shared tail. */
+// WIP-FUNCTION: LEGOLAND 0x004966a0  (92.4%, 5/66 strict; one scratch swap in case 3, rb 0; first 46)
 int UpdateSampleSource(Sample* s)
 {
     Pos p;
@@ -112,7 +127,8 @@ int UpdateSampleSource(Sample* s)
         break;
     case 3:
         {
-            int py = *(int volatile*)&s->src.pos.y;
+            int py = s->src.pos.y;
+            if (py) ;
             *(int volatile*)&p.x = s->src.pos.x - (g_scroll_x >> 8);
             *(int volatile*)&p.y = py - (g_scroll_y >> 8);
         }

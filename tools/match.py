@@ -126,14 +126,20 @@ def obj_function_code(obj_path, func):
                 else:
                     struct.pack_into("<I", code, va, 0x00990099)  # 6-hex sentinel
         return code
-    # find the symbol for func (VC6 prepends '_' to cdecl C names)
+    # find the symbol for func: VC6 prepends '_' to cdecl C names and
+    # decorates __stdcall ones as '_func@N' (N = argument bytes). Without the
+    # decorated form a __stdcall body could only be gated when it was the
+    # first function in its file (the .text fallback below found it by
+    # accident); input2.c and unref5.c both had to be laid out around that.
     targets = {func, "_" + func}
+    stdcall = "_" + func + "@"
     for i in range(nsym):
         o = symptr + i * 18
         rec = d[o:o + 18]
         name = symname(rec)
         value, secnum, typ, sclass = struct.unpack_from("<IhHB", rec, 8)
-        if name in targets and secnum > 0:
+        if (name in targets
+                or (name.startswith(stdcall) and name[len(stdcall):].isdigit())) and secnum > 0:
             code = patched_section(secnum - 1)
             return bytes(code[value:])           # to end of (per-func) COMDAT section
     # fallback: first .text section as a whole
@@ -218,6 +224,35 @@ def export_rvas():
     return _EXPORT_RVAS
 
 
+def _seh_scope_table(insns):
+    """The scope table VA of a VC6 SEH frame, or None. The prologue is
+    `push ebp / mov ebp, esp / push -1 / push <scopetable> /
+    push __except_handler3 / mov eax, fs:[0]`."""
+    head = insns[:8]
+    for k in range(len(head) - 3):
+        a, b, c, e = head[k:k + 4]
+        if (a.mnemonic == "push" and a.op_str == "-1"
+                and b.mnemonic == "push" and c.mnemonic == "push"
+                and e.mnemonic == "mov" and e.op_str.startswith("eax, dword ptr fs:[0]")):
+            m = re.match(r"^0x([0-9a-f]+)$", b.op_str.strip())
+            if m:
+                return int(m.group(1), 16)
+    return None
+
+
+def _seh_targets(d, secs, table, level):
+    """(filter, handler) of scope-table entry `level` -- each entry is
+    {EnclosingLevel, FilterFunc, HandlerFunc}. Nothing when the entry is not
+    well-formed (EnclosingLevel must be -1 or an outer level)."""
+    off = rva2off(secs, table - IMAGE_BASE + 12 * level)
+    if off is None or off + 12 > len(d):
+        return ()
+    enclosing, flt, hnd = struct.unpack_from("<iII", d, off)
+    if enclosing != -1 and not (0 <= enclosing < level):
+        return ()
+    return (flt, hnd)
+
+
 def _table_targets(d, secs, op_str, lo, hi):
     """Case targets of an indirect `jmp dword ptr [reg*4 + TABLE]` in the exe.
 
@@ -264,7 +299,11 @@ def _loop_entry(insns, addr_index, i, tgt):
     return False
 
 
-def true_extent(d, secs, rva):
+WINDOW = 0x4000        # bytes disassembled per walk; every game function but one fits
+LONG_WINDOW = 0x20000  # the retry for the one that does not (0x004453a0, 34,662 bytes)
+
+
+def true_extent(d, secs, rva, window=WINDOW):
     """(instruction count, byte length) of the original function at rva.
 
     Walk from the entry tracking the furthest forward branch target seen —
@@ -275,12 +314,18 @@ def true_extent(d, secs, rva):
     early returns jumped past by guards, void tail calls (`jmp` out of the
     function, with or without a trailing jump table), and an out-of-line
     block that ends in a backward `jmp` into the body (LoadObjectLibrary).
+
+    `window` is how many bytes are disassembled. A function longer than the
+    window has no terminator inside it, so the walk returns (None, None); the
+    default window is then retried once at LONG_WINDOW. The retry cannot
+    change any result the small window already produced: the walk is over
+    the same instruction prefix and stops at the same terminator.
     """
     off = rva2off(secs, rva)
     if off is None:
         return None, None
     va = rva + IMAGE_BASE
-    insns = list(md.disasm(d[off:off + 0x4000], va))
+    insns = list(md.disasm(d[off:off + window], va))
     exps = export_rvas()
     nxt = None
     for e in exps:
@@ -299,6 +344,15 @@ def true_extent(d, secs, rva):
         if k is not None and k > 0 and tgt % 16 == 0 and insns[k - 1].mnemonic == "nop":
             return True
         return False
+
+    # A VC6 SEH frame's filter and handler blocks are reached only through
+    # the scope table in .rdata, so a straight-line `__try` body ends in a
+    # `jmp` over them that nothing branches past: WinMain (0x00453d10) walked
+    # 31i/93B of its 48i/143B and could never print [OK]. Entering trylevel K
+    # is `mov dword ptr [ebp - 4], K`, which makes entry K's filter and handler
+    # reachable -- treat them as branch targets. Reading only the levels the
+    # body enters bounds the table (the next SEH function's table follows it).
+    seh_table = _seh_scope_table(insns)
 
     furthest = va
     for i, x in enumerate(insns):
@@ -326,6 +380,12 @@ def true_extent(d, secs, rva):
             end = insns[j].address if j < len(insns) else x.address + x.size
             if end % 16 == 0 or end == nxt:
                 return i, sum(k.size for k in insns[:i])
+        if seh_table is not None and x.mnemonic == "mov":
+            m = re.match(r"^dword ptr \[ebp - 4\], (0x[0-9a-f]+|\d+)$", x.op_str)
+            if m and int(m.group(1), 0) < 0x100:
+                for t in _seh_targets(d, secs, seh_table, int(m.group(1), 0)):
+                    if not external(t):
+                        furthest = max(furthest, t)
         if x.mnemonic.startswith("j"):
             m = re.match(r"^0x([0-9a-f]+)$", x.op_str.strip())
             if m:
@@ -345,10 +405,12 @@ def true_extent(d, secs, rva):
                 if not external(tgt):
                     furthest = max(furthest, tgt)
             elif x.mnemonic == "jmp":
-                for t in _table_targets(d, secs, x.op_str, va, va + 0x4000):
+                for t in _table_targets(d, secs, x.op_str, va, va + window):
                     furthest = max(furthest, t)
         if x.mnemonic == "ret" and x.address >= furthest:
             return i + 1, sum(k.size for k in insns[:i + 1])
+    if window < LONG_WINDOW:
+        return true_extent(d, secs, rva, LONG_WINDOW)
     return None, None
 
 
@@ -361,7 +423,7 @@ def original_body(d, secs, rva):
         raise SystemExit("address 0x%08x is outside every section" % (rva + IMAGE_BASE))
     n_ins, n_bytes = true_extent(d, secs, rva)
     if n_ins is None:
-        insns = end_of_body(list(md.disasm(d[off:off + 0x4000], rva + IMAGE_BASE)))
+        insns = end_of_body(list(md.disasm(d[off:off + WINDOW], rva + IMAGE_BASE)))
         return insns, None, None
     insns = list(md.disasm(d[off:off + n_bytes], rva + IMAGE_BASE))[:n_ins]
     return insns, n_ins, n_bytes

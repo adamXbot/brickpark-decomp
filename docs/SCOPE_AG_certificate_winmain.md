@@ -1,6 +1,6 @@
 # Scope AG — certificate bitmap + WinMain shell (group 14 leftovers) (2026-09-07)
 
-> **Status: IN PROGRESS (integrator cut 2026-09-07 for Grok).** Branch
+> **Status: DONE — merged 2026-09-08, 3 of 3 exact.** Branch
 > `scope/AG`. Notes: `docs/lanes/scope-ag.md`. Object prefix `/tmp/sag_`.
 > The rest of inventory group 14 is already exact in `exceptlog.c` — do not
 > recreate those.
