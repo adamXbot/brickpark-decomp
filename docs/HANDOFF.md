@@ -92,13 +92,13 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **75.1% exact, 92.1% with partials** (2026-09-09) |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3147 |
-| `verify.py` | `python3 tools/verify.py` (ALONE) | 3147/3147 at 100% (2026-09-09) |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **76.7% exact, 94.4% with partials** (2026-09-09) |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3231 |
+| `verify.py` | `python3 tools/verify.py` (ALONE) | 3231/3231 at 100% (2026-09-09, after LL3/4/6/7) |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F owned part of this list and are both closed; use `tools/inventory.py` for game-code targets. |
-| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 82 — all listed in §6B with their residuals |
-| **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-09) | **94: 94 live (4,958 insns, 14,538 bytes), 0 dead.** The dead tier is finished — every one of the 153 bodies nothing live references is now written (LL9–LL15). Excludes 121 import thunks and the 82 partials already represented in C. |
+| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 92 — all listed in §6B; LL17–LL24 claim 80 of them |
+| **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-09) | **ZERO — 0 live, 0 dead.** Every function in the game-code range has a body in C; see the frontier milestone below and §6C. |
 | **the ceiling** | `tools/inventory.py` residue line | 35,370 bytes (5.5%) is padding, `switch` tables in `.text` and CRT data that no C body can ever claim, so **~94.5% exact is the theoretical maximum**, not 100%. |
 
 **The LL wave closed 2026-09-09: scopes LL9–LL20 merged, +213 exact functions,
@@ -849,15 +849,18 @@ Lanes that had been running, all resumable from `docs/LANE_BRIEF.md`:
 **A. Done (2026-09-03 afternoon):** the 62 audit-exact WIPs are promoted and
 `verify.py` is green at 1473/1473. Start at B.
 
-**B. The closest genuine partials — refreshed 2026-09-09 after the LL wave.**
-Each carries a note above its marker recording its measured residual, its first
-diverging instruction index, and what previous agents ruled out. *Read that note
-before touching one.* All 82 partials, by mismatch. A row tagged **EXHAUSTED**
-or **… floor** has a recorded proof — do not re-grind it; the LL-wave floors name
-their mechanism inline and the evidence is in the matching `docs/lanes/scope-llN.md`.
+**B. The partials are now the whole of the remaining work — refreshed 2026-09-09.**
+With the frontier at zero, every function in the binary has a body; what is left
+is turning these 92 partials exact, and LL21–LL24 claim 80 of them. Each carries a
+note above its marker recording its measured residual, its first diverging index,
+and what previous agents ruled out. *Read that note before touching one.* Sorted
+by mismatch. A row tagged **EXHAUSTED**, **FLOOR** or **… floor** has a recorded
+proof of why no source form reaches the original — do not re-grind it; the
+evidence is in the matching `docs/lanes/scope-*.md`.
 
 | mismatch | insns | address | function | file — status |
 | ---: | ---: | --- | --- | --- |
+| 2 | 81 | 0x00420200 | IntegrateSimpson | coastershade2.c |
 | 2 | 144 | 0x0040ca60 | LFTrack_DrawAlt | logflume4.c |
 | 3 | 43 | 0x004718c0 | ClampPopUpToScreen | misc3.c — **EXHAUSTED** |
 | 3 | 109 | 0x0041c4c0 | BsWater_SetTile | bswater.c |
@@ -910,25 +913,34 @@ their mechanism inline and the evidence is in the matching `docs/lanes/scope-llN
 | 30 | 212 | 0x00418fe0 | BoatingSchool_DrawBoats | anim2.c |
 | 32 | 129 | 0x0041bfb0 | BsWater_DrawSelection | screencb.c |
 | 32 | 129 | 0x00436470 | JcWater_DrawSelection | screencb.c |
-| 34 | 81 | 0x00441980 | PutOne3DBlokeOnRide | mantex.c |
+| 34 | 87 | 0x00424050 | GetTrackSegment | coaster12.c |
+| 35 | 61 | 0x00423200 | Raster_AddSpanRecord | coaster12.c |
 | 35 | 121 | 0x0046d850 | ScrollIconPanel | fpui4.c — **LL17 floor: appearance-count model out of domain** |
 | 37 | 58 | 0x004070b0 | GoldRush_KneelAtPan | goldrush3.c |
 | 38 | 143 | 0x004284d0 | Coaster3D_BuildPieceGeometry | coaster3d.c |
+| 42 | 77 | 0x0041db90 | Route_GetMassAndPower | coaster11.c |
 | 44 | 111 | 0x00410180 | LFDrop_Place | logflume2.c |
 | 47 | 358 | 0x0041a720 | BoatingSchool_Tick | ridecb5.c |
 | 53 | 76 | 0x0041e000 | Route_StepFree | schoolcar5.c |
 | 53 | 174 | 0x00428f00 | Coaster3D_InitTrackTopology | schoolcar3.c |
+| 62 | 136 | 0x0041fba0 | Span_FillFlatZ | coastershade2.c |
+| 62 | 202 | 0x0041ff80 | Span_FillShadeZ | coastershade2.c — **LL4: ZBuffer-class, byte-exact, row homes vs the original frame** |
 | 78 | 84 | 0x0041df00 | Route_StepToPieceEnd | schoolcar6.c |
 | 78 | 229 | 0x00442980 | LoadAltTextures | mantex.c |
 | 82 | 184 | 0x00470620 | CheckWorkerOnMouseStatus | workers2.c — **LL18 floor: const-1 web threading** |
+| 88 | 106 | 0x0041f8d0 | Span_FillFlat | coastershade2.c |
 | 93 | 160 | 0x0045fad0 | DrawCursorSegmentB | cursorseg.c — **LL19 floor: a void default arm is threaded away before layout** |
 | 99 | 110 | 0x00421e90 | TrackCurve_Refine | schoolcar5.c |
+| 105 | 130 | 0x0041c940 | BsRoute_Trace | coaster11.c — **FLOOR (NG22): same phase-order allocation as JungleCruise_TraceRoute** |
 | 105 | 130 | 0x00437260 | JungleCruise_TraceRoute | jcroute.c |
+| 106 | 162 | 0x0041fd80 | Span_FillShade | coastershade2.c |
 | 111 | 195 | 0x0045fca0 | DrawCursorSegmentA | cursorseg.c — **LL19 floor: same default-arm layout as DrawCursorSegmentB** |
 | 112 | 422 | 0x00432d00 | JungleCruise_UpdateRiverAnim | junglecruise.c |
 | 118 | 119 | 0x0048f0f0 | InitExitCheckBox | screens2.c — **LL17 floor: VC6 folds phi(0,0)** |
 | 132 | 402 | 0x00415220 | SafariRide_Activate | mechrides.c |
 | 138 | 222 | 0x0043bac0 | SpaceTower_Activate | mechrides.c |
+| 147 | 254 | 0x00428860 | TrackShade_FillPoly | coaster13.c — **LL7: ZBuffer-class sibling of ZBuffer_FillPoly** |
+| 173 | 179 | 0x0041f050 | Span_ClipPlane | coaster11.c — ESCAPES |
 | 182 | 331 | 0x00442040 | AnimApplyPart | anim2.c |
 | 206 | 256 | 0x0040a600 | LFEntrance_Add | lfentrance.c |
 | 208 | 354 | 0x00435750 | JungleCruise_Tick | ridecb2.c |
@@ -1005,7 +1017,14 @@ Look for **twins**: the game is full of near-identical rides, and a fix on one
 slot usually transfers straight to the same slot on another ride. That has
 turned one fix into four repeatedly.
 
-**C. The remaining frontier is now enumerated.** `python3 tools/inventory.py`
+**C. THE FRONTIER IS CLOSED (2026-09-09) — nothing left to enumerate.**
+`inventory.py` now reports 0 unwritten game functions, live or dead. What
+follows is the historical record of how it was worked down; the tool's
+remaining job is to CONFIRM the frontier is still empty after a merge. Do not
+go looking for new-function scopes — there are none, and all remaining work is
+in §6B.
+
+`python3 tools/inventory.py`
 (scope N; method and original snapshot in `docs/lanes/scope-n.md`) finds
 unwritten functions in the game-code range. The 2026-09-07 run after Z/Y
 has 495 game targets: 340 live (26,952 instructions) and 155 dead functions.
