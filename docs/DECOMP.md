@@ -491,6 +491,51 @@ of them CRT) re-walk to the same extent. `inventory.py`'s own
     or the dead store moved to either side of `ylast`, each shifts a load
     in the head.
 
+- **SCOPE Codex-F (closed 2026-09-09, 26 of 26 exact; evidence in
+  `docs/lanes/codex-f.md`).** Coaster draw passes, rider updates, route
+  callees (`coaster10.c`, `ridemachine2.c`, `uistubs2.c`).
+  `Copters_UpdateCarRider` took nine documented passes; the two levers that
+  closed it are general and also closed scope AC's `PutOne3DBlokeOnRide`:
+  - **An alias pointer defeats VC6's commutative-operand canonicalisation.**
+    VC6 canonicalises a commutative `fmul` (and an integer `imul`) whose two
+    operands are constant offsets off ONE pointer, which silently reverses
+    the emitted `fld`/`fmul` order; it cannot order operands reached through
+    two different pointers, so source order survives. `kg = kf;` and reading
+    the affected operands through `kg` is free and fixes it. **Source operand
+    order is inert** — all 64 permutations measured, twice, on two bases — so
+    when an fld/fmul or imul pair comes out reversed, change the operand's
+    SPELLING, not its position. A `volatile` alias, a `char*` cast on the one
+    offending offset, and an alias for a whole table all work equally.
+  - **A scope-V cancelled-pair anchor receives an allocator priority bump, so
+    it must be a value whose own ranking does not matter.** The anchor is
+    live wherever the cancel is. Anchoring on the value you are trying to
+    place ranks it above its neighbour and costs a register swap; anchoring
+    on a nearby variable rotates the callee-saved trio instead. Use a
+    link-time **address constant** (`t.oy = (int)g_copter_ord_a;`) or an
+    already-materialised induction value (`t.oy = j * 4;` when ecx holds
+    j*4) — both bump nothing. The constant must be assigned to the struct
+    MEMBER first; used directly in the cancel it folds in the front end.
+    The two levers are independent: a 2x3 grid of anchors x operand fixes all
+    reach 0.
+  - **`/FAcs /Fa<path>` is the tool for a residual that is pure register
+    ranking.** It prints VC6's own frame symbol table, so a carrier that
+    cost a frame slot shows up as a `_name$ = -N` equate, and it attributes
+    every instruction to its source line. It also shows that **VC6 overlaps
+    locals onto dead PARAMETER slots** (`_value$ = 8` sharing `_person$ = 8`
+    in `bnvpath.c`), which is why the original's inline-asm operands live in
+    dead parameter homes — pointer puns and plain `float` locals are
+    equivalent there.
+  - **A struct member that must live ACROSS a loop gets a real frame slot and
+    is reloaded; one confined to straight-line code is free.** Keep a
+    cancelled-pair carrier inside one basic block.
+  - **Falsified, do not chase:** "the original was compiled as if the
+    fld/fmul/fistp asm block wrote EAX". `ApplyObjectOrientationToPerson`
+    (0x00484950, bnvpath.c, 0 mismatches) keeps `person` in EAX across NINE
+    consecutive such blocks. Adding an EAX clobber only perturbs a body that
+    is already on a knife edge. Compiler build (all four VC6 service packs
+    emit byte-identical code), the C++ front end, and every codegen flag are
+    likewise ruled out for this class.
+
 - **SCOPE V (closed 2026-09-08, 62 of 62 exact; evidence in
   `docs/lanes/scope-v.md`).** Script-event tick handlers + goal checks
   (`eventtick.c`, `eventgoal.c`). `EventTick_Clear` took nine documented
@@ -624,7 +669,7 @@ of them CRT) re-walk to the same extent. `inventory.py`'s own
     address-taken `elem`) so the missing `push ecx` / frame slot lands —
     beats the FR02 dead-arg floor.
 
-- **SCOPE AC (merged 2026-09-07, 13 of 15 exact; evidence in
+- **SCOPE AC (merged 2026-09-07, 14 of 15 exact; evidence in
   `docs/lanes/scope-ac.md`).** Advisor movie helpers and InitMan texture
   callees (`advisor.c`, `mantex.c`):
   - **OpenMovie without audio: omit `audio = 0`.** `LoadAdvisorMovie`
@@ -639,9 +684,11 @@ of them CRT) re-walk to the same extent. `inventory.py`'s own
     before consuming LF so a maxlen hit on CR eats the following LF.
   - **FindAltNameIndex:** `while (NameCompare != 0)` with `strlen==0`
     (not `list[0]==0`) for the `repne scasb` empty test.
-  - **Floors left WIP:** `PutOne3DBlokeOnRide` keeps track in ESI not EDI
-    (34 mism, size-exact); `LoadAltTextures` fail-path ebx / scalar-home
-    permutation (−4B, ~78 mism). Do not reopen without a new register
+  - **`PutOne3DBlokeOnRide` closed 2026-09-09** with the two Codex-F levers
+    (see the Codex-F entry): an address-constant cancelled-pair anchor
+    (`t.y = (int)g_ride_mtx_chan;`) plus an `sb` alias for the sign table.
+  - **Floor left WIP:** `LoadAltTextures` fail-path ebx / scalar-home
+    permutation (−4B, ~78 mism). Do not reopen without new register
     evidence.
 
 - **SCOPE AB (merged 2026-09-07, 8 of 8 exact; evidence in

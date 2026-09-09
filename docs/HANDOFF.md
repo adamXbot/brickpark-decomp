@@ -96,7 +96,7 @@ and commit messages are that runtime's spec.
 | functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3147 |
 | `verify.py` | `python3 tools/verify.py` (ALONE) | 3147/3147 at 100% (2026-09-09) |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
-| unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F own part of this list; use `tools/inventory.py` for game-code targets. |
+| unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F owned part of this list and are both closed; use `tools/inventory.py` for game-code targets. |
 | partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 82 — all listed in §6B with their residuals |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-09) | **94: 94 live (4,958 insns, 14,538 bytes), 0 dead.** The dead tier is finished — every one of the 153 bodies nothing live references is now written (LL9–LL15). Excludes 121 import thunks and the 82 partials already represented in C. |
 | **the ceiling** | `tools/inventory.py` residue line | 35,370 bytes (5.5%) is padding, `switch` tables in `.text` and CRT data that no C body can ever claim, so **~94.5% exact is the theoretical maximum**, not 100%. |
@@ -167,7 +167,7 @@ MISMATCH; `/W3` clean.
 
 **Scope AI closed exact (2026-09-07): 18 of 18; coverage 70.0% -> 70.3% exact.**
 `music2.c` + `pathobj2.c` (group 16).
-Parallel still open: FGH, Codex-F, AC remainders; LL3–LL4/LL6–LL7 in flight.
+Parallel still open: FGH, AC remainder (`LoadAltTextures`); LL3–LL4/LL6–LL7 in flight.
 
 **LL wave cut (2026-09-07):** letter scopes end at AK; new scopes are
 `LL1`…`LL8` (`docs/SCOPE_LL_WAVE.md`). Live inventory leftovers after excluding
@@ -540,7 +540,7 @@ Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
 coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
-Open for assignment: none cut and idle — Codex-F is in progress (AG merged 2026-09-08, 3 of 3);
+Open for assignment: none cut and idle — Codex-F is merged (2026-09-09, 26 of 26);
 FGH remains in its own session. AD, AE, AA, AB, AC, AF are DONE
 and merged (several with honest WIPs). Of the seven
 script-tier briefs six are DONE and merged (R, S, T, U, W, X).
