@@ -1,5 +1,9 @@
 # Scope LL3 — route / joint / span clip callees (inventory group 3) (2026-09-07)
 
+> **Status 2026-09-09: LL3 is MERGED to main.** Its WIP leftovers — `BsRoute_Trace`, `Route_GetMassAndPower`, `Span_ClipPlane` —
+> are now claimed by `docs/SCOPE_LL23_coaster_span_raster.md`. Do NOT assign
+> anything from this brief; findings live in `docs/lanes/scope-ll3.md`.
+
 > **Status: IN PROGRESS (claimed 2026-09-07).** Branch `scope/LL3`. Notes: `docs/lanes/scope-ll3.md`. Object prefix
 > `/tmp/sll3_`. Cut from inventory group 3 live members
 > (`tools/inventory.py`, 2026-09-07 refresh). Naming: `LL*` replaces letter

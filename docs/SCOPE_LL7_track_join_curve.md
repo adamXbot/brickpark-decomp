@@ -1,5 +1,9 @@
 # Scope LL7 — track join / curve / station callees (inventory group 7) (2026-09-07)
 
+> **Status 2026-09-09: LL7 is MERGED to main.** Its WIP leftovers — `TrackShade_FillPoly` —
+> are now claimed by `docs/SCOPE_LL23_coaster_span_raster.md`. Do NOT assign
+> anything from this brief; findings live in `docs/lanes/scope-ll7.md`.
+
 > **Status: IN PROGRESS (claimed 2026-09-08).** Branch `scope/LL7`. Notes: `docs/lanes/scope-ll7.md`. Object prefix
 > `/tmp/sll7_`. Cut from inventory group 7 live members
 > (`tools/inventory.py`, 2026-09-07 refresh). Naming: `LL*` replaces letter

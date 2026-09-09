@@ -1,5 +1,9 @@
 # Scope LL4 — coaster shade / blit table callees (inventory group 4) (2026-09-07)
 
+> **Status 2026-09-09: LL4 is MERGED to main.** Its WIP leftovers — the five `coastershade2.c` bodies and `TrackShade_FillPoly` —
+> are now claimed by `docs/SCOPE_LL23_coaster_span_raster.md`. Do NOT assign
+> anything from this brief; findings live in `docs/lanes/scope-ll4.md`.
+
 > **Status: IN PROGRESS (claimed 2026-09-07).** Branch `scope/LL4`. Notes: `docs/lanes/scope-ll4.md`. Object prefix
 > `/tmp/sll4_`. Cut from inventory group 4 live members
 > (`tools/inventory.py`, 2026-09-07 refresh). Naming: `LL*` replaces letter

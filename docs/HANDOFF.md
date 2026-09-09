@@ -552,21 +552,28 @@ Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
 coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
-Open for assignment (cut 2026-09-09, both unclaimed and non-colliding):
-**LL21** `docs/SCOPE_LL21_partials_allocation_b.md` — five byte-exact
-allocator/scheduler residuals (simcore, objmap2, ridecb5, waterworks,
-coaster3d; 1,079 insns, 66 mismatches), and **LL22**
-`docs/SCOPE_LL22_partials_bytediff.md` — four instruction-exact but
-byte-divergent residuals (misc3, fpui, input, and AC's leftover
-`LoadAltTextures`; 449 insns, 116 mismatches). Both briefs carry the two
-Codex-F levers and the `/FAcs` route, which no earlier partials wave had.
+Open for assignment (cut 2026-09-09; four briefs, all unclaimed, no address
+appears in two of them):
 
-**The unmatched game-code frontier is now fully assigned.** `inventory.py`
-(2026-09-09) reports 10,518 live unmatched bytes in three groups
-(0x00411fa0..0x0042a77f, 68 functions, ~3.7k instructions) and **every one of
-those 68 addresses is already claimed** by LL3, LL4, LL6 or LL7. Do not cut a
-new function-tier brief until one of those lanes lands; the only remaining
-capacity is the WIP pool, which is what LL21/LL22 draw from.
+| brief | file | bodies | insns | what |
+| --- | --- | ---: | ---: | --- |
+| **LL21** | `docs/SCOPE_LL21_partials_allocation_b.md` | 5 | 1,079 | byte-exact allocator/scheduler residuals (simcore, objmap2, ridecb5, waterworks, coaster3d) |
+| **LL22** | `docs/SCOPE_LL22_partials_bytediff.md` | 4 | 449 | instruction-exact but byte-divergent (misc3, fpui, input, AC's `LoadAltTextures`) |
+| **LL23** | `docs/SCOPE_LL23_coaster_span_raster.md` | 11 | 1,475 | the coaster span/raster family — LL3/LL4/LL6/LL7 leftovers |
+| **LL24** | `docs/SCOPE_LL24_draw3dpersonmodel.md` | 1 | 1,023 | `Draw3DPersonModel`, the largest open body, a frame-colouring residual |
+
+All four carry the scope Codex-F levers (the cancelled-pair anchor, the alias
+pointer for reversed commutative operands) and the `/FAcs` frame-symbol route,
+none of which the earlier waves had.
+
+**MILESTONE (2026-09-09): the unmatched game-code frontier is EXHAUSTED.**
+After LL3, LL4, LL6 and LL7 merged, `inventory.py` reports **0 live unmatched
+bytes and 0 candidate groups** — every live game function now carries a
+marker. There is no function-tier brief left to cut, and there will not be
+another until a new one is discovered. **All remaining work is WIP-to-exact**:
+3,231 exact and 92 WIP markers, 493,414 of 643,072 game bytes exact. The 92
+WIPs are the entire remaining backlog, and LL17–LL24 between them claim 80 of
+them.
 
 Codex-F is merged (2026-09-09, 26 of 26);
 FGH remains in its own session. AD, AE, AA, AB, AC, AF are DONE
