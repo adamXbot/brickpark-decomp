@@ -161,6 +161,18 @@ With V in, the level-script subsystem is C end to end. Relocs 0 MISMATCH;
 AttachE closed via `p->kind = 2` (literal) in the dir==2 arm. Relocs 0
 MISMATCH; `/W3` clean.
 
+**Scope Codex-F closed exact (2026-09-09): 26 of 26; coverage 75.8% exact
+(92.8% with partials).** Exact count **3174**; **81** WIPs; `verify.py`
+3174/3174 at 100%. `coaster10.c` (model draw passes, route/curve callees),
+`ridemachine2.c` (copter + space-tower rider updates), `uistubs2.c`.
+Also closes scope AC's `PutOne3DBlokeOnRide` in `mantex.c` (AC now 14 of 15;
+only `LoadAltTextures` remains). Relocs 0 MISMATCH; `/W3` clean.
+Two general levers folded into DECOMP: an alias pointer defeats VC6's
+canonicalisation of a commutative `fmul`/`imul` whose operands are two
+constant offsets off one pointer, and a scope-V cancelled-pair anchor must be
+an address constant or an already-materialised IV because the anchor receives
+an allocator priority bump.
+
 **Scope LL5 closed exact (2026-09-08): 3 of 3; coverage 70.3% -> 70.4% exact
 (81.7% with partials).** Exact count **2890**; **79** WIPs.
 `castletrack2.c` (TrackCurve_InitLine/Cubic/Arc). Relocs 0 MISMATCH; `/W3` clean.
