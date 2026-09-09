@@ -552,7 +552,23 @@ Name hygiene from the sweep: 0x00829a3c is `g_clip_ring` in coaster3d.c,
 coastertiny.c and coaster9.c and `g_coaster_regions` in schoolcar.c (one
 object, two struct views) — rename at a quiet tree.
 
-Open for assignment: none cut and idle — Codex-F is merged (2026-09-09, 26 of 26);
+Open for assignment (cut 2026-09-09, both unclaimed and non-colliding):
+**LL21** `docs/SCOPE_LL21_partials_allocation_b.md` — five byte-exact
+allocator/scheduler residuals (simcore, objmap2, ridecb5, waterworks,
+coaster3d; 1,079 insns, 66 mismatches), and **LL22**
+`docs/SCOPE_LL22_partials_bytediff.md` — four instruction-exact but
+byte-divergent residuals (misc3, fpui, input, and AC's leftover
+`LoadAltTextures`; 449 insns, 116 mismatches). Both briefs carry the two
+Codex-F levers and the `/FAcs` route, which no earlier partials wave had.
+
+**The unmatched game-code frontier is now fully assigned.** `inventory.py`
+(2026-09-09) reports 10,518 live unmatched bytes in three groups
+(0x00411fa0..0x0042a77f, 68 functions, ~3.7k instructions) and **every one of
+those 68 addresses is already claimed** by LL3, LL4, LL6 or LL7. Do not cut a
+new function-tier brief until one of those lanes lands; the only remaining
+capacity is the WIP pool, which is what LL21/LL22 draw from.
+
+Codex-F is merged (2026-09-09, 26 of 26);
 FGH remains in its own session. AD, AE, AA, AB, AC, AF are DONE
 and merged (several with honest WIPs). Of the seven
 script-tier briefs six are DONE and merged (R, S, T, U, W, X).

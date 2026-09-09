@@ -1,5 +1,10 @@
 # Scope AC — advisor movies and InitMan texture/rider helpers (2026-09-07)
 
+> **Status 2026-09-09: AC is merged at 14 of 15.** `PutOne3DBlokeOnRide`
+> (0x00441910) closed 2026-09-09 with the Codex-F levers. The last body,
+> `LoadAltTextures` (0x00442980), is now claimed by
+> `docs/SCOPE_LL22_partials_bytediff.md` — do NOT assign it from here.
+
 > **Status: DONE — 13 of 15 exact, merged into `main` 2026-09-07 (integrator
 > session; merge `f2ff6920`).** Two honest WIPs remain in `mantex.c`
 > (`PutOne3DBlokeOnRide`, `LoadAltTextures`). Branch `scope/AC`. Notes:
