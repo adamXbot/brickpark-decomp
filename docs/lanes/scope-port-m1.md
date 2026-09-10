@@ -85,6 +85,20 @@ single highest-value item left in `portable/`: nothing can be seen on the canvas
 until the RLE blitters have C fallbacks. `SoftBlitRLEPlain` (softblit.c) and
 `SoftBlitSprite` are its callers, so the porting lane should start there.
 
+**The browser page reaches exactly the same point**, which is the useful part:
+`http://localhost:8793/legoland.html?trace=1` (serve `portable/build-wasm` with
+`python3 -m http.server 8793`) replays the whole trace above and then loads the
+title screen's own sprites out of `Graphics1.res` — seven small ones and then a
+**343,366-byte** one, which is the title artwork — before the same
+`rlepaint.c:1016` abort. So the page is now one ported blitter away from putting
+a picture on the canvas.
+
+`legoland_tests` is **5/5, 193 checks** under node, `loadpos` included. PORT-A2
+left it at 4/5 with `loadpos` trapping in `LoadPos`; that trap was
+`signature_mismatch:RES_CloseFile`, so it closed with deliverable 1 and needed no
+test change. The native 64-bit build and `legoland_linkcheck` still build and
+link.
+
 `--stages`, which walks InitSession's own sequence (startup.c 0x0047f880),
 now runs to the end with no failure at all: all three volumes, `LoadStrings`,
 `InitHostSystemGPU` = 1, `InitScreen` = 1, `InitInputSystem` = 1,
