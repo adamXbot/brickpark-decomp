@@ -220,7 +220,7 @@ straight into the `budget <= 0` test).
 ## 3. The test
 
 `portable/tests/test_rle_paint.c`, subcommand `rle_paint`, registered for
-both toolchains (no assets, no host shim, no serialised layout). **38 checks,
+both toolchains. **43 checks,
 0 failed.**
 
 The sprite is declared once as a list of operations per row — one pixel
@@ -248,6 +248,38 @@ tail does not hit; all four Hit leaves agree on one pixel; each of the three
 recolour divergences above against the plain leaf on the *same* pixel; and
 that the primary-code-1 top-skip defect is observable (Fast and HitClipLR
 paint the reference picture, Hit does not).
+
+### And one REAL sprite
+
+`tools/oracle_rlepaint.py` decodes one 16-bpp COMP frame out of
+`gamedata/disc/Graphics1.res` with the clean-room reader already in
+`tools/comp.py` (`_Bits2`, `parse_header` and the `_decode16` grammar walk)
+and emits the member's identity, the byte range of frame 0, a sentinel, and
+two FNV-1a 64 digests — the whole image, and the same image cut at half
+width. The test reads those bytes with `fopen`/`fread`, paints them with
+`RLEPaintFast` and with `RLEPaintClipR`, and digests the scratch surface.
+**Both match the Python decode exactly.**
+
+The member is chosen deterministically: the first, in archive order, that
+uses the literal single, the escape, the literal run and the repeat run,
+preferring one that also has a transparent opcode. That lands on
+`erase it.lls`, 34x30, whose frame 0 has 12 literal singles, 7 transparent
+singles, 235 escapes and 91/90/24 literal/repeat/transparent runs — every
+opcode the shipped assets ever use, and the same member the headless trace
+shows the title screen loading (`SetFilePointer(4, 1335692) /
+ReadFile(4, 1402 bytes)`).
+
+Two things worth recording from building it:
+
+* the sentinel that means "the painter did not write here" has to be picked
+  **per frame**. A fixed one does not work: 460 of `Graphics2.res`'s 530
+  16-bpp members contain any given constant, so `0x1234` is a real pixel in
+  most of them and "untouched" stops being decidable. The oracle scans the
+  decoded frame for an unused 16-bit value and emits it.
+* most of `Graphics1.res`'s large frames are **fully opaque** — 429 16-bpp
+  members, only 100 with any transparent opcode in frame 0, and none of the
+  640x480 backgrounds. Preferring a transparent frame is what keeps the
+  "advance without writing" half of the grammar in the check.
 
 ## 4. Evidence: how far the game runs
 
