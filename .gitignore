@@ -19,3 +19,4 @@ toolchain
 original
 gamedata
 portable/build/
+portable/build-wasm/
