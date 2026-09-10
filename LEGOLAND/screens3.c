@@ -364,7 +364,7 @@ extern const char g_dbg_exit[];           /* 0x004b7d98 "Exit Advisor" */
 extern void  PushRenderingStatusAndLockVideoSurface(void);    /* 0x00463fc0 */
 extern void  PopRenderingStatus(void);                        /* 0x004641f0 */
 /* 0x00443dc0 (not exported): starts playing an advisor clip. */
-extern void  SetVidAnim(VidAnim* a);
+extern void  SetVidAnim(VidAnim* a);                          /* 0x00443dc0 */
 /* 0x0049e418: the AVIStreamGetFrame import thunk -- __stdcall, so it cleans
  * its own two arguments (no `add esp,8` after the call). */
 extern DibHeader* __stdcall AVIStreamGetFrame(void* pgf, int frame);
@@ -387,18 +387,18 @@ extern int   VolumeToMarkerX(int vol);
 extern int   MarkerXToVolume(int x);
 /* 0x0046d230 / 0x0046d110 (not exported): the help-bar text (-2 clears it)
  * and the per-frame help update. */
-extern void  ShowHelpString(int id);
+extern void  ShowHelpString(int id);                          /* 0x0046d230 */
 extern void  UpdateHelpBar(void);
 /* 0x0048faf0 / 0x00498b40 / 0x00498cf0 / 0x00492b50 (not exported). */
 extern void  RenderScreen(void);
 extern void  sub_498b40(void);
-extern int   sub_498cf0(void);
+extern int   IsNarrationPlaying(void);                        /* 0x00498cf0 */
 extern void  KillPlayableSample(void* s);
 
 extern unsigned int GetGameTimer(void);                       /* 0x00499430 */
 extern void  ClearOverlays(void);                             /* 0x00462ce0 */
 /* 0x00482a80 (not exported): the rest of the teardown 0x004828f0 tails into. */
-extern void  sub_482a80(void);
+extern void  ResetEntranceTile(void);                         /* 0x00482a80 */
 /* 0x004913f0 (not exported): the new-profile popup's per-frame hook. Its
  * ADDRESS is what NewProfileCloseInput tests (always true). */
 extern void  ScanForProfiles(void);
@@ -417,7 +417,7 @@ extern void  ResetTempProfile(void);
 /* 0x0048e280 (not exported): builds the new-saved-game name popup over `p`. */
 extern void  InitNewSaveGamePOPUP(Icon* p);
 /* 0x0048e3d0 (not exported): seeds the name editor with an existing name. */
-extern void  sub_48e3d0(void* name);
+extern void  SetTempProfileName(void* name);                  /* 0x0048e3d0 */
 extern char  SaveEmptySlotInput(Icon*, int, int, int);        /* 0x0048e4f0 */
 
 extern Icon* FindIcon(int group);                             /* 0x0046d630 */
@@ -425,7 +425,7 @@ extern void  DeleteIcon(Icon* p);                             /* 0x0046d4e0 */
 extern void  MemFree(void* p);                                /* 0x0049e4d0 */
 /* 0x00458be0 / 0x00459820 (not exported): the script stop path. */
 extern void  CompleteLevelForProfile(void);
-extern void  sub_459820(int a);
+extern void  EndLevel(int a);                                 /* 0x00459820 */
 /* 0x0048c720 / 0x0048c860 (not exported): the delete-confirmation popups of
  * the profile list and of the saved-game screen. */
 extern void  InitProfileCheckBoxIcons(Icon* p);
@@ -471,7 +471,7 @@ void ReferenceLowMarkerSprites(void);                         /* 0x0048bd40 */
 
 /* 0x0048f9f0 (not exported): starts the intro movie from the three title
  * blocks at 0x007cb30c / 0x007cb300 / 0x007cb2f0. */
-extern void  PlayTitleMovie(int* a, int* b, int* c);
+extern void  PlayTitleMovie(int* a, int* b, int* c);          /* 0x0048f9f0 */
 extern void  RemoveObjectListIcons(int group);                /* 0x0046fb40 */
 /* 0x0048e420 (not exported): un-lights the save popup's OK / close icons. */
 extern void  ResetSavePopupIcons(void);
@@ -507,7 +507,7 @@ extern void  InitExitCheckBox(int x, int y);
  * (0x00474820 / 0x00474830) into g_icon_handler1 / 2. */
 extern void  SetInGameIconHandlers(void);
 /* 0x004993c0 (not exported): un-pauses the game timer (PauseGameTimer's twin). */
-extern void  ResumeGameTimer(void);
+extern void  ResumeGameTimer(void);                           /* 0x004993c0 */
 
 extern int   PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
 extern int   PrintSprite(Sprite* s, int x, int y, int mode, BlitCtx* ctx); /* 0x004853a0 */
@@ -540,11 +540,11 @@ extern void  SetInfoPanelText(const char* a, const char* b);
 extern int SetInfoPanelText(const char* a, const char* b);
 #endif
 /* 0x0046b700 (not exported): ends the running script. */
-extern void  EndScript(void);
+extern void  EndScript(void);                                 /* 0x0046b700 */
 /* 0x00474750 (not exported): drops the side panel's object icons. */
-extern void  ClearObjectMenuIcons(void);
+extern void  ClearObjectMenuIcons(void);                      /* 0x00474750 */
 /* 0x0048a800 (not exported): re-reads the selected profile into CurProfile. */
-extern void  SelectProfileSlot(void);
+extern void  SelectProfileSlot(void);                         /* 0x0048a800 */
 
 /* =========================================================================
  *  Small state accessors
@@ -1573,7 +1573,7 @@ void StopScript(int running)
     if (running) {
         CompleteLevelForProfile();
         if (!g_832ba8)
-            sub_459820(1);
+            EndLevel(1);
     }
 }
 
@@ -1605,7 +1605,7 @@ void ScriptSetRunning(int enable)
 char ScriptEndActiveInput(Icon* p, int buttons, int a3, int a4)
 {
     if (buttons & 2)
-        sub_459820(1);
+        EndLevel(1);
     return 1;
 }
 
@@ -1771,7 +1771,7 @@ char SaveEmptySlotInput(Icon* p, int buttons, int a3, int a4)
         g_cur_save_slot = p->slot;
         InitNewSaveGamePOPUP(p);
         if (p->u18.owner != g_str_empty_slot)
-            sub_48e3d0(p->u18.owner);
+            SetTempProfileName(p->u18.owner);
         g_newsave_popup_up = 1;
         g_frontend_checkbox_closed = 0;
     }
@@ -1826,7 +1826,7 @@ void sub_4828f0(void)
         MemFree(g_66b44c);
         g_66b44c = next;
     }
-    sub_482a80();
+    ResetEntranceTile();
 }
 
 /* Wipes every cell of the 256x256 map grid (all five dwords of the 20-byte
@@ -1917,7 +1917,7 @@ char VolUpInput(Icon* p, int buttons, int a3, int a4)
                     if (g_vol_speech) {
                         g_vol_speech--;
                         g_vol_marker_speech->x = (short)VolumeToMarkerX(g_vol_speech);
-                        if (!g_6687b4 && !sub_498cf0())
+                        if (!g_6687b4 && !IsNarrationPlaying())
                             ShowHelpString(-2);
                         ShowHelpString(p->help_id);
                     }
@@ -1970,7 +1970,7 @@ char VolDownInput(Icon* p, int buttons, int a3, int a4)
                     if (g_vol_speech < 100) {
                         g_vol_speech++;
                         g_vol_marker_speech->x = (short)VolumeToMarkerX(g_vol_speech);
-                        if (!g_6687b4 && !sub_498cf0())
+                        if (!g_6687b4 && !IsNarrationPlaying())
                             ShowHelpString(-2);
                         ShowHelpString(p->help_id);
                     }
@@ -2032,7 +2032,7 @@ char VolMarkerInput(Icon* p, int buttons, int a3, int a4)
             switch (ctrl) {
             case 3:
                 g_vol_speech = vol;
-                if (!g_6687b4 && !sub_498cf0())
+                if (!g_6687b4 && !IsNarrationPlaying())
                     ShowHelpString(-2);
                 ShowHelpString(p->help_id);
                 break;

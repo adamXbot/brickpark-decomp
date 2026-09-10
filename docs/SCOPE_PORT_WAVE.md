@@ -21,6 +21,15 @@
 > **PORT-B3 — Status: MERGED (2026-09-12) — 11 asm painters ported to C in the #else arms (rlepaint.c x8, rlepaint2.c x2, softblit2.c SoftBlitAnimPlain), asm arms byte-identical, audit [OK] mismatch=0, relocs 0; tests test_rle_paint (43, incl. a real shipped sprite bit-exact) and test_anim_paint (10); census asm stubs 26 -> 15. THE TITLE SCREEN RENDERS in the browser. Next blocker: RunGame's music wait spins because DirectSoundCreate returns DSERR_NODRIVER so InitMusicSystem never runs — dsound.c needs a no-op IDirectSound (PORT-B's file). Finding: softblit.c:740 SoftBlitAnim's `row:` label is one line too low (source-level, invisible to the byte gates). Notes `docs/lanes/scope-port-b3.md`**
 > **PORT-A4 — Status: MERGED (2026-09-12) — gen_link declares aliased CRT names from a libc prototype table (wasm-ld signature mismatches 0, validator 0 on all 7 modules); name_trap.py names call_indirect type mismatches by module byte offset and callback table; CI job `portable-wasm` (emsdk 6.0.9, asset-free ctest 5/5, fails on any signature mismatch); `headless_spine` pins the title-screen first present (98% non-black, checksum 0x4a092b01). Notes `docs/lanes/scope-port-a4.md`**
 > **PORT-B4 — Status: MERGED (2026-09-12) — THE FRONT END COMES UP: a silent IDirectSound with a wall-clock play cursor (+ ole32 failure path) lets RunGame leave the music wait; PLAYER DETAILS renders and runs at 33.5 fps (the 28 ms flip floor); `?args=` on the page. Open: input arrives from the host but the front end ignores it (suspect a live global resolving to two objects); CreateThread refuses so music-ON hangs (kernel32.c); `_findclose(-1)` traps (msvcrt.c); ~41 externs with no address comment trap when reached (WindowProc, ODFError, ObjDefFinalize, SelectProfileSlot ... — matching-side name/address fixes). Notes `docs/lanes/scope-port-b4.md`**
+> **PORT-M4 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-M4)** — the
+> matching-side half of PORT-B4's open list: every extern the game declares
+> WITHOUT a `/* 0x... */` address comment (linkreport's "Unclassified": 31
+> functions + 50 data names), so the generated closure stops trapping on them.
+> Each is either a second name for a function that IS defined (rename, or the
+> right address comment so `gen_link.py`'s alias pass bridges it) or an address
+> in the CRT/import range. Every touched file is VC6-gated (`audit.py` same
+> `[OK]`/`[WIP` rows, `relocs.py` 0 MISMATCH, `progress.py --check` 3281/42).
+> Notes `docs/lanes/scope-port-m4.md`.
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The

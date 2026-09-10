@@ -33,8 +33,19 @@ void* GetLLSForSprite(void* sprite);
 void  SetStandardCallbacks(void* obj);
 int   LoadObjectLibrary(void* obj, char* name);
 void  SetCustomCallbacks(LLElem* elem);
-void  ObjDefFinalize(LLElem* elem, void* obj);
-void  ODFError(const char* fmt, char* name);
+/* 0x00480aa0 is pathobj2.c's SetWaterWorksClassOrigins: the "finalize the
+ * ObjDef" hook the ODF loader tails into is, in the shipped build, only the
+ * Water Works origin patch. The declaration keeps this file's parameter types
+ * (HANDOFF section 3: the extern's types are the caller's codegen lever) --
+ * both are pointers, so the call is the same instruction either way. */
+extern void  ObjDefFinalize(LLElem* elem, void* obj);        /* 0x00480aa0 */
+/* 0x0047f870 is sysstubs.c's DebugPrintf, the empty varargs logger. The three
+ * call sites below are diagnostics on ordinary data (a class with no sprite /
+ * icon / build-anim name is legal and the fallback follows), NOT an error
+ * path. The definition is `(const char*, ...)`; the fixed two-parameter
+ * spelling here is what this translation unit was compiled with and pushes the
+ * same two dwords, so it stays. */
+extern void  ODFError(const char* fmt, char* name);          /* 0x0047f870 */
 
 typedef struct Anim { void* frames; int count; char pad[0xc]; int type; } Anim; /* frames@0, count@4, type@0x14 */
 typedef struct Spr  { char pad[8]; Anim* hdr; char pad2[4]; unsigned int flags; } Spr; /* hdr@8, flags@0x10 */
@@ -70,9 +81,11 @@ typedef struct ObjDef {
 } ObjDef;
 
 extern ObjDef*       g_odf_head;   /* 0x669240 */
-extern int           g_813a10;
-extern unsigned char g_80ff78;
-extern int           g_80ff74;
+extern int           g_debug_heap_bytes;  /* 0x00813a10  memdb.c's live-heap counter */
+/* The two FLC/FLI player settings the export table names, set around each
+ * LoadSprite so the video player knows what the sprite it is handed is for. */
+extern unsigned char NEWFLC_PauseType;  /* 0x0080ff78 */
+extern int           NEWFLC_AutoPlay;   /* 0x0080ff74 */
 
 // FUNCTION: LEGOLAND 0x0047bf70
 void* LLIDB_LoadODFData(LLElem* elem)
@@ -91,7 +104,7 @@ void* LLIDB_LoadODFData(LLElem* elem)
     void*   sp;
     void*   lls;
 
-    g_813a10 = 0;
+    g_debug_heap_bytes = 0;
     sprintf(fname, "Objdesc\\%s", elem->image);
     file = RES_OpenFile(fname);
     if (file == 0)
@@ -171,8 +184,8 @@ void* LLIDB_LoadODFData(LLElem* elem)
         obj->f60 = 0;
     }
 
-    g_80ff78 = 1;
-    g_80ff74 = 1;
+    NEWFLC_PauseType = 1;
+    NEWFLC_AutoPlay = 1;
     RES_ReadFile(file, &len, 4);
     RES_ReadFile(file, name, len);
     name[len] = 0;
@@ -192,8 +205,8 @@ void* LLIDB_LoadODFData(LLElem* elem)
         obj->f64 = 0;
     }
 
-    g_80ff78 = 2;
-    g_80ff74 = 0;
+    NEWFLC_PauseType = 2;
+    NEWFLC_AutoPlay = 0;
     RES_ReadFile(file, &len, 4);
     RES_ReadFile(file, name, len);
     name[len] = 0;

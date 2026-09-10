@@ -18,7 +18,8 @@ extern unsigned int g_save_time;               /* 0x00669204  last-save stamp */
 extern void*        g_hinstance;               /* 0x00669208 */
 extern int          g_ncmdshow;                /* 0x0066920c  (first named here) */
 extern int          g_windowed;                /* 0x00667d6c */
-extern int        (*g_present)(void);          /* 0x004b9ca4  the page flip in use */
+typedef int       (*PresentFn)(void);
+extern PresentFn  g_present;                  /* 0x004b9ca4  the page flip in use */
 extern int          g_music_sys;               /* 0x004bf774  set here to "music enabled" (1 unless -nomusic); musicthread.c's engine instance later */
 extern const char*  g_volume_names[3];         /* 0x004bcba4  Legoland.res Graphics2.res Graphics1.res (first named here) */
 extern void*        g_res_volumes[3];          /* 0x007fd640  (first named here) */
