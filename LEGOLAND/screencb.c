@@ -376,41 +376,18 @@ extern void BoatingSchool_DrawSelection(RideElem* elem, Pos* p); /* 0x0041a3d0 *
 /* The fixed 5x5 footprint one lake square always takes (0x004b53c0). */
 static const Rect kBsWaterRect = { -2, -2, 2, 2, 0 };
 
-/* WIP note (2026-09-05): 129/129 instructions, 375 bytes against 374, strict
- * mismatch 32 (register-blind about 17).  Two residuals:
- *
- *  (a) a register rotation, ~15 of the 32: the original keeps the station
- *      cursor in eax and the map reference's x in ecx, we get that pair the
- *      other way round, and the byte loads of the map key then land on
- *      pre-zeroed registers in the original (`xor ecx,ecx / mov cl,[esi+4]`)
- *      but on a dirty eax here (`mov al,[edx+4] / and eax,0FFh`).
- *
- *  (b) one spill, the rest: VC6 keeps `(int)cell->key.b.x` alive in the dead
- *      `p` argument slot across BasicObjectDCalcCursor and reuses it as the
- *      boat loop's x, where the original rematerialises it from `sq`'s own
- *      home (`mov ecx,[esp+10h] / and ecx,0FFh`).  The y half DOES
- *      rematerialise, and the lever that did it is worth recording: storing
- *      the y byte through the union's ARRAY view (`sq.c[1]`) instead of its
- *      struct view (`sq.b.y`) stops VC6 unifying the later `sq.b.y` read
- *      with the cell load, and is worth 75 of the original 107 mismatches.
- *      The same trick does NOT work on the x half, because element 0 is at
- *      `&sq` -- the same address `sq.b.x` resolves to -- so the two access
- *      paths always unify there.  Reaching the original needs the x read to
- *      be unavailable at the store, and nothing spelled in C makes it so.
- *
- * Ruled out, all measured on this baseline: every permutation of the four
- * stores and of `.b` / `.c[]` / `((unsigned char*)&sq)[i]` access paths on
- * each side (24 combinations); `(unsigned char)p->x` narrowing (it breaks the
- * CSE but costs two register copies); the chained `p->x = sq.b.x = ...`;
- * byte and int temporaries; volatile stores into `sq` and a volatile read of
- * the cell; an inline `BoatAt(BPos, int, int)` / `BoatAt(BPosW, ...)` helper
- * taking the square BY VALUE and one taking `&sq` (VC6 propagates the address
- * through the inline, so neither escapes); `memcmp(&sq, &st->a, 2)` for the
- * station compare; four station-loop forms; both `MapCellAt` shapes; a third
- * field on `Pos`; and a free-volatile read on each of g_bs_stations, g_map
- * and the cell -- which moves nothing, the one-experiment sign that what is
- * left is a global web rank rather than a local rotation. */
-// WIP-FUNCTION: LEGOLAND 0x0041bfb0  (129/129 insns, 32 strict; first divergence at index 1, a register rotation)
+/* Scope F close (2026-09-05): 129/129 instructions, 374/374 bytes,
+ * strict/rb/ob 0/0/0. First update BOTH cursor coordinates, then narrow
+ * p->x and p->y into the packed square through its array view. Narrowing
+ * breaks the cell-x value reuse across BasicObjectDCalcCursor; separating
+ * both cursor writes from both byte stores gives the original early-load
+ * schedule without the extra byte-register copies of the chained form.
+ * The station cursor, coordinate registers and later boat-loop reloads now
+ * all agree. This supersedes the prior claim that x could not rematerialise.
+ * The identical change closes JcWater_DrawSelection too. Whole-file audit
+ * preserves the 13 existing exact bodies and adds these two exact matches.
+ * See docs/lanes/scope-f.md for the measured intermediate forms. */
+// FUNCTION: LEGOLAND 0x0041bfb0
 void BsWater_DrawSelection(RideElem* elem, Pos* p)
 {
     BsStation* st;
@@ -422,10 +399,10 @@ void BsWater_DrawSelection(RideElem* elem, Pos* p)
 
     st = g_bs_stations;
     c = MapCellAtRef(p);
-    sq.c[0] = c->key.b.x;
     p->x = c->key.b.x;
-    sq.c[1] = c->key.b.y;
     p->y = c->key.b.y;
+    sq.c[0] = (unsigned char)p->x;
+    sq.c[1] = (unsigned char)p->y;
     while (st) {
         if (sq.w == st->a.w || sq.w == st->b.w) {
             w = BsWater_FindAt(p->x, p->y);
@@ -490,12 +467,12 @@ extern void JungleCruise_DrawSelection(RideElem* elem, Pos* p); /* 0x00435230 */
  * rect ridecb9.c calls kJcWaterRect). */
 static const Rect kJcRiverRect = { -2, -2, 2, 2, 0 };
 
-/* WIP note (2026-09-05): 129/129 instructions, strict mismatch 32 -- the SAME
- * 32 indices as BsWater_DrawSelection above, register for register, which is
- * the strongest evidence yet that these two bodies are one piece of source
- * written twice.  Read that function's note for the residual and the ruled-out
- * list; any fix there transfers here unchanged. */
-// WIP-FUNCTION: LEGOLAND 0x00436470  (129/129 insns, 32 strict; identical residual to 0x0041bfb0)
+/* Scope F close (2026-09-05): 129/129 instructions, 374/374 bytes,
+ * strict/rb/ob 0/0/0. Updating both cursor coordinates before copying their
+ * narrowed values into sq.c[] closes the same register/spill residual as
+ * BsWater_DrawSelection above. Full-file audit adds both exact twins while
+ * preserving all 13 previously exact functions. */
+// FUNCTION: LEGOLAND 0x00436470
 void JcWater_DrawSelection(RideElem* elem, Pos* p)
 {
     JcStation* st;
@@ -507,10 +484,10 @@ void JcWater_DrawSelection(RideElem* elem, Pos* p)
 
     st = g_jc_stations;
     c = MapCellAtRef(p);
-    sq.c[0] = c->key.b.x;
     p->x = c->key.b.x;
-    sq.c[1] = c->key.b.y;
     p->y = c->key.b.y;
+    sq.c[0] = (unsigned char)p->x;
+    sq.c[1] = (unsigned char)p->y;
     while (st) {
         if (sq.w == st->a.w || sq.w == st->b.w) {
             w = JcWater_FindAt(p->x, p->y);

@@ -155,121 +155,89 @@ void JungleCruise_StepRoute(unsigned short id)
     }
 }
 
-/* Two FREE volatile reads, both at sites where the original loads from the
- * variable's memory home anyway, so neither costs an instruction.  They are
- * diagnostics, not claims about the source: they pin `w` and `owner` to their
- * frame homes, which is where the original keeps them, and without them VC6
- * hands those two the callee-saved registers the original spends on tx/ty.
- * See the residual note below -- they buy the exact byte length, not the
- * match. */
-#define W_MEM      (*(JcWater* volatile*)&w)
-#define OWNER_MEM  (*(BPosW*   volatile*)&owner)
-
 /* =========================================================================
- * 0x00437260 -- JungleCruise_TraceRoute: the recursive route search.
+ * 0x00437260 -- JungleCruise_TraceRoute: recursive depth-first route search.
  *
- * Depth-first from (x,y) towards (tx,ty), through the `links` bits and only
- * over squares owned by *owner.  `route` is the shared success flag: every
- * level tests it on entry and the level that reaches the target sets it, so
- * the whole recursion unwinds without doing any more work.  Squares are
- * marked in +0x0c on the way DOWN and never unmarked, so this finds *a*
- * route, not the shortest one, and it can strand itself -- the caller
- * (JungleCruise_BuildRoute) clears every mark before the top-level call.
+ * Follow the links bitmap, accepting only squares owned by *owner.  The
+ * shared success flag stops further work after reaching the target.  Mark
+ * each square on entry, never unmark it; BuildRoute clears the marks before
+ * the search.  This finds a route, not necessarily the shortest one.
  *
- * The WEST arm is in tail position, so VC6 SP3 eliminates the tail call: the
- * function's own body becomes the loop (x -= 5, back to the head at
- * 0x00437283), the entry guard is re-tested as the loop latch, and the two
- * dead register copies at 0x0043738e/0x00437390 are the tx/ty argument copies
- * of the call that is no longer there.  That is why this body ends in a real
- * `ret` and not a `jmp`, and why the frame is entered once, outside the loop.
+ * Scope H (2026-09-05): exact, 130 instructions / 339 bytes.  The source
+ * and target coordinates are BOTH 8-byte aggregates passed by value, and
+ * recursive steps are assembled in one non-address-taken aggregate local.
+ * Two int parameters have the same stack ABI but different compiler symbol
+ * identities.  The aggregate form gives x/ESI, y/EDI, target.x/EBP and
+ * target.y/EBX; the water pointer reuses target.x's dead argument home.
+ * The west tail call still becomes a loop, including its two dead target
+ * copies.  Thus the previous phase-ordering retirement diagnosis was false.
  *
- * WHY THIS IS STILL A WIP -- the residual is ONE allocation fact, and it is a
- * compiler PHASE-ORDERING difference, not a source shape.  The original puts
- * its four callee-saved registers on the four int parameters
- * (esi=x, edi=y, ebp=tx, ebx=ty) and leaves `w`, `owner` and `route` in
- * memory homes, reloading each at every use (`w` lives in the dead arg3 slot
- * [esp+0x1c]).  Every spelling of this function compiled here does the
- * opposite: the dereferenced pointers win the registers and tx/ty spill.
+ * Diagnostic controls: target aggregate alone, no volatile shims, gives 68
+ * audit mismatches (first 16); adding the source/step aggregates closes all
+ * of them.  A shared Pos type and either step-field assignment order are
+ * exact.  Both former volatile macros are unnecessary and removed.
  *
- * That was isolated with a four-line probe rather than guessed (the probes are
- * in the lane notes).  A loop-free function with 4 int params + 2 dereferenced
- * pointer params + 1 pointer local from a call reproduces the ORIGINAL's
- * allocation exactly -- ints first, pointers to memory -- even though the
- * pointers have MORE references.  Add a self-tail-call to the same probe and
- * VC6 turns it into a loop at IR level, and the ranking inverts: the
- * dereferenced pointers take the registers, tx/ty spill, and a secondary
- * induction variable for `x + 5` appears in a stack slot (three instructions
- * the original does not have).  So the original's tail-call-to-loop
- * conversion happened AFTER register allocation, and ours happens before it.
- * No source spelling reaches the other side of that: an explicit `while`,
- * a `goto`, `x -= 5` vs a `nx` temp, `register`, `static`, splitting the
- * owner/route webs into extra locals, and an inlined per-direction helper are
- * all on our side of it (28% - 53%); blocking the conversion outright (any
- * dead trailing statement does it) restores the original's esi/edi/ebp
- * assignment but then emits a real call and epilogue instead of the loop.
- *
- * WHAT THE COMMITTED BODY BUYS, measured by audit.py (all variants are
- * 130/130 instructions; the numbers are audit strict mismatch / byte length
- * against the original's 339):
- *     plain tail-recursive C, no shims        116 / 352
- *     plain `while (*route != 1)` loop        113 / 345
- *     + free volatile on `w`                  111 / 333
- *     + free volatile on `w` and `owner`      105 / 339   <- committed
- *     + free volatile on `w` and `route`      112 / 346  (loop form: 101/340)
- * The committed pair is the only one that is BYTE-EXACT, i.e. every encoding
- * is the right size and nothing is a wrong type, immediate or addressing
- * form.  Both shims are free reads (the original loads from those two homes
- * at every one of those sites), and neither closes the allocation above.
- *
- * FIRST DIVERGING INDEX 0 (`mov eax,[esp+0x18]` vs `push ebx`: the original
- * schedules the `route` load ahead of the callee-saved pushes because route
- * has no register).  §6B class: ALLOCATION (strict 113 / register-blind 85 on
- * an index alignment; the register-blind residue is the induction variable and
- * the reload/rematerialise pattern that follow from the same fact).
+ * The tagged parameter type is local to this definition; caller translation
+ * units deliberately retain their existing six-scalar prototypes.  Their
+ * pushes occupy the same 24 bytes.  route is an int* success flag here;
+ * junglecruise.c holds it as void*, an existing ABI-compatible divergence.
+ * Full-file audit: 2 exact / 0 WIP; /W3 clean.  Evidence and controls:
+ * scratchpad/scope-h/jungle2/trace-promote-audit.txt and trace_*.c.
  * ========================================================================= */
 
-// WIP-FUNCTION: LEGOLAND 0x00437260  (130/130 insns, 339/339 B -- byte-exact -- 105 by audit; ALLOCATION: the original gives its four callee-saved registers to x/y/tx/ty and homes w/owner/route in memory, ours does the reverse because our tail-call-to-loop conversion runs BEFORE register allocation and the original's after; first diverging index 0)
-void JungleCruise_TraceRoute(int x, int y, int tx, int ty, BPosW* owner, int* route)
+// FUNCTION: LEGOLAND 0x00437260
+void JungleCruise_TraceRoute(struct JcRoutePos { int x; int y; } here,
+                            struct JcRoutePos target, BPosW* owner, int* route)
 {
     JcWater* w;
     JcWater* p;
+    struct JcRoutePos step;
 
     if (*route == 1)
         return;
-    w = JcWater_FindAt(x, y);
+    w = JcWater_FindAt(here.x, here.y);
     if (!w)
         return;
-    if (w->owner.w != OWNER_MEM->w)
+    if (w->owner.w != owner->w)
         return;
-    if (x == tx && y == ty) {
+    if (here.x == target.x && here.y == target.y) {
         *route = 1;
         return;
     }
     w->mark = 1;
     if (w->links & 1) {
-        p = JcWater_FindAt(x, y - 5);
-        if (p && p->mark == 0)
-            JungleCruise_TraceRoute(x, y - 5, tx, ty, OWNER_MEM, route);
+        p = JcWater_FindAt(here.x, here.y - 5);
+        if (p && p->mark == 0) {
+            step.x = here.x;
+            step.y = here.y - 5;
+            JungleCruise_TraceRoute(step, target, owner, route);
+        }
     }
-    if (W_MEM->links & 2) {
-        p = JcWater_FindAt(x + 5, y);
-        if (p && p->mark == 0)
-            JungleCruise_TraceRoute(x + 5, y, tx, ty, OWNER_MEM, route);
+    if (w->links & 2) {
+        p = JcWater_FindAt(here.x + 5, here.y);
+        if (p && p->mark == 0) {
+            step.x = here.x + 5;
+            step.y = here.y;
+            JungleCruise_TraceRoute(step, target, owner, route);
+        }
     }
-    if (W_MEM->links & 4) {
-        p = JcWater_FindAt(x, y + 5);
-        if (p && p->mark == 0)
-            JungleCruise_TraceRoute(x, y + 5, tx, ty, OWNER_MEM, route);
+    if (w->links & 4) {
+        p = JcWater_FindAt(here.x, here.y + 5);
+        if (p && p->mark == 0) {
+            step.x = here.x;
+            step.y = here.y + 5;
+            JungleCruise_TraceRoute(step, target, owner, route);
+        }
     }
-    if (W_MEM->links & 8) {
-        /* `nx` is not cosmetic: with `x - 5` spelled twice (or `x -= 5`) x
-         * becomes a basic induction variable of the loop VC6 makes out of the
-         * tail call, and a secondary induction variable for `x + 5` appears in
-         * a stack slot -- three instructions the original does not have.
-         * Assigning the step through a temporary breaks the recognition. */
-        int nx = x - 5;
-        p = JcWater_FindAt(nx, y);
-        if (p && p->mark == 0)
-            JungleCruise_TraceRoute(nx, y, tx, ty, OWNER_MEM, route);
+    if (w->links & 8) {
+        /* Pass the stepped coordinate as an aggregate, just like the other
+         * directions.  VC6 turns this west call into the loop back-edge. */
+        int nx = here.x - 5;
+        p = JcWater_FindAt(nx, here.y);
+        if (p && p->mark == 0) {
+            step.x = nx;
+            step.y = here.y;
+            JungleCruise_TraceRoute(step, target, owner, route);
+        }
     }
 }

@@ -86,10 +86,10 @@
  *   0x00434b40  JcDeco_Remove                   [OK]
  *   0x00432b90  JungleCruise_TryLaunchBoat      [OK]
  *   0x004332f0  JungleCruise_AdvanceBoats       [OK]
- *   0x00436dc0  JungleCruise_UpdateRiverTile    [WIP]  116/116 insns
+ *   0x00436dc0  JungleCruise_UpdateRiverTile    [OK]   116/116 insns
  *   0x00436fb0  JungleCruise_ProbeRiver         [OK]
  *   0x004367b0  JungleCruise_RelinkRiverCell    [OK]
- *   0x00432d00  JungleCruise_UpdateRiverAnim    [WIP]  422/422 insns
+ *   0x00432d00  JungleCruise_UpdateRiverAnim    [OK]   422/422 insns
  * ========================================================================= */
 
 /* ---- shared map/cursor types (same offsets as objmap2.c / ridecb2.c) ---- */
@@ -956,19 +956,41 @@ extern unsigned char g_jc_river_tiles[16][25];               /* 0x004b72e4 */
  *  - So the "why does the original's `y` deserve a callee-saved register"
  *    question stands, and the answer is not reachable by narrowing the temp,
  *    by seeding ebx earlier, or by writing the key as a word. */
-// WIP-FUNCTION: LEGOLAND 0x00436dc0  (116/116 insns, 367/367B, 27 by audit; ebx<->ebp tie-break + one store position)
+/* Scope H first pass (2026-09-05): unchanged, audit 27/116 mismatches,
+ * 367/367B, first difference 10.  A single Pos holding BOTH derived cell
+ * coordinates (cell.x = x+j-2; cell.y = y+i-2), used for MapCellAt and
+ * SetMapTile, compiles to the identical body.  A free volatile read of y
+ * in JcWater_FindAt's argument costs 89 mismatches / 369B, first index 2.
+ * These test the newer aggregate-local and free-read levers; they do not
+ * establish an unreachable floor.  Source and comparison artifacts are in
+ * scratchpad/scope-h/jungle/. */
+/* Scope H nested-index closure: exact 116 instructions / 367 bytes.
+ * The current BsWater_SetTile source (bswater.c) supplies the missing loop
+ * construction: g_jc_river_tiles[mask][i * 5 + j] at both tile-byte reads.
+ * Remove the explicit t cursor and its increment; leave both coordinate
+ * expressions and the original tile-resolution operations unchanged.
+ * Nested indexing alone gives 7 differences, retaining only the delayed
+ * key-Y store cluster. Store key.b.y before FindAt to close all seven.
+ * The original i = 0 before g_bg_full_update remains; putting it in the
+ * for initializer is identical. The original row-Y web now survives the
+ * calls and coalesces into EBX, the first entry skips both reloads, and the
+ * derived table cursor occupies EBP with the correct latch step order.
+ * This replaces the historical register-floor diagnosis above with a
+ * verified source construction. Allocation failure, owner dereference and
+ * off-map write quirks remain reproduced. Full extent and both whole-file
+ * gates pass; evidence: scratchpad/scope-h/flume12/report.md. */
+// FUNCTION: LEGOLAND 0x00436dc0
 void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
 {
     BPosW key;
     JcWater* w;
-    const unsigned char* t;
     int i;
     int j;
     int cx;
 
     key.b.x = (unsigned char)x;
-    w = JcWater_FindAt(x, y);
     key.b.y = (unsigned char)y;
+    w = JcWater_FindAt(x, y);
     if (w == 0) {
         w = (JcWater*)HeapAlloc_w(sizeof(JcWater));
         if (w == 0)
@@ -982,11 +1004,10 @@ void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
     w->links = mask;
     if (owner != 0)
         w->owner = *owner;
-    t = g_jc_river_tiles[mask];
     i = 0;
     g_bg_full_update = 1;
     for (; i < 5; i++) {
-        for (j = 0; j < 5; j++, t++) {
+        for (j = 0; j < 5; j++) {
             Cell* c;
             unsigned short* rec;
 
@@ -997,8 +1018,8 @@ void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
             c->obj = g_jc_water_cls->c4;
             c->key = key.w;
             rec = *(unsigned short**)((char*)g_jc_tsm +
-                      ((unsigned)(unsigned char)*t >> 8) * 8 + 4);
-            SetMapTile(cx, y + i - 2, (unsigned short)(*rec + (unsigned char)*t));
+                      ((unsigned)(unsigned char)g_jc_river_tiles[mask][i * 5 + j] >> 8) * 8 + 4);
+            SetMapTile(cx, y + i - 2, (unsigned short)(*rec + (unsigned char)g_jc_river_tiles[mask][i * 5 + j]));
         }
     }
 }
@@ -1271,7 +1292,7 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * Each rider's heading is the boat's, turned by +-6 sixteenths for the two
  * side seats and converted to radians:
  *      angle = -(code * 22.5 + 45) / 360 * 2*pi
- * (the constants at 0x004ab3dc..e8), and seat 2 is lifted 0x10 pixels.
+ * (the constants at 0x004ab3dc..e8), and seats 1 and 2 are lifted 0x10 pixels.
  *
  * Finally, on the LAST sub-step of an arriving boat's last leg (state 0x10,
  * leg 2, tick 0x4f) and only in the station pass, the party is put ashore:
@@ -1279,278 +1300,42 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * hands them back to JungleCruise_Tick's case 3.
  * ========================================================================= */
 
-/* 422/422 instructions, 1457/1466 bytes, 111 mismatches by audit (was 409 on
- * 2026-09-03).  THREE structural facts were recovered this round and each is
- * worth remembering:
- *   1. THE FRAME IS NOW EXACT, slot for slot: tw(-0x34) tw2(-0x30) th2(-0x2c)
- *      th(-0x28) fild-temp(-0x24) Pos(-0x20) soA(-0x18) soB(-0x10)
- *      hole(-0x08) sy(-0x04).  Two edits did it.  (a) The sprite offset and
- *      the bloke position are ONE `Pos` local reused, not two disjoint-block
- *      locals -- two locals get two homes here because `bp` is live across
- *      the seat loops that own soA/soB, which is exactly the "enclosing
- *      block-scope variable interferes with all of them" trap in DECOMP.md.
- *      (b) `sy` is the `.y` of a FUNCTION-LEVEL `Pos` whose `.x` is never
- *      referenced: that is what the 4-byte hole at -0x08 is, and it is what
- *      moves `sy` out of the -0x30 slot it was sharing with the x87 `fild`
- *      staging temp and up to the top of the frame.  A plain `int sy` is
- *      lifetime-coloured onto the fild temp's home (their ranges are
- *      disjoint) and renumbers every [esp+N] in the function.
- *   2. THE DISEMBARK TEST IS NOT INSIDE THE DRAW BLOCK.  The `goto next`
- *      edges land at 0x529 -- the `state == 0x10` compare -- not at the
- *      `b = b->next` at 0x595, so a boat that is skipped for this pass still
- *      runs the disembark test (harmless: in mode 0 the `mode != 0` term
- *      fails, and in mode 1 a state-0x10 boat is drawn, not skipped).  The
- *      label therefore sits ABOVE the test.  That single move is what makes
- *      VC6 build the function-wide constant-0 web the old note called
- *      unreachable: with the test on the `next` path, 0 is live across the
- *      whole loop (`cmp esi,edx` for `b == 0`, `cmp ecx,edx` for `mode`,
- *      the three seat compares and stores, and the latch `cmp esi,edx`), so
- *      the def is hoisted into the loop preheader (`xor edx,edx` at 0x19)
- *      and rematerialised at 0x527 where the draw block clobbered edx.
- *      409 -> 48 aligned mismatches from those two edits alone.
- *   3. The bloke-position statements are emitted `bp.y` first (2 more).
- * REMAINING (77 difflib-aligned, in two clusters, both pure scheduling):
- *   (a) 111-167: VC6 hoists our `b->sx` load above the `b->sy` store before
- *       the hull PrintSprite (the original re-loads it after), and the
- *       `origin + ox + bp.x + sx` chain adds `ox` last where the original
- *       adds it first.  All six addend orders are byte-identical (VC6
- *       canonicalises the sum), and naming the two sums as int temps costs
- *       one instruction.
- *   (b) 266-294 / 386-404 / 452-454: the overlay PrintSprite.  Both loops
- *       have the right blocks and the right cross-jump, but the original's
- *       merged tail begins two instructions earlier -- at `mov edx,[ilf]` /
- *       `and ecx,0xff`, with the b->sx/b->sy loads interleaved between the
- *       sprite-table loads -- where ours begins at the b->sy load and defers
- *       the whole sprite lookup past `push edx`.  `code` is ecx in the
- *       original and eax here.  Ruled out: hoisting the lookup into a
- *       `void* spr` local (identical object), `switch (i)` with cases 0,2
- *       (+2 instructions, no merge), `if (i==0) {..P..} else if (i==2)
- *       {..P..}` and its transpose (+12: the two calls stop merging), and an
- *       explicit `goto` out-of-line arm (identical object).
- * Also inert on both clusters (measured this round): every
- * parenthesisation and addend order of the two four-term screen sums and the
- * two three-term bloke sums; `(unsigned)` casts on any subset of
- * {origin, ox, bp.x, sx} (all 16 -- unlike OctopusCafe_Tick, where the same
- * cast is worth two instructions); inlining `ox`/`oy` at both use sites
- * (+8 instructions, the CSE is lost); all 24 orders of the
- * `ox`/`oy`/`sx`/`scr.y` assignments (the order in the file is the unique
- * best); `unsigned code`, `(unsigned)code & 0xff` and an `ImageList* ilf`
- * local for the overlay call.  The one systematic thing left to explain is
- * that VC6 sorts `origin + ox + bp.x + sx` as ((origin + bp.x) + sx) + ox
- * for us and ((origin + ox) + bp.x) + sx in the original -- ox/oy are added
- * FIRST there and LAST here, in the screen sums and in the bloke sums alike,
- * and no source-level spelling found moves them.
+/* The overlay sprite is chosen by ONE conditional over the WHOLE lookup --
+ * `i == 0 ? ilf->sprites[(frame + 0x10) & 0xff] : ilf->sprites[(frame + 0x20)
+ * & 0xff]` -- not by a conditional over the frame-plus-offset value that is
+ * then looked up once. Both spellings compute the same thing and cost the
+ * same 422 instructions, but they place the lookup differently: with the
+ * conditional over the value, the lookup belongs to the argument list and is
+ * emitted after `push 0; push 0`, so `b->sx`/`b->sy` are hoisted into the two
+ * slots ahead of them and the merged frame value takes EAX (`and eax,0xff`,
+ * 5 bytes). With the conditional over the lookup, VC6 sinks the arms' common
+ * tail -- the image-list load, the mask and the two indexed loads -- into the
+ * join, where it precedes the argument setup: the image-list load and the
+ * mask fill the slots before the constant pushes, `sprites`/`b->sx` and the
+ * sprite/`b->sy` pair after them, and the frame value keeps ECX (`and
+ * ecx,0xff`, 6 bytes) with `b->sy` reusing that register once it dies. That
+ * is the whole two-byte difference, twice. The arms themselves stay two
+ * instructions each, so the cold arm between the loops and the second one
+ * after RET (indices 419..421, with its backward jump) are unchanged.
  *
- * 2026-09-04 (sweep6 lane): THE PARTIAL-SUM AGGREGATE CURE FROM anim2.c's
- * BoatingSchool_DrawBoats DOES NOT TRANSFER HERE.  It works exactly as
- * advertised on the ASSOCIATION -- writing the leading pair into a
- * non-address-taken aggregate
- *     Pos t, u;
- *     t.x = g_map->origin_x + ox;  t.y = bp.x;
- *     b->sx = t.x + t.y + sx;
- *     u.x = g_map->origin_y + oy;  u.y = bp.y;
- *     b->sy = u.x + u.y + scr.y;
- * makes BOTH screen sums come out in the original's addend order (ox, then
- * bp.x/bp.y, then sx/scr.y) -- but it costs the register allocation and is a
- * net LOSS: 111 -> 306 strict, register-blind 80 -> 84, register-and-offset
- * blind 78 -> 82, bytes 1457 -> 1456.  There are exactly TWO attractors and
- * nothing in between: every flat spelling compiles to one object (111, first
- * diverging index 111 = the first `add`), and every aggregate spelling
- * compiles to another (306, first diverging index 105 = the `g_map` load's
- * register).  Measured into the aggregate attractor and byte-identical to it:
- * `Pos` / `int[2]` / a 3-field / a 4-field struct; both field orders; fields
- * swapped; the pair split as (origin, ox) with a 4-term sum; nested
- * two-stage aggregates; a `static __inline` helper whose body is
- * `Pos t; t.x = a; t.y = b; return t.x + t.y;`; a pointer through the
- * aggregate; block scope vs function scope; `bp.x += g_map->origin_x + ox`.
- * Measured into the FLAT attractor (i.e. inert): `b->sx = ..; b->sx += ..;`
- * accumulation into the field or into an int temp; `(A + B) + (C + D)`; a
- * negation identity; re-reading `b->sx`; naming `ox` through an alias local.
- * WHY the flat form wins here and lost in DrawBoats: the flat build ALREADY
- * has the original's register allocation exactly (`mov edx,[g_map]`,
- * `xor ecx,ecx`, `xor eax,eax`, accumulate x in ecx and y in eax) and only
- * the three `add`s are permuted; the aggregate build gets the permutation
- * right but loads `g_map` into ecx, accumulates in eax, needs a closing
- * `lea ecx,[eax+edi]` and then KEEPS `b->sx` in a register where the original
- * re-loads it from memory for the hull PrintSprite.
- * ALSO PROVED FALSE this pass: that the original's order could come from a
- * different DEFINITION order.  For descending-order sorting to emit
- * (ox, bp.x, sx) the source would have to define sx first, bp second and ox
- * LAST -- i.e. compute ox/oy after AdjustOffsetForViewMode.  Doing that makes
- * `wx`/`wy` live across the call, so VC6 spills them
- * (`mov [esp+0x1c],edx` / `mov [esp+0x18],eax` in the sprite-offset block)
- * and the frame shrinks to 0x28 -- 364 mismatches, first diverging index 0.
- * ox/oy MUST be computed before the call, so their definitions necessarily
- * precede bp's; the original's ascending order therefore cannot come from
- * statement order.
- * THE bp.x-FIRST BLOKE ORDER IS NOW ADOPTED (2026-09-04, lane D).  The
- * original EMITS the two bloke-position stores `bp.x` first
- * (`mov [esp+0x44],ecx` at 0x1c7 before `mov [esp+0x4c],edx` at 0x1dc), and
- * writing them that way costs ONE strict mismatch (111 -> 112) while
- * improving every structural measure: register-blind 80 -> 66, shape-blind
- * 78 -> 68, and the LCS-aligned register+offset-blind region total 52 -> 44
- * of 422.  The earlier note kept `bp.y` first only because the strict index
- * count was one lower; that count is known to mislead once a block is
- * displaced, so the structurally true order is now in the file and the
- * marker records 112.
- * Also re-measured and inert on the current baseline: `scr.x` instead of the
- * `int sx` local (byte-identical, so the frame does not depend on it); a
- * `void* spr` + `int px, py` local trio for both overlay PrintSprite calls;
- * folding `& 0xff` into each arm's `code`; and laying the `i == 0` overlay
- * arm out of line with an explicit goto, either after the for loop (which is
- * where the original puts loop A's copy, 0x391) or inside it (both 114) --
- * VC6 canonicalises the CFG and picks its own block order.
-
- * 2026-09-04 (lane D, the addition-order lane).  112 strict / 44 structural
- * (was 111 strict / 52 structural).  The cross-lane destination rule was
- * TIGHTENED here and on OctopusCafe_Tick (0x004316f0, closed to 0 this
- * round), and the tightened form says this residual is NOT a destination
- * problem at all.
- *
- * THE RULE, RESTATED.  For a commutative `+` chain VC6 does not fold an
- * inline MEMORY REFERENCE into the `add`; it LOADS it into the add's
- * DESTINATION register (the same rank-2 rule already recorded for `imul`).
- * That is why `g_map->origin_x` is the destination here -- in OUR build and
- * in the original alike, `mov cx,[edx+0x20]` then three `add`s into ecx.
- * The remaining addends are then sorted, and THAT is the whole residual:
- *     ours     ecx += bp.x ; += sx ; += ox     (descending definition order:
- *              bp.x is defined last, then sx, then ox)
- *     original ecx += ox   ; += bp.x ; += sx   (source order)
- * Both bloke sums differ the same way (`add ecx,edi` then `add ecx,ebx` here,
- * `add ecx,ebx` then `add ecx,edi` there).  Nothing measured moves the
- * sort while staying in the flat attractor.
- *
- * RULED OUT THIS PASS (all re-measured on the current baseline; strict /
- * register-blind / offset-blind, baseline 111/80/102):
- *   - volatile READS of ox and oy at the screen sums (358), at the bloke
- *     sums (359), at both (361) -- a volatile read makes the value's
- *     definition point the use site, which by the descending-order rule
- *     should put it FIRST; it does, and destroys everything else.
- *   - inlining the ox/oy expressions at the screen sums (364, ESCAPES), at
- *     the bloke sums (365, ESCAPES), at both (373, ESCAPES).
- *   - a volatile read of sx / scr.y at the screen sums (334).
- *   - `int oa[2]` and `unsigned int oa[2]` array locals for ox/oy: BYTE-
- *     IDENTICAL to the flat baseline.  The array-local trick that defeats
- *     forward substitution on OctopusCafe_Tick's chair offsets is completely
- *     inert here, because ox/oy already survive as symbols.
- *   - `(unsigned)` casts on ox/oy (inert); reading bp.x/bp.y into `int`
- *     temps before the sums, plain and with the temp written first (inert).
- *   - storing b->sy before b->sx (117); that plus bp.x-first (118).
- *   - moving the ox/oy assignments after sx/scr.y in the head (367, ESCAPES).
- *   - the partial-sum aggregate applied to ONE sum at a time -- b->sx only
- *     308, b->sy only 114, both screen sums 306, both bloke sums 117, all
- *     four 305.  This closes the two-attractor question: ANY aggregate on a
- *     screen sum jumps to the 30x attractor, and an aggregate on the bloke
- *     sums alone stays flat but still scores worse.  There is no partial
- *     application that keeps the flat allocation and buys the order.
- * WORTH KNOWING: a volatile READ of b->sx in the hull PrintSprite call keeps
- * strict at 111 but improves register-blind 80 -> 76 and shape-blind 78 ->
- * 74, which localises the second half of cluster (a) as a SCHEDULE problem
- * (the b->sx reload) rather than an allocation one.  Combined with the
- * bp.x-first bloke order it gives 112 strict but 62/64 -- the best
- * structural score any variant has reached.  Neither is committed because
- * audit.py counts strict.
- * FRAME/SIZE: ours is 1457 bytes against 1466 with equal instruction counts;
- * an index-for-index size compare shows the deficit is entirely inside the
- * two mismatching clusters, not a systematic encoding difference.
- *
- * PASS N+1 (2026-09-04, lane w7ticks).  NO CHANGE -- 112 strict, and permrank
- * says 110 REAL: the callee-saved renaming buys two instructions, so this is
- * NOT a colouring problem and the permutation-aware metric does not rescue it.
- *
- * THE SUM IS FULLY CANONICALISED -- measured, not assumed.  All 24 orderings
- * of the four terms of `b->sx`/`b->sy` and all 6 orderings of the three terms
- * of the two bloke sums compile to ONE object, byte for byte (30 variants).
- * So the emitted addend order cannot be moved by writing the expression
- * differently; only the operands' definition points feed the sort.  Reading
- * the two mismatching sums off the disassembly, the pattern is uniform:
- *     b->sx :  original ecx += ebx(ox) ; += [esp+0x34](bp.x) ; += edi(sx)
- *              ours     ecx += [esp+0x34](bp.x) ; += edi(sx) ; += ebx(ox)
- *     b->sy :  original eax += ebp(oy) ; += [esp+0x3c](bp.y) ; += edx(scr.y)
- *              ours     eax += [esp+0x3c] ; += edx ; += ebp
- * i.e. ours rotates the ox/oy register from FIRST to LAST in both, exactly as
- * the descending-definition-order model predicts (ox is defined first, bp
- * last -- its definition point is the AdjustOffsetForViewMode call).  For the
- * original's order the model needs sx defined first, bp second and ox LAST.
- * NEWLY RULED OUT, all of which try to buy that order:
- *   - ox/oy computed AFTER AdjustOffsetForViewMode with wx/wy RE-READ INLINE
- *     from `b->wob[g_jc_anim_tick]` so nothing is live across the call (the
- *     old note only tried it with the wx/wy locals live): 359, and 359 again
- *     with the wx/wy declarations removed entirely.  Moving only `ox` is 354.
- *     Re-reading does not avoid the damage -- the whole head reschedules.
- *   - sx/scr.y computed after the call instead: 181 for sx alone, 351 for
- *     both.  sx/scr.y before ox/oy: 367.
- * So the model's prescription is reachable in source and costs 3x the current
- * residual every way it can be written.  Either the sort key is not
- * definition order, or the original's head has a shape that reorders the
- * definitions without moving the computations -- and no such shape has been
- * found in two passes.  The two-attractor structure recorded above is intact.
- *
- * PASS N+2 (2026-09-04, lane w8rides) -- RESIDUAL RE-APPORTIONED.  The 112 is
- * NOT one problem.  An index-for-index read of the whole body splits it:
- *     31  the two `b->sx`/`b->sy` sums and the AdjustBlokePosition sums
- *         (indices 111-148) -- the ox/oy addend-order wall described above;
- *     22  the loop-A overlay block (247-268);
- *     59  the loop-B overlay block (360-377) AND ITS CONSEQUENCE: from index
- *         378 to the end (`xor edx,edx` of the `next:` guard through the
- *         epilogue) ours is a pure THREE-SLOT SHIFT of the original, every
- *         instruction identical, because the loop-B overlay lays its blocks
- *         out in the other order.  Those 44 tail mismatches are free the
- *         moment the overlay layout is right.
- * So the overlay layout, not the sum order, is 81 of the 112 -- and it is one
- * single phenomenon appearing twice.
- *
- * THE OVERLAY LAYOUT, EXACTLY.  Both loops end each iteration with
- *   `if (i != 0) { if (i != K) goto skip; code = frame+X; } else code = frame+Y;`
- *   `PrintSprite(sprites[code & 0xff], b->sx, b->sy, 0, 0);`
- * with (K,X,Y) = (2,0x20,0x10) in loop A and (1,0x10,0x20) in loop B.  Both
- * builds emit the same five instructions for the two arms; they differ ONLY in
- * which arm carries the `jmp`:
- *     original  [then: mov/add 0x20] -> FALLS INTO the shared PrintSprite ->
- *               loop tail -> loop exit ... then the else arm (mov/add 0x10 +
- *               `jmp` BACK into the shared block) is EXILED past the end of
- *               the loop's fall-through trace.  In loop A that puts it between
- *               the two loops (0x433091); in loop B it puts it AFTER THE
- *               FUNCTION'S `ret` (0x4332ab, indices 419-421).
- *     ours      [then: mov/add 0x20 + jmp] [else: mov/add 0x10] [shared block]
- *               -- i.e. VC6 emits then, else, merge, always in that order.
- * The original's shape is a TRACE layout: then-arm, merge, and everything the
- * merge falls into, emitted first; the else arm emitted last as a cold block.
- * NEWLY RULED OUT for reaching it (17 spellings, all of which collapse to just
- * THREE distinct objects -- 112, 115 or ~200):
- *   - `goto print_a;` at the end of the then arm with the else arm written as
- *     straight-line fall-through into a labelled print (the documented "goto
- *     target laid out before the fall-through block" lever): BYTE-IDENTICAL to
- *     the baseline, in loop A alone, loop B alone and both.
- *   - the PrintSprite call written out in BOTH arms so VC6 must cross-jump:
- *     199 and ESCAPES.  VC6 does cross-jump, but it glues the merged tail to
- *     the arm that comes LAST in source order and turns the FIRST into the
- *     jmp -- the exact mirror of the original, every time.
- *   - the same with a trailing `goto skip;` in the then arm so the trace can
- *     continue into the loop tail (four variants): 201, all ESCAPES.
- *   - `if (i==0) A else if (i==K) B`, `if (i==0) A else {guard; B}`, a
- *     `switch (i)`, a default-then-override (`code = frame+Y;` before the if),
- *     the reversed default, `i != 0 && i != K` with a ternary addend, and an
- *     `if (i == 1) goto skip;` pre-guard: 115, 115, 203, 204, 204, 202, 205.
- *   - THE REACHABILITY PROBE: the `for` loop closed, the seat-0 arm written
- *     TEXTUALLY AFTER the loop and re-entered with a `goto` back INTO the loop
- *     body (legal C, and the only creation order that could put the block
- *     after the loop tail): VC6's front end normalises it back into the plain
- *     if/else and emits 115, the same object as the natural `if (i==0)` form.
- * CONCLUSION ON THIS CLUSTER: VC6 SP3 at /O2 /Gy /Gd emits [then][else][merge]
- * for a two-armed assignment feeding a shared call, and NOTHING in the source
- * moves the else arm out of line -- not goto direction, not duplication, not
- * a switch, not a jump into the loop.  The original's exiled cold block is
- * therefore evidence that its translation unit was NOT laid out by this pass
- * ordering, and 81 of the 112 mismatches are downstream of that one fact.
- * That makes this function a RETIREMENT CANDIDATE: the remaining 31 (the
- * ox/oy addend order) was already exhausted over three passes, and the 81 is
- * now shown to be unreachable from source rather than merely unfound.
- */
-// WIP-FUNCTION: LEGOLAND 0x00432d00  (422/422 insns, 1457/1466B, 112 by audit / 110 real / register-blind 25; apportioned 31 = the ox/oy addend order + 81 = the overlay block layout, whose 44-mismatch tail is a pure 3-slot shift -- VC6 emits [then][else][merge] where the original exiles the else arm past the loop, and 17 spellings collapse to three objects)
+ * Zero-first polarity is still required: inverting it costs 79 differences,
+ * and moving the conditional inside the subscript (over the masked index
+ * only, with one lookup outside) restores the old 24 at 1464 bytes. The
+ * Axis {rock,screen} pairs and the named screen/rocking-X views preserve the
+ * head's frame homes and sum order. The sprite/rider Pos is reused, and
+ * skipped boats still reach the disembark test above the next-link read.
+ * No new load, call, volatile access or shared declaration was introduced.
+ * The original's case-1 jumps join case 2 BEFORE its y-offset subtraction,
+ * at 0x00432fa5 and 0x0043313f. Both side seats therefore need the lift in
+ * both drawing directions. Comparing normalized jump opcodes alone missed
+ * this behavior; the combined F/G/H branch-destination gate checks it.
+ * Earlier metrics/counterfactuals: scratchpad/scope-h/animation9/report.md. */
+// FUNCTION: LEGOLAND 0x00432d00
 void JungleCruise_UpdateRiverAnim(int mode)
 {
-    Pos     scr;
+    struct Axis { int rock; int screen; };
+    struct Axis axisx;
+    struct Axis axisy;
     int     tw;
     int     th;
     JcBoat* b;
@@ -1586,30 +1371,33 @@ draw:
             int wx = b->wob[g_jc_anim_tick].x;
             int tw2;
             int th2;
-            int ox;
-            int oy;
-            int sx;
             int i;
-            int code;
-
-            GetTileDimensions(&tw2, &th2);
-            ox = ((wx - wy) * tw2) >> 9;
-            oy = ((wx + wy) * th2) >> 9;
-            sx = (b->cx - b->cy) * (tw >> 1) - ((tw + 1) >> 1) - (g_scroll_x >> 8);
-            scr.y = (b->cx + b->cy) * (th >> 1) - (g_scroll_y >> 8);
-            {
             Pos bp;
+
+            /* Define the screen views, then the rocking-X write view, before
+             * the sprite-offset view. Their identities preserve the sums
+             * without changing the homes or adding executable accesses. */
+            int* screenx = &axisx.screen;
+            const int* screeny = &axisy.screen;
+            int* rockx = &axisx.rock;
+            const int* imagey = &bp.y;
+            GetTileDimensions(&tw2, &th2);
+            *rockx = ((wx - wy) * tw2) >> 9;
+            axisy.rock = ((wx + wy) * th2) >> 9;
+            *screenx = (b->cx - b->cy) * (tw >> 1) - ((tw + 1) >> 1) - (g_scroll_x >> 8);
+            axisy.screen = (b->cx + b->cy) * (th >> 1) - (g_scroll_y >> 8);
+            {
 
             bp.x = g_jc_boat_ilf->dx[b->frame[g_jc_anim_tick] & 0xff] >> 1;
             bp.y = g_jc_boat_ilf->dy[b->frame[g_jc_anim_tick] & 0xff] >> 1;
             AdjustOffsetForViewMode(&bp);
-            b->sx = g_map->origin_x + ox + bp.x + sx;
-            b->sy = g_map->origin_y + oy + bp.y + scr.y;
+            b->sx = g_map->origin_x + axisx.rock + bp.x + (*screenx);
+            b->sy = g_map->origin_y + axisy.rock + (*imagey) + (*screeny);
             PrintSprite(g_jc_boat_ilf->sprites[b->frame[g_jc_anim_tick] & 0xff],
                         b->sx, b->sy, 0, 0);
 
-            bp.x = g_map->origin_x + ox + sx;
-            bp.y = g_map->origin_y + oy + scr.y;
+            bp.x = g_map->origin_x + axisx.rock + (*screenx);
+            bp.y = g_map->origin_y + axisy.rock + (*screeny);
             AdjustBlokePosition(&bp);
 
             if (b->frame[g_jc_anim_tick] >= 4 && b->frame[g_jc_anim_tick] < 0xc) {
@@ -1644,6 +1432,7 @@ draw:
                                             * -0.0027777769f;
                                 p3->rot.y = ang * 6.2831855f;
                             }
+                            soA.y -= 0x10;
                             break;
                         case 2:
                             {
@@ -1660,16 +1449,13 @@ draw:
                         p3->sy = soA.y + bp.y;
                         IP_RenderBlokeIn3DNow(b->riders[seat]);
                     }
-                    if (i != 0) {
-                        if (i != 2)
-                            goto no_overlay_a;
-                        code = b->frame[g_jc_anim_tick] + 0x20;
-                    } else {
-                        code = b->frame[g_jc_anim_tick] + 0x10;
+                    if (i == 0 || i == 2) {
+                        void* spr = (i == 0
+                            ? g_jc_boat_ilf->sprites[(b->frame[g_jc_anim_tick] + 0x10) & 0xff]
+                            : g_jc_boat_ilf->sprites[(b->frame[g_jc_anim_tick] + 0x20) & 0xff]);
+
+                        PrintSprite(spr, b->sx, b->sy, 0, 0);
                     }
-                    PrintSprite(g_jc_boat_ilf->sprites[code & 0xff], b->sx, b->sy, 0, 0);
-no_overlay_a:
-                    ;
                 }
             } else {
                 for (i = 2; i >= 0; i--) {
@@ -1703,6 +1489,7 @@ no_overlay_a:
                                             * -0.0027777769f;
                                 p3->rot.y = ang * 6.2831855f;
                             }
+                            soB.y -= 0x10;
                             break;
                         case 2:
                             {
@@ -1719,16 +1506,13 @@ no_overlay_a:
                         p3->sy = soB.y + bp.y;
                         IP_RenderBlokeIn3DNow(b->riders[seat]);
                     }
-                    if (i != 0) {
-                        if (i != 1)
-                            goto no_overlay_b;
-                        code = b->frame[g_jc_anim_tick] + 0x10;
-                    } else {
-                        code = b->frame[g_jc_anim_tick] + 0x20;
+                    if (i == 0 || i == 1) {
+                        void* spr = (i == 0
+                            ? g_jc_boat_ilf->sprites[(b->frame[g_jc_anim_tick] + 0x20) & 0xff]
+                            : g_jc_boat_ilf->sprites[(b->frame[g_jc_anim_tick] + 0x10) & 0xff]);
+
+                        PrintSprite(spr, b->sx, b->sy, 0, 0);
                     }
-                    PrintSprite(g_jc_boat_ilf->sprites[code & 0xff], b->sx, b->sy, 0, 0);
-no_overlay_b:
-                    ;
                 }
             }
             }

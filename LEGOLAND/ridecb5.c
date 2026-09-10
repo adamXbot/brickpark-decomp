@@ -29,7 +29,7 @@
  *   0x004134f0  Road_KeepNeighbour    may this neighbour be joined?     [OK]
  *   0x00413520  Road_CardinalGroup    the four joinable cardinals       [OK]
  *   0x004135d0  Road_FindCardinals    ring slots 0/2/4/6                [OK]
- *   0x00413450  Road_FindDiagonals    ring slots 1/3/5/7                WIP 62/64
+ *   0x00413450  Road_FindDiagonals    ring slots 1/3/5/7                [OK]
  *   0x00413e30  Road_SnapCursor       snap the cursor to the road grid  [OK]
  *
  * NOTE ON THE WIPs (2026-09-04).  Two of the former four closed in the
@@ -701,180 +701,36 @@ int Road_FindCardinals(int x, int y, RoadRec** out)
 
 /* The same for the four DIAGONAL ring slots.
  *
- * RESIDUAL (measured 2026-09-03, audit 64 vs 62 insns, 157 vs 153 bytes,
- * mismatch=27, first diverging index 37).  Higher register pressure than the
- * cardinal twin (x+4, y-4, y+4 and `out` all hold callee-saved registers
- * across the calls) spills `n` to [esp+10h] for the first two tests; after
- * the third call edi (y+4) dies and `n` migrates into it.  The original
- * splits that web at the BLOCK boundary: `jne` to the taken arm with
- * `mov edi,[n]; inc edi`, and an inline fall-through arm holding only the
- * edge reload `mov edi,[n]; jmp merge` (two reloads, 64 insns).  We hoist the
- * common reload into the predecessor (one `mov edi,[esp+18h]` before the
- * `add esp,8`, then `je` over a bare `inc edi`), two instructions short; the
- * fourth test and the epilogue are identical in shape.  Ruled out (all
- * normalise to the hoisted form, still 27 X): `else n = n;`, `+1 / +0` arms,
- * `n = r ? n + 1 : n` on the third test and on all of them, `unsigned n`;
- * moving the `out` store ahead of the increment (59 X) and carrying the
- * second half in a second counter `m = n` (47 X) rewrite the register plan.
+ * Closed 2026-09-05 (Scope F, eleventh continuation) at 64/64 instructions,
+ * 157/157 bytes, after ~130 further candidates on top of the earlier ~300.
+ * The whole body is the cardinal twin's shape; the ONLY difference is the
+ * third lookup, which must be spelled with an explicit `r == 0` arm FIRST
+ * that carries a runtime no-op assignment to `r`:
  *
- * 2026-09-04 -- THE SHAPE IS NOW PROVEN, the spelling is not.  A probe with a
- * second, deliberately UNINITIALISED counter --
- *     int n = 0; int m;   ... first two tests count into n ...
- *     r = Road_FindAt(x - 4, y + 4);
- *     if (r) { m = n; m++; }        ... last two tests count into m ...
- *     return m;
- * -- reproduces the original's block layout and its INSTRUCTION COUNT exactly
- * (64/64) with only 5 X, all inside 39..43.  It is NOT a legal body: VC6
- * homes the undefined `m` in the dead `x` argument slot, so its fall-through
- * arm is `mov edi,[esp+18h]` where the original reads the LOCAL slot
- * `mov edi,[esp+10h]` -- our false path would return `x`.  What the probe
- * establishes:
- *   - the original's two `mov edi,[esp+10h]` really are a PER-EDGE
- *     materialisation of ONE local's phi (both read the single `push ecx`
- *     slot); there is no second variable in the original;
- *   - VC6 canonicalises EVERY arm order (`if (r)`, `if (r == 0) .. else`,
- *     `m = m` in the empty arm, `m += 0`, goto chains) to the same layout, so
- *     the `jne`-to-the-increment polarity is not a source lever here;
- *   - a copy-then-increment of a SECOND variable always folds to
- *     `mov ecx,[n] / lea edi,[ecx+1]`; only a read-modify-write of the SAME
- *     variable gives the original's `mov edi,[n] / inc edi`.
- * Two more measurements worth keeping:
- *   - `n = *(volatile int*)&n + 1` moves the single reload from before the
- *     `add esp,8` to between the `test` and the `je` (25 X, still 62 insns):
- *     the POSITION is then right, only the duplication is missing;
- *   - a bare `*(volatile int*)&n;` statement in the `r == 0` arm DOES build
- *     the two-arm diamond with two reloads -- but the dead volatile read is
- *     one extra instruction (65) and cannot be made to BE the reload; every
- *     spelling in which both arms read n (volatile on one or both, a
- *     same-width `(int)*(unsigned*)&n` conversion barrier, `*(int*)&n`) is
- *     hoisted straight back into the dominator.
- * Also ruled out this round (all 47-62 X, the whole prologue rotates): the
- * two-variable diamond with an explicit `else m = n`, `m` declared before /
- * after / in an inner scope, duplicating the `out[5] = r` store into both
- * arms so cross-jumping merges the tail, four separate r1..r4 result
- * variables, `n++` instead of `n = 1` on the first test, `unsigned n`,
- * `while`/`do` loop forms, `n += (r != 0)` (setne), `switch (r != 0)`,
- * `n = n * 1`/`n - 0`/`n | 0` in the else arm, and `if (r) { n++; if (out)
- * out[5] = r; } else { if (out) out[5] = r; }`.
- * Best hypothesis: the source is the plain `if (r) n++;` we already have and
- * VC6 placed n's edi web entry ON BOTH EDGES instead of in the dominator.
- * Look for whatever makes VC6's reload placement per-edge -- or for a name
- * whose undefined value COALESCES onto n's own home instead of a dead
- * argument slot, which would make the probe above legal and exact.
+ *     if (!r) r = 0; else n++;
  *
- * 2026-09-04 pass 2 (scratchpad/ridecb5/d1..d7.py, run with
- * scratchpad/sweep4/mv.py).  Still 27; the residual is now reduced to ONE
- * missing property: *** A NON-EMPTY `r == 0` ARM IS THE WHOLE LEVER. ***
- *     if (r == 0)
- *         *(volatile int*)&n;      <-- any statement at all in this arm
- *     else
- *         n++;
- * compiles to the original's diamond EXACTLY - `jne` to the increment arm,
- * `mov edi,[esp+10h]` in BOTH arms, `jmp` out of the fall-through arm,
- * `inc edi` - and the only difference left is the volatile's own dead
- * `mov edx,[esp+10h]` ahead of it (24 X, 160B vs 157B, register-blind
- * distance 2).  With an EMPTY `r == 0` arm VC6 always hoists the single
- * reload into the dominator (this code, 27 X).  So the wanted statement is
- * one that keeps the arm a real basic block but emits no instruction, and
- * every candidate measured folds the block away again BEFORE layout:
- * `;`, `n = n;`, `n += 0`, `n -= 0`, `n |= 0`, `n *= 1`, `(void)n;`,
- * `n = (n, n);`, `out = out;`, `r = r;`, `int t = n;` (dead local),
- * `while (0) n++;`, `if (n) { }` (the empty-if FLATTEN breaker, inside the
- * arm, before the test and after it), `if (n == 0) { }`, `if (r) n++;`
- * nested inside the `r == 0` arm, `n += (r != 0)`, `n *= (r == 0)`,
- * `n += (int)r`, and a `goto` transcription of the same diamond - all 27.
- * `n -= (int)r` and `n |= (int)r` are folded to a memory `inc` instead
- * (25 X / 156B).  Also re-measured and still worse: `n++` variants
- * (`++n`, `n += 1`, `n = n + 1`), `while (r) { n++; break; }`,
- * `if (!(r == 0))`, `r != (RoadRec*)0`, `long n`, declaring `r` before `n`,
- * `if (out != 0)`, testing a copy `q = r`, the out-store duplicated into both
- * arms (58) or moved ahead of the count (59), `n = n + !!r` (47),
- * `m = n; if (r) m++;` (47) and a `union { int n; int m; }` (43, all four
- * counts go to memory).  A dead `x = n;` in the `r == 0` arm DOES build the
- * diamond and lands on 157B exactly, but VC6 then enregisters the parameter
- * `x` and the whole allocation rotates (55 X, arms `mov ebp,esi` / `inc esi`).
- * Two-variable diamonds with an explicit `else m = n` cost a second frame
- * slot (162B, 48-51 X) whatever the arm order or declaration order; only the
- * ILLEGAL uninitialised-`m` probe stays on one slot (5 X), and its two X that
- * are not the slot are the arm order plus the `lea edi,[edx+1]` fold.
- *
- * 2026-09-04 pass 3 (lane H).  Still 27; 23 MORE candidate statements for the
- * `r == 0` arm measured, every one folding the block away before layout and
- * every one landing on exactly 27 X / 62 insns / 153 bytes:
- *   `__assume(r == 0);` (VC6 SP3 accepts it and emits nothing -- so it is not
- *   a block keeper either), `n = (unsigned)n;`, `n = (int)(unsigned)n;`,
- *   `n = (long)n;` (same-width conversion tuples ARE folded here, unlike the
- *   no-code FP conversion tuples of SetBlokePositionFromBNV), `switch (n) { }`
- *   and `switch ((int)r) { }` with no cases, `n = n + (int)r;`,
- *   `n += (int)(r - (RoadRec*)0);`, `;`, `(void)&n;`, `n = Ident(n);` through
- *   a `static __inline` identity, `do { } while (r != 0);` (folded -- VC6
- *   knows r == 0 in this arm), `if (out) { }`, `if (r == out[5]) { }`,
- *   `n = -(-n);`, `y = y;`, and `goto merged;` to a label on the following
- *   `if (out)`.
- * Two arm statements that DO change the code, both worse, recorded so they
- * are not re-tried: `if (out) out[5] = 0;` (semantically identical inside
- * this arm, but VC6 emits a second `test ebx,ebx / je / mov` -- 70 insns,
- * 168B, 52 X) and `n = *(volatile int*)&n;` (25 X, 156B, but VC6 then keeps
- * the counter in memory and the increment becomes `inc dword ptr [esp+10h]`
- * with the reload AFTER the merge -- the wrong shape).  `*(volatile int*)&n;`
- * remains the only statement that builds the original's diamond and it still
- * costs its own dead `mov edx,[esp+10h]` (24 X, 65 insns, 160B) -- worse on
- * both audit gates than the committed body.  The lever is unchanged and still
- * unmet: a statement that keeps the `r == 0` arm a real basic block and emits
- * no instruction.
- *
- * 2026-09-04 pass 4 (fifth lane).  Still 27; six MORE candidates, including
- * one genuinely new class, all byte-identical to this body (27 X / 64 insns
- * / 153 bytes):
- *   - A `static __inline int Road_Bump(int n, RoadRec* r) { if (r == 0)
- *     return n; return n + 1; }` used at the third site, and at all four
- *     sites.  This was the best remaining hope, because an inlined TWO-RETURN
- *     helper gives the merged value two reaching definitions, which is the
- *     shape that materialises a value on both edges elsewhere in this
- *     project.  VC6 folds the helper to the same single-def increment before
- *     layout: BYTE-IDENTICAL.  So "two reaching defs" is not the trigger
- *     either -- the trigger really is a non-empty BASIC BLOCK.
- *   - `n = r ? n + 1 : n;`, `n = *(int*)&n;` in the arm, `n -= 0 * (int)r;`
- *     in the arm: all folded, all byte-identical.
- *   - The both-arms out-store with the arms written out in full (`if (r == 0)
- *     { if (out) out[5] = r; } else { n++; if (out) out[5] = r; }`) is 57 X /
- *     159 bytes -- VC6 knows r == 0 in the first arm, stores an immediate,
- *     and the two copies therefore cannot cross-jump.  Confirms the earlier
- *     58 measurement from a different spelling.
- * Running total for the `r == 0` arm: ~90 distinct statements over four
- * passes, every one either folded (27 X) or emitting real code (>= 47 X).
- * The ONE statement that produces the original's diamond exactly is a bare
- * `*(volatile int*)&n;`, and it costs its own dead load.  Unless VC6's
- * block-folding pass can be defeated by something not yet imagined, this
- * function is AT ITS FLOOR: the residual is two instructions (the arm-A
- * reload and its `jmp`) that only a non-empty, zero-code basic block can
- * buy, and no such block exists in this compiler.
- *
- * 2026-09-05 (small-partials lane).  Still 27 / 62 insns / 153 bytes, and the
- * BYTE ARITHMETIC is now closed, which retires a loose end: audit's
- * "153 vs 157" counts 64 of OUR instructions, two of which are trailing pad
- * NOPs, so the real body is 62 instructions / 151 bytes and the deficit is
- * exactly 6 -- the original's second `mov edi,[esp+10h]` (4 bytes) plus its
- * `jmp` (2).  Nothing else in this body is short: the whole difference is the
- * diamond, and no 2-vs-3-byte encoding hunt is owed.
- * Five more candidates, all byte-identical to this body (27 X):
- *   - `if (r == 0) y = n; else n++;` -- a dead store to the parameter `y`,
- *     the sibling of the `x = n;` probe that DID build the diamond.  `y` is
- *     dead here too (its register holds y+4), but unlike `x` it does not even
- *     build the block: folded.  `out = out;` in the arm behaves the same.
- *   - `if (r != 0) { n++; goto j3; } goto j3; j3:` -- BOTH arms ending in an
- *     explicit `goto` to the join.  VC6 threads both gotos away before
- *     layout, so "make the arm end in an unconditional jump" (the block-exile
- *     IFF) cannot be spelled from C at this site either.
- *   - `if (r == 0) n = n ^ 0; else n = (n ^ 0) + 1;` -- an identity that is
- *     not an assignment tuple; folded like the rest.
- *   - a shared `int xm4 = x - 4;` for the third and fourth calls is
- *     byte-identical, which confirms VC6 already CSEs `x - 4` and that the
- *     `mov ecx,[esp+18h]` reload of the parameter at index 32 is VC6's own
- *     rematerialisation, not a source-level second read.
- * Verdict unchanged: at its floor pending a zero-code non-empty block.
- */
-// WIP-FUNCTION: LEGOLAND 0x00413450  (62/64 insns, 27 X from idx 37: the third test's `n` reload hoisted above the branch instead of duplicated on both arms)
+ * Mechanism, measured step by step (docs/lanes/scope-f.md):
+ *   - `n` is spilled to [esp+10h] across the first three calls (ebx/ebp/esi/
+ *     edi hold out, y-4, x+4, y+4).  After the third call edi is free and n
+ *     moves into it.  Written `if (r) n++;`, VC6 places that reload EAGERLY
+ *     (`mov edi,[esp+18h]` before the `add esp,8`) and emits `je` over a bare
+ *     `inc edi`: 27 X.  The original reloads LAZILY, in each arm.
+ *   - Any non-empty else arm that survives to layout turns the taken arm into
+ *     the original's `mov edi,[esp+10h] / inc edi` and puts the allocator's
+ *     compensation copy `mov edi,[esp+10h]` on the other edge (a volatile
+ *     self-read there does it at the cost of its own load: 24 X).
+ *   - `r = 0` in that arm is kept by the front end (it does not use the
+ *     branch's known-zero), so the arm is non-empty at layout; with the arm
+ *     FIRST it emits nothing (0 X); with the arm SECOND it emits `xor eax,eax`
+ *     (24 X, 158 B).  The cast spelling `(RoadRec*)0` and `!r` vs `r == 0` are
+ *     inert.  The volatile `out` read the earlier two-variable form needed is
+ *     not needed here and is gone.
+ *   - Every identity statement tried in that arm (`n ^= 0`, `n = n * 1`,
+ *     `memcpy(&n,&n,4)`, aggregate/union self-copies, `x = x`, `out = out`,
+ *     `__assume`) folds before layout: 27 X.  `__noop` is a real call in
+ *     this VC6.
+ * The previous two-variable `result` form (2 X) is superseded. */
+// FUNCTION: LEGOLAND 0x00413450
 int Road_FindDiagonals(int x, int y, RoadRec** out)
 {
     int      n = 0;
@@ -891,7 +747,12 @@ int Road_FindDiagonals(int x, int y, RoadRec** out)
     if (out)
         out[3] = r;
     r = Road_FindAt(x - 4, y + 4);
-    if (r)
+    /* A runtime no-op that the front end keeps: it gives the diamond its
+     * non-empty fall-through arm, which is what makes VC6 reload `n` lazily
+     * on each edge instead of eagerly after the call (see the note). */
+    if (!r)
+        r = 0;
+    else
         n++;
     if (out)
         out[5] = r;
@@ -1183,43 +1044,17 @@ void Roads_CalcCursor(MapObj* o, int sx, int sy)
  * The two SoundSource locals do NOT share a frame slot (case 1's is at
  * frame-0x20, case 5's at frame-0x10) even though the cases are disjoint --
  * the same shape castleobj.c records for the driving school.
- *
- * RESIDUAL (measured 2026-09-03, audit 358/358 insns, 1181 vs 1164 bytes,
- * mismatch=289 index-for-index, first diverging index 64).  A difflib
- * alignment of the two columns (scratchpad/ridecb5/sdiff.py) shows the real
- * differences are few and the rest is a 4-instruction offset:
- *   1. case 0's queue-full arm.  The original keeps it INLINE after the
- *      then-arm (`mov edx,[g_bs_cls]; push ebp; push edx; jmp` into case 6's
- *      shared `call RemoveBlokeFromRide; add esp,8`); we merge the pushes
- *      too and jump into case 6's own `mov eax,[g_bs_cls]; push ebp; push
- *      eax`.  The pushes stay separate in the original only because they
- *      use different registers (edx vs ecx), i.e. it is the same root as 2.
- *   2. the scratch trio: the original's switch body is one register AHEAD
- *      of ours in the eax/ecx/edx rotation from `st->count++` (edx vs ecx)
- *      through case 4 (cls in ecx vs eax) to case 6 (ecx vs eax); inside
- *      case 0 ours also refuses to reuse ecx after key.b.x dies and parks
- *      the seat offset in edi where the original takes ecx and ebp.  Read
- *      as liveness: values that die at their last use in the original
- *      (the slot-loop pointer edx, the widened key.b.x) stay allocated in
- *      ours to the end of the case.
- *   3. cases 3/4/5 compute `ty` in place (`shl edx,8 / add edx,K`, then
- *      `mov ecx,edx` to push it) where we fold the add into
- *      `lea eax,[edx+K]`; case 0 stores dir8 before action (we swap them).
- * FIXED here: the animation loop's LLSSetFrame arms are spelled
- * failure-first (`if (!backwards) ... else ...`), which gives the original's
- * inline nframes-frame arm and out-of-line `jne` (the count is unchanged but
- * the tail now aligns).  Ruled out (289 or worse): `def` for either
- * RemoveBlokeFromRide call (demotes def to a frame local, 274/0x34 frame),
- * `q[4]` through a local, `!st->q[4]`, the inverted queue-full test, an
- * explicit pointer walk of the slot loop (291), `key.w = inst->key.w`,
- * reordering the next/key/bloke reads (293/298), `!b->action`, a u8 switch
- * operand, a `for` station search, action stored before dir8 (hoists the
- * store above the call), the seat offset via a SeatOfs pointer (288) or via
- * int locals, key.b.x/y widened into ints.  Best hypothesis: the live-range
- * ends in 2 are decided by VC6's loop/scope regions and need the original's
- * exact statement grouping in case 0 (a helper or block structure we have
- * not found); ridecb2.c's JungleCruise_Tick and castleobj.c's
- * DrivingSchool_TickRiders record the same shape.
+ * HOW THE TWO ARMS OF CASE 0 JOIN.  The walk-to-the-slot tail (`flags |= 8`
+ * through NewDirForAction) is written out TWICE in the source, once at the
+ * end of the enqueue arm and once at the end of the shuffle arm; VC6 cross-
+ * jumps the two copies back into the single block at 0x41a82d, so the
+ * emitted code is the same either way.  Written once after the `if`, the
+ * enqueue's `st->count++` is the LAST scratch temporary of its own basic
+ * block and VC6 gives it ecx; with the tail inline it is no longer last and
+ * it takes the original's edx, which is the whole of the old residual --
+ * and the queue-full arm then keeps its own `mov edx,[g_bs_cls] / push ebp
+ * / push edx` instead of being swallowed by case 6's identical call.  See
+ * the lever note below the struct declarations.
  * ========================================================================= */
 
 /* A person as this handler sees it (same record as ridecb1.c/ridecb2.c). */
@@ -1300,201 +1135,61 @@ extern void*    g_bs_launch_sample;  /* 0x004b52c8 */
 /* =========================================================================
  * 0x0041a720 -- BoatingSchool_Tick (BOATING SCHOOL cb_a8 / iface slot 8).
  *
- * RESIDUAL (2026-09-04 pass 2, audit 358/358 insns, 1166 vs 1164 bytes,
- * mismatch=47, first diverging index 64).  Pass 1 took it from 289 to 53;
- * pass 2 to 47 with the `cy` local in case 4 (see there).  The note below
- * says exactly what bought what, because two of the levers are `volatile`
- * SHIMS that must come out when the real cause is found.  Both shims were
- * RE-TESTED at 47: removing shim 1 is +242, shim 2 is +214, both +242 -
- * they are still carrying their weight.
+ * EXACT (2026-09-06): 358/358 instructions, 1164/1164 bytes, mismatch 0,
+ * no escapes, whole-file audit PASS with ten exact bodies, /W3 clean.
  *
- * THE ONE ROOT CAUSE.  The whole function is ONE STEP BEHIND in VC6's
- * eax->ecx->edx scratch rotation from index 64 on: the q[4] test at 60 takes
- * ecx in both bodies, and then the original's `st->count++` reload takes the
- * NEXT register (edx) while ours re-uses ecx.  Every later block inherits the
- * shift.  Two `volatile` reads put the rotation back by hand -- each costs
- * nothing but forces one extra rotation step at the point it sits:
- *   1. `st->count = *(volatile int*)&st->count + 1` in case 0's enqueue.
- *      Without it the queue-full arm allocates the SAME register as case 6's
- *      identical `RemoveBlokeFromRide(g_bs_cls, inst)` and VC6's tail merger
- *      swallows the two pushes as well as the call; with it the arm is laid
- *      out INLINE with its own `mov edx,[g_bs_cls] / push ebp / push edx /
- *      jmp <case 6's call>`, exactly as the original.  Worth 289 -> 257 and
- *      20 bytes.
- *   2. `*(volatile int*)&b->ty` as CalcMoveLine's fourth argument in CASE 0
- *      AND CASE 3 ONLY.  It makes the whole tx/ty block exact (seat.dy in
- *      ebp, `add edx, ebp`, `lea eax,[esi+98h]` and its push all land where
- *      the original has them).  Worth 257 -> 53.  Do NOT add it to cases 4
- *      and 5: there the original pushes the ty value straight out of the
- *      register it was stored from, and the shim costs 70 mismatches
- *      (measured: all four sites = 123, cases 0+3 only = 53).
- * The price of shim 2 is one instruction per shimmed site: at index 104 and
- * 205 we emit `mov ecx,[esi+28h]` where the original re-uses the value it
- * just stored (`mov ecx, edx`).  Case 0 and case 3 are the only two places
- * the original needs that copy at all.
+ * THE LEVER THAT CLOSED IT, and the rule behind it.  VC6 SP3 hands out the
+ * scratch registers of a basic block so that the temporary which DIES LAST
+ * in that block gets ecx and earlier-dying ones get edx (then eax, when eax
+ * is not already carrying a live variable).  Measured in this very block:
+ * `st->count++; st->take++;` gives count=edx / take=ecx and
+ * `st->take++; st->count++;` gives take=edx / count=ecx, i.e. the choice is
+ * positional, not a rotation and not a CSE effect.  A temporary in a
+ * NEIGHBOURING block -- the shuffle arm, the queue-full arm, the join --
+ * changes nothing; only a later temporary in the SAME block does.
+ * The enqueue arm holds one temporary, so written the obvious way (the
+ * walk-to-the-slot tail once, after the `if`) it dies last and takes ecx.
+ * Writing that tail out in BOTH arms puts the tail's own temporaries after
+ * the increment in the same block, the increment stops being last, and it
+ * takes the original's edx.  VC6 then cross-jumps the two copies back into
+ * one block (they hold two calls, so by the tail-duplication threshold the
+ * copies are jumped to rather than kept) and the emitted code is identical
+ * to the original index for index.
  *
- * WHAT IS LEFT (53, in six clusters):
- *   idx  64..66   the count reload in edx, not ecx  -- THE ROOT, see below;
- *   idx 104..106  } the `mov ecx, edx` copy we lose to shim 2 plus the
- *   idx 204..207  } two-instruction permutation around it;
- *   idx 114..115  case 0 stores dir8 before action; every other case stores
- *                 action first and matches, so this is a consequence of the
- *                 shim, not a source order (`b->action = 7` written before
- *                 the dir8 assignment at all four sites costs 18);
- *   idx 240..251  case 4's argument setup: the original hoists the
- *                 `lea edx,[esi+98h]` for &b->path into the ty computation
- *                 and loads y, tx, x in that order; we hoist the b->y load
- *                 there instead and load x before tx;
- *   idx 266..287  case 5, one register behind from its first instruction --
- *                 it inherits the shift case 4 leaves behind (was 266..290;
- *                 the `cy` local closed 288..290 and all of case 6);
- *   idx 303..306  case 5's src2 fill: our `mov [esp+50h],1` sinks one place.
+ * THREE `volatile` SHIMS AND ONE NAMED POINTER CAME OUT WITH IT, as every
+ * earlier note predicted they must: the count-read shim
+ * (`st->count = *(volatile int*)&st->count + 1`), the `b->action = 7`
+ * volatile store in case 0, and the named `Pos* world` in case 0 are all
+ * inert now and are gone.  The body contains no `volatile` at all.  With
+ * the tail written once, the clean body is 11 mismatches; the duplication
+ * alone closes all eleven.  Re-adding the count shim ON TOP of the
+ * duplication costs 288 -- the two are mutually exclusive.
  *
- * PASS 2 (2026-09-04): `int cy = b->y;` read into a block-scoped local in
- * CASE 4 ONLY, used as CalcMoveLine's second argument, is worth 53 -> 47 and
- * closes the whole of case 6 and the tail of case 5.  Measured around it:
- * `cx` and `cy` together 48, `cx` alone 52, `cy` then `cx` 49, adding a `t =
- * b->tx` and/or `u = b->ty` local 48-59, the same locals in CASE 5 collapse
- * the case-0 arm layout back to 289 (both with and without the case-4
- * local), locals for tx/ty INSTEAD of the field stores 140, the ty value
- * spelled inline at the call 137, and volatile on b->x/b->y/b->tx in case 4
- * 52/50/51.  So a named value for ONE of the four argument loads is a
- * scheduler lever here, and only b->y in case 4 pays.
- * Also re-measured for index 64 and still inert: `1 + st->count`, a comma
- * expression, the increment before the store (54), a local `BsStation* s`,
- * `(*st).count`, `(int)st->q[4]`, `st->q[4] == (void*)0`, `!st->q[4]`,
- * `st->q[4 + 0]`, `st->count < 5` (54), the guard operands swapped (58),
- * `(unsigned)` round the increment (289), storing b through a temp and
- * `(void*)b`.
+ * STILL LOAD-BEARING.  The scope-local `MoveLineFn` function-pointer type
+ * (two by-value `Pos` at the five CalcMoveLine sites, which is the ABI the
+ * original uses without changing the shared five-scalar extern) is worth
+ * 17 at the case-5 site, 42 at case 4, 157 at case 3, 288 at either case-0
+ * site and 265 for all five.  The animation loop's failure-first arms
+ * (`if (!st->backwards) ... else ...`) are unchanged.
  *
- * RULED OUT for index 64 (measured this round, all still 289 or worse):
- *   - every spelling of the increment: `+= 1`, `= count + 1`, `++count`,
- *     `{int c = count; count = c+1;}`, the value pre-computed before the
- *     store, `*(int*)((char*)st+14h)`, through `i`, `(unsigned)` casts,
- *     `long`/`unsigned` for the field, `void*`/`int` for q[5];
- *   - every spelling of the guard: nested ifs with the call duplicated (265
- *     -- it DOES restore the inline arm, but with ecx not edx), `count == 5
- *     || q[4] != 0` early break, a `goto` into the arm, a flag local, casts
- *     and `!` on the q[4] test, Yoda order, q[4] through a block-scope local,
- *     through the function-level `h`, through a new function-level local;
- *   - the loop: `while`, `do`, `for (slot = 4, i = 0; ...)`, `i >= 5`,
- *     `unsigned i`/`unsigned slot`, `i`/`slot` scoped to case 0;
- *   - upstream: the order of `st =`/`next =`/`key =`/`b =`, `!b->action`,
- *     the station search as a `for`, local declaration order;
- *   - the tx/ty tail: seat offset first, explicit `cx`/`cy` temps, `(int)`
- *     casts, `* 256`, split `+=` statements, a volatile key byte, tx and/or
- *     ty read into locals at the call (248), ty computed into a local and
- *     both stored and passed (186 -- alignment luck, `diff` gets worse);
- *   - volatile anywhere else: q[4], q[slot], b->flags, b->stage, `front`,
- *     b->x, b->y, b->tx, and a volatile STORE to b->ty (which loses the whole
- *     effect: 263).
- * Best hypothesis: VC6 is CSE-ing the enqueue reload with the guard's
- * `cmp dword ptr [edi+14h],5` into one value number, so it never takes a
- * fresh rotation slot; the original broke that CSE some other way -- most
- * likely the guard read and the increment read were not the same expression
- * in the source.  Nine non-volatile lvalue spellings of one side (pointer
- * casts, unsigned casts, `!(x == 5)`, an `int*` alias) do NOT break it; only
- * `volatile` does.  Find the real break and both shims should come out and
- * cases 4, 5 and 6 should fall with them.
- *
- * 2026-09-04 (lane H).  Baseline RE-CONFIRMED on today's toolchain: 47 X,
- * 358/358 instructions, 1166 vs 1164 bytes, first divergence 64 -- so both
- * committed `volatile` shims are still load-bearing and still worth what the
- * note above says (method step "re-test committed shims" done).  One more
- * non-volatile CSE barrier was tried for index 64 and it FAILS: declaring the
- * +0x14 field as `union { int i; unsigned u; }` and reading the guard through
- * one member and the increment through the other gives 49 X (1165 bytes) --
- * and all three member pairings (u then i, i then u, i then i) are IDENTICAL,
- * so this VC6 value-numbers same-width union members as ONE lvalue.  A union
- * is therefore not a CSE barrier here, which narrows the search: the
- * same-width TYPE conversion barrier that works in RequestRoute needs two
- * differently-typed OBJECTS, not two views of one, and `volatile` remains the
- * only break found for this shape.
- * =========================================================================
- *
- * 2026-09-04 (fifth lane).  Unchanged at 47; ONE more CSE-barrier class
- * measured for index 64 and it FAILS, which closes the direction lane H left
- * open.  Lane H's union result narrowed the search to "the same-width type
- * conversion barrier needs two differently-typed OBJECTS, not two views of
- * one".  That has now been tried properly: a SECOND STRUCT TYPE covering the
- * same record --
- *     typedef struct BsCount { unsigned char pad00[0x14]; unsigned n; } BsCount;
- * -- with the guard read as `((BsCount*)st)->n != 5` and/or the increment read
- * and written through it, in all four pairings, is IDENTICAL to the plain
- * no-shim body (49 X, 1165 bytes, first divergence still 64), and adding it
- * alongside the committed volatile shim is identical to the shim alone (47).
- * So two distinct STRUCT TYPES over one object value-number as one lvalue in
- * this build exactly as two union members do; the RequestRoute barrier needs
- * two objects that are genuinely distinct to the compiler, which a cast can
- * never make.  `volatile` remains the ONLY break found for this shape, and
- * the committed shim is re-confirmed as load-bearing (worth 2).
- *
- * 2026-09-05 (small-partials lane).  Unchanged at 47 / 358 insns / 1166 B,
- * but *** THE STANDING BEST HYPOTHESIS FOR INDEX 64 IS NOW FALSIFIED ***, so
- * the next pass should not spend any more time on CSE barriers.
- *  - The hypothesis was "VC6 CSEs the enqueue reload with the guard's
- *    `cmp dword ptr [edi+14h],5` into one value number, so it never takes a
- *    fresh rotation slot; break that CSE and index 64 takes edx."  DISPROOF:
- *    point the guard at a DIFFERENT FIELD ENTIRELY -- `st->frame != 5`
- *    (+0x0c) instead of `st->count != 5` (+0x14), so there is no shared
- *    lvalue and no value number to share -- and index 64 STILL emits
- *    `mov ecx,[edi+14h] / inc ecx / mov [edi+14h],ecx`.  The body is
- *    otherwise unchanged (48 X: only the guard's own `cmp` differs, 1166 B,
- *    same clusters).  There is nothing to break.
- *  - Nor is index 64 a scratch-ROTATION position.  Insert a third guard
- *    condition that consumes ecx immediately before the increment
- *    (`&& st->route != 0` -> `mov ecx,[edi+8] / test ecx,ecx / je`): the
- *    increment still takes ecx, two instructions after ecx was freed.  So
- *    VC6 is not "next in rotation" here, it is "lowest free scratch", and it
- *    is edx in the ORIGINAL only because something is keeping ecx BUSY at
- *    that point in the original's allocation.  The obvious candidate -- the
- *    `st->q[4]` value of index 60 and the shuffle arm's `front` of index 72
- *    being ONE variable whose web spans the whole case -- was tried in three
- *    forms (one function-level `front` assigned in both arms, the same
- *    scoped to the case body, each with and without shim 1) and is
- *    BYTE-IDENTICAL: VC6 splits the web anyway.  A dead use of the value
- *    after the increment does not keep it alive either (VC6 knows it is 0 on
- *    that path and stores an immediate).
- *  - The remaining reading of index 64 is therefore that ecx is reserved in
- *    the original by something OUTSIDE the enqueue block -- look at the join
- *    block at 0x41a82d and the shuffle arm, not at the guard.
- *  - A FREE LEVER WORTH 2, MEASURED BUT DELIBERATELY NOT COMMITTED:
- *    `*(volatile int*)&b->tx` as CalcMoveLine's THIRD argument in CASE 5
- *    ONLY takes the body from 47 to 45 at zero byte cost (still 1166) and
- *    with the register-blind distance unchanged at 10 -- it closes indices
- *    285 and 287..290, because the original RELOADS b->tx from memory there
- *    anyway (`mov eax,[esi+24h]`), so the volatile buys the ordering for
- *    free.  It is a third `volatile` shim on top of two, buying 2 where they
- *    buy 242 and 214, so it is recorded rather than committed; re-add it in
- *    one line if a later pass wants the 2.  The same volatile at the case 0,
- *    3 and 4 sites buys NOTHING on its own and adds nothing to the case 5
- *    one: cases 0+3 = 47, case 3 alone = 47, cases 4+5 = 45, all four = 45,
- *    i.e. every combination is 47 without case 5 and 45 with it.  Volatile on
- *    b->x in case 5 is 49 and on b->y in case 5 is 47.
- *  - Also measured and worse, so not to be re-tried: the ty value as a named
- *    local in case 0 (274) or case 3 (164), with or without a split `+=`
- *    accumulate (68 in case 0); swapping the tx/ty store order in case 5
- *    (289); `int cx = b->x;` in case 5 (48 but register-blind 14 -- a
- *    COMPENSATING error by the standing test, reject it).
- *  - Re-measured contributions of the three committed levers on today's
- *    toolchain: shim 1 is worth 2 (49 without it, and 1165 B -- i.e. shim 1
- *    COSTS one of the two surplus bytes), shim 2 in case 0 is worth 219,
- *    shim 2 in case 3 is worth 115, `cy` in case 4 is worth 6 and also drops
- *    the register-blind distance 13 -> 10 (so `cy` is a real improvement,
- *    not a compensating one).  The 2-byte surplus is exactly the two shim-2
- *    reloads (`mov ecx,[esi+28h]`, 3 bytes, where the original re-uses the
- *    stored value with `mov ecx,edx`, 2 bytes): kill shim 2 and the byte
- *    gate closes, which is why shim 2 -- not index 64 -- is the gating
- *    problem for ever calling this function exact.
- */
-// WIP-FUNCTION: LEGOLAND 0x0041a720  (358/358 insns, 47 X from idx 64: the switch body one register behind in the eax->ecx->edx scratch rotation)
+ * EQUIVALENT SPELLINGS, both also exact, kept here so nobody re-derives
+ * them: the guard as an early exit (`if (st->count == 5 || st->q[4] != 0)
+ * { RemoveBlokeFromRide(...); break; }` before the enqueue, tail duplicated
+ * in both arms), and the tail written inside the enqueue arm with the
+ * queue-full arm unindented after it and the shuffle path falling out to a
+ * second copy.  What does NOT work: duplicating only part of the tail
+ * (`b->flags |= 8` alone 3, flags + the tx line 291); the split-guard form
+ * with the call written twice (12); `if (i != 5) shuffle else enqueue`
+ * (82-297).
+ * ========================================================================= */
+// FUNCTION: LEGOLAND 0x0041a720
 void BoatingSchool_Tick(void)
 {
+    typedef int (__cdecl* MoveLineFn)(Pos, Pos, void*);
     RideInst*        next;
     LLSprite*        lls;
     BPosW            key;
     BlokeSoundSource src;
-    BlokeSoundSource src2;
     ObjDef*          def = g_bs_cls;
     RideInst*        inst = def->instances;
     BsStation*       st;
@@ -1530,22 +1225,30 @@ void BoatingSchool_Tick(void)
                         break;
                     }
                 }
+                /* The walk-to-the-slot tail is written out in BOTH arms; VC6
+                 * cross-jumps the two copies back into one block (they hold
+                 * two calls, so the copies are jumped to rather than kept).
+                 * Written once after the `if`, the enqueue's `st->count++`
+                 * is the last scratch temporary of its own block and takes
+                 * ecx; with the tail inline it is no longer last and takes
+                 * the original's edx, and the queue-full arm keeps its own
+                 * `mov edx,[g_bs_cls] / push ebp / push edx` instead of
+                 * being swallowed by case 6's identical call. */
                 if (i == 5) {
                     if (st->count != 5 && st->q[4] == 0) {
                         st->q[slot] = b;
-                        /* The `volatile` is a pure CODEGEN LEVER (see the note
-                         * above the marker): without it VC6 gives this reload
-                         * the same scratch register as the q[4] test above,
-                         * the queue-full arm below then allocates the same
-                         * register as case 6's identical call, and the whole
-                         * arm is cross-jumped away into case 6.  The volatile
-                         * read costs no instruction (still mov/inc/mov) and
-                         * restores the original's inline arm. */
-                        st->count = *(volatile int*)&st->count + 1;
+                        st->count++;
                     } else {
                         RemoveBlokeFromRide(g_bs_cls, inst);
                         break;
                     }
+                    b->flags |= 8;
+                    b->tx = ((g_bs_cls->dx + key.b.x) << 8) + g_bs_seat_ofs[-slot].dx;
+                    b->ty = ((g_bs_cls->dy + key.b.y) << 8) + g_bs_seat_ofs[-slot].dy;
+                    b->dir8 = (unsigned char)(((MoveLineFn)CalcMoveLine)(*(Pos*)&b->x, *(Pos*)&b->tx, &b->path) + 0x10);
+                    b->action = 7;
+                    NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
+                    break;
                 } else {
                     void* front = st->q[slot - 1];
                     b = st->q[slot];
@@ -1556,23 +1259,14 @@ void BoatingSchool_Tick(void)
                     slot--;
                     if (slot == 0)
                         b->stage++;
+                    b->flags |= 8;
+                    b->tx = ((g_bs_cls->dx + key.b.x) << 8) + g_bs_seat_ofs[-slot].dx;
+                    b->ty = ((g_bs_cls->dy + key.b.y) << 8) + g_bs_seat_ofs[-slot].dy;
+                    b->dir8 = (unsigned char)(((MoveLineFn)CalcMoveLine)(*(Pos*)&b->x, *(Pos*)&b->tx, &b->path) + 0x10);
+                    b->action = 7;
+                    NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
+                    break;
                 }
-                b->flags |= 8;
-                b->tx = ((g_bs_cls->dx + key.b.x) << 8) + g_bs_seat_ofs[-slot].dx;
-                b->ty = ((g_bs_cls->dy + key.b.y) << 8) + g_bs_seat_ofs[-slot].dy;
-                /* Second CODEGEN LEVER (see the note above the marker): the
-                 * `volatile` on the b->ty argument advances the scratch
-                 * rotation once more and makes the WHOLE tx/ty block exact --
-                 * seat.dy in ebp, `add edx, ebp`, `lea eax,[esi+98h]` and its
-                 * push all land where the original has them (indices 89..103).
-                 * It costs exactly one instruction: at index 104 we reload
-                 * `mov ecx,[esi+28h]` where the original re-uses the value it
-                 * just stored (`mov ecx, edx`).  Drop the volatile the moment
-                 * something makes VC6 rotate on its own. */
-                b->dir8 = (unsigned char)(CalcMoveLine(b->x, b->y, b->tx, *(volatile int*)&b->ty, &b->path) + 0x10);
-                b->action = 7;
-                NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
-                break;
             case 1:
                 if (b != st->q[0])
                     break;
@@ -1602,7 +1296,7 @@ void BoatingSchool_Tick(void)
                 b->speed = 0xa;
                 b->tx = (((int)g_bs_cls->ox + key.b.x) << 8) - 0xc0;
                 b->ty = (((int)g_bs_cls->oy + key.b.y) << 8) + 0x240;
-                b->dir8 = (unsigned char)(CalcMoveLine(b->x, b->y, b->tx, *(volatile int*)&b->ty, &b->path) + 0x10);
+                b->dir8 = (unsigned char)(((MoveLineFn)CalcMoveLine)(*(Pos*)&b->x, *(Pos*)&b->tx, &b->path) + 0x10);
                 b->action = 7;
                 NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
                 b->stage++;
@@ -1610,17 +1304,7 @@ void BoatingSchool_Tick(void)
             case 4:
                 b->tx = (((int)g_bs_cls->ox + key.b.x) << 8) - 0xc0;
                 b->ty = (((int)g_bs_cls->oy + key.b.y) << 8) + 0x80;
-                {
-                /* `cy` is a CODEGEN LEVER, not a temporary anyone needs: it
-                 * makes this case read b->y through a named value, which
-                 * changes which of the four argument loads the scheduler
-                 * hoists into the ty computation and fixes the tail of case
-                 * 5 and the whole of case 6 (53 -> 47).  `cx` as well is 48,
-                 * cx alone 52, adding tx and/or ty 57-59, and the same local
-                 * in case 5 collapses the case-0 arm layout again (289). */
-                int cy = b->y;
-                b->dir8 = (unsigned char)(CalcMoveLine(b->x, cy, b->tx, b->ty, &b->path) + 0x10);
-                }
+                b->dir8 = (unsigned char)(((MoveLineFn)CalcMoveLine)(*(Pos*)&b->x, *(Pos*)&b->tx, &b->path) + 0x10);
                 b->action = 7;
                 NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
                 b->stage++;
@@ -1628,13 +1312,16 @@ void BoatingSchool_Tick(void)
             case 5:
                 b->tx = (((int)g_bs_cls->ox + key.b.x) << 8) + 0x80;
                 b->ty = (((int)g_bs_cls->oy + key.b.y) << 8) + 0x80;
-                b->dir8 = (unsigned char)(CalcMoveLine(b->x, b->y, b->tx, b->ty, &b->path) + 0x10);
+                b->dir8 = (unsigned char)(((MoveLineFn)CalcMoveLine)(*(Pos*)&b->x, *(Pos*)&b->tx, &b->path) + 0x10);
                 b->action = 7;
                 NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
                 b->stage++;
-                src2.kind = 1;
-                src2.bloke = b;
-                UnSourceAndFadeAllSamplesFromSource(&src2, -0x5a);
+                {
+                    BlokeSoundSource src2;
+                    src2.kind = 1;
+                    src2.bloke = b;
+                    UnSourceAndFadeAllSamplesFromSource(&src2, -0x5a);
+                }
                 break;
             case 6:
                 b->flags &= (unsigned short)~8;

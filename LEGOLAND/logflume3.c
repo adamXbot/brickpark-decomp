@@ -116,7 +116,7 @@
  * WHAT IS IN THIS FILE
  *
  *   0x0040f5b0   LFCsaw_Place        172 insns   exact
- *   0x0040f050   LFTunnel_Place      217 insns   [5 of 217 differ]
+ *   0x0040f050   LFTunnel_Place      217 insns   exact
  *   0x0040fad0   LFHoldUp_Place      287 insns   exact
  *   0x0040dc00   LFCorner_Place      574 insns   [10 of 574 differ]
  *
@@ -295,44 +295,15 @@ void LFCsaw_Place(LFPiece* parent)
  *   (x0-2w, y0+4h) 3/S <- end B
  * ========================================================================= */
 
-/* RESIDUAL: 217/217 instructions, 680/680 bytes, 5 index mismatches, first
- * diverging index 16.  Everything from index 23 (the first LFPiece_Alloc)
- * to the end is EXACT; the whole residual is a five-slot permutation of the
- * head's last nine instructions, which are the same multiset in both:
- *
- *   orig  14 mov al,[def+3ch]  15 mov bl,[esi+14h]  16 mov dl,[esi+15h]
- *         17 add al,bl  18 mov bl,[def+40h]  19 add al,6  20 push edi
- *         21 add bl,dl  22 mov [esp+1ch],al
- *   ours  14 ..  15 ..  16 push edi  17 add al,bl  18 mov bl,[def+40h]
- *         19 mov cl,[esi+15h]  20 add al,6  21 mov [esp+1ch],al
- *         22 add bl,cl
- *
- * i.e. VC6 schedules the `py` load LATE (and therefore the deferred
- * `push edi` early).  The one structural difference from the two exact
- * siblings is WHICH coordinate carries the per-class constant: LFCsaw_Place
- * (+3) and LFHoldUp_Place (+9) put it on the SECOND-computed coordinate and
- * both keep the two parent-square loads adjacent; LFTunnel_Place puts it on
- * the FIRST (+6), which lengthens x's dependency chain and drops py's
- * priority in the list scheduler.  That is a hypothesis about VC6's
- * priority function, not a lever -- nothing found moves it.
- *
- * MEASURED AND RULED OUT (all give exactly 5, byte-identical, unless
- * stated): every legal order of the six head statements {cellw, cellh, px,
- * py, c.x, c.y} (240 orders; the only other plateaus are 7, 17, 18, 19, 20,
- * 21, 22); six spellings of the c.x expression x four of c.y (the +6 split
- * off as its own statement, folded into the footprint read, px as the
- * accumulator, the inner (unsigned char) cast dropped, three-def forms);
- * px/py inlined at their uses; px/py as `int`; px/py as their own BPos;
- * `p = parent` copied to a local; reading the square once through a BPosW.
- * Worse and rejected: initialising c from the parent square and adding the
- * footprint afterwards -- the LFCorner_Place idiom -- in all four orders
- * (19, 21, 115, 200); `BPos p = parent->sq.b` (193).
- *
- * The `BPos c` aggregate and the direct `g_lftu_def` reads (see the file
- * header) are both load-bearing here: two `unsigned char` locals give 164
- * mismatches and 213 instructions, and a `RideDef* def` local gives 8.
- */
-// WIP-FUNCTION: LEGOLAND 0x0040f050  (217/217 insns, 680/680B, 5 index mismatches; the head's py-load schedule -- see note)
+/* Exact: 217 instructions / 680 bytes.  Initialize both fields of the
+ * non-address-taken BPos before adding the class's six-cell X bias.  Keeping
+ * +6 inside the first assignment, or updating X before defining Y, changes
+ * five head instructions: VC6 delays the parent-Y load and uses CL instead
+ * of the original DL.  The two-field initialization followed by c.x += 6
+ * preserves the original order and deferred EDI save.  All seven constructor
+ * and linking blocks remain unchanged.  Evidence and counterfactuals:
+ * scratchpad/scope-h/animation3/report.md. */
+// FUNCTION: LEGOLAND 0x0040f050
 void LFTunnel_Place(LFPiece* parent)
 {
     int           cellw;
@@ -347,8 +318,9 @@ void LFTunnel_Place(LFPiece* parent)
     cellh = g_lf_footprint.v[3] - g_lf_footprint.v[1];
     px = parent->sq.b.x;
     py = parent->sq.b.y;
-    c.x = (unsigned char)((unsigned char)g_lftu_def->footprint.v[0] + px + 6);
+    c.x = (unsigned char)((unsigned char)g_lftu_def->footprint.v[0] + px);
     c.y = (unsigned char)((unsigned char)g_lftu_def->footprint.v[1] + py);
+    c.x += 6;
 
     LF_MAKE_SUB(3, 0)
     LFPiece_AddSub(parent, sub);
@@ -511,47 +483,22 @@ void LFHoldUp_Place(LFPiece* parent)
  * placed after one of those is stamped as SPECIAL CORNER 1 whatever it is.
  * ========================================================================= */
 
-/* RESIDUAL: 574/574 instructions, 1824 of 1825 bytes, 10 index mismatches,
- * first diverging index 38.  The head, the switch, all four origin
- * expressions and NINETEEN of the twenty sub-piece blocks are exact; the
- * whole residual is the store SCHEDULE of case 0's FIRST block, indices
- * 38..48, which is the same multiset in both:
+/* 2026-09-05 (scope H): exact, 574 instructions / 1825 bytes.  Case 0's
+ * FIRST constructor writes def immediately after kind/dir, BEFORE run.
+ * Expanding that one macro call and moving just this store closes all ten
+ * mismatches at indices 38..48 and restores EDX's six-byte global load.
+ * The original explicitly stores def at 0x0040dc94 before loading run at
+ * 0x0040dc97, so this order also preserves the original's alias behaviour.
  *
- *   orig  kind, dir, [def load], [c.y load], def, [run load], run,
- *         [flags load], or, owner, flags, x, y
- *   ours  kind, dir, [run load], [c.y load], run, owner, [def load], x,
- *         def, [flags load], or, y, flags
- *
- * The single missing byte is a consequence, not a separate fault: the
- * original loads g_lftr_def into EDX (6 bytes) and we load it into EAX,
- * for which x86 has the 5-byte A1 accumulator form.
- *
- * MEASURED AND RULED OUT: the committed store order is the best of 14
- * orders of the eight member stores measured on THIS function alone with a
- * private macro (next best 84, then 88, 90, 117...), so the order is not
- * the issue and it is the same order that makes the other three functions
- * exact; writing case 0's first block OUT of the macro with any of ten
- * orders is strictly worse (11 -> 149+) because it breaks the cross-jumped
- * tail the compiler builds out of cases 1..3; all six orders of case 0's
- * three origin statements (only the committed one survives -- the other
- * five cost 538, they lose the tail merge); moving `parent->end_a = sub`
- * before LFPiece_AddSub, and `prev = sub` before it, in every case.
- *
- * WHY THE FOUR CASES CARRY DIFFERENT STATEMENT ORDERS.  `parent->end_a`,
- * `prev` and the following coordinate update are three independent writes,
- * and unlike the analogous block in LFEntrance_Add their order here IS
- * visible in the output (17 / 16 / 11 for the uniform and the committed
- * mixtures).  So the committed per-case order is read off the original's
- * own emission -- case 0 end_a, update, prev; cases 1 and 2 prev, end_a;
- * case 3 end_a, prev -- which is what four hand-written case blocks look
- * like.  A uniform `end_a; prev` (what the other three functions in this
- * file use) costs 6 more.
- *
- * NOT EXPLAINED: why case 0's first block alone hoists the g_lftr_def load
- * above the run load.  It is the only block of the twenty that does, and
- * nothing above moves it.
+ * A targeted early volatile def read first exposed the schedule, but the
+ * same early plain store is exact too: volatile is NOT required.  Merely
+ * naming the def pointer or parent->run pointer leaves ten; naming a def
+ * VALUE gives 61/63; a volatile read at the old late use site gives eleven.
+ * Prior broad store-order probes missed this one first-block spelling.
+ * All other nineteen constructor blocks retain LF_MAKE_SUB and its order.
+ * The case-specific end_a/prev/update orders are also still load-bearing.
  */
-// WIP-FUNCTION: LEGOLAND 0x0040dc00  (574/574 insns, 1824/1825B, 10 index mismatches; case 0's first store block -- see note)
+// FUNCTION: LEGOLAND 0x0040dc00
 void LFCorner_Place(LFPiece* parent)
 {
     int      cellw;
@@ -572,7 +519,17 @@ void LFCorner_Place(LFPiece* parent)
             c.y += (unsigned char)g_lfc1_def->footprint.v[1];
             c.x += 3;
 
-            LF_MAKE_SUB(3, 0)
+            sub = LFPiece_Alloc();
+            if (sub) {
+                sub->kind = 3;
+                sub->dir = 0;
+                sub->def = g_lftr_def;
+                sub->run = parent->run;
+                sub->owner = parent;
+                sub->flags |= 4;
+                sub->sq.b.x = c.x;
+                sub->sq.b.y = c.y;
+            }
             LFPiece_AddSub(parent, sub);
             parent->end_a = sub;
 

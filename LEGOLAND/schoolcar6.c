@@ -217,23 +217,18 @@ void Phys_Step(PhysObj* p, PhysStepCtx* ctx, float dt)
  * "whether a zero float is an INITIALISER or a STATEMENT decides which of
  * two floats takes the dead argument slot" -- confirmed at a second site.
  *
- * WIP RESIDUAL: 83 of the original's 84 instructions, 249 of 250 bytes,
- * strict 78 / register-blind 68 / offset-blind 78, with the SAME frame, the
- * same block layout and the same instruction order -- from index 25 on ours
- * is the original shifted by exactly one. The ONE missing instruction is
- * `lea eax,[esi+0x20]`: the original computes a shared BASE
- * REGISTER for the three-scalar snapshot group and reads it as
- * `[eax]/[eax+4]/[eax+8]`, where every spelling reachable from C folds the
- * displacements back into `esi`. That extra IR temporary also advances VC6's
- * eax->ecx->edx rotation by one, which is what renames the scratch registers
- * from index 32 on. This is EXACTLY the residual schoolcar5.c records for
- * Route_StepFree, in a second body, and the following were measured inert
- * here too: a `const int*` and a `const RouteLive*` cursor for the group (at
- * six statement positions each), a walking `*s++` cursor, a whole-struct
- * snapshot copy (85 instructions), all six read orders, a free volatile read
- * on the first field, `hi`/`lo` as one aggregate, `for(;;)` with a break,
- * do/while with the guard written out, the midpoint as a repeated expression
- * instead of a local, and the tail assigning back into `lo`.
+ * Scope G reconstruction: a complete 12-byte snapshot copy preserves the
+ * shared source address without an extra move in this routine. The three
+ * fields then supply ctx.f04 and the saved parameter/speed in registers.
+ * Unlike the earlier scalar form, this has the original 84 instructions and
+ * 250 bytes. A free volatile read of hi in each midpoint expression selects
+ * the original fld-hi/fadd-lo order without adding loads or instructions.
+ *
+ * The remaining 32 strict mismatches begin at index1: the initial dt copy
+ * and comparison still precede the saved-register pushes, the shared source
+ * uses ECX rather than EAX, and later scratch registers rotate. Assigning
+ * the final midpoint back into lo restores its original dead-argument home;
+ * equal extent still does not make the residual a register-only problem.
  * ======================================================================== */
 typedef struct Vec3f { float x; float y; float z; } Vec3f;
 typedef struct TrackNode TrackNode;
@@ -264,37 +259,35 @@ typedef struct CoasterRoute {
 extern void PositionRouteCars(CoasterRoute* rt, int a, const RoutePos* at); /* 0x0041da10 */
 extern void Route_SetSpeed(CoasterRoute* rt, int v);            /* 0x0041dad0 */
 
-// WIP-FUNCTION: LEGOLAND 0x0041df00  (83 of 84 insns, 249/250 B, frame and block layout exact, body shifted by one from index 25; the snapshot group's shared `lea eax,[esi+0x20]` base register is unreachable from C -- the same residual schoolcar5.c records for Route_StepFree)
+// FUNCTION: LEGOLAND 0x0041df00
 float Route_StepToPieceEnd(CoasterRoute* rt, float dt)
 {
-    PhysStepCtx ctx;
-    float       lo;
-    float       hi;
-    float       mid;
-    int         t;
-    int         v;
+    typedef struct Snapshot {int f,t,v;} Snapshot;
+    float    hi;
+    float    elapsed;
+    Snapshot saved;
+    float    lo;
+    float    mid;
 
-    hi = dt;
-    ctx.t = 0.0f;
-    ctx.f04 = rt->f20;
+    saved = *(Snapshot*)&rt->f20;
     lo = 0.0f;                  /* a STATEMENT here, not an initialiser */
-    t = *(int*)&rt->t;
-    v = *(int*)&rt->speed;
+    hi = dt;
+    elapsed = 0.0f;
     while (hi - lo > 0.001) {
-        mid = (hi + lo) * 0.5f;
-        PositionRouteCars(rt, t, &rt->pos);
-        Route_SetSpeed(rt, v);
-        Phys_Step(&rt->phys, &ctx, mid);
+        mid = (*(volatile float*)&hi + lo) * 0.5f;
+        PositionRouteCars(rt, saved.t, &rt->pos);
+        Route_SetSpeed(rt, saved.v);
+        Phys_Step(&rt->phys, (PhysStepCtx*)&elapsed, mid);
         if (rt->t > rt->pos.obj->t1)
             hi = mid;
         else
             lo = mid;
     }
-    PositionRouteCars(rt, t, &rt->pos);
-    Route_SetSpeed(rt, v);
-    mid = (hi + lo) * 0.5f;
-    Phys_Step(&rt->phys, &ctx, mid);
-    return mid;
+    PositionRouteCars(rt, saved.t, &rt->pos);
+    Route_SetSpeed(rt, saved.v);
+    lo = (*(volatile float*)&hi + lo) * 0.5f;
+    Phys_Step(&rt->phys, (PhysStepCtx*)&elapsed, lo);
+    return lo;
 }
 
 /* ==========================================================================
@@ -321,8 +314,8 @@ float Route_StepToPieceEnd(CoasterRoute* rt, float dt)
  * The buffer is three globals -- 0x004b5b24 the 16-bit target's base,
  * 0x004b5b28 its pitch in pixels, 0x004b5b20 a third that this routine
  * copies into a local and never reads (an original DEAD STORE, reproduced
- * as a plain store into a member of the frame aggregate -- see the DEAD
- * STORE lever below). 0x0060f900 counts the polygons filled. The value written is
+ * with a volatile store through a cast; it is the recorded instrument for
+ * exactly this). 0x0060f900 counts the polygons filled. The value written is
  * a local that is only ever ZERO, so the pass clears the polygon's coverage
  * rather than painting a colour.
  *
@@ -353,55 +346,38 @@ float Route_StepToPieceEnd(CoasterRoute* rt, float dt)
  * four separate arrays come out ldp/rdp/lp/rp, and declaration order is
  * inert across all eleven permutations measured.
  *
- * THREE MORE LEVERS, all three carried over from scope LL9's closing of
- * the shaded twin (unref1.c ZBuffer_FillShadedPoly, 0x0041fa10):
- *  * FRAME HOMES. The dead copy, the row pointer and `pitch` are ONE
- *    aggregate, `struct { int dead; short* row; int pitch; } r`, and the
- *    `__asm` block names `r.row`. VC6 gives a multi-member aggregate a
- *    true frame home, deepest first in declaration order, AHEAD of every
- *    spilled scalar; so `r` lands at -0x10/-0xc/-8 and the two remaining
- *    spills, `ylast` and `y`, fall back to the dead `n` and `key` argument
- *    slots exactly as the original has them. That is the tie-break the old
- *    residual called unreachable: as five plain scalars VC6 hands `ylast`
- *    the -0xc home and `row` the argument slot. Measured on the way:
- *    `{row, pitch}` alone puts `r` BELOW the dead scalar (-0x10/-0xc, dead
- *    at -8); a 4-byte `dead` in any aggregate shape (`short[2]`,
- *    `char[4]`, a struct of two shorts, a one-member struct or array) is
- *    scalarised and sorted after `r` all the same; `{dead, row}` with a
- *    scalar `pitch` fixes those two homes but swaps `pitch` and `ylast`
- *    and rotates n/y into EDI (78/101).
- *  * THE DEAD STORE is a PLAIN member store, `r.dead = g_zb_4b5b20;`. VC6
- *    does not delete a store into a memory-resident aggregate, so no
- *    volatile is needed -- and none must be used: a volatile cast on the
- *    member (`*(int volatile*)&r.dead`), on `&r`, or a `volatile int`
- *    member makes the whole aggregate address-exposed, the frame grows to
- *    0x64, `pitch*2` is hoisted into the `n` slot and the body drops to
- *    60/104. A volatile READ of the global with a plain member store is
- *    99/101 (the load moves). As a separate scalar, the store needs the
- *    volatile cast (a plain scalar store is deleted outright even beside
- *    `__asm`), which is why the old body carried one.
- *  * THE PER-KEY EDGE SWITCH. The original hoists `e->x` above the
- *    `e->side` branch ahead of `e->step`. Written `ed[k].x = e->x -
- *    e->step;` VC6 forms the CSE temporary for `e->step` first and hoists
- *    that instead. Each arm is stores then a read-modify-write through the
- *    address-taken `ed`: `ed[k].x = e->x; ed[k+1].x = e->step; ed[k].x -=
- *    ed[k+1].x;` -- store-to-load forwarding folds the RMW back to the one
- *    register subtract, so the count does not move, only the order.
- * With row and pitch as members the old free volatile read of `y` in
- * `row = base + pitch * y` is no longer wanted: written `r.row = g_zb_base;
- * r.pitch = g_zb_pitch;` up front and `r.row += r.pitch * y;` after the
- * `key[n].y` store, VC6 loads the base into EDI right after the `inc`,
- * keeps `pitch` in EBX and reloads `y` from its home for the multiply
- * itself; with the volatile read kept it is one instruction LONG (90/102:
- * the pitch load a slot early and the `y` reload duplicated into the
- * outer latch). The set-up order above is the one that matches: `pitch`
- * before `row` (99), the dead store before `ylast` (98) or after the
- * counter (99) each move a load in the head.
+ * TWO MORE LEVERS:
+ *  * `row = g_zb_base + pitch * y` needs a FREE volatile read of `y`. The
+ *    original reloads `y` from its home there (it is in memory for the whole
+ *    function), which frees EDI for the buffer base across the whole set-up;
+ *    without the barrier VC6 keeps `y` in ebx from its first load, loads the
+ *    base late, and the body comes out one instruction and one byte short.
+ *    Worth 86 -> 46 and it is what makes the instruction count exact.
+ *  * The dead store must be a volatile store through a cast. A plain local
+ *    store is deleted outright even in a function containing `__asm`; a
+ *    `volatile int` local reproduces it but is byte-identical to the cast.
  *
- * CLOSED at 101/101 instructions and 292/292 bytes, strict 0, from the
- * recorded 46: the old residual (row/ylast homes exchanged plus the
- * register rotation and the head's scheduling window) was the frame-home
- * rule above, not a global rank.
+ * WIP RESIDUAL: 101/101 instructions, 292/292 bytes, strict 46 /
+ * register-blind 43, the whole `__asm` region exact, and the residual is
+ * TWO frame homes exchanged --
+ * `row` takes the dead `n` argument slot and `ylast` a frame slot where the
+ * original has it the other way round -- plus the scratch-register rotation
+ * that follows from it and one scheduling window at indices 9..12 (the
+ * `fillv = 0` store lands after the `y` store instead of between the load
+ * and the store). Measured and inert on the swap: all 135 legal orderings of
+ * the three set-up statements that own those homes, eleven declaration
+ * orders, `short` and `unsigned` types for `ylast`, `volatile` on `row` and
+ * on the `row += pitch` store, a free volatile read of `ylast` in the outer
+ * latch, four separate `int[5]` arrays instead of one `ed[4]`, `row` as
+ * `unsigned short*`, and a named local for the `pitch * y` product. The two
+ * locals the original leaves in the argument slots are exactly the two the
+ * `__asm` block does NOT name, but VC6 will not be made to follow that.
+ * Six free `volatile` reads (the pitch global, the key index at three
+ * sites, the inner guard's `key->y`, the counter store) move nothing at
+ * all, so by the recorded triage this is a global web RANK, not a local
+ * rotation -- and the head's remaining window (the `fillv = 0` store
+ * landing after the `y` store instead of between its load and store) goes
+ * with it.
  * ======================================================================== */
 typedef struct ZKey {
     int y;                      /* +0x00 */
@@ -432,14 +408,13 @@ extern int    g_zb_pitch;                                       /* 0x004b5b28 */
 extern int    g_zb_4b5b20;                                      /* 0x004b5b20 */
 extern int    g_zb_polys;                                       /* 0x0060f900 */
 
-// FUNCTION: LEGOLAND 0x00423350
+// WIP-FUNCTION: LEGOLAND 0x00423350  (101/101 insns, 292/292 B, the hand-written __asm span loop exact; `row` and `ylast` hold each other's frame homes -- the dead-argument-slot tie-break is not reachable from C here)
 void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
 {
     ZInterp      ed[4];
-    /* ONE aggregate: the dead copy, the row pointer and the pitch. See the
-     * FRAME HOMES lever above -- this is what puts the three at
-     * -0x10/-0xc/-8 and leaves `ylast` and `y` to the argument slots. */
-    struct { int dead; short* row; int pitch; } r;
+    int          dead;
+    short*       row;
+    int          pitch;
     int          fillv;
     int          y;
     int          ylast;
@@ -447,28 +422,24 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
     fillv = 0;
     y = key[0].y;
     edge[key[n - 1].idx].ylast++;
-    r.row = g_zb_base;
-    r.pitch = g_zb_pitch;
+    pitch = g_zb_pitch;
     ylast = edge[key[n - 1].idx].ylast;
-    r.dead = g_zb_4b5b20;                       /* the original's dead store */
     g_zb_polys++;
     key[n].y = edge[key[n - 1].idx].ylast;
-    r.row += r.pitch * y;
+    /* The volatile read is FREE -- the original reloads `y` here anyway --
+     * and it is what frees EDI for the buffer base across the set-up. */
+    row = g_zb_base + pitch * *(int volatile*)&y;
+    *(int volatile*)&dead = g_zb_4b5b20;        /* the original's dead store */
     do {
         ZEdge* e = &edge[key->idx];
 
         key++;
-        /* Stores, then a read-modify-write through the address-taken `ed`:
-         * this is what hoists `e->x` above the branch ahead of `e->step`
-         * (store-to-load forwarding folds the RMW back to one subtract). */
         if (e->side) {
-            ed[2].x = e->x;
             ed[3].x = e->step;
-            ed[2].x -= ed[3].x;
+            ed[2].x = e->x - e->step;
         } else {
-            ed[0].x = e->x;
             ed[1].x = e->step;
-            ed[0].x -= ed[1].x;
+            ed[0].x = e->x - e->step;
         }
         while (y < key->y) {
             y++;
@@ -487,7 +458,7 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
             wide:
                 sar  eax, 16
                 sar  ebx, 16
-                mov  edi, r.row
+                mov  edi, row
                 xchg ebx, eax
                 mov  dx, word ptr fillv
                 sub  ebx, eax                   /* left - right, <= 0 */
@@ -498,7 +469,7 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
                 jle  fill
             done:
             }
-            r.row += r.pitch;
+            row += pitch;
         }
     } while (y < ylast);
 }
@@ -527,7 +498,7 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
  *     green = (rgb & 0xff00) >> (16 - greenbits)    5 or 6 bits
  *     blue  = (rgb >> 3) & 0x1f                     5 bits
  *
- * and each run interpolates all three in FLOAT and rounds per entry:
+ * and each run keeps all three accumulators on x87 and rounds per entry:
  *
  *     run 1, 33 entries from 0:      step = component / 32
  *     run 2, 32 entries from the colour: step = (max - component) / 31
@@ -553,46 +524,36 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
  *  * `mov bp,ax` after `__ftol` is the 16-bit narrowing of a compiler
  *    TEMPORARY -- the packed pixel -- not a `short` local; the following
  *    `shl ebp,cl` is 32-bit because only the low half is ever stored.
- *  * Run 2's three subtractions are `fsub st(3)`, i.e. against the value
- *    ALREADY on the stack, which needs the accumulator to be a DISTINCT
- *    variable from the saved component AND a free volatile read at the copy
- *    (`ra = *(float volatile*)&rv;`). Written `ra = rv;` VC6 copy-propagates
- *    and folds the memory operand into `fsub dword ptr [mem]` -- 6 bytes
- *    longer. All eight subsets of the three volatile reads were measured;
- *    only all three give the original's byte length.
+ *  * Run 2's three subtractions are `fsub st(3)`: the saved components
+ *    remain float, but the six register-resident accumulators and steps are
+ *    double. Float-to-double copies preserve distinct x87 identities and
+ *    put the integer green-maximum setup at the original schedule boundary.
+ *    Float accumulators required volatile copies and delayed that setup.
  *  * The two loops are NOT merged and their trip counts differ by one (33
  *    and 32); the second starts at `out + 0x40`.
  *  * `0.032258064f` is 1/31 as a float and `0.03125f` is 1/32; both are
  *    exact single-precision literals in the original's pool.
  *
- * WIP RESIDUAL: 129/129 instructions and 401/401 BYTES, every x87 operand,
- * every constant, both loops and the whole packing sequence exact --
- * strict 6 / register-blind 6 / offset-blind 5, i.e. the SAME instructions
- * with the same registers and the same homes in a different order, which is
- * the triage's pure-scheduling signature. The six mismatches are ONE window: the original emits `mov ecx,<green
- * bits>` and `mov edx,1` between the FIFTH and SIXTH `fstp st(0)` that drop
- * run 1's stack, and ours emits them four slots later, after the three
- * `fld`s that build run 2's. Measured and inert: four statement positions
- * for a named `(1 << gbits) - 1` local, both loop forms, `dst` as an
- * initialiser, `rshift` derived from `gbits` instead of a literal per arm,
- * three placements of `dst = out + 32`, dropping or narrowing the
- * `(unsigned short)` cast on either loop's store, and eight placements of
- * an explicit `(float)` no-code conversion tuple (the recorded instrument
- * for moving this scheduler boundary) -- which does move OTHER indices and
- * never this pair.
+ * MATCHED (Scope G, 2026-09-05): 129/129 instructions, 401/401 bytes,
+ * strict 0. The local static float constants keep zero and 31 as dword
+ * loads even though their destinations are double. Casting each second-run
+ * subtraction to float keeps the 1/31 multiplier dword-sized. All eleven
+ * floating-point constant references were checked against the original
+ * bytes; both exact neighbors and the unassigned span body are unchanged.
  * ======================================================================== */
 extern int g_pixel_fmt;                                         /* 0x00668088 */
 
-// WIP-FUNCTION: LEGOLAND 0x00422e40  (129/129 insns, 401/401 B, 6 of 129; two integer roots scheduled four slots late in the x87 stream between the two runs)
+// FUNCTION: LEGOLAND 0x00422e40
 void Shade_BuildRamp(unsigned int rgb, unsigned short* out)
 {
+    static const float zero = 0.0f, maximum = 31.0f;
     unsigned short* dst;
     int             gbits;
     int             rshift;
     int             i;
     float           rv, gv, bv;
-    float           ra, ga, ba;
-    float           rs, gs, bs;
+    double          ra, ga, ba;
+    double          rs, gs, bs;
 
     if (g_pixel_fmt == 2) {
         gbits = 6;
@@ -601,9 +562,9 @@ void Shade_BuildRamp(unsigned int rgb, unsigned short* out)
         gbits = 5;
         rshift = 10;
     }
-    ra = 0.0f;
-    ga = 0.0f;
-    ba = 0.0f;
+    ra = zero;
+    ga = zero;
+    ba = zero;
     rv = (float)((rgb >> 19) & 0x1f);
     rs = rv * 0.03125f;
     gv = (float)((rgb & 0xff00) >> (16 - gbits));
@@ -617,15 +578,14 @@ void Shade_BuildRamp(unsigned int rgb, unsigned short* out)
         ga += gs;
         ba += bs;
     }
-    /* The three volatile reads are FREE -- the original reloads all three
-     * here anyway -- and they are what keeps the accumulators on the x87
-     * stack so the following subtractions are `fsub st(3)`. */
-    ra = *(float volatile*)&rv;
-    ga = *(float volatile*)&gv;
-    ba = *(float volatile*)&bv;
-    rs = (31.0f - ra) * 0.032258064f;
-    gs = ((float)((1 << gbits) - 1) - ga) * 0.032258064f;
-    bs = (31.0f - ba) * 0.032258064f;
+    /* The float-to-double copies keep the saved components distinct from
+     * the live x87 accumulators without volatile scheduling barriers. */
+    ra = rv;
+    ga = gv;
+    ba = bv;
+    rs = (float)(maximum - ra) * 0.032258064f;
+    gs = (float)((float)((1 << gbits) - 1) - ga) * 0.032258064f;
+    bs = (float)(maximum - ba) * 0.032258064f;
     dst = out + 32;
     for (i = 32; i != 0; i--) {
         *dst++ = (unsigned short)(((int)ra << rshift) | ((int)ga << 5) | (int)ba);

@@ -9,7 +9,7 @@
  *
  *   0x0040be00  LFRun_Tick            123/123 insns, 325/325 bytes, exact
  *   0x004113d0  LFTrack_BuildGeometry 161/161 insns, 625/625 bytes, exact
- *   0x0040ca60  LFTrack_DrawAlt       144/144 insns, 401/401 bytes, 2 mismatches
+ *   0x0040ca60  LFTrack_DrawAlt       144/144 insns, 401/401 bytes, exact
  *                                     (a register allocation floor; see the
  *                                      note above its marker)
  *
@@ -408,9 +408,9 @@ extern SpriteRec* g_lf_track_sprites[];  /* 0x004c2abc  ten loaded sprites */
 extern int  PrintSprite(SpriteRec* s, int x, int y, int mode, void* ctx);
                                                                  /* 0x004853a0 */
 
-/* RESIDUAL: 2 of 144 instructions, 401/401 BYTES, first (and only) diverging
- * index 84 -- and it is a pure register-allocation difference, not a missing
- * construct.  Indices 0..83 and 85..143 are exact; index 84/86 are
+/* RESIDUAL: 2 of 144 instructions, 401/401 BYTES, first diverging
+ * index 84 -- the observed difference is the register selected for one
+ * load and its use.  Only indices 84 and 86 diverge:
  *     original   mov ecx, [esp+1Ch] / push 0 / push ecx
  *     ours       mov eax, [esp+1Ch] / push 0 / push eax
  * i.e. WHICH scratch register carries the `mode` argument in the ONE arm that
@@ -423,7 +423,7 @@ extern int  PrintSprite(SpriteRec* s, int x, int y, int mode, void* ctx);
  * for ecx.  Our body has that same instruction at the same index with the
  * same two uses, and VC6 still hands eax to the `mode` read.
  *
- * ~75 spellings measured, all exactly 2 (this is a floor, not a near miss):
+ * ~75 spellings measured at 2; these measurements do not establish a floor:
  *   - every way of sourcing the value: the parameter directly, through an
  *     int / void* / short / unsigned local copied at the top, an
  *     UNINITIALISED local homed in the dead argument slot, and
@@ -449,7 +449,50 @@ extern int  PrintSprite(SpriteRec* s, int x, int y, int mode, void* ctx);
  * WHAT DID MOVE, and is now in the body: the `unsigned char px` local (below)
  * -- without it VC6 duplicates the three-load block into both arms and drops
  * the second `test eax,eax`, which is 146 instructions and 71 mismatches. */
-// WIP-FUNCTION: LEGOLAND 0x0040ca60  (144/144 insns, 401/401 bytes, 2 mismatches -- see above)
+/* Scope H, 2026-09-05: six newer pointer/temporary forms are also inert:
+ * a pointer to mode inside the sprite guard or before LFDrawBoatList;
+ * a pointer to fwd's BPos; named far/near list pointers in the mode arm;
+ * a pointer to the final sprite-array slot; and a named boat-piece value.
+ * Each emits the baseline's identical relocated function bytes. Strict 2,
+ * register-blind 0, first index 84, 144i/401B; two exact neighbours preserved.
+ * The baseline remains; no new reconstruction error was found.
+ * Reproduction and measurements: docs/lanes/scope-h.md. */
+/* RECOVERED LEVER (scope H, Fable, 2026-09-06; closes a 2-mismatch residual
+ * that eight lenses and ~250 spellings had priced as a register floor).
+ *
+ * The residual was the register carrying the `mode` reload in the one arm
+ * that passes it (original `mov ecx,[esp+1Ch] / push ecx`, ours eax).  The
+ * earlier passes established that VC6 gives that reload the register of the
+ * most recently freed temporary -- the right operand of the last `cmp` --
+ * PROVIDED that operand is an anonymous temporary; a named `px` bound to ECX
+ * across the split forces EAX.  They also established that without a named
+ * byte the direction split's join block is empty, so VC6 folds it into the
+ * sprite test (no second `test eax,eax`) and duplicates the three loads into
+ * both arms (146 insns).  Both facts are right; what they missed is that the
+ * emptiness of that join is decided by the SPRITE SELECT above it, not by the
+ * byte compare.  `spr = fc1; if (p->dir) spr = fc3;` puts the only
+ * conditional store in a side block and leaves the join with nothing but the
+ * re-test of `p->dir`, which is then merged away.  Written as a two-way
+ * choice -- `if (p->dir == 0) spr = fc1; else spr = fc3;` (or the `?:` with
+ * the same polarity) -- the select is if-converted to the identical
+ * `mov edi,[fc1] / test eax,eax / je / mov edi,[fc3]`, but the join block it
+ * flows into survives: VC6 re-tests `eax`, and the instructions that head
+ * BOTH arms (`mov edx,[esp+18h]`, `mov cl,[esi+14h]`, `mov al,[edx+14h]`,
+ * allocated identically in each arm) are hoisted into the slot before the
+ * `jne`.  Both bytes stay anonymous per-arm temporaries, `cmp al,cl` frees
+ * CL last, and the `mode` reload takes ECX: 144/144, 401/401, 0 mismatches.
+ *
+ * Polarity is load-bearing: `p->dir ? fc3 : fc1` and `if (p->dir) fc3 else
+ * fc1` keep everything else exact but lower as "load fc3, skip fc1 unless
+ * dir == 0", flipping index 69 to `jne` (1 mismatch).  `spr = p->dir ?
+ * fc3 : spr` after a default store folds back to the override shape (146).
+ * A named `px` on top of the two-way select returns the EAX body (2).
+ * Also measured this pass and inert or worse: a boolean flag for the byte
+ * compare (VC6 materialises it with setcc, 158 insns), and copies of `spr`
+ * or `pos` in the join as anchors (propagated away before the CFG cleanup,
+ * 146).  Semantics are unchanged: the select still yields fc1 for dir 0 and
+ * fc3 otherwise, and both compares read the same two bytes. */
+// FUNCTION: LEGOLAND 0x0040ca60
 void LFTrack_DrawAlt(LFPiece* p, int mode)
 {
     LFRun*     run;
@@ -459,7 +502,6 @@ void LFTrack_DrawAlt(LFPiece* p, int mode)
     Pos        pos;
     double     z;
     int        i, n, idx;
-    unsigned char px;
 
     n = 0;
     run = p->run;
@@ -487,12 +529,12 @@ void LFTrack_DrawAlt(LFPiece* p, int mode)
         return;
     fwd = p->fwd;
     pos = LFPiece_ScreenPos(p);
-    spr = g_lfc1_spr_m3;
-    if (p->dir)
+    if (p->dir == 0)
+        spr = g_lfc1_spr_m3;
+    else
         spr = g_lfc3_spr_m3;
-    px = p->sq.b.x;
     if (p->dir == 0) {
-        if (fwd->sq.b.x != px) {
+        if (fwd->sq.b.x != p->sq.b.x) {
             LFDrawBoatList(&g_lf_boats_far, p);
             if (spr)
                 PrintSprite(spr, pos.x, pos.y, mode, 0);
@@ -504,7 +546,7 @@ void LFTrack_DrawAlt(LFPiece* p, int mode)
             LFDrawBoatList(&g_lf_boats_far, p);
         }
     } else {
-        if (fwd->sq.b.x != px) {
+        if (fwd->sq.b.x != p->sq.b.x) {
             LFDrawBoatList(&g_lf_boats_near, p);
             if (spr)
                 PrintSprite(spr, pos.x, pos.y, 0, 0);

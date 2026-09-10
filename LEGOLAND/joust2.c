@@ -654,7 +654,45 @@ static __inline void* Joust_StartSample(int x, int y)
  * `default:`; every order of the three loop-head reads; `tx`/`ty` operand
  * orders and two-step accumulate forms; passing `(RideTile*)&r->ride_id`
  * inline; dropping the `volatile` from Joust_FindRecord's parameter type. */
-// WIP-FUNCTION: LEGOLAND 0x00407c30  (703/703 instructions, 2261/2258 bytes, audit mismatch 16/703 = 97.7% exact, first diverging index 500 -- the note above lists the residual and everything eliminated)
+/* RULED OUT for the two remaining encodings (measured this pass, so nobody
+ * repeats them).  Tail copy membership: an exhaustive single-move plus
+ * pairwise-swap hill climb over all twenty-five case bodies, started from
+ * both the numeric order and this one, and a several-thousand-iteration
+ * randomized multi-move search on top of the fixed gate, never place both
+ * 0x16 and 0x18 on copy B -- seven of eight tail targets is the ceiling, and
+ * every order that fixes 0x18 costs 0x16.  Explicit empty `case 8/9/0x11/
+ * 0x12/0x13` and a `default:` are inert at every position.  Respellings that
+ * VC6 folds to the identical instructions, and therefore cannot break the
+ * tie: `(b->seat - 3) * 200 - 0xdd6`, `((ty - 15) << 8) - 0x46`,
+ * `((tx - 3) << 8) - 0xa4`, and case 0x18's walk written out longhand.  For
+ * index 673: an explicit `goto stop;` after either gate assignment, flipping
+ * the cycle arm order, testing 0x20 first, `if (h == 3) goto set20; goto
+ * run;`, swapping the stop/run block order, a combined `int f1c, f20;`
+ * declaration in either order, and separate phase-two gate locals for one
+ * gate only (either one) are all inert or much worse.  Everything in the
+ * earlier ELIMINATED lists still holds. */
+/* INDEX 673 CLOSED (fgh-100b): the busy arms are `if (h != 1) { if (h == 3)
+ * f20 = 1; else goto run; }` (horse 0's with an explicit `else goto stop;`).
+ * The nested form makes the front end emit the `cmp 3 / je set / jmp run /
+ * set:` jump-around-jump on BOTH arms, so the tail merger sees an identical
+ * `je / jmp run / label / mov ebp,1` suffix and folds horse 0's arm into a
+ * single `jmp` landing on horse 1's `jne run` -- the original's encoding.  The
+ * flat `if (h != 3) goto run;` spelling is already a bare `jne run` when the
+ * merger runs and it only ever folds the `mov`.  Verified by differential
+ * execution, 1200/1200. */
+/* CASE 0x16's TAIL COPY CLOSED (fgh-100b, 2258/2258 bytes): the walk-tail
+ * groups are decided BEFORE register allocation and depend on which case
+ * bodies sit between which, including bodies VC6 later merges away whole.
+ * Two layout-neutral moves put 0x16 on copy B (0x1c's, with 0x0b and 0x18)
+ * where it had been on copy A (0x0e's): the 0x19 duplicate body sits right
+ * after 0x0d instead of between 0x15 and 0x16, and 0x1a is its OWN duplicate
+ * of 0x17's body placed between 0x16 and 0x18 (it still merges into 0x17's
+ * block, so the jump table is unchanged).  Neither move alone does it; the
+ * pair was found by a 2-D sweep of the two duplicates' slots
+ * (scratchpad/fgh100b/joust_v17.py, four other slot pairs also give 2258).
+ * The earlier note that a separate 0x1a body "costs 23" was true only for
+ * the slot next to 0x17.  Verified by differential execution, 1200/1200. */
+// FUNCTION: LEGOLAND 0x00407c30
 void Joust_Update(RideElem* elem)
 {
     RideDef*    def = elem->data;
@@ -830,6 +868,15 @@ void Joust_Update(RideElem* elem)
                 }
                 break;
 
+            case 0x19:
+                b->sit = 3;
+                if (b->timer++ > 150) {
+                    seated--;
+                    seats.s[b->seat] = 0;
+                    b->action++;
+                }
+                break;
+
             case 0x0e:
                 b->target.x = (tx << 8) - 0x364;
                 b->target.y = (ty - 3) << 8;
@@ -872,6 +919,13 @@ void Joust_Update(RideElem* elem)
                 b->action++;
                 break;
 
+            case 0x1a:
+                b->target.x = (tx << 8) - 0x364;
+                b->target.y = (ty << 8) - 0xf46;
+                Joust_Walk(b);
+                b->action++;
+                break;
+
             case 0x18:
                 b->target.x = (tx << 8) - 0x364;
                 b->target.y = (ty << 8) + b->seat * 200 - 0x102e;
@@ -879,17 +933,7 @@ void Joust_Update(RideElem* elem)
                 b->action++;
                 break;
 
-            case 0x19:
-                b->sit = 3;
-                if (b->timer++ > 150) {
-                    seated--;
-                    seats.s[b->seat] = 0;
-                    b->action++;
-                }
-                break;
-
             case 0x17:
-            case 0x1a:
                 b->target.x = (tx << 8) - 0x364;
                 b->target.y = (ty << 8) - 0xf46;
                 Joust_Walk(b);
@@ -950,11 +994,12 @@ void Joust_Update(RideElem* elem)
                     goto run;
                 f1c = 1;
             } else {
-                if (horses.h[1] == 1)
-                    goto stop;
-                if (horses.h[1] != 3)
-                    goto run;
-                f20 = 1;
+                if (horses.h[1] != 1) {
+                    if (horses.h[1] == 3)
+                        f20 = 1;
+                    else
+                        goto run;
+                }
             }
         } else {
             if (!((f0c == 0 || jousters >= 2) && jousters != 0)) {
@@ -962,11 +1007,13 @@ void Joust_Update(RideElem* elem)
                     goto run;
                 f1c = 1;
             } else {
-                if (horses.h[0] == 1)
+                if (horses.h[0] != 1) {
+                    if (horses.h[0] == 3)
+                        f20 = 1;
+                    else
+                        goto run;
+                } else
                     goto stop;
-                if (horses.h[0] != 3)
-                    goto run;
-                f20 = 1;
             }
         }
         /* STOP: this horse is not ready to turn over -- hold the cycle where

@@ -214,8 +214,27 @@ extern int g_4c11c0;                                            /* 0x004c11c0 */
  * ecx.  For the original's layout the first arm would have to consume two
  * more temps (mod 3) than ours while emitting the same instructions, and no
  * construct measured here creates a temp that emits nothing.
+ *
+ * Scope G recheck (2026-09-05): complete side-by-sides confirm the same
+ * 3/10 strict and 0/0 register-blind residuals, with identical stack operands.
+ * Sixteen additional paired probes preserve that minimum: naming each of
+ * the nine waypoint-row pointers separately; naming the second arm's heading
+ * as int/unsigned int/unsigned char; splitting the first arm's heading update
+ * into +=/-= then &=, or using a scalar/one-byte aggregate temporary; and
+ * naming the final CarPos destination pointer. The char heading worsens C to
+ * 86 mismatches (A unchanged); the destination pointer adds two tail-schedule
+ * mismatches to both. All other probes are inert. Both remain at their
+ * measured floor for these source-level levers; this is not proof that every
+ * possible C spelling is unreachable. Exact chooser bodies remain unchanged.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00401080  (98.6%: 207/207 insns, 669/669 bytes, 3 mismatches at indices 117-119 -- the else arm's first scratch temp is ecx in the original and edx here, one step of VC6's eax->ecx->edx rotation)
+/* Scope G continuation: duplicating only the final c->start = p copy in
+ * the two arms closes the scratch-register phase at the second arm's entry.
+ * VC6 still merges the emitted tail; no instruction or byte is added.
+ * This disproves the prior floor inference from local temp/volatile probes:
+ * tail ownership in the source also controls the earlier scratch rotation.
+ * Full-body exact: 207 instructions / 669 bytes, no escaped branches.
+ */
+// FUNCTION: LEGOLAND 0x00401080
 void SchoolCarManoeuvreC(SchoolCar* c)
 {
     CarPos p;
@@ -247,6 +266,8 @@ void SchoolCarManoeuvreC(SchoolCar* c)
         Pos_Step2(&p, &p, c->turn);
         c->wp[n].x = p.x << 16;
         c->wp[n].y = p.y << 16;
+        /* Keep this copy in each arm; VC6 merges the machine-code tail. */
+        c->start = p;
     } else {
         o = RotateByHeading(0x68, 0, c->turn);
         c->wp[n].x = ((p.x << 8) + o.x) << 8;
@@ -265,8 +286,9 @@ void SchoolCarManoeuvreC(SchoolCar* c)
         c->wp[n].y = ((p.y << 8) + o.y) << 8;
         Pos_Step2(&p, &p, c->turn);
         c->turn = (unsigned char)((c->turn + 2) & 7);
+        /* Keep this copy in each arm; VC6 merges the machine-code tail. */
+        c->start = p;
     }
-    c->start = p;
     c->nwp = (unsigned char)(n + 1);
 }
 
@@ -287,7 +309,14 @@ void SchoolCarManoeuvreC(SchoolCar* c)
  * tight arm is the `if` here and the `else` in C.  Every construct that was
  * corrected on one transferred verbatim to the other.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00401320  (95.2%: 207/207 insns, 669/669 bytes, 10 mismatches at indices 94-100 and 102-104 -- the same one-step scratch-rotation phase at the else arm's entry as SchoolCarManoeuvreC, seen through a longer arm)
+/* Scope G continuation: duplicating only the final c->start = p copy in
+ * the two arms closes the scratch-register phase at the second arm's entry.
+ * VC6 still merges the emitted tail; no instruction or byte is added.
+ * This disproves the prior floor inference from local temp/volatile probes:
+ * tail ownership in the source also controls the earlier scratch rotation.
+ * Full-body exact: 207 instructions / 669 bytes, no escaped branches.
+ */
+// FUNCTION: LEGOLAND 0x00401320
 void SchoolCarManoeuvreA(SchoolCar* c)
 {
     CarPos p;
@@ -314,6 +343,8 @@ void SchoolCarManoeuvreA(SchoolCar* c)
         c->wp[n].y = ((p.y << 8) + o.y) << 8;
         Pos_Step2(&p, &p, c->turn);
         c->turn = (unsigned char)((c->turn - 2) & 7);
+        /* Keep this copy in each arm; VC6 merges the machine-code tail. */
+        c->start = p;
     } else {
         Pos_Step2(&p, &p, c->turn);
         o = RotateByHeading(0x68, 0, c->turn);
@@ -337,8 +368,9 @@ void SchoolCarManoeuvreA(SchoolCar* c)
         Pos_Step2(&p, &p, c->turn);
         c->wp[n].x = p.x << 16;
         c->wp[n].y = p.y << 16;
+        /* Keep this copy in each arm; VC6 merges the machine-code tail. */
+        c->start = p;
     }
-    c->start = p;
     c->nwp = (unsigned char)(n + 1);
 }
 

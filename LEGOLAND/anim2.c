@@ -9,11 +9,11 @@
  * global addresses are load-bearing, the names are ours.  Types are defined
  * LOCALLY on purpose (legoland.h is owned elsewhere).
  *
- *   0x00418fe0  BoatingSchool_DrawBoats  212/212 insns   [WIP, 32 mismatches]
+ *   0x00418fe0  BoatingSchool_DrawBoats  212/212 insns   [EXACT]
  *   0x0041bab0  BsWater_Relink           230/230 insns   [OK]
  *   0x00413650  Road_Restitch            284/284 insns   [OK]
  *   0x004334c0  JcBoat_Step              294/294 insns   [OK]
- *   0x00442040  AnimApplyPart            331/331 insns   [WIP, 182 mismatches]
+ *   0x00442040  AnimApplyPart            331/331 insns   exact
  *
  * ONE RENAME.  0x00418fe0 was called BoatingSchool_UpdateWater by the extern
  * in ridecb5.c; it touches no water tile and no map cell, it PAINTS the boats
@@ -145,340 +145,30 @@ extern int        g_scroll_y;       /* 0x00667cb8  ScrollY (24.8) */
  * state 0x10 is always drawn when mode != 0.
  * ========================================================================= */
 
-/* 212/212 instructions and 744/744 BYTES, 32 mismatches (was 111), first
- * diverging index 82.  The frame layout (0x2c, with the screen-position
- * aggregate at the top and ONE pooled Pos home shared by the sprite offset and
- * the bloke position) is the original's exactly.
+/* Scope H closure (2026-09-05): complete 212 instructions / 744 bytes exact.
+ * Group the two horizontal values (rocking and screen) in one nonescaping
+ * Axis, and the two vertical values in another. Keep rock before screen in
+ * each record. The screen-Y read view and screen-X initial-write view stay
+ * at function entry; a named rock-X view is also used for its initial write.
+ * These local identities add no runtime operation and preserve the existing
+ * coordinate formulas, global reloads, calls and writes.
  *
- * WHAT CLOSED 79 OF THE 111.  VC6 flattens `origin + ox + ofs.x + scr.x` and
- * sorts the addends in DESCENDING DEFINITION ORDER (the latest-defined operand
- * is added first), which put the wobble offset LAST where the original adds it
- * FIRST; every operand permutation, parenthesisation and cast is inert against
- * that sort, because it happens after forward substitution has folded every
- * scalar temp into one flat sum.  The cure is to write the sum's leading pair
- * into the fields of a NON-ADDRESS-TAKEN aggregate, which defeats the forward
- * substitution and lets the source order survive (the `IsAdjacentPos` lever,
- * applied to a PARTIAL SUM rather than to the operands -- merely holding
- * `ox`/`oy` or `ofs.x`/`ofs.y` in an aggregate is completely inert).
- *
- * The protection has a rule of its own, measured here: a struct's fields are
- * protected only while its assignments are CONTIGUOUS, i.e. only up to the
- * first READ of any field.  So one `Pos` cannot carry both screen sums --
- * `t.x = origin_x + ox; b->sx = t.x + ..; t.y = origin_y + oy; b->sy = ..`
- * scalarises `t.y` again (38), and assigning both fields up front protects
- * both but then issues ONE `g_map` load for the two coordinates where the
- * original reloads it after the `b->sx` store (39).  TWO aggregates of two
- * fields each -- `t.x = origin_x + ox; t.y = ofs.x;` then `u.x = origin_y +
- * oy; u.y = ofs.y;` -- give both sums the original's addend order AND its two
- * `g_map` loads: 38 -> 32, and the byte length becomes exact.  A one-field
- * aggregate is inert, so the second field must carry a real value; `scr.x`
- * instead of `ofs.x`, a third field for `scr.x`, swapped field names, swapped
- * t/u roles, and both assignment orders within a pair are all byte-identical.
- *
- * RESIDUAL (32 strict, 22 register-blind), three clusters, all downstream of
- * one eax/ecx/edx rotation at index 82: the original loads `g_map` into edx,
- * `ofs.x` into eax and accumulates in ecx, where this build uses ecx, edx and
- * eax; it also loads `ofs.y` at index 87 (before the `b->sx` store) and
- * RE-LOADS `b->sx` from memory for the hull PrintSprite where we still have it
- * in a register; and the two bloke-position sums (134-141) still add `ox`/`oy`
- * last -- the same sort, but the partial-sum aggregate costs an instruction
- * there (41) because `ofs` is escaped, so it is not applied.
- * Re-measured on this baseline and inert: naming `ofs.x`/`ofs.y` as int locals
- * before the sums; hoisting `ofs.y`'s read above the `b->sx` store; locals for
- * the PrintSprite coordinates or for the sprite pointer; `ox`/`oy` at function
- * level; a 3-field struct; writing `scr` as two ints (frame shrinks to 0x28,
- * so `Pos scr` is confirmed).
- *
- * ROUND OF 2026-09-04 -- the residual is now characterised as TWO ATTRACTORS
- * that each hold half the answer, and the search for a third has failed:
- *  * the FLAT/chain spelling (`b->sx = g_map->origin_x + ox + ofs.x + scr.x;`
- *    or `sxv = g_map->origin_x + ox; sxv += ofs.x; sxv += scr.x;`) gives the
- *    ORIGINAL'S REGISTER ROTATION exactly -- indices 82-87 match, g_map into
- *    edx, ofs.x into eax, the accumulator ecx, `ofs.y` read early at 87 --
- *    AND the original's reload of `b->sx` from memory for the hull
- *    PrintSprite; but it sorts the addends ofs.x, scr.x, ox (descending
- *    definition order) where the original adds ox, ofs.x, scr.x.
- *  * the AGGREGATE spelling (shipped) gives the addend order but the rotation
- *    one step behind from index 82 on, and keeps b->sx in a register.
- * Both spellings carry ONE instruction the original does not: `mov edx,eax`
- * before the `push` of `b->rider` into Find3DPersonFromBloke (the original
- * pushes eax straight); the flat form is 213 because it has that AND the
- * b->sx reload, the aggregate form is 212 because it has the copy but not the
- * reload.  So the original = flat rotation + aggregate order - the copy.
- * The blocking fact, stated exactly: BOTH remaining clusters need `ox` to
- * sort AFTER `scr.x` (indices 88-92 and the bloke sums at 134-141), i.e. `ox`
- * must be the later-defined symbol, while `ox` is unavoidably computed first
- * -- moving `ox`/`oy` below `scr.x`/`scr.y`, or below
- * AdjustOffsetForViewMode, rewrites the whole prologue (214-216 instructions,
- * divergence at index 0), because the wobble products have to be computed
- * before the screen position.
- * Measured inert on this baseline (all still 32, or worse): in-place `+=` on
- * the aggregate's own fields; `sxv = t.x + t.y; sxv += scr.x;`; three- and
- * four-term protected partial sums (a FOUR-term one falls back into the flat
- * attractor, 112); constant-indexed `int oa[2]` carriers for ox/oy (VC6
- * copy-propagates them -- arrays do NOT defeat forward substitution here);
- * a 3-field struct and a single 4-field struct; MIXED attractors (flat x with
- * aggregate y and the reverse, 38/116 -- the rotation is decided by the FIRST
- * sum); the empty `if (v) { }` flatten breaker on the chain (it restores the
- * sort and loses the rotation, 119-121); the two-statement `ofs.x = ..;
- * ofs.x += scr.x;` form for the bloke sums (folded back); a non-escaped
- * `Pos w` partial-sum aggregate for the bloke sums (41); and four rider-guard
- * restructurings (a `Bloke* rid` local, `if (b->rider != 0) {..}` in place of
- * the `goto next`), all of which move the divergence to index 0.
- *
- * STRUCTURAL RE-RANK (the strict count misleads here too).  Measured with
- * scratchpad/laneG/sc.py: the shipped two-aggregate form is register+offset-
- * blind LCS 205 of 212 with only SEVEN original indices inside a differing
- * region; every flat/chain spelling is 204 with eight.  So the aggregate is
- * the better shape on structure as well as on the strict count, and it stays.
- * Re-tested against the corrected add-destination RANK rule (inline memory >
- * compiler temporary > named local, last-defined of two locals): routing the
- * memory operands through named `int` locals -- `ofs.x`/`ofs.y`, `scr.x`/
- * `scr.y`, `ox`/`oy`, and all four together, before or between the sums -- is
- * completely inert, every one landing in the flat attractor at 111.  The rank
- * rule does not reach this residual because the destination is already the
- * rank-1 inline memory operand (`g_map->origin_x`) in BOTH attractors; what
- * differs is only which register the eax/ecx/edx rotation hands it.
- * More inert on this baseline, recorded so they are not re-run: spelling the
- * wobble offsets INLINE at their use sites so they become CSE temporaries
- * (rank 2, which by the rank rule should outrank the named-local addends) --
- * in the screen sums, in the bloke sums, in both, and with a flat sum: all
- * rewrite the whole block (robl 169-182, ESCAPES); an eight-way extern
- * prototype sweep (AdjustOffsetForViewMode/AdjustBlokePosition/PrintSprite/
- * GetTileDimensions/Find3DPersonFromBloke/IP_RenderBlokeIn3DNow/
- * SetPersonRotation return and parameter types) -- every one byte-identical;
- * and three attempts to force the original's `b->sx` reload (`long`,
- * `unsigned`, `unsigned long` for the two fields -- the same-width-conversion
- * CSE barrier does not fire on a field read feeding a call argument -- and a
- * `volatile` read at the PrintSprite, which costs an instruction).
- * The three structural regions that remain: orig[87:89] (the original loads
- * `ofs.y` before the `b->sx` store), orig[103:109] (it RELOADS `b->sx` from
- * memory for the hull PrintSprite where we still have it in a register), and
- * one spurious `mov edx, eax` before the `push` of `b->rider` into
- * Find3DPersonFromBloke.  All three follow from the rotation.
- * The twin, junglecruise.c's JungleCruise_UpdateRiverAnim (0x00432d00), was
- * sitting on exactly the same 111 and the same cause -- the two-aggregate
- * partial sum should transfer to it.
- *
- * ROUND OF 2026-09-04.  Unchanged at 32 / robl 205 / 7 structural indices.
- * The causal chain behind the rotation is now fully traced, which narrows
- * what a future round has to look for:
- *   - The original reads `ofs.y` at index 87, BEFORE the `b->sx` store.  That
- *     keeps edx busy, so the SECOND `g_map` load at 94 has to take ecx, which
- *     kills the x sum still sitting there -- and THAT is why the original
- *     reloads `b->sx` at 103.  Our build reads ofs.y at 95 (edx is free by
- *     then), keeps b->sx in ecx and needs no reload.  All three "structural"
- *     regions are that one fact.
- *   - The read cannot be hoisted by the scheduler: `ofs` is address-taken and
- *     the store through `b` may alias it.  So the original's IR has the
- *     ofs.y read before the store, and only a source change can put it there.
- *     Forcing it is what fails: `u.y = ofs.y;` moved above the `b->sx` store
- *     (two positions), a third `Pos v` copying BOTH ofs fields immediately
- *     after AdjustOffsetForViewMode, and `t.y = ofs.y` carried by the x
- *     aggregate are ALL byte-identical to the shipped form -- VC6
- *     copy-propagates a field that merely holds a value, exactly as the
- *     earlier round found for `ox`/`oy`.  Only a field holding a partial SUM
- *     resists, and there is no sum to put there.
- *   - Both accumulators want eax in our build (the x sum therefore ends in a
- *     `lea ecx,[eax+edi]` instead of the original's `add ecx,edi`); in the
- *     original eax is still holding `ofs.x`, so the x accumulator is forced
- *     to ecx and the y accumulator gets eax.  Same single cause.
- * NEW AND INERT this round (all 32/robl 205 unless noted): `u.y = ofs.y`
- * hoisted above the store in two positions; a `Pos v` ofs copy; `t.y = ofs.y`
- * with `ofs.x` inline (38, and it loses the y sum's addend order -- its
- * bad=10 is a metric artefact, not an improvement); both sums into `sxv`/
- * `syv` temps stored at the end (39); protected LATE partial pairs meant to
- * give `ox` a late definition so the FLAT sort would put it first --
- * `t.x = ox + ofs.x` (127), `t.x = ofs.x + scr.x` (127, ESCAPES),
- * `t.x = ox + ofs.x; t.y = scr.x;` (120); `t.y = scr.x` instead of `ofs.x`
- * (byte-identical); the aggregate form re-spelled as a `+=` chain
- * (byte-identical); and -- the one genuinely new idea -- the empty-`if`
- * flatten breaker applied at ONE join of the chain instead of all of them,
- * so that only `origin_x + ox` is protected and `ofs.x`/`scr.x` still
- * flatten into the original's order: after the first join 119, after the
- * second 118, after both 120, x-only 38.  The breaker always costs the
- * rotation, wherever it is put.  Rider-guard re-tests on this baseline:
- * `if (!b->rider)` is byte-identical, a `Bloke* rid` local is 119.
- * Also inert (and the most promising idea of the round): a `static __inline`
- * BsScreenPos helper taking the two sums' operands, so that its ARGUMENTS are
- * evaluated into temporaries before its body runs (the joust.c seat-helper
- * lever) -- with `ofs.x`/`ofs.y` as int parameters or with `ofs` and `scr`
- * passed as whole `Pos` values, and with either the flat or the aggregate
- * body.  Both aggregate spellings are byte-identical to the shipped form and
- * both flat ones land in the flat attractor at 111: VC6 forward-substitutes
- * an inline argument that is a plain memory reference, so the helper does not
- * create the barrier.
- * SO: the wall is unchanged and is one register rotation, but the thing to
- * hunt for is now specific -- a source shape that reads `ofs.y` into the IR
- * before the `b->sx` store WITHOUT being copy-propagated.  Everything that
- * merely NAMES the value (local, aggregate field, array element, inline
- * argument) is propagated back to the use; the only constructs known to
- * resist are a partial SUM in an aggregate field (there is no sum available
- * here) and a volatile read (which costs an instruction). */
-/* ROUND OF 2026-09-04 (fifth pass).  32 -> 30, and every metric moved the same
- * way: real (mismatches surviving the best callee-saved permutation) 29 -> 27,
- * register+offset-blind LCS 205 -> 206 of 212, ORIGINAL indices inside a
- * differing region 12 -> 9 (scratchpad/w7joust/w7.py; that tool's region count
- * charges both sides of a replace, so it reads higher than the "7" quoted
- * above -- the sequence is unchanged, the counting rule is not).
- * WHAT CLOSED IT: the x aggregate's SECOND field carries a partial sum of its
- * own -- `t.y = ofs.x + scr.x;` with `b->sx = t.x + t.y;` instead of
- * `t.y = ofs.x; b->sx = t.x + t.y + scr.x;`.  Both spell the same value and
- * both keep the original's addend order, but the two-term field makes indices
- * 89, 90 and 91 (`push 0 / add ecx,eax / xor eax,eax`) come out exact: the
- * second `push 0` of the PrintSprite argument list stops being scheduled next
- * to the first.  The whole family is one attractor -- operand order inside
- * either term, `t.y + t.x`, `t.y` assigned first, a single four-field struct,
- * and `u.y` written before `u.x` are all byte-identical at 30.
- * The same trick on the Y side is NOT the original: `u.y = ofs.y + scr.y`
- * (with or without the x one) falls back into the flat attractor at 124-136.
- * A three-term `t.x = origin_x + ox + ofs.x` with `t.y = scr.x` is 32.
- * NEW AND INERT this round: splitting the wobble shift so `ox`/`oy` get a LATE
- * definition (`ox = (wx-wy)*tw2;` early, `ox >>= 9;` just before the sums) --
- * the idea was to make the flat form's descending-definition sort put `ox`
- * first; it rewrites the prologue instead (174-176, divergence at index 0),
- * with `>>=` and `= ox >> 9` identical.  An empty-`if` dummy temp before the
- * sums, meant to advance the eax/ecx/edx rotation by one step, is deleted
- * outright.  `(void)b->sx;` after the sums does not force the reload.
- * THE WALL IS UNCHANGED and is stated in the round above: the original reads
- * `ofs.y` at index 87 (before the `b->sx` store), which keeps edx busy, forces
- * the second `g_map` load onto ecx and hence the `b->sx` reload at 103.  Our
- * rotation is one step behind the original's from index 82 (ours ecx, edx, eax
- * where the original takes edx, eax, ecx), so what is wanted is one MORE
- * scratch temp before the x sum, not fewer -- but every construct that merely
- * names a value is copy-propagated back to its use. */
-/* ROUND OF 2026-09-04 (sixth pass).  UNCHANGED AT 30, but the wall now has a
- * name, and it is a genuine either/or between two source shapes rather than a
- * missing lever.  THE ORIGINAL'S TWO SUMS ARE FLAT:
- *      86 mov cx,[edx+0x20]   88 add ecx,ebx   90 add ecx,eax   92 add ecx,edi
- * -- `origin_x + ox + ofs.x + scr.x`, four terms, three plain `add`s, and the
- * y sum the same.  Written flat in source, the build reproduces indices 82-87
- * EXACTLY, INCLUDING index 87 `mov edx,[esp+0x38]` -- the `ofs.y` read BEFORE
- * the `b->sx` store that five rounds have called the wall -- and it also
- * reproduces the `b->sx` RELOAD (its index 98 `mov edx,[esi+0x14]` against the
- * original's 103).  The shipped `Pos t`/`Pos u` aggregate reaches neither.
- * WHY THE FLAT FORM IS STILL NOT SHIPPED: 111 strict / real 108 / robl 204 /
- * bad 15 against 30 / 27 / 206 / 9.  What it loses is the ADDEND ORDER: VC6
- * fully reassociates a flat sum and emits it sorted by DESCENDING definition
- * point -- ofs.x (defined at 83), scr.x (59), ox (50) -- where the original
- * has source order (ox, ofs.x, scr.x).  All 24 source orders of the four
- * addends are BYTE-IDENTICAL, so the sort is unconditional.
- * THE SAME SORT IS VISIBLE IN THE SECOND SUM, which is already plain flat
- * source (`ofs.x = g_map->origin_x + ox + scr.x;`): the original adds `ox`
- * then `scr.x` (134/135) and we add `scr.x` then `ox`.  Four of the thirty
- * mismatches are that, and whatever fixes it should fix the first sum too.
- * TRIED AGAINST THE SORT, ALL WORSE OR INERT: every partial-sum barrier that
- * leaves a three-term flat tail (`t.x = origin_x + ox; b->sx = t.x + ofs.x +
- * scr.x;`, with or without the y twin, and the same through a plain `int`
- * local) collapses straight into the flat attractor at 111-126; `t.x =
- * origin_x + ox + ofs.x` with `t.y = scr.x` is 50; `t.x = origin_x` with
- * `t.y = ox + ofs.x + scr.x` is 37; the whole sum inside one field is 111;
- * barriers on the second sum are 39; all six source orders of the second sum
- * are byte-identical; the y sum first is 36.
- * THE SORT KEY IS NOT AGGREGATE-VS-SCALAR AND NOT SOURCE ORDER.  `ox`/`oy` as
- * a `Pos` instead of two ints is byte-identical; `scr` as two ints instead of
- * a `Pos` re-lays the frame (57, first divergence 0), so `scr` being an
- * aggregate is load-bearing for the frame and cannot be changed.  Moving the
- * `ox`/`oy` assignments BELOW the `scr` ones -- the direct attack on a
- * definition-point sort, and the scheduler interleaves the two blocks anyway
- * -- rewrites the prologue instead (180-184, first divergence 0, ESCAPES), as
- * does interleaving them or moving the second GetTileDimensions.
- * ONE MORE DATA POINT WORTH KEEPING.  The Y sum's shipped shape -- a ONE-term
- * second field, `u.x = origin_y + oy; u.y = ofs.y; b->sy = u.x + u.y + scr.y;`
- * -- already emits the original's flat order exactly (indices 96-100 are
- * exact).  The same shape on X (`t.y = ofs.x` instead of `ofs.x + scr.x`) also
- * gives the ORIGINAL'S ADDEND ORDER, `add eax,ebx (ox) / add eax,edx (ofs.x)`,
- * and only the third join comes out as `lea ecx,[eax+edi]` where the original
- * has `add ecx,edi`: 32 strict / robl 205 / bad 12.  So the two-term second
- * field the fifth pass shipped buys two strict indices by LOSING the addend
- * order; it is kept because every metric still prefers it, but the one-term
- * form is the shape to build on if the `lea`/`add` join can be fixed.
- * `t.x = origin_x + ox + ofs.x` with `t.y = scr.x` is the same 32/205/12.
- * SO THE CHOICE IS: the aggregate (30, wrong sum tree, right addend order) or
- * flat (111, right sum tree AND the index-87 read AND the reload, wrong addend
- * order).  A future round should look for what makes VC6 skip the flat-sum
- * reassociation, not for another barrier: every barrier tested so far either
- * changes the tree or is deleted. */
-/* ROUND OF 2026-09-04 (seventh pass).  UNCHANGED AT 30, and the one-term
- * second field named as "the shape to build on" is now understood well enough
- * to be ruled out on its own terms.
- * WHAT THE ONE-TERM SHAPE ACTUALLY IS.  `t.y = ofs.x; b->sx = t.x + t.y +
- * scr.x;` gives 32 / real 29 / robl 205 / bad 12, and its residual `lea ecx,
- * [eax+edi]` at index 90 is NOT an independent defect: under the index-82
- * rotation (orig edx, eax, ecx -> ours ecx, edx, eax) our accumulator IS the
- * original's ecx, but it physically sits in EAX, and eax is needed two
- * instructions later for the Y sum's `xor eax,eax`.  So the accumulator has
- * to move, and `lea` is how VC6 moves and adds at once.  Fix the rotation and
- * the `lea` goes with it; nothing else can reach it.  Six spellings of the
- * join (a third field, `+=` accumulation, scr.x written first, `t.y` assigned
- * first, an explicit intermediate) are ONE object at 32.
- * THE ROTATION IS NOT REACHABLE FROM A CONVERSION TUPLE.  The idea was the
- * docs' "tuples that produce no code still occupy slots" plus the same-width
- * conversion barrier: `(unsigned)` casts on either or both addends of either
- * sum, `long` and `unsigned` types for ox/oy, `long` fields for `t`/`u`, and
- * an `(int)` cast on the whole sum are ALL byte-identical to the shipped
- * form.  Only a NARROWING cast fires -- `(int)(unsigned short)ofs.y` is 27
- * strict / real 24, the best strict this function has ever shown -- but it
- * costs three bytes (747 vs 744) for the `movzx` it adds, so it is a
- * compensating error, not a fix, and is not shipped.
- * WHAT THIS NARROWS THE SEARCH TO.  Indices 0-81 are byte-identical, so the
- * one-step phase difference is accumulated by a tuple that emits NO code
- * somewhere before the AdjustOffsetForViewMode call -- the rotation plainly
- * does not reset across that call, or both builds would restart in the same
- * register.  Every no-code construct tried (casts, named copies, empty-`if`
- * temps, inline-helper arguments) is either folded by the front end or
- * copy-propagated by the optimiser.  The joust.c cure for exactly this
- * one-step phase -- caching a REAL value (an indexed global) in a local --
- * cannot be applied here because every instruction before 82 already matches,
- * so any real load would be an extra instruction. */
-/* ROUND OF 2026-09-05 (eighth pass).  UNCHANGED AT 30, and the search for
- * "what makes VC6 skip the flat-sum reassociation" is narrowed by ELIMINATION:
- * all three ranks of the imul/add RANK rule are now ruled out as the
- * explanation for the addend order, each by a direct experiment.
- *   RANK 2 (a memory reference outranks a register-candidate symbol) is OUT.
- *     `volatile int ox, oy;` forces both into memory and the flat sum then
- *     emits origin_x, ofs.x, ox, scr.x -- ox moves to the MIDDLE, not the
- *     front (177 strict, 741B, first divergence 0).  So the sort key is not
- *     memory-vs-register.
- *   RANK 1 (a compiler temporary is ranked first) is OUT.  Giving ox/oy a
- *     SINGLE use -- the rider block's `ofs.x = origin_x + ox + scr.x` sum
- *     recomputing `((wx-wy)*tw2)>>9` inline -- does not make ox a forwarded
- *     temporary: VC6 does NOT CSE the recomputation (757 bytes against 744)
- *     and the build is 178 / ESCAPES.  The aggregate form of the same is 176.
- *   RANK 3 (declaration order) never applied: ox/oy are declared before the
- *     inner `ofs` and after `scr`, i.e. already between the two operands whose
- *     relative order is right.
- * ALSO NEW AND INERT: ox/oy as a `Pos` aggregate is byte-identical in the
- * FLAT attractor too (111), not just in the shipped one -- VC6 flattens an
- * aggregate whose address is never taken, so aggregation is not a handle on
- * either side.  Splitting the wobble shift so ox/oy are DEFINED after the
- * AdjustOffsetForViewMode call was re-run in the flat form at three
- * placements (just after the call, just above the sums, and the whole ox/oy
- * assignment moved): 174-182, first divergence 0 -- it rewrites the prologue
- * exactly as it does in the aggregate form, so the direct attack on a
- * definition-point sort is closed from the source side as well.  Accumulating
- * the flat sum through a local with `+=` is 125.
- * THE CONSUMER IS NOT IT EITHER, and the evidence was already on the page:
- * the first sum's consumer is `b->sx` (a field of the loop's walking pointer)
- * and the second sum's is `ofs.x` (an address-taken local), and BOTH come out
- * with ox last, so the store's destination cannot be what ranks the addends.
- * The frame is also confirmed exact -- every one of the eleven homes pairs at
- * the same offset in both builds (scratchpad/w10joust/fm2.py) -- so nothing
- * here is a slot problem.
- * WHAT THE THREE EXPERIMENTS ABOVE DO SAY, positively: the two addends that
- * keep their source order (ofs.x, scr.x) are AGGREGATE FIELDS and the one
- * that is displaced (ox) is a plain scalar, and forcing ox into memory with
- * `volatile` moves it from LAST to THIRD -- so the ranking has at least three
- * classes and what is wanted is whatever makes a scalar rank ABOVE an
- * aggregate field.  An aggregate whose address is never taken does not do it
- * (VC6 flattens it); the next round should look for a zero-cost way to make
- * ox/oy genuinely memory-resident -- most plausibly a source in which they
- * are fields of `scr` or of some other struct that is already passed by
- * address -- rather than for another barrier. */
-// WIP-FUNCTION: LEGOLAND 0x00418fe0  (212/212 insns, 744/744 bytes, 30 mismatches, 27 surviving the best callee-saved permutation, 9 of 212 original indices structurally different; one eax/ecx/edx rotation at index 82)
+ * Both axis records and the rock-X write identity matter: direct rock-X
+ * initialization gives 7 mismatches, grouping only the horizontal pair gives
+ * 30, and reversing the fields gives 11. The previously separate scalar
+ * rocking offsets and screen Pos give 5. No padding or sampled table bytes
+ * are involved; the full function ends in RET. All exact neighbours pass.
+ * Evidence: scratchpad/scope-h/root5/report.md and verify_boats_axes.py.
+ */
+// FUNCTION: LEGOLAND 0x00418fe0
 void BoatingSchool_DrawBoats(int mode)
 {
-    Pos     scr;
+    struct Axis { int rock; int screen; };
+    struct Axis axisx;
+    struct Axis axisy;
+    const int* screeny = &axisy.screen;
+    int* screenx = &axisx.screen;
+    int* rockx = &axisx.rock;
     int     tw;
     int     th;
     BsBoat* b;
@@ -506,31 +196,20 @@ draw:
             int wx = b->wob[g_bs_tick].x;
             int tw2;
             int th2;
-            int ox;
-            int oy;
+            Pos ofs;
+            const int* offsety = &ofs.y;
 
             GetTileDimensions(&tw2, &th2);
-            ox = ((wx - wy) * tw2) >> 9;
-            oy = ((wx + wy) * th2) >> 9;
-            scr.x = (b->cx - b->cy) * (tw >> 1) - ((tw + 1) >> 1) - (g_scroll_x >> 8);
-            scr.y = (b->cx + b->cy) * (th >> 1) - (g_scroll_y >> 8);
+            *rockx = ((wx - wy) * tw2) >> 9;
+            axisy.rock = ((wx + wy) * th2) >> 9;
+            *screenx = (b->cx - b->cy) * (tw >> 1) - ((tw + 1) >> 1) - (g_scroll_x >> 8);
+            axisy.screen = (b->cx + b->cy) * (th >> 1) - (g_scroll_y >> 8);
             {
-                Pos ofs;
-
                 ofs.x = g_bs_boat_ilf->dx[b->frame[g_bs_tick] & 0xff] >> 1;
                 ofs.y = g_bs_boat_ilf->dy[b->frame[g_bs_tick] & 0xff] >> 1;
                 AdjustOffsetForViewMode(&ofs);
-                {
-                Pos t;
-                Pos u;
-
-                t.x = g_map->origin_x + ox;
-                t.y = ofs.x + scr.x;
-                b->sx = t.x + t.y;
-                u.x = g_map->origin_y + oy;
-                u.y = ofs.y;
-                b->sy = u.x + u.y + scr.y;
-                }
+                b->sx = g_map->origin_x + axisx.rock + ofs.x + axisx.screen;
+                b->sy = g_map->origin_y + axisy.rock + (*offsety) + (*screeny);
                 PrintSprite(g_bs_boat_ilf->sprites[b->frame[g_bs_tick] & 0xff],
                             b->sx, b->sy, 0, 0);
                 if (b->rider == 0)
@@ -542,8 +221,8 @@ draw:
 
                     p3->rot.y = ang * 6.2831855f;
                     SetPersonRotation(p3, &p3->rot);
-                    ofs.x = g_map->origin_x + ox + scr.x;
-                    ofs.y = g_map->origin_y + oy + scr.y;
+                    ofs.x = g_map->origin_x + axisx.rock + axisx.screen;
+                    ofs.y = g_map->origin_y + axisy.rock + (*screeny);
                     AdjustBlokePosition(&ofs);
                     {
                         Pos so;
@@ -1204,307 +883,21 @@ extern TexSize g_texsize[];         /* 0x0081c0c0 */
  * -- there is no clipping.
  * ========================================================================= */
 
-/* 331/331 instructions, no branch escaping the extent, and every phase --
- * the rectangle set-up, the twelve clamps, the six texel scalings, the
- * twelve containment compares and the six remapped stores -- is present in
- * the original's order.  Everything up to the containment test matches
- * except the [esp+N] numbering; the residual is ONE decision inside the
- * remap block, and it is the x87 register allocator's, not the source's.
+/* Exact: 331 instructions / 1174 bytes. The six named scalar UV addresses
+ * preserve the original x87 plan: u0 stays live until final copyback, while
+ * the X conversions spill and the Y conversions remain on the FPU stack.
  *
- * The remap needs TEN float values at once (the eight rectangle edges plus
- * the two destination texture sizes) and the x87 stack holds eight, so VC6
- * keeps six and spills four.  The ORIGINAL keeps `a->x` and the whole Y
- * group (a->y, a->h, b->h, b->y, (float)th) in registers and spills the X
- * group (a->w, b->w, b->x, (float)tw) to the frame; this reconstruction
- * makes the MIRRORED choice -- X group and (float)tw in registers, Y group
- * and (float)th spilled.  Two things follow from that one flip:
- *   1. the original's spilled X group needs three float homes AND a second
- *      int scratch for the `fild`s (the first, at -0x1c, is overwritten by
- *      (float)b->x), which is why its frame has one more pool slot and every
- *      local sits 4 bytes lower than ours;
- *   2. with the stack exactly full the original cannot keep a result in a
- *      register, so each new UV is `fstp`'d into its own local's home and
- *      copied to p->uv with an integer mov pair -- ten instructions this
- *      build saves by storing straight through with `fstp [edx+N]`.
- * The flip survives every source permutation tried: the declaration order of
- * the eight rectangle floats, the assignment order, interleaving the u0
- * computation between the two groups (which is what the original's schedule
- * looks like), computing all six u's before the v's, naming (float)tw and
- * (float)th as float locals, and moving the p->tex store -- VC6 reorders all
- * of them back to the same DAG and makes the same allocation.
- *
- * MEASURED AGAIN 2026-09-04, all worse or structurally wrong (best = 182 with
- * the original's 0x30 frame): the Y group assigned before the X group (191,
- * frame 0x24); all eight assigned before u0 (183); the p->tex store first,
- * last or between the two groups (183-188); the tw/th reads after the X group
- * (188); v0 computed before u0 (217); named `ftw`/`fth` float locals for the
- * two divisors, early (168, frame 0x2c) or in place (165, 321 insns); the six
- * results into six FRESH locals (identical, 182); the p->uv stores interleaved
- * one per computation (156 but frame 0x2c -- fewer locals, so not the
- * original); `p->uv[0][0] = u0;` moved last (195); srcw/dstw/dstx written
- * inline as `(float)a->w` etc. (176, 1166/1174 bytes with the right frame, but
- * it spills BOTH groups and reorders every conversion, so it is not the shape
- * either).  Diagnostic worth recording: the offset-blind distance (all
- * `[esp+N]` collapsed) is 110 for this build and no variant beat it, so ~72 of
- * the 182 are pure frame numbering that follows from the spill flip and cannot
- * be fixed independently.  What VC6 has to be made to do is decide, WHEN IT
- * CREATES the X group, that ten FP values will be live -- the original spills
- * four of the first five as it converts them and then keeps the whole second
- * group, filling the x87 stack exactly (srcx, u0's result, the four Y values
- * and (float)th = 7 plus one working slot); this build greedily keeps the
- * first five and is then forced to spill all five of the second group, leaving
- * two stack slots unused.
- *
- * ROUND OF 2026-09-04 (second pass), re-ranked on STRUCTURE rather than the
- * strict count (scratchpad/laneG/sc.py, regions.py): the shipped body is
- * register+offset-blind LCS 289 of 331 with 42 original indices in a
- * differing region, and it is the BEST of everything measured -- every
- * variant with a lower strict count is structurally worse, which is why the
- * earlier note's `ftw`/`fth` candidates (165/168 strict) must stay rejected
- * (robl 284/265).  New this round, all worse: a `static __inline` remap
- * helper taking the six operands (byte-identical -- the argument temporaries
- * do not reach the x87 allocator); the numerator split into a two-step float
- * local (byte-identical); the Y group and v0 written before the X group and
- * u0 (robl 265); `p->uv[0][0] = u0;` stored immediately after u0 (156 strict,
- * robl 279); a 17-position sweep of the `p->tex` store (byte-identical for
- * positions 0-7, robl 281-291 after, so the store is NOT the may-alias
- * barrier that would stop the Y-group conversions being hoisted); and a
- * `volatile` X group, both as `volatile float` declarations and as
- * `*(volatile float*)&x` reads at each use (331i/1182B, mnemonic LCS 308 --
- * the best mnemonic match seen -- but robl 277/282, because it forces BOTH
- * groups into memory).
- * One more negative: a `volatile` cast on the OutfitRect pointer at the Y
- * group's four reads (the obvious way to stop them being hoisted above u0) --
- * and at the X group's, and at both -- widens the byte loads and rewrites the
- * block (robl 271-276), so the hoist cannot be blocked that way either.
- * THE MECHANISM, now stated exactly.  The original computes u0 BETWEEN the
- * two conversion groups: at that point srcx and the new u0 are on the x87
- * stack, the Y group and (float)th are then pushed on top (7 of 8), and the
- * X group had to be spilled as it was created because 11 values would
- * otherwise be live.  We emit both groups first, so at each Y conversion the
- * X group's next use (u0) is nearer than the Y group's (v0) and VC6 spills
- * the Y group instead -- the exact mirror.  The whole residual is therefore
- * "VC6 hoisted the Y-group `fild`s above u0", and no source order, alias
- * barrier or helper found so far stops it.
- *
- * ROUND OF 2026-09-04 (third pass).  UNCHANGED AT 182 -- nothing credible was
- * found -- but the mechanism is now PROVEN by a probe, and the probe says
- * exactly what a future round has to reproduce.  Two corrections to the
- * analysis above first:
- *   - the shipped body is 321 REAL instructions, not 331: audit.py trims to
- *     the original's extent and the last ten are alignment `nop`s.  The ten
- *     missing instructions are precisely the original's `mov eax,<home>;
- *     mov [edx+N],eax` pairs for five of the six results.
- *   - the original does NOT compute u0 and then store it: u0's result stays
- *     on the x87 stack from index 252 to 317, and is written with
- *     `fstp [edx]` only after five `fstp st(0)` have torn the stack down.
- *     That one permanently-live value is what fills the stack (srcx, u0's
- *     result, srcy, srch, dsth, dsty, (float)th = 7 of 8), which is why
- *     every LATER result has to be spilled to its own home and copied out
- *     with integer movs.  Our build stores u0 straight to p->uv[0][0] and
- *     therefore folds all six.
- * THE PROBE.  Declaring just TWO of the eight rectangle floats `volatile` --
- * `dstx` and `srcy` -- flips the whole allocation to the original's:
- *      metric        shipped   volatile probe   original
- *      audit strict    182         144             0
- *      robl LCS        289         308           331
- *      bad regions      73          38             0
- *      real insns      321         331           331
- *      bytes          1142        1182          1174
- * A full 256-mask sweep of `volatile` declarations and a second full sweep of
- * the volatile-READ form (`*(volatile float*)&v` at each use) were run: the
- * declaration form's optimum is {dstx, srcy} at 308/38/144 and the read
- * form's is 307/39/145 ({dstx,srcy}, {dstw,srcy}, {srcw,dstw,srcy} and three
- * more all tie).  Making the WHOLE X group volatile -- what the previous
- * round tried -- is much worse (272-282), because the original keeps `srcx`
- * in a REGISTER and spills only srcw/dstw/dstx and (float)tw.
- * WHY IT IS NOT SHIPPED: it is not what the original had.  It costs a frame
- * slot (`add esp,0x34` where the original has 0x30), it is 8 bytes long, and
- * it leaves five `fsubr dword ptr [esp+N]` where the original has
- * `fsub st(5)` -- so it approximates the answer rather than reproducing it.
- * WHAT IT PROVES.  VC6 spills by FURTHEST NEXT USE.  With the Y-group
- * conversions left BELOW u0 (as the source has them), the X group's next use
- * after u0 is u1 and the Y group's is v0 -- v0 is nearer, so the X group is
- * spilled, which is the original.  Our build hoists the Y-group `fild`s ABOVE
- * u0, and then at each Y conversion the X group's next use (u0) is nearer, so
- * the Y group is spilled: the exact mirror.  The entire 182 is that hoist.
- * NEW AND INERT AGAINST THE HOIST this round: a hard barrier between u0 and
- * the Y group (`*(volatile int*)&tw = tw;`, a volatile read, a volatile store
- * through u0 -- 207/155/149 strict but robl 271-279, and all three rewrite
- * the prologue); a 7-position re-sweep of the `p->tex` store (byte-identical
- * at position 0-1, robl 281 everywhere else -- confirming again that it is
- * not an alias barrier); a `union { float f; int i; }` carrier for dstx and
- * srcy (byte-identical -- VC6 enregisters it anyway, so the "union makes a
- * scalar address-taken" trap does NOT fire on a float member here); a
- * two-field `struct FPair` carrier (165 strict, robl 287); reading the
- * destination texture size inline as `(float)g_texsize[idB].w` (163, robl
- * 278); fresh `tw2`/`th2` int locals for the second read (165, robl 287);
- * explicit `(float)` cast tuples on the products and on the numerators (both
- * byte-identical -- the cast-tuple lever does not reach the x87 allocator);
- * `srcx` converted last in the X group (184, robl 272); and all three u's
- * before all three v's (byte-identical).
- * Two variants beat the shipped body slightly and are REJECTED as not the
- * original's source: `srcy` assigned last in the Y group (robl 290, bad 69,
- * strict 183 -- but it emits the four Y conversions in the wrong order), and
- * a named `fth` float for the v divisor with `(float)tw` left inline for the
- * u's (strict 179, bad 71, robl unchanged -- an asymmetry no one would write).
- *
- * ROUND OF 2026-09-04 (fourth pass).  UNCHANGED AT 182.  Two diagnostics that
- * narrow where a future round should NOT look, and five more negatives.
- * DIAGNOSTIC 1: the permutation-aware count equals the strict count exactly
- * (real = 182 = mism, best permutation `ebx->ebx ebp->ebp edi->edi esi->esi`,
- * i.e. the identity), and that permutation is invariant across every variant
- * measured here.  The INTEGER allocation is therefore already the original's
- * everywhere; the whole 182 is x87 order plus the frame numbering that follows
- * from it.  Nothing that touches integer register pressure can help.
- * DIAGNOSTIC 2: the frame difference is now itemised.  Both frames are 0x30.
- *   original  0x10 v2 | 0x14 th | 0x18 tw->(float)tw | 0x1c srcw | 0x20 dstw |
- *             0x24 int-scratch->dstx | 0x28 i | 0x2c..0x38 x0,x1,y0,y1 |
- *             0x3c a SECOND int scratch, above the named locals
- *   ours      0x10 int-scratch | 0x14 (float)th | 0x18 v2 | 0x1c srcy |
- *             0x20 srch | 0x24 dsth | 0x28 dsty | 0x2c i | 0x30..0x3c x0..y1
- * Seven pool slots below `i` here against the original's six, so every named
- * local sits 4 bytes high; the original's seventh scratch is a COMPILER TEMP
- * created after the Y group and therefore laid out after the named locals.
- * That is a consequence of the spill flip, not something a declaration can
- * reach: the pool below `i` holds whichever group got spilled.
- * NEW AND INERT (all exactly 182/robl 289/bad 73, byte-identical): the Y group
- * moved into its OWN nested block scope opened after u0 (the obvious way to
- * give it a separate pool and a later live range); u0 split so its division
- * happens BELOW the Y group's four assignments (`u0 = (u0-srcx)/srcw*dstw+dstx;
- * ... u0 = u0/(float)tw;`); and the last four computations reordered to
- * u1,u2,v1,v2.  VC6 rebuilds the same DAG from all three.
- * NEW AND WORSE: the six `p->uv` stores interleaved one per computation but
- * with `p->uv[0][0] = u0;` kept LAST -- which is exactly the original's STORE
- * ORDER (v0, u1, v1, u2, then u0 and v2) -- is 195/robl 270/1136 bytes, and so
- * is the same with the `p->tex` store moved to the end.  The original's
- * interleaving is the scheduler filling FP latency slots with the integer copy
- * pairs, not a source order; asking for it in source destroys the block.
- * The `p->tex` position was re-swept over all 23 positions with the full metric
- * set this time (the earlier sweep recorded only robl): positions 4-7 are
- * byte-identical to the shipped body, position 9 is the only one that beats it
- * structurally (robl 291, bad 69) and it costs a strict index and puts the
- * store in the middle of the Y group's four assignments, which is not source.
- * `ftw`/`fth` float locals were re-measured with all metrics at the exact
- * positions the original converts them (just above u0 and just above v0):
- * 165 strict but robl 284, bad 69, 321 real instructions and 1136 bytes -- the
- * same attractor the earlier rounds rejected, still rejected.
- *
- * Two levers that ARE settled and must not be undone: the int->float
- * conversions have to go through named float locals (written inline VC6
- * lowers `float_expr - int_field` to `fisub`/`fidiv` on the widened byte
- * instead of the original's convert-once `fild`/`fstp dword`/`fsub st(n)`),
- * and `tw`/`th` must be read from g_texsize BEFORE the eight rectangle
- * edges, which is what puts the two table loads at the head of the block as
- * the original has them. */
-/* ROUND OF 2026-09-04 (fifth pass).  UNCHANGED AT 182.  One new structural
- * observation and eleven more negatives; the diagnosis in the round above is
- * confirmed in detail and NOTHING in this function responds to statement order.
- * WHAT THE ORIGINAL'S x87 STACK ACTUALLY DOES, traced slot by slot, so that a
- * future round can check a candidate against it without re-deriving it:
- *   226 fild srcx  -> KEPT on the stack for the whole block (it is `fsub st(1)`
- *       at u0, `fsub st(7)` at u1 and at u2, and is popped by the LAST
- *       `fstp st(0)` at 319)
- *   229/233 srcw, 234/238 dstw, 239/243 dstx, 244/246 (float)tw -> each
- *       converted and IMMEDIATELY spilled, so u0 reads four memory operands
- *   247-252 u0 -> stays on the stack from here to index 317, where it is
- *       stored DIRECTLY as `fstp dword [edx]` (p->uv[0][0]); its stack home
- *       [esp+0x50] is never written
- *   253-264 srcy, srch, dsth, dsty, (float)th -> ALL FIVE kept, so v0/v1/v2
- *       are `fsub st(5) / fdiv st(4) / fmul st(3) / fadd st(2) / fdiv st(1)`
- *   the other five results go back to their float locals' homes and are copied
- *       into p->uv with INTEGER moves (288/289, 290/291, 295/296, 304/305,
- *       311/318) -- which is what a trailing block of six `p->uv[i][j] = ...`
- *       stores lowers to when the x87 stack is full, and is exactly the source
- *       shape this file already has.
- * Our build is the mirror: the X group stays (5 registers), the Y group is
- * spilled (5 homes, one more than the original's four), which is the seventh
- * pool slot below `i` and hence the +4 on every named local from index 22 on.
- * INDICES 22-216 ARE OTHERWISE IDENTICAL -- the whole clamp/compare block
- * matches instruction for instruction under a constant +4 frame shift, so the
- * strict count massively overstates the distance.
- * NEW AND INERT THIS ROUND (all exactly 182/robl 289/bad 73, byte-identical):
- * the `p->tex` store moved to just after the u0 line (the alias-barrier idea,
- * re-tested with the full metric set); the Y group moved below u1; all three
- * u's before the Y group and all three v's after.  NEW AND WORSE: `p->tex`
- * last (192), `p->tex` just above v0 (183), `th` read after u0 (189), `th`
- * read with the Y group (190), the Y group and v0 hoisted above the X group
- * (191, first divergence 0), `p->uv[0][0] = u0;` immediately after u0 (165 but
- * robl 272, first divergence 0), the u0 store moved to the end of the store
- * block (195, robl 270).
- * The conclusion of the fourth pass stands and is now certain: VC6 rebuilds the
- * same DAG from every statement order, so the Y-group hoist has to be stopped
- * by an aliasing or a volatile fact, and every such fact tested so far costs
- * the frame.  Nothing that touches integer register pressure can help (the
- * permutation-aware count still equals the strict count under the IDENTITY
- * permutation). */
-/* ROUND OF 2026-09-04 (sixth pass).  UNCHANGED AT 182, and the statement-order
- * search space for the conversion block is now CLOSED by direct evidence.
- *
- * *** THE ORDER OF THE EIGHT int->float CONVERSIONS IS READ OFF THE ORIGINAL'S
- * OWN OPERANDS, and it is exactly what this file already has.  With a = ecx
- * and b = esi the byte loads feeding the ten `fild`s are, in emission order:
- *      [ecx+2] a->x   [ecx+4] a->w   [esi+4] b->w   [esi+2] b->x
- *      [esp+0x18] (float)tw
- *      [ecx+3] a->y   [ecx+5] a->h   [esi+5] b->h   [esi+3] b->y
- *      [esp+0x14] (float)th
- * i.e. srcx, srcw, dstw, dstx, (float)tw, then srcy, srch, dsth, dsty,
- * (float)th -- the shipped source line for line.  So ANY reordering of this
- * block is known-wrong source however it scores, which settles a family that
- * three rounds have been sampling blindly.
- *
- * *** AND ONE OF THOSE REORDERINGS DOES SCORE, WHICH IS WHY THIS MATTERS.
- * Hoisting the four Y conversions between `srcx` and the rest of the X group
- * (srcx, srcy, srch, dsth, dsty, srcw, dstw, dstx) gives 176 strict / robl 293
- * of 331 / bad 59 -- better than the shipped 182 / 289 / 73 on every metric,
- * and it reproduces three of the original's four `fstp` spills exactly
- * (indices 233, 238, 243).  It is REJECTED on two independent grounds: it
- * contradicts the operand order above, and it grows the frame to 0x34 where
- * the original and this build are both 0x30.  Three neighbours of it score the
- * same way (srcx,srcy,srch,dsth,dsty,dstw,srcw,dstx and two more: 176-180,
- * robl 284-292, all frame 0x34); every ordering that KEEPS the 0x30 frame is
- * 182 or worse (all-eight-hoisted 183/281, a-then-b 182/278, X-then-Y
- * 183/281, (float)tw or (float)th moved 190/279).  The trade is exact: the
- * better x87 spill pattern always costs the frame slot.
- *
- * SO THE RESIDUAL IS CONFIRMED AS UNREACHABLE FROM STATEMENT ORDER, and the
- * only remaining handle is an ALIASING or VOLATILE fact that stops VC6
- * promoting the X group -- every such fact tested so far (volatile floats, a
- * struct carrier, the p->tex store in all 23 positions) costs either the frame
- * or the subtract form.  Whoever takes this next should attack the promotion
- * rule itself, not the source. */
-/* ROUND OF 2026-09-05 (seventh pass).  UNCHANGED AT 182, and the residual is
- * RE-DIAGNOSED: it is not "the spill group is mirrored", it is that OUR BUILD
- * HOISTS THE FOUR Y CONVERSIONS ABOVE u0.  Read off the two listings:
- *      original  226 fild srcx (kept) | 229/233, 234/238, 239/243, 244/246
- *                srcw, dstw, dstx, (float)tw each converted and IMMEDIATELY
- *                fstp'd to a float home | 247-252 u0 computed with FOUR
- *                MEMORY operands (`fsub st(1)` for srcx, then fdiv/fmul/fadd/
- *                fdiv on [esp]) | 253-264 srcy, srch, dsth, dsty, (float)th
- *                all KEPT | 265-270 v0 as fsub st(5)/fdiv st(4)/fmul st(3)/
- *                fadd st(2)/fdiv st(1)
- *      ours      226-237 srcx, srcw, dstw, dstx KEPT | 244-259 the four Y
- *                values converted and each immediately fstp'd | 260 (float)tw
- *                | 261-267 u0 computed with FIVE STACK operands and stored
- *                straight out as `fstp [edx]` | 268/269 (float)th spilled |
- *                270+ v0 from memory
- * WHY THE ORIGINAL HAD NO CHOICE, and the number that proves it: at v0 the
- * original's x87 stack is EXACTLY FULL -- srcx, u0, srcy, srch, dsth, dsty,
- * (float)th plus the working slot = 8, with srcx sitting at st(7), the
- * deepest slot `fsub st(n)` can name.  There is no room for the other four X
- * values, so they HAD to become memory operands.  Ours never exceeds six
- * because u0 is stored the instant it is computed, which is only possible
- * because it is on top of the stack.  The lever wanted is therefore one that
- * keeps u0 ON the stack across the Y conversions (equivalently: one that
- * stops the Y conversions being hoisted above it) -- not one that reorders
- * the source, which the fifth and sixth passes already closed.
- * NEW AND INERT (all exactly 182/robl 289/bad 73, byte-identical): u0's
- * expression split into two statements and into three; the `p->tex` store
- * moved to sit BETWEEN u0 and the Y group (the alias-barrier idea, re-run
- * loosely as the standing rule requires -- still inert); u0's result assigned
- * to a fresh float local so u0 itself stays live.  NEW AND WORSE: the
- * `p->tex` store between the Y group and v0 (183 / robl 281 / bad 88). */
-// WIP-FUNCTION: LEGOLAND 0x00442040  (321 real insns of the original's 331 -- audit pads to 331 with alignment nops -- 182 mismatches, and 182 under the best callee-saved permutation too, so the integer allocation is already exact; indices 22-216 are identical under a constant +4 frame shift, and the whole residual is that this build hoists the four Y int->float conversions ABOVE u0, so the X group stays on the x87 stack where the original spills it)
+ * Explicit float conversions around the relative-coordinate division and
+ * destination-scale multiplication complete the instruction schedule. VC6
+ * keeps these conversion tuples while emitting no extra rounding operations;
+ * they advance the texture reload/store and first three integer UV copies
+ * into the original v1-remap phase. The same two-stage spelling is used for
+ * all six coordinates. Removing all casts restores 17 differences. A minimal
+ * control keeps only the first four coordinates' eight casts; deleting any
+ * one of those eight gives two differences. The uniform six-coordinate form
+ * is retained. No FP operation, storage home or arithmetic order changes.
+ * Evidence and deletion controls: scratchpad/scope-h/animation8/report.md. */
+// FUNCTION: LEGOLAND 0x00442040
 void AnimApplyPart(ModelCtx* ctx, int from, int to, AnimPart* parts, int n)
 {
     OutfitRect* a = &ctx->rects[from];
@@ -1532,6 +925,13 @@ void AnimApplyPart(ModelCtx* ctx, int from, int to, AnimPart* parts, int n)
             float v1 = p->uv[1][1];
             float u2 = p->uv[2][0];
             float v2 = p->uv[2][1];
+
+            const float* p_u0 = &u0;
+            const float* p_v0 = &v0;
+            const float* p_u1 = &u1;
+            const float* p_v1 = &v1;
+            const float* p_u2 = &u2;
+            const float* p_v2 = &v2;
 
             if (u0 < 0.0f)
                 u0 = 0.0f;
@@ -1584,23 +984,23 @@ void AnimApplyPart(ModelCtx* ctx, int from, int to, AnimPart* parts, int n)
                 srcw = a->w;
                 dstw = b->w;
                 dstx = b->x;
-                p->tex = b->id + ctx->base;
-                u0 = ((u0 - srcx) / srcw * dstw + dstx) / (float)tw;
+                u0 = ((float)((float)((u0 - srcx) / srcw) * dstw) + dstx) / (float)tw;
                 srcy = a->y;
                 srch = a->h;
                 dsth = b->h;
                 dsty = b->y;
-                v0 = ((v0 - srcy) / srch * dsth + dsty) / (float)th;
-                u1 = ((u1 - srcx) / srcw * dstw + dstx) / (float)tw;
-                v1 = ((v1 - srcy) / srch * dsth + dsty) / (float)th;
-                u2 = ((u2 - srcx) / srcw * dstw + dstx) / (float)tw;
-                v2 = ((v2 - srcy) / srch * dsth + dsty) / (float)th;
-                p->uv[0][0] = u0;
-                p->uv[0][1] = v0;
-                p->uv[1][0] = u1;
-                p->uv[1][1] = v1;
-                p->uv[2][0] = u2;
-                p->uv[2][1] = v2;
+                v0 = ((float)((float)((v0 - srcy) / srch) * dsth) + dsty) / (float)th;
+                u1 = ((float)((float)((u1 - srcx) / srcw) * dstw) + dstx) / (float)tw;
+                v1 = ((float)((float)((v1 - srcy) / srch) * dsth) + dsty) / (float)th;
+                u2 = ((float)((float)((u2 - srcx) / srcw) * dstw) + dstx) / (float)tw;
+                v2 = ((float)((float)((v2 - srcy) / srch) * dsth) + dsty) / (float)th;
+                p->tex = b->id + ctx->base;
+                p->uv[0][0] = (*p_u0);
+                p->uv[0][1] = (*p_v0);
+                p->uv[1][0] = (*p_u1);
+                p->uv[1][1] = (*p_v1);
+                p->uv[2][0] = (*p_u2);
+                p->uv[2][1] = (*p_v2);
             }
         }
         p++;

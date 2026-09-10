@@ -441,44 +441,30 @@ void Pump_Remove(Pump* p)
  * the only value needing a fourth register is the class rect's top.
  * ------------------------------------------------------------------------- */
 
-/* RESIDUAL, precisely: the original does NOT jump-thread the `rec = 0` arm
- * into the trailing `return 0`.  It emits `xor eax,eax` (the clear), falls
- * into a join that starts `xor ecx,ecx`, then RE-TESTS the value it has just
- * proved zero (`test eax,eax / je`) and returns through `mov eax,ecx`.  Our
- * VC6 folds all of that: the two failure edges and the clear all jump
- * straight to `xor eax,eax / pop esi / ret`, four instructions short.
- *
- * Measured (46 spellings): every natural form -- if/else, `goto`, a ternary,
- * an `else if` chain, an inline predicate helper, a named result local, a
- * zero carried in its own local, a cast-to-int handle, an `int` type read, a
- * volatile read of the TYPE, a self-subtracting clear, two and three
- * `return 0` sites, an if/else phi in both arms, a `while` that runs at most
- * once, a `do/while(0)`, an inline `ClearRec(&rec)` helper, a degenerate
- * `else rec = rec;`, and four extra literal zeros to widen the zero web --
- * lands on one of exactly two shapes, 29i/77B: mismatch 20 (first divergence
- * at index 13, the branch sense) or mismatch 18 (first divergence at index
- * 15, the missing `xor ecx,ecx`).  Hoisting the class rect's top into a
- * block-scoped local is 27i/75B, mismatch 16.  The ONLY spelling
- * that reproduces the original's block structure is a `volatile` local for
- * the clear (`RoadTile* volatile vr; ... vr = 0; rec = vr;`): 33i/93B,
- * mismatch 3, exact from index 16 to the end -- but it pays for the barrier
- * with a stack home (`mov [esp+8],0 / mov eax,[esp+8]` where the original
- * has `xor eax,eax / xor ecx,ecx`), so it is not adopted.  What is missing
- * is a register-resident opaque zero: the join's `xor ecx,ecx` is what stops
- * VC6 threading, and no C spelling found puts a second zero register there. */
-
-// WIP-FUNCTION: LEGOLAND 0x00411dc0  (29 of 33 insns, 77/85 B; first divergence at index 13 -- our `jne` threads the clear away where the original falls into a re-test of a known-zero; see the note above)
+/* Scope F close (2026-09-05): 33/33 instructions, 85/85 bytes. The earlier
+ * jump-threading floor was too broad: clearing the POINTER OBJECT with
+ * memset preserves the re-test while still lowering to xor eax,eax, with
+ * no stack home. A separate zero-initialized result assigned in the success
+ * arm creates the join's xor ecx,ecx and failure return through mov eax,ecx.
+ * Both pieces are required: memset with an early return is still 18 strict;
+ * a plain rec = 0 with the result local is threaded. The combined spelling
+ * is exact. A second memset for result also works, but is unnecessary.
+ * All 12 exact functions in this file pass the whole-file audit. */
+// FUNCTION: LEGOLAND 0x00411dc0
 RoadTile* Pump_SnapToRoad(Cursor* c)
 {
+    RoadTile* result;
     RoadTile* rec = GetRoadRecord(c->origin.x + 1, c->origin.y);
 
     if (rec != 0 && rec->type != 0)
-        rec = 0;
-    if (rec == 0)
-        return 0;
-    c->origin.x = rec->x - 1;
-    c->origin.y = rec->y - g_pump_def->rect.top;
-    return rec;
+        memset(&rec, 0, sizeof(rec));
+    result = 0;
+    if (rec != 0) {
+        c->origin.x = rec->x - 1;
+        c->origin.y = rec->y - g_pump_def->rect.top;
+        result = rec;
+    }
+    return result;
 }
 
 

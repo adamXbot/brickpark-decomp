@@ -139,61 +139,48 @@ void SchoolCarIdleStep(SchoolCar* c)
  * SchoolCar*, which is what the store of `ebp` into the result slot says.
  * The divergence is deliberate -- an extern's type is a caller-side lever.
  *
- * WIP RESIDUAL (measured this round, 62/63 instructions, 178/180 bytes,
- * strict 27, register-blind 22, offset-blind 22, first divergence at index
- * 36).  Everything up to and including index 35 is exact: the split
- * prologue (`push ecx` for the result home, `push ebp` for the walk pointer,
- * the other three sunk into the non-empty-list path), the whole of stage
- * one, and the first `fld/fmul/__ftol` pair.
+ * MATCHED (FGH integration, 2026-09-07): 63 instructions / 180 bytes.
+ * The earlier two-regime conclusion was too strong: a join around only the
+ * projected X assignment changes the allocator while keeping coordinate
+ * reloads. Name the X conversion result before that join, and write the same
+ * ahead.x value in both arms. VC6 removes the condition but retains the
+ * original c=ebx, p=ebp, X=esi, Y=edi allocation and second-stage schedule.
  *
- * What is left is ONE scheduling permutation of stage two plus the single
- * `mov eax,edi` register copy it implies (which is the whole 63rd
- * instruction).  The original interleaves:
- *      sub esi,eax | call __ftol | mov edx,[p+0x10] | sub edi,eax |
- *      mov eax,edi | mov edi,[p+0x14] | sub eax,edi | sub esi,edx
- * i.e. the ux chain runs FIRST but the y difference is subtracted first, and
- * p->wx's load sits after the second __ftol.  VC6 offers exactly TWO
- * schedules here and neither is that one:
- *   * source x-first  -> the p->wx load and the whole x difference are
- *     scheduled into the fmul/call latency gap, and the second __ftol sinks
- *     past them (strict 27, first divergence 36) -- this build;
- *   * source y-first  -> the whole uy chain moves ahead of the ux chain
- *     (strict 30, first divergence 30).
- * ALL 40 legal interleavings of the six statements {ax, dx, dx>>=8} x
- * {ay, dy, dy>>=8} produce one of those two, as do: naming the __ftol
- * results, naming p->wx/p->wy, naming one or both of c->wx/c->wy, an inlined
- * `Near(p,x,y,lim)` helper with either argument order, `&&` instead of
- * nesting, the reassociated `(c->wx - p->wx - fx)` spelling, duplicated
- * square expressions, a `sq()` helper, and a CarPos aggregate for the ahead
- * point; so are the in-place `dx -= p->wx` spelling and an explicit
- * accumulator (`d2 = dy*dy; d2 += dx*dx;`) in either order.
- * The one construct that DOES buy the original's instruction count
- * and drops register-blind to 11 is a free `volatile` read on BOTH stage-two
- * loads (`ax - *(volatile int*)&p->wx`), which pins them after the call --
- * but each volatile read is another reference to `p`, and two of them lift
- * `p` above `c` in the callee-saved ranking, so `p` takes edi and `c` ebp
- * instead of the original's ebp/ebx, and the prologue and every base register
- * change (strict 29).  One volatile read alone flips the same pair.  So the
- * residual is "the original's schedule needs a barrier VC6 only offers with a
- * reference that re-ranks the register the barrier is on".
+ * Both arms are intentional compiler-shaping C, not a gameplay distinction.
+ * Replacing the join with one assignment restores the fifth live value and
+ * spilled cursor (68i/208B); moving the X conversion into the arms produces
+ * 64i/186B. Naming the Y conversion is unnecessary. This closes the former
+ * 25-instruction allocation residual without assembly or altered flags.
+ * Branches, widths, addresses and both -65536.0f references are checked in
+ * validation/fgh/check.py; the execution pilot covers the original rounding
+ * helper, overflow, boundaries and last-hit behavior. See the FGH lane notes
+ * for the reduced experiment and ablation evidence.
  * ======================================================================== */
-// WIP-FUNCTION: LEGOLAND 0x00402490  (62/63 insns, 178/180 B, strict 27; exact through index 35, stage-two schedule permuted)
+// FUNCTION: LEGOLAND 0x00402490
 SchoolCar* SchoolCarBlockedAhead(SchoolCar* c)
 {
     SchoolCar* p = g_school_cars;
     SchoolCar* hit = 0;
-    int        dx, dy, ax, ay;
+    int        dx, dy;
 
     while (p) {
         if (p != c) {
             dx = (c->wx - p->wx) >> 8;
             dy = (c->wy - p->wy) >> 8;
             if (dy * dy + dx * dx <= 0x40000) {
-                /* one whole world unit along the cached unit heading */
-                ax = c->wx - (int)(c->ux * -65536.0f);
-                ay = c->wy - (int)(c->uy * -65536.0f);
-                dx = (ax - p->wx) >> 8;
-                dy = (ay - p->wy) >> 8;
+                CarPos ahead;
+                int stepX;
+
+                /* One whole world unit along the cached unit heading. */
+                stepX = (int)(c->ux * -65536.0f);
+                /* Keep this join: both arms are folded after shaping codegen. */
+                if (p)
+                    ahead.x = c->wx - stepX;
+                else
+                    ahead.x = c->wx - stepX;
+                ahead.y = c->wy - (int)(c->uy * -65536.0f);
+                dx = (ahead.x - p->wx) >> 8;
+                dy = (ahead.y - p->wy) >> 8;
                 if (dy * dy + dx * dx <= 0x10000)
                     hit = p;
             }
@@ -557,24 +544,18 @@ extern void Vec3_Normalize(Vec3f* v);                               /* 0x00425d5
  * g_tc_wp++;` -- the write pointer is RE-READ after every store because the
  * store may alias the pointer itself.
  *
- * WIP RESIDUAL: 69/70 instructions, 206/211 bytes, strict 6, register-blind
- * 5, and the first 64 instructions are exact.  The single missing
- * instruction is a DEAD `mov eax,[0x004dd650]` at the inner loop's exit --
- * VC6 reloading the count into the register it had hoisted it into, for a
- * use that does not exist -- and the five that follow are only shifted by it.
- * The reload only appears if `g_tc_n` is live across the inner loop, and no
- * spelling of the sort makes it so: both loop directions, subscripts versus a
- * pointer walk, `k > 0` versus `k < i`, a `pass` counter with the inner bound
- * spelled `g_tc_n - 1 - pass` (74 instructions), a mirrored local re-read at
- * the top or the bottom of the outer body, `for (p = out; p < out + i; p++)`,
- * both swap orders and a free `volatile` read of the count were all measured;
- * the closest alternatives are strict 8 and 10.  The `jle` guard (signed, not
- * `je`) pins the inner loop to `for (k = 0; k < i; k++)`, and the swap's store
- * order -- `out[k] = out[k+1]` before `out[k+1] = t` -- only comes out right
- * with the SUBSCRIPT form; through a walking pointer VC6 reverses the pair.
+ * MATCHED (Scope G, 2026-09-05): this callback returns the number of
+ * collected parameters. The EAX reload at the inner loop's exit is LIVE for
+ * that return; it is not a dead compiler artifact. Returning g_tc_n naturally
+ * preserves the initial EAX load plus LEA counter and re-reads the global
+ * after positive inner passes because stores through out can alias it.
+ *
+ * The signed `jle` guard pins the inner loop to `k < i`, and the swap store
+ * order needs the subscript form. The original statement order gives all
+ * 70 instructions and 211 bytes exactly once the return type is corrected.
  * ======================================================================== */
-// WIP-FUNCTION: LEGOLAND 0x00422000  (69/70 insns, 206/211 B, strict 6; exact through index 63, one dead count reload missing)
-void TrackCurve_GatherParams(TrackGeom* g, float* out)
+// FUNCTION: LEGOLAND 0x00422000
+int TrackCurve_GatherParams(TrackGeom* g, float* out)
 {
     int i, k;
 
@@ -597,6 +578,7 @@ void TrackCurve_GatherParams(TrackGeom* g, float* out)
             }
         }
     }
+    return g_tc_n;
 }
 
 /* ==========================================================================

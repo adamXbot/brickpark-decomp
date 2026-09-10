@@ -2056,68 +2056,185 @@ extern void*      g_car_pal_c;       /* 0x0082c6bc  livery 1 */
  * only lands because the frame is displaced.  Left in place -- it is an
  * instruction of the original -- but it should be re-tested the moment index
  * 19 moves. */
-// WIP-FUNCTION: LEGOLAND 0x00402780  (351 insns by audit's extent, 1153 vs 1147 bytes, 319 mismatches, 317 surviving the best callee-saved permutation, register-blind LCS 326/351 with 42 original indices in a differing region; the projection emission order at index 19, and the frame layout -- the size is the original's 0x38 but only th, ctx and tw are in the original's homes)
+/* SCOPE G RECHECK (2026-09-05).  No body change.  Three definition-site
+ * volatile-read probes, on c->wx, c->wy and both, respectively give audit
+ * 329/329/330 mismatches (baseline 319), all first diverging at index 5;
+ * register+immediate-blind LCS is 320/321/316 (baseline 326).  They do not
+ * decouple the projection's emission order from its allocation.  Independent
+ * push-depth checks of the straight-line head confirm the fourth-pass frame
+ * map above: swx/swy occupy E+0x08/+0x0c instead of +0x0c/+0x10, tx/ty
+ * +0x04/+0x10 instead of +0x24/+0x28, and tw2/th2 +0x14/+0x18 instead of
+ * +0x04/+0x08.  Thus equal frame size still does not imply equal homes.
+ * At its measured floor for these probes; not a proof of global exhaustion. */
+/* ROUND OF 2026-09-06 (second pass).  93 -> 83, still 351i/1147B to the byte,
+ * and the structural metrics are the best this function has ever shown:
+ * register-blind mismatch 30 -> 20, register+offset-blind LCS 340 -> 342 of
+ * 351, first divergence still 19.  ONE source change: THE ORDER OF THE SIX
+ * SNAPSHOT STATEMENTS BETWEEN THE PROJECTION BLOCK AND GetRoadRecord.
+ *
+ * *** THE STALE ASSUMPTION THAT BLOCKED FOUR ROUNDS: "THE FRAME IS NOT THE
+ * ORIGINAL'S".  The fourth-pass note above (and every round that built on it,
+ * including "the frame is a SYMPTOM, not a lever" and "the fifteenth slot was
+ * never the problem") measured a build that no longer exists.  Re-derived by
+ * push depth on THIS build -- the six pushes are ebx, ebp, esi, edi and the
+ * two GetTileDimensions arguments, and VC6 never pops them, it just extends
+ * the frame and settles up with `add esp,0x1c` at index 79 -- every home is
+ * now the original's exactly:
+ *      h/flag 0x00 | tw2 0x04 | th2 0x08 | swx 0x0c | swy 0x10 |
+ *      off 0x14/0x18 | saved 0x1c/0x20 | tx 0x24 | ty 0x28 |
+ *      ctx 0x2c/0x30/0x34 | w/tw 0x3c (the dead parameter slot)
+ * Indices 31, 47, 48 and 52 -- swy's store and both `lea`s at the second
+ * GetTileDimensions -- match the original to the displacement byte, which they
+ * could not do if a single home were off.  `flag` DOES share `h`'s E+0x00 with
+ * `&h` taken, because `w`/`h` are BLOCK locals: the block scope, not the name,
+ * bounds the lifetime.  So the fifteenth-slot problem is closed and the whole
+ * residual is emission ORDER.
+ *
+ * *** THE LEVER.  All 720 orders of
+ *     frame.swx / frame.swy / frame.saved / frame.target.x / frame.target.y /
+ *     flag = 0
+ * were measured.  They span 83..126 and the best is
+ *     frame.target.y = c->ty;  frame.swy = c->wy;  frame.saved = c->cur;
+ *     frame.target.x = c->tx;  frame.swx = c->wx;  flag = 0;
+ * -- the two halves of EACH pair split around the saved-square copy, y before
+ * x in both.  That is worth ten indices and it puts 31..40 (swy, both cur
+ * loads through the two bases, the dead tx store, saved.y, tx, saved.x) in the
+ * original's order INSTRUCTION FOR INSTRUCTION.  The naive orders are all
+ * worse: the shipped-before order XYSPQF is 93, the "obvious" XYSQPF (which
+ * reads like the original's emission) 94, and pulling any of the six into the
+ * projection block or in front of it costs 9-46.  The head order
+ * (ctx.kind, ctx.owner, ctx.f08, wy, wx) was swept too -- all 120 orders --
+ * and the shipped one is the unique optimum at 83; the next is 85.
+ *
+ * *** WHAT IS LEFT, RE-DERIVED, AND WHY IT IS ONE FACT.  12 indices in 19..44,
+ * 9 at 83..94 and 53 in 103..199, and the last two are DOWNSTREAM of the
+ * first.  The original's projection is
+ *      lea eax,[ebx+ebp] / mov edi,ebx / imul eax,[h] / sub edi,ebp /
+ *      imul edi,[w] / sar eax,9 / mov ebp,eax ... sar edi,9 / mov [tx],edi
+ * -- the SUM emitted first, so both wx and wy are still live and it needs a
+ * scratch (`lea`) plus a copy (`mov ebp,eax`); ours emits the diff first,
+ * which frees wy, so the sum folds in place (`add ebp,ebx`) and we spend the
+ * saved instruction on a SECOND dead store instead.  Instruction and byte
+ * counts balance exactly: original = 8 projection ops + 1 dead store, ours =
+ * 7 + 2.
+ * THE COUNT OF DEAD STORES IS THE WHOLE PROBLEM, AND IT IS A DSE FACT.
+ * The original stores the projected X into tx's home at 35 and never stores
+ * the projected Y.  Measured on this build: an 8-byte `frame.target = project`
+ * copy is NEVER dead-store-eliminated (both halves survive -> our two dead
+ * stores), and field-by-field `frame.target.x = ...; frame.target.y = ...;`
+ * with read-back is ALWAYS eliminated (BOTH halves vanish -> 114, first 8,
+ * because sx then loses the reference that ranks it into edi).  There is no
+ * source construct that eliminates exactly one, so the residual dead Y store
+ * and the diff-first schedule are the same fact.
+ * AND THE ESCAPE IS BLOCKED BY REGISTER PRESSURE, NOT BY AN ANCHOR.  Every
+ * spelling that leaves sy without a memory home lets VC6 SINK the whole y
+ * product past GetRoadRecord and the second GetTileDimensions (321-322,
+ * first 5): it keeps wx/wy in ebx/ebp across the calls and never materialises
+ * `&c->cur` at all, which is the only reason the four callee-saved registers
+ * stretch.  Note that this CANNOT be an anchoring effect -- all fourteen frame
+ * slots plus the parameter slot are accounted for above, so the ORIGINAL's sy
+ * has no home either and still does not sink.  What pins it there is that
+ * `&c->cur` (six references) outranks wx and wy (two each) and takes ebx.
+ * Tried and did not move it: an explicit `CarPos* cur = &c->cur;` used in the
+ * call and restore only, in the snapshot, in GetRoadRecord's arguments and in
+ * all of them (321/333/175/100); the copy's y member carrying `c->ty` so only
+ * X's store is dead (313-314, sinks anyway); x-anchored with the products,
+ * shifts and temps in every order.
+ * *** MEASURED BETTER ON STRICT AND NOT SHIPPED, both the compensating-error
+ * signature the rounds above name: reusing `th2` as the depth key is 70 strict
+ * but register-blind 20 -> 34 and 1144B (three bytes SHORT, first divergence
+ * 5); `p3->sy` stored before `p3->sx` is 75 strict, register-blind 34,
+ * 1146B.  Both trade a byte-exact body for index luck.  Re-test them the
+ * moment the emission at 19 moves.
+ * *** ALSO INERT ON THIS BASE: the declaration order of w/h (all four
+ * spellings), of sx/sy and of wx/wy; the two `>>= 9` shifts in either order
+ * (the old shift-order lever is GONE now that the copy pins both products);
+ * every temp spelling of the sum and difference; reading sx/sy back from
+ * `project` or from `frame.target` in either order (83 or 94); the copy placed
+ * before, between or after the two read-backs; six positions and spellings of
+ * `tw = th2 + sy` (83, or 274 once it crosses the switch); the bloke store
+ * order and `dir` first (83). */
+/* FGH-100b (2026-09-07).  83 -> 72, still 351i/1147B, first divergence 19,
+ * behaviour verified identical to the original on 1,200 randomized cases
+ * (scratchpad/fgh100b/diffexec.py).  Found by a MECHANICAL mutation search
+ * over ~5,300 semantics-preserving textual variants of this body
+ * (scratchpad/fgh100b/mutate.py, mutants/StepSchoolCar/m2 + m3), not by hand:
+ *  - the three Person3D stores are written sy, depth, sx (the original emits
+ *    depth, sx, sy; VC6 reorders the adjacent stores itself, and this order
+ *    is what fixes the scratch rotation of the +0x1c/+0x20 sums);
+ *  - a free `if (sx) { }` consumer after `sx -= (tw2 + 1) >> 1` -- measured
+ *    load-bearing (74 without it), zero instructions.
+ * Every cosmetic artefact of the search (`!(!(x))`, named index temporaries)
+ * was measured inert and removed.  Indices 19-44 (the projection's dead
+ * store) are unchanged; the search's ~1,900 distinct objects for this body
+ * never moved index 19, so that class needs a construct, not a spelling. */
+// WIP-FUNCTION: LEGOLAND 0x00402780  (351i/1147B vs 351i/1147B -- the original's length to the byte, and every frame home is the original's; 72 mismatches, first 19; classes: the projection's sum/diff emission order and its second dead store at 19-44, the `tw = th2 + sy` placement at 83-94, and the eax/edx/ecx scratch rotation from 103 on, now 44 indices instead of 53)
 void StepSchoolCar(SchoolCar* c)
 {
-    /* `tw` doubles as the render depth key and `th` as the "this car did
-     * something this frame" flag: in the original those two values share the
-     * two tile-dimension homes (the flag at frame -0x38, the depth key in
-     * the dead argument slot), and spelling them as reuses of tw/th is what
-     * reproduces the 0x38 frame. */
+    struct {
+        int swx;
+        int swy;
+        Pos8 off;
+        CarPos saved;
+        CarPos target;
+        BlitCtx ctx;
+    } frame;
+
+    /* The projection block's dimension locals end before the movement flag
+     * starts. Their homes can share the later flag/depth storage. */
     int       tw;
-    int       th;
+    int       flag;
     int       tw2;
     int       th2;
-    int       swx;
-    int       swy;
-    Pos8      off;
-    CarPos    saved;
-    int       tx;
-    int       ty;
-    BlitCtx   ctx;
     Person3D* p3;
     int       wx;
     int       wy;
     int       sx;
     int       sy;
 
-    ctx.kind = 0x306;
-    ctx.owner = c->bloke;
-    ctx.f08 = 0;
+    frame.ctx.kind = 0x306;
+    frame.ctx.owner = c->bloke;
+    frame.ctx.f08 = 0;
     wy = c->wy >> 8;
     wx = c->wx >> 8;
-    GetTileDimensions(&tw, &th);
-    sy = (wx + wy) * th;
-    sx = (wx - wy) * tw;
-    sx >>= 9;
-    sy >>= 9;
-    swx = c->wx;
-    swy = c->wy;
-    saved.y = c->cur.y;
-    /* The original spills sx into tx's home here and overwrites it eleven
-     * bytes later without ever reading it (0x004027f3).  That dead store is
-     * VC6 scheduling, not behaviour; the volatile write is the only way to
-     * ask this build for a store at a value's death. */
-    *(volatile int*)&tx = sx;
-    tx = c->tx;
-    saved.x = c->cur.x;
-    ty = c->ty;
-    th = 0;
+    {
+        CarPos project;
+        int w, h;
+
+        GetTileDimensions(&w, &h);
+        project.x = (wx - wy) * w >> 9;
+        project.y = (wx + wy) * h >> 9;
+        frame.target = project;
+        sx = project.x;
+        sy = project.y;
+    }
+    /* Both pairs are SPLIT around the saved-square copy, y before x in each:
+     * that is the unique best of all 720 orders of these six statements and it
+     * reproduces indices 31-40 -- swy, the two `c->cur` loads through their two
+     * different bases, the dead tx store, saved.y, tx, saved.x -- instruction
+     * for instruction.  Writing them as two tidy adjacent pairs costs ten. */
+    frame.target.y = c->ty;
+    frame.swy = c->wy;
+    frame.saved = c->cur;
+    frame.target.x = c->tx;
+    frame.swx = c->wx;
+    flag = 0;
     GetRoadRecord(c->cur.x, c->cur.y);
     GetTileDimensions(&tw2, &th2);
     sx -= (tw2 + 1) >> 1;
+    if (sx) { }
     sx -= g_scroll_x >> 8;
     sy -= g_scroll_y >> 8;
-    off.x = g_car_images->dx[c->b8] >> 1;
-    off.y = g_car_images->dy[c->b8] >> 1;
-    AdjustOffsetForViewMode((Offset*)&off);
+    frame.off.x = g_car_images->dx[c->b8] >> 1;
+    frame.off.y = g_car_images->dy[c->b8] >> 1;
+    AdjustOffsetForViewMode((Offset*)&frame.off);
     /* BOTH sums are flat three-term left-assoc chains in the original
      * (`xor ecx,ecx / mov cx,[edx+0x20] / add ecx,eax / add ecx,edi`), and a
      * flat source reproduces both in source order.  The `Pos t` aggregate this
      * used to carry emitted the other tree (`lea ecx,[edx+edi] / add ecx,eax`)
      * and was where the global eax/ecx/edx phase first parted company. */
-    c->sx = g_map->origin_x + off.x + sx;
-    c->sy = g_map->origin_y + off.y + sy;
+    c->sx = g_map->origin_x + frame.off.x + sx;
+    c->sy = g_map->origin_y + frame.off.y + sy;
     tw = th2 + sy;
 
     switch (c->dir) {
@@ -2135,7 +2252,7 @@ void StepSchoolCar(SchoolCar* c)
     c->b9 = c->b8;
     SetOverrideFrame(c->b8);
     SortSpriteWithCallback(g_car_sprite, c->sx, c->sy, tw, 0,
-                           SchoolCar_DrawDriver, (int)c, &ctx);
+                           SchoolCar_DrawDriver, (int)c, &frame.ctx);
     ClearOverridePalette();
     ClearOverrideFrame();
 
@@ -2143,9 +2260,9 @@ void StepSchoolCar(SchoolCar* c)
     c->bloke->world.y = sy;
     c->bloke->dir = (unsigned char)((c->b8 + 6) & 0xf);
     p3 = Find3DPersonFromBloke(c->bloke);
+    p3->sy = g_map->origin_y + c->bloke->world.y + 8;
     p3->depth = tw;
     p3->sx = g_map->origin_x + c->bloke->world.x + 0x10;
-    p3->sy = g_map->origin_y + c->bloke->world.y + 8;
     AdjustBlokePosition((Pos8*)&p3->sx);
     SetPerson3DHeading(p3, c->bloke->dir);
 
@@ -2166,7 +2283,7 @@ void StepSchoolCar(SchoolCar* c)
         c->wy += c->vy;
         c->cur.x = (c->wx + 0x10000) >> 16;
         c->cur.y = (c->wy + 0x10000) >> 16;
-        if (SchoolCarMayEnterSquare(&c->cur, &saved) == 0) {
+        if (SchoolCarMayEnterSquare(&c->cur, &frame.saved) == 0) {
             /* A WHOLE-STRUCT restore, not two field stores: the original
              * emits both halves through the one `&c->cur` the call argument
              * already materialised (`mov [ebx],eax` ... `mov [ebx+4],ecx`,
@@ -2175,26 +2292,26 @@ void StepSchoolCar(SchoolCar* c)
              * `.y` through `esi` instead.  The SAVE side above is genuinely
              * field-by-field -- there the original's two loads use different
              * bases and sit eight instructions apart. */
-            c->cur = saved;
-            c->wx = swx;
-            c->wy = swy;
+            c->cur = frame.saved;
+            c->wx = frame.swx;
+            c->wy = frame.swy;
             return;
         }
     }
 
 joint:
-    if ((((tx - c->wx) ^ (tx - swx)) | ((ty - c->wy) ^ (ty - swy))) & 0x80000000)
+    if ((((frame.target.x - c->wx) ^ (frame.target.x - frame.swx)) | ((frame.target.y - c->wy) ^ (frame.target.y - frame.swy))) & 0x80000000)
         goto step;
     if (c->bb) {
-        if (tx != c->wx)
+        if (frame.target.x != c->wx)
             return;
-        if (ty != c->wy)
+        if (frame.target.y != c->wy)
             return;
     }
 
 step:
     if (c->bb == 0) {
-        th = 1;
+        flag = 1;
         if (c->manoeuvre == 0) {
             c->on_road = 0;
             if (c->t_horn != 0)
@@ -2238,7 +2355,7 @@ step:
         break;
     }
 
-    if (!th)
+    if (!flag)
         SchoolCarIdleStep(c);
 }
 

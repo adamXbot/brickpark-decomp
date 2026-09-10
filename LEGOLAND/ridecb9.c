@@ -167,177 +167,54 @@ extern void* HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
 void* memset(void*, int, unsigned int);
 #pragma intrinsic(memset)
 
-/* RESIDUAL: 141/141 instructions, 438 of 438 bytes, mismatch 102 -> 15 by
- * audit.py.  Everything from index 54 (the `mov [0x629c3c], esi` that
- * publishes the new station) to the `ret` is now byte-identical, including
- * both river-tile calls and the whole tile-paint double loop; the residual is
- * confined to indices 32..53.
+/* CLOSED (scope F continuation, 2026-09-05): 141/141 instructions, 438/438
+ * bytes, strict/rb/ob 0/0/0, audit [OK].  The residual was a reconstruction
+ * error, not an allocation floor: the five queue slots and the three rider
+ * slots are cleared by two constant-count `for` loops --
  *
- * WHAT CLOSED 87 OF THEM.  The three rider slots are cleared by an INTRINSIC
- * `memset`, not by three assignments.  With three plain stores VC6 keeps ONE
- * zero web in eax for all eleven zero stores and is then forced to put the
- * `o` argument in ecx, loading it 15 instructions early (our old index 32);
- * with the memset it creates a second scratch temp for the destination, the
- * zero web dies at the last rider store, and `o` lands in EAX right before
- * its push -- which is what the original does.  That one change also fixed
- * the eax/ecx/edx rotation phase of all three SetMapTile arms, 60-odd
- * instructions later.  (The previous note dismissed memset on the strength of
- * the `lea` it emits; it is worth 87 anyway.)
+ *     for (x = 0; x < 5; x++) st->blokes[x] = 0;
+ *     for (x = 0; x < 3; x++) st->riders[x] = 0;
  *
- * WHAT IS LEFT (15, first diverging index 32).  The original rematerialises
- * the zero -- `xor ecx,ecx` at index 42, hoisted between the +0x18 and +0x1c
- * stores -- and writes the riders as `mov [esi+0x30], ecx` / `[esi+0x34]` /
- * `[esi+0x38]`, with `mov eax,[esp+0x14]` (the `o` load) at 47 and `push eax`
- * at 49 SCHEDULED BETWEEN two of those stores.  Our memset instead emits
- * `lea ecx,[esi+0x30]` at 32 and stores `[ecx]`, `[ecx+4]`, `[ecx+8]` with
- * `o` loaded after all three.  So the original's construct still zeroes the
- * three slots from a second register while addressing them off esi.
+ * -- not by five plus three assignments and not by memset.  VC6 SP3 expands
+ * a constant-count array fill as a FILL IDIOM (the same lowering that gives
+ * `rep stosd` for CoasterShades_Init's 0x400-entry fill): six or more
+ * elements become `rep stosd`, five or fewer become inline stores, and the
+ * idiom materialises ITS OWN zero register (`xor r,r`) with base+displacement
+ * addressing (`mov [esi+0x30],ecx`), no `lea`.  Each fill loop is its own
+ * zero node created after CSE, so two fill loops are two zero webs: here the
+ * blokes' zero coalesces with the function-wide web in eax and the riders'
+ * zero is the original's `xor ecx,ecx` at index 42.  With the riders' zero
+ * out of eax, web1 dies at blokes[4], the `o` argument lands in eax at 47 and
+ * the head load in edx -- the whole 32..53 window and the post-call rotation.
+ * Measured in isolation (scratchpad micro-test fill.c/fill2.c): a 5-fill is
+ * `xor ecx,ecx` + five `[eax+disp]` stores; a 5-fill followed by a 3-fill is
+ * `xor ecx,ecx / xor edx,edx` + eight base+disp stores; 6/7/8-fills are
+ * `rep stosd`; `memset(s->r,0,12)` beside them is `lea edx,[eax+0x1c]` +
+ * stores through edx.  That `lea` is why the whole memset family sat on 15.
  *
- * MEASURED AND RULED OUT: `memset(st->riders,..)`, `memset(&st->riders[0],..)`
- * and `memset((char*)st+0x30,..)` are byte-identical (the `lea` is not a
- * spelling artefact); memset with and without the intrinsic pragma likewise;
- * memset of the blokes instead, or of both, is far worse (102/107); `__int64`
- * and `double` zero stores over riders[0..1] (106); chained assignment of
- * either group; per-element volatile stores (125); a zeroed local carrier;
- * a `for` loop over the riders (96); and the full 2450-point placement search
- * over {blokes, riders, link, AddBasicObject} x the six scalar seeds, run
- * twice (once per rider spelling) -- the committed placement is the minimum.
+ * LOAD-BEARING: both groups must be fill loops (blokes plain + riders loop
+ * 96; blokes loop + riders plain 19; memset on either group 93/101); the
+ * blokes loop must precede the riders loop (9 reversed); the six scalar
+ * seeds (route, best, f10, count, timer, take) come before both loops
+ * (seeds after the loops 103; struct-order interleave 12; count last 3); the
+ * link and publish follow the riders loop (link between the loops 8).
+ * INERT: the loop variable (x, y, or a separate i, shared or not), its scope
+ * (block or function), the bound spelling (<, !=, <=, sizeof-derived) and
+ * braces -- all 0.  Pointer-cursor fills (`for (q = ...; q < ...; q++)`,
+ * 123, escapes) and count-down do/while (96) are not recognised as the idiom.
  *
- * PASS N+1 (2026-09-04, laneB).  Still 15, first diverging index still 32.
- * The MECHANISM is now pinned down, and it explains why the two spellings are
- * complementary rather than one being a refinement of the other:
- *
- *   - VC6's intrinsic memset ALWAYS materialises its destination as a scratch
- *     pointer.  Even `memset(&st->riders[0], 0, 4)` emits `lea ecx,[esi+0x30]`
- *     and stores `[ecx]`.  That temp is the whole point: it occupies ecx from
- *     index 32, so the `o` argument cannot be hoisted into ecx and instead
- *     lands in EAX with a LATE load -- which is what fixes the eax/ecx/edx
- *     rotation of all three SetMapTile arms and is worth the 87.
- *   - Three plain stores address off esi correctly (indices 49..51 are
- *     `mov [esi+0x30/34/38], eax`, the original's addressing) but then VC6
- *     hoists the `o` load into ecx SEVENTEEN instructions early (our index 32
- *     becomes `mov ecx,[esp+0x14]`), and that one choice rotates every
- *     downstream register: ~85 of the 102 mismatches are the rotation, not the
- *     rider stores.
- *   So the residual is a single allocator decision -- `o` in eax vs ecx -- and
- *   every measured spelling buys one half at the price of the other.
- *
- * MEASURED AND RULED OUT THIS PASS (baseline = the committed memset, 15):
- *   - split memsets: 4+plain+plain (15, and rb 14 -- the best register-blind
- *     of the memset family), plain+8 (15), plain+plain+4 (15), 8+plain (101),
- *     4+8 (101), 8+4 (103), three 4-byte memsets (99);
- *   - `memset(st->riders, 0, 3 * sizeof(void*))` and a redundant cast on the
- *     base are byte-identical to the committed form;
- *   - a 12-byte struct copy from a zeroed local carrier (105); `memcpy` from a
- *     static zero triple (105, and 454 bytes); `void** r = st->riders; r[0..2]`
- *     (102); a `void* z = 0;` carrier (102); chained assignment (102);
- *     `*(int*)&st->riders[i] = 0` (102); reverse order (102);
- *   - placements not covered by the old 2450-point search: the plain stores
- *     after `st->next = g_jc_stations` (96) or after the publish (96) --
- *     these give the BEST shape in the whole search, rb=10, i.e. every
- *     instruction is in the original's position and only the registers
- *     differ -- interleaved into the blokes run (103-106), and before the
- *     blokes / timer / take (106);
- *   - an inline forwarder around AddBasicObject, an early-return guard and
- *     `if (st != 0)` are all byte-identical to the committed object;
- *   - SHIM, for the record: a volatile read of `o` at its use with plain rider
- *     stores is 99 and rb=6 (the best register-blind of all) but pins the load
- *     AFTER `mov [g_jc_stations],esi`, three slots later than the original.
- *
- * A LOWER NUMBER EXISTS AND IS **NOT COMMITTED**, deliberately.  Re-running
- * the placement search over the SPLIT memset spellings (the re-run rule) finds
- * 12 -- three better than the committed 15, same 141 instructions / 438 bytes,
- * first diverging index 42 instead of 32, and indices 0..41 and 53..140 all
- * byte-identical, i.e. the residual becomes ONE contiguous 12-instruction
- * window.  The spelling is
- *      st->next = g_jc_stations;
- *      memset(&st->riders[0], 0, 4);      (or the same 4-byte memset on
- *      st->riders[1] = 0;                  riders[2] with the other two
- *      st->riders[2] = 0;                  plain -- both score 12)
- *      g_jc_stations = st;
- * It is NOT committed because a four-byte memset of a single pointer slot is
- * not source anyone wrote: it is a lever, not a reconstruction.  What it does
- * mechanically is worth knowing, though -- ONE store through the memset's
- * scratch pointer is enough to keep `o` in eax, while the other two stores
- * address off esi as the original's do, and putting the `next` link store
- * BEFORE the riders in the source stops the `lea` being hoisted to index 32.
- * Whoever finds the honest construct for `xor ecx,ecx` should re-run the
- * placement search with the link-before-riders order.
- * Same matrix, plausible spellings only: full memset after the link (99) or
- * after the publish (99); three plain stores after the link (96, and rb=10 --
- * every instruction in the original's position, only the registers wrong) or
- * after the publish (96); memset over the BLOKES instead, at any of the three
- * placements (101-107); memset over both (105-107); a `for` loop over the
- * riders after the link (62); an inline `ClearSlot(void**)` helper on
- * riders[0] (96); `__int64` zero stores at either end (96).
- *
- * CORPUS SCAN (negative, and informative).  scratchpad/laneB/scan_zero2.py
- * walks all 1542 exact bodies looking for a SECOND zero register storing to
- * the same base register as an older live zero -- the `xor ecx,ecx` at index
- * 42 here.  There is no such instance anywhere in the matched corpus: the only
- * two candidates it reports (person3d.c LoadAnim3D, westtown2.c
- * Bank_TickCustomer) are `xor r,r / mov rl,byte ptr [..]` zero-EXTENSION
- * idioms, not rematerialised zeros.  So no function we have matched
- * demonstrates the construct that splits a zero web mid-run, and the memset
- * route stays the closest reachable state.
+ * Why no earlier pass found it: the corpus has no other instance.  A scan of
+ * every function in the binary for a second `xor r,r` inside a zero-store run
+ * hits only this function, and a scan for an argument load threaded through a
+ * record-initialisation run before a call hits only this function and its
+ * twin BoatingSchool_Add (ridecb5.c) -- whose q[0..4] run and `o` threading
+ * are the same shape and are the obvious place to try the fill-loop spelling.
+ * The earlier notes' mechanism (`o` in eax versus ecx as a single allocator
+ * decision) was right; the missing construct was the loop.
  *
  * DATA: the `owner` handed to JungleCruise_UpdateRiverTile really is the
- * station record itself (its +0x00 IS the packed square).
- *
- * PASS N+2 (2026-09-04, lane w7ticks).  NO CHANGE -- still 15, first diverging
- * index still 32.  Permrank confirms there is no register question hiding
- * here: 15 strict = 15 real, and the best permutation is the IDENTITY, so the
- * residual really is the twelve-instruction window 32..53 and nothing else.
- *
- * THE ONE NEW MECHANISM PROVED THIS PASS -- and it closes off the most
- * obvious remaining route.  An INLINE HELPER CANNOT CREATE A SECOND ZERO.
- * The hope was that a `static __inline` whose zero arrives as a PARAMETER
- * would give the riders their own constant temp, the way an inline
- * expansion's temporaries get their own spill homes:
- *     static __inline void JcClearRiders(JcStation* s, void* z)
- *     { s->riders[0] = z; s->riders[1] = z; s->riders[2] = z; }
- *     JcClearRiders(st, 0);
- * It does not.  Every form measured -- the helper above (102), the same over
- * `void** a` (102), an `int z` parameter cast to `void*` (102), the same
- * helper applied to the BLOKES instead (102), to both groups (102), and the
- * zero argument first in the parameter list (102) -- is BYTE-IDENTICAL to
- * three plain stores.  VC6 inlines, then forward-substitutes the constant and
- * re-CSEs it into the single function-wide zero web before allocation.  Add
- * that to the corpus scan above: neither a source construct nor an inline
- * expansion produces the original's `xor ecx,ecx`.
- * Also newly measured and inert: a `(void*)` cast on the `o` argument (15, so
- * the "same-width conversion is a CSE barrier" lever does not apply to a void
- * pointer), a local `void* ob = o;` root copy with plain rider stores (102),
- * a 4-byte memset on riders[1] with plains either side (15), and
- * riders[0] plain + an 8-byte memset over riders[1..2] (15) -- the whole
- * memset family sits on exactly 15 whichever slot carries the intrinsic.
- * The 12-scoring `link + 4-byte memset` lever was RE-MEASURED and still
- * scores 12 with the residual as one contiguous window 42..53; it is still
- * not committed, for the reason recorded above.  Its residual, freshly
- * listed, is that we emit the g_jc_stations load and the `lea` scratch base
- * where the original emits `xor ecx,ecx` and the late `o` load -- i.e. the
- * same single missing construct, just moved ten instructions later. */
-/* PASS w8rides (2026-09-04).  NO CHANGE (15 strict, 15 real under the
- * IDENTITY permutation, register-blind 8).  Read fresh against the original
- * the residual is ONE window, indices 32-53, and it is exactly the trade the
- * marker names, now stated as a fact about the ORIGINAL rather than about our
- * choice: the original needs eax for the `o` argument (`mov eax,[esp+0x14]`
- * at index 47, `push eax` at 49, both scheduled INTO the rider clears at
- * 48/50/51), so its function-wide zero web cannot survive there and VC6
- * rematerialises a SECOND zero, `xor ecx,ecx` at index 42, purely to carry
- * the three `mov [esi+0x30/0x34/0x38],ecx` stores.  That is a register-
- * pressure event inside the scheduler, not a construct: there is no source
- * expression whose value is "a zero that must not be the zero already in
- * eax".  Our memset spelling instead materialises a base pointer
- * (`lea ecx,[esi+0x30]` hoisted all the way to index 32) and keeps the zero
- * in eax, which is why the `o` load slides down to index 51.  The corpus
- * scan, the 2450-point placement search and the whole memset family recorded
- * above are consistent with that reading and it explains why they all land on
- * either 15 (base wrong, zero right) or 102 (base right, zero wrong): those
- * are the only two assignments a single zero web permits, and the original
- * has two zero webs.  RECOMMENDED FOR RETIREMENT on that basis -- 15 of 141
- * with the byte length and instruction count already exact. */
-// WIP-FUNCTION: LEGOLAND 0x00434f90  (141/141 insns, 438/438 bytes, 15 by audit; first diff at index 32 -- one allocator decision: the original clears the riders off esi from a rematerialised `xor ecx,ecx` while keeping `o` in eax, our memset buys the eax and pays a `lea` base, plain stores buy the base and pay the eax)
+ * station record itself (its +0x00 IS the packed square). */
+// FUNCTION: LEGOLAND 0x00434f90
 void JungleCruise_Add(void* o, Pos* p)
 {
     BPosW      key;
@@ -346,6 +223,7 @@ void JungleCruise_Add(void* o, Pos* p)
     key.b.x = (unsigned char)p->x;
     key.b.y = (unsigned char)p->y;
     st = (JcStation*)HeapAlloc_w(sizeof(JcStation));
+
     if (st) {
         int x;
         int y;
@@ -361,12 +239,8 @@ void JungleCruise_Add(void* o, Pos* p)
         st->count = 0;
         st->timer = 0x96;
         st->take = 3;
-        st->blokes[0] = 0;
-        st->blokes[1] = 0;
-        st->blokes[2] = 0;
-        st->blokes[3] = 0;
-        st->blokes[4] = 0;
-        memset(st->riders, 0, sizeof st->riders);
+        for (x = 0; x < 5; x++) st->blokes[x] = 0;
+        for (x = 0; x < 3; x++) st->riders[x] = 0;
         st->next = g_jc_stations;
         g_jc_stations = st;
         AddBasicObject(o, p);

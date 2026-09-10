@@ -746,7 +746,31 @@ extern int ArcTan256(int x, int y);                            /* 0x004806e0 */
  *     is what the original has, and writing the pointer out by hand perturbs
  *     the loop head without touching the imul.
  * FLOOR RE-ENDORSED at index 275. */
-// WIP-FUNCTION: LEGOLAND 0x00433840  (330/330 insns, 3 mismatches, 1108/1108 bytes; RETIRED 2026-09-04 -- the straight-run y `imul` operand order needs a rank-1 temporary from an enregistered IV, which no zero-cost C expression produces; see the RETIRED block above)
+/* CLOSED (Scope F continuation, 2026-09-05): 330/330 instructions,
+ * 1108/1108 bytes, strict/rb/ob 0/0/0, audit [OK].  The three-instruction
+ * residual at 275-277 was never in the STRAIGHT loop it appeared in: it is
+ * a remote effect of how the U-TURN loop above spells its x product.
+ *
+ * Naming the u-turn loop's x product in a `float` local -- either the whole
+ * scaled product or just `dx * j` -- makes the straight loop 170 instructions
+ * below emit the original's operand rank, `mov edx,edi / imul edx,[table]`,
+ * instead of our `mov edx,[table] / imul edx,edi`.  The local is a FRONT-END
+ * effect only: no store, reload, conversion or stack slot is emitted for it,
+ * and the body is byte-for-byte the original either way (1108 bytes).  What
+ * it changes is the typed temporary VC6 carries into its later ranking
+ * decision -- which is why `double` is inert while `float` closes the body.
+ *
+ * LOAD-BEARING and measured on this body:
+ *   - the local must carry the X expression: naming Y instead is inert (3),
+ *     naming BOTH re-schedules the whole loop (283 strict, 1112B);
+ *   - it must be `float`: `double` is inert (3);
+ *   - it must be the product, not the sum: naming `(dx*j)*16.0f` gives 0 and
+ *     naming `dx*j` gives 0, but naming `(dx*j)*16.0f + x0` is inert (3).
+ * The earlier note's operand-rank "floor" was a floor only for the families
+ * it had tested, all of which spelled the straight loop; that retirement is
+ * superseded.  The same one-line change closes the twin JcBoat_Animate
+ * (roads.c, 0x00433840) index for index, as its note predicted. */
+// FUNCTION: LEGOLAND 0x00433840
 void JcBoat_Animate(JcBoat* b, int from, int to)
 {
     JcCurve* c = 0;
@@ -769,7 +793,11 @@ void JcBoat_Animate(JcBoat* b, int from, int to)
         y0 = (int)((g_jc_step[i].sy * 40) * 16.0f);
         for (j = 0; j < 0x50; j++) {
             if (j < 0x28) {
-                b->wob[j].x = (int)((g_jc_step[i].dx * j) * 16.0f + x0);
+                /* CODEGEN LEVER: this float local is what gives the STRAIGHT
+                 * loop's y product (170 instructions below) the original's
+                 * `mov r,j / imul r,[table]` operand rank; see the note above. */
+                float fx = (g_jc_step[i].dx * j) * 16.0f;
+                b->wob[j].x = (int)(fx + x0);
                 b->wob[j].y = (int)((g_jc_step[i].dy * j) * 16.0f + y0);
             } else {
                 b->wob[j].x = 0;

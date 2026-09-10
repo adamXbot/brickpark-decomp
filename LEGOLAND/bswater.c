@@ -512,39 +512,22 @@ static __inline Cell* MapCellAt(int x, int y)
     return 0;
 }
 
-/* RESIDUAL (audit 109/109 insns, 350/350 BYTES, strict mismatch=3, first
- * diverging index 93).  The block layout, the frame (8 bytes: the 2-byte key
- * at the top plus one compiler temp, with the `mask` and `owner` argument
- * slots reused as the row counter and `x - 2`), both loop tests and every
- * register are the original's.  The ONE difference is where the shape
- * table's induction variable is stepped in the inner latch:
- *
- *     original   add edi,14h / inc esi / add edx,esi / inc ebp / cmp edx,5
- *     ours       add edi,14h / inc ebp / inc esi / add edx,esi / cmp edx,5
- *
- * i.e. `inc ebp` is emitted second in our IV list and last in the original's,
- * which is a pure SCHEDULING permutation of one instruction (strict == the
- * register-blind and offset-blind counts; the multiset, the registers and the
- * homes are identical).  RULED OUT, all byte-identical to the committed body
- * at mismatch 3: the subscript spelled `[c + r*5]`, `[mask*25 + r*5 + c]`,
- * `[mask][r][c]` on a `[16][5][5]` table, a hoisted `unsigned char* sh` row
- * pointer, taking `&shapes[mask][r*5+c]` into a pointer BEFORE the cell
- * fetch, an `int i = r*5+c` index local, `MapCellAt` declared (y, x), a
- * do/while inner loop, both loops as do/while, `x + c - 2` in the SetMapTile
- * argument, and `loaded[0]` instead of `*loaded`.  WORSE, and therefore also
- * ruled out: an `unsigned char t` or `unsigned short tile` local for the tile
- * (+34, both take a third frame dword), sx/sy locals (+7 instructions), an
- * explicit `sh++` walk (swaps ebx/ebp, +41), loops written -2..2 (+66),
- * unsigned counters (+2, jb), `c <= 4` (+2), `g_bg_full_update` moved (+2)
- * and any reordering of the four cell stores (+4).
- *
- * The IV-creation-order hypothesis is DISPROVED here: putting the shape
- * access first in the body (as a pointer, so no value local is forced) does
- * not move `inc ebp`, so the order is not first-use order in the loop body.
- * No source-level ordering construct reached it in 20 measured variants. */
-// WIP-FUNCTION: LEGOLAND 0x0041c4c0  (109/109 insns, 350/350 B, mismatch=3, idx 93: `inc ebp` scheduled 2nd not 4th in the inner latch)
+/* Scope F close (2026-09-05): 109/109 instructions, 350/350 bytes,
+ * strict/rb/ob 0/0/0. Compute both SetMapTile coordinates in a local pair
+ * AFTER the map-cell stores and BEFORE evaluating the tile expression,
+ * then pass the pair's fields through the existing scalar call. This puts
+ * the shape-pointer increment after the x/counter updates in the latch.
+ * A by-value pair call also fixes that latch but swaps the two row reloads;
+ * the existing scalar call closes those final two instructions. The pair
+ * adds no storage and preserves both reused argument homes, all bounds
+ * checks, and the original byte-table shift. Whole-file audit keeps the
+ * three existing exact bodies and adds this one. Earlier scheduling-floor
+ * claims above are superseded; see docs/lanes/scope-f.md for evidence. */
+// FUNCTION: LEGOLAND 0x0041c4c0
 void BsWater_SetTile(int x, int y, int mask, BPosW* owner)
 {
+    typedef struct PaintPos { int x; int y; } PaintPos;
+    PaintPos paint;
     BPosW    key;
     BsWater* w;
     int      r;
@@ -576,7 +559,10 @@ void BsWater_SetTile(int x, int y, int mask, BPosW* owner)
             cell->rf = 2;
             cell->obj = g_bs_water_cls->c4;
             cell->key = key.w;
-            SetMapTile(x - 2 + c, y - 2 + r,
+            /* Materialize the two paint coordinates before the tile lookup. */
+            paint.x = x - 2 + c;
+            paint.y = y - 2 + r;
+            SetMapTile(paint.x, paint.y,
                        (unsigned short)(*g_bs_water_tsm[g_bs_water_shapes[mask][r * 5 + c] >> 8].loaded
                                         + (g_bs_water_shapes[mask][r * 5 + c] & 0xff)));
         }

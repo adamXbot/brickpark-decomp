@@ -1704,7 +1704,89 @@ void TempleSlide_ReleaseLane(int lane, RideTile* tile)
  * two residuals are one problem after all, and the only thing that has ever
  * moved either of them is the pair {reads placement, destination symbol},
  * which cannot be set independently. */
-// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1122/1122 bytes -- the original's length to the byte, audit mismatch 22/347, 22 surviving the best callee-saved permutation, 13 of 347 original indices in a structurally differing region; first divergence 116)
+/* SCOPE G, RANK ROUND (2026-09-06).  No count change -- still 18/347 with
+ * 347/347 instructions, 1122/1122 bytes, first divergence 116, no ESCAPES, and
+ * the code byte-identical to LEGOLAND/joust.c.  The round's product is the
+ * MECHANISM behind the residual, and the first builds that reproduce 116..120
+ * with the world reads in their honest place.
+ *
+ * WHAT DECIDES EVERYTHING.  Every build of this body lands in one of exactly
+ * two allocations of the loop head's four long webs over {esi,edi,ebx,ebp}:
+ *     GOOD (the original)   b->esi  tx->edi  ty->ebx  sq->ebp
+ *     FLIPPED               b->esi  tx->edi  sq->ebx  ty->ebp
+ * The flipped family is NOT a cheaper rival that VC6 legitimately prefers: its
+ * whole body is 1200 bytes against the original's 1122, and audit only reports
+ * 1113 because it truncates at 347 instructions.  VC6 falls into it.
+ *
+ * The two families are separated by ONE INTERFERENCE EDGE.  `sq` dies at the
+ * `push ebp` that hands it to GetScreenCoordsForObject.  With the world reads
+ * ABOVE that call, `wx`/`wy` are defined while `sq` is still live, so `sq` can
+ * take neither ebx (wx) nor edi (wy) and ebp is FORCED -- the original's
+ * answer, reached by a route the original does not use.  With the reads BELOW
+ * the call, where the disassembly puts them, that edge is gone, `sq` and `ty`
+ * are a free tie, and VC6 breaks it the other way.  This also explains the old
+ * puzzle of why the good family is a knife edge: it is held up by one edge.
+ *
+ * THE TIE IS BROKEN BY `sq`'s WEIGHT, AND A SINGLE REFERENCE DOES IT.  In the
+ * reads-below build, re-basing ONE read of the tile's y byte off `r` instead
+ * of `sq` puts the loop head straight back into the good family:
+ *   - case 5's `sq->b.y` as `((RideTile*)&r->ride_id)->b.y`: 64 mismatches,
+ *     first divergence 148, and 116..120 MATCH EXACTLY --
+ *     `push ecx / push ebp / call / mov edi,[esi+0x6c] / mov ebx,[esi+0x68]`.
+ *   - the LOOP HEAD's own `sq->b.y` re-based the same way: 29 mismatches,
+ *     first divergence 19, 347/347 and 1122/1122 with NO ESCAPES.  116..120
+ *     closed; the entire cost is the seven loop-head slots where `[eax+0xd]`
+ *     stands in for `[ebp+1]`, index 111, and eight slots in case 5's tail.
+ * Re-basing the X byte instead does nothing at all, and so does every cast
+ * VIEW of the same pointer: `((unsigned char*)sq)[1]`, `*((unsigned char*)sq
+ * + 1)`, `*(&sq->b.y)` and `(&sq->b)->y` are canonicalised back to the `sq`
+ * symbol and are inert in BOTH families.  Only a genuinely different base
+ * pointer counts, and that costs the addressing byte-for-byte.
+ *
+ * SO THE QUESTION FOR THE NEXT LENS IS NARROW, and it is not about case 3:
+ * what in the original lowers `sq`'s weight, or raises `ty`'s, by the one unit
+ * these two shims supply, while every tile read still addresses through `sq`?
+ *
+ * RULED OUT THIS ROUND, every item measured in BOTH families:
+ *   - declaration order of sq/b/tx/ty, five permutations: completely inert --
+ *     18 in the good family and 327 in the reads-below family for every one.
+ *     Symbol order is not a lever here; the split is pure dataflow.
+ *   - loop-head accumulate shapes (ty in place, both in place, x in place,
+ *     operand swaps): inert in both.  `ty` written before `tx` is 30/328.
+ *   - `register` on ty, on tx+ty, on sq, on b and on next: inert in both.
+ *   - switch-case ORDER in the source.  VC6 does NOT sort the arms: writing
+ *     case 6 first moves its block first (235 mismatches from index 36), so
+ *     the present 0..6 order is load-bearing and case rotation is unavailable
+ *     as a lever here, unlike the empty arm in joust2.c.
+ *   - the rider walk as `for (r = def->riders; r; r = next)`: inert in both.
+ *   - case 5 spellings that keep `sq` (operand swaps, a `<<= 8` split, the two
+ *     bytes hoisted into block locals, a second RideTile* copied from sq, the
+ *     y byte via `sq->key >> 8`): all inert in both.
+ *   - re-basing case 2's y byte off `r` (330) and case 6's `sq` argument off
+ *     `r` (inert): neither tips the family.
+ *   - the flag OR between the X pair and the Y pair -- which is where the
+ *     original EMITS it, at 161 -- and after either half of either pair:
+ *     322 / 195 / 325.  Top of the adjustment block is still the optimum.
+ *   - all 24 orders of the four `-=` crossed with three OR positions, 72
+ *     builds, re-measured on the reads-below good-family base: one object at
+ *     64.  The delta-first Y forms fix 149 and lose 152/153 (71); the in-place
+ *     form fixes 153 and loses 149.  The wall is unchanged by the new base.
+ *   - merging sx2 into px KEEPS the good family (229, first still 116) while
+ *     merging sy2 into py FLIPS it, so the bit is not a web COUNT: it is the
+ *     ebx chain (ty -> wx -> sy2) specifically that carries it.
+ *
+ * THE FRAME IS NOW FULLY ACCOUNTED FOR, which settles what `spill` is.  With
+ * `base` = esp after the four register pushes, the 0x30 bytes of locals are
+ *     +0x10 r (and `spill`, pooled)   +0x18 tw   +0x1c th   +0x20 next
+ *     +0x24 ofs   +0x2c screen   +0x34 pos (three ints)
+ * every one checked against the original's own operands, including the
+ * deferred `add esp,0x44` that ends case 3.  The `px` store at index 135 goes
+ * to +0x10, i.e. INTO `r`'s home: `r` is dead on the case-3 path (only case 6
+ * reads it, and endsw rewrites it from `next` before the back edge), so VC6
+ * pools an eight-byte case-3 local onto it.  That is exactly what `SpillPair
+ * spill` models, and it is why deleting it moves the frame to 0x28 and every
+ * offset with it. */
+// WIP-FUNCTION: LEGOLAND 0x00417430  (347/347 instructions, 1122/1122 bytes -- the original's length to the byte, audit mismatch 18/347; first divergence 116; residual class = ONE loop-head allocation bit plus one schedule cluster -- 116..120 is the price of the shim that forces `sq` into ebp, and 148/149 + 161..172 is the y-delta/interleave pair)
 void TempleSlide_Update(RideElem* elem)
 {
     RideDef*   def = elem->data;
@@ -1786,17 +1868,21 @@ void TempleSlide_Update(RideElem* elem)
                 break;
 
             case 3:
-                /* The two world reads sit ABOVE the GetScreenCoordsForObject
-                 * call and the X projection is finished BEFORE the Y one.
-                 * Both are load-bearing: the read placement lengthens `sq`'s
-                 * live range past the call, which is what keeps `sq` in ebp
-                 * and `ty` in ebx in the LOOP HEAD (with the reads below the
-                 * call the two swap and case 2 stops sharing case 0's
-                 * CalcMoveLine tail -- 300 mismatches), and finishing X first
-                 * is what makes the SUM the last use of `wx`, so VC6 computes
-                 * it in place (`mov ebp,ebx / add ebx,edi / sub ebp,edi`)
-                 * instead of with a `lea`, and the Y chain then stays in
-                 * ebx to the end.  See the note above the marker. */
+                /* THE READS ABOVE THE CALL ARE A KNOWN SHIM, NOT THE
+                 * ORIGINAL'S ORDER.  The original loads b->world at indices
+                 * 119/120, INSIDE the block after the call, and VC6 never
+                 * moves a load across a call, so the original's source reads
+                 * them BELOW it.  What this placement buys is one interference
+                 * edge: with `wx`/`wy` defined while `sq` is still live, `sq`
+                 * cannot take ebx (wx) or edi (wy), so ebp is forced on it and
+                 * the LOOP HEAD lands in the original's allocation.  Written
+                 * below the call the edge is gone, the sq/ty choice is a tie,
+                 * and VC6 breaks it the other way -- see the note above the
+                 * marker for the one reference that tips it back.
+                 * Finishing X before Y is separately load-bearing: it makes
+                 * the SUM the last use of `wx`, so VC6 computes it in place
+                 * (`mov ebp,ebx / add ebx,edi / sub ebp,edi`) instead of with
+                 * a `lea`, and the Y chain then stays in ebx to the end. */
                 wy = b->world.y;
                 wx = b->world.x;
                 screen = GetScreenCoordsForObject(sq, def);
@@ -1805,19 +1891,50 @@ void TempleSlide_Update(RideElem* elem)
                 py = (wx + wy) * th >> 9;
                 *(volatile int*)&spill.x = px;
                 sx2 = g_map_cfg->ox - Get_XScroll() + px;
-                sy2 = g_map_cfg->oy - Get_YScroll() + py;
+                /* THE TWO AXES ARE SPELLED DIFFERENTLY, and that asymmetry is
+                 * the original's, not a stylistic one.  X keeps the two-web
+                 * `sx2 = <delta> + px` shape: the parenthesised delta is a
+                 * compiler temporary and wins the rank-1 destination copy, so
+                 * the sum lands in the delta's register and `px` dies --
+                 * `add edi,ebp` at 142.  Y must do the OPPOSITE (`add ebx,ecx`
+                 * at 153, destination = the projection's own web), and the only
+                 * spelling that gets it is accumulating IN PLACE from `py`:
+                 * the scroll is subtracted from `py` first and the map origin
+                 * added back after.  Every form that computes the delta first
+                 * -- `oy - Get_YScroll() + py`, `py + (oy - Get_YScroll())`,
+                 * `sy2 = py; sy2 += delta;`, a named delta, or the delta parked
+                 * in a `Pos`/`Offset`/`BnvPos` field -- is copy-propagated back
+                 * into the delta-wins form and loses index 153 with the whole
+                 * 148..172 register cascade behind it.  Transferred from
+                 * mechrides.c's SpinningBarrels_Activate, whose y block is
+                 * exact; the same asymmetry is visible in ridecb3.c.
+                 * The empty `if` is the flatten breaker: without it VC6
+                 * reassociates the two later `sy2 -=` statements back into this
+                 * sum and re-sorts the terms (20 -> 61).  It is a second
+                 * consumer evaluated before the subtractions and the branch is
+                 * deleted afterwards, so it costs zero instructions. */
+                sy2 = py - Get_YScroll();
+                sy2 += g_map_cfg->oy;
+                if (sy2) { }
                 /* Four plain `-=`.  The `Pos t` partial-sum barrier that
                  * stood here for four rounds was a WORKAROUND for the wrong
-                 * projection shape and is now strictly worse (23 -> 22, robl
-                 * 337 -> 340): with the reads and the X/Y order fixed above
-                 * the flat form is both simpler and closer. */
+                 * projection shape and stays rejected: re-measured against the
+                 * Y chain above it is worse, and the same barrier tried on the
+                 * Y delta itself is 25.
+                 * The flag OR goes at the TOP of the adjustment block, not
+                 * after the two `pos` stores: the original emits it at index
+                 * 161, twelve slots before the z-sprite store, and only the
+                 * source position above the four `-=` reproduces that (18 vs
+                 * 20 with it after `pos.y`, 23 at the very end).  Re-swept
+                 * against this Y chain: all 24 orders of the four `-=` and all
+                 * 30 placements of the two `pos` stores are inert. */
+                b->flags |= 0x80;
                 sx2 -= g_ts_rider_dx / 2;
                 sx2 -= screen.ox;
                 sy2 -= g_ts_rider_dy / 2;
                 sy2 -= screen.oy;
                 pos.x = sx2 * 2;
                 pos.y = sy2 * 2;
-                b->flags |= 0x80;
                 b->person->zsprite = g_ts_zspr;
                 b->person->f30 = 1;
                 b->person->depth = GetUnitDepth(-1617664.875f, -1617913.0f);

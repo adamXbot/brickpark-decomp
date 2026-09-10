@@ -422,6 +422,20 @@ void WriteCoasterNodes(CoasterRec* rec, CoasterNodeRef* out)
  * than it buys (51). Worth carrying: for a strength-reduced record cursor,
  * offset 0 is unreachable as the anchor unless the field has strictly the
  * most references.
+ *
+ * Scope G recheck (2026-09-05): the four differences remain at indices
+ * 27/29/30/31; resolving the table cursor's +8 bias makes all accesses agree.
+ * A named row, int[6][3] table with pointer-to-row, byte cursor, named first
+ * field pointer, one-int aggregate copy, moving e++ to the for increment,
+ * and one free volatile read on each field are inert. Postincrementing a
+ * named row gives +0 but costs an extra cursor copy/update schedule (48
+ * mismatches). A diagnostic cancelling e->in-in in out's initializer also
+ * reaches +0 and preserves in/out/mode load order, but swaps the cursor/out
+ * register webs and perturbs constant initialization (27 mismatches); sum,
+ * subtraction and unsigned forms behave identically. It is not a retained
+ * implementation. Reassigning in after all three reads gives 10 mismatches.
+ * Current best remains four; the cursor bias can be reached, but not with
+ * the original allocation in these bounded probes.
  * ======================================================================== */
 typedef struct DrawModeEnt {
     int in;                     /* +0x00 */
@@ -432,7 +446,13 @@ typedef struct DrawModeEnt {
 extern int TrackPieceKind(TrackPiece* p);                       /* 0x0041ce60 */
 extern int g_track_draw_mode[];                                 /* 0x00611710 */
 
-// WIP-FUNCTION: LEGOLAND 0x00428750  (60/60 insns, 56 of 60 aligned; the table cursor is biased to the triple's +8 instead of +0)
+/* Scope G continuation: copy the adjacent in/out fields as one eight-byte
+ * record before extracting its two values. The aggregate load fixes both
+ * cursor bias and load order: all 60 instructions / 228 bytes now match.
+ * Copying the out/mode pair also closes the function; scalarizing all three
+ * fields or copying the whole triple loses the required cursor placement.
+ */
+// FUNCTION: LEGOLAND 0x00428750
 void InitTrackDrawModes(void)
 {
     DrawModeEnt        tbl[6] = { { 1, 4, 2 }, { 2, 8, 2 }, { 1, 2, 1 },
@@ -442,8 +462,11 @@ void InitTrackDrawModes(void)
     int                i;
 
     for (i = 6; i != 0; i--) {
-        int in   = e->in;
-        int out  = e->out;
+        /* Copy the joint-height pair together: this keeps the cursor at
+         * the first word while retaining the original in/out load order. */
+        struct Heights { int in, out; } heights = *(const struct Heights*)&e->in;
+        int in = heights.in;
+        int out = heights.out;
         int mode = e->mode;
         int k;
 

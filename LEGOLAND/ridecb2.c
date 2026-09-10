@@ -964,266 +964,164 @@ extern int    g_jc_anim_tick;        /* 0x00629c54 */
 /* Seat pixel offsets, indexed BACKWARDS: g_jc_seat_ofs[-slot]. */
 extern SeatOfs g_jc_seat_ofs[];      /* 0x004b72b0 */
 
-/* 354/354 instructions, 1109 of 1114 bytes; mismatch 229 -> 208 (audit.py).
- * TWO SEMANTIC FIXES from an earlier pass, still standing:
- *  - case 1's "find a free boat seat" loop exits straight to the case end
- *    when no seat is free (the original threads the `i == 3` test away), and
- *  - case 3's walk target is built from the INSTANCE's map square (`key`,
- *    the two adjacent bytes at [esp+0x14]) and not from the screen point the
- *    3D person was converted from -- the original reads a byte PAIR there,
- *    which a Pos of two ints cannot produce.
- * Also: the call to ScreenToMapRef2 passes a THIRD argument the two-parameter
- * callee never reads (the original pushes a zero for it, and the merged
- * `add esp,0x3c` counts 15 pushes in that case, not 14).
+/* Scope H continuation (2026-09-05): 354 executable instructions / 1111B,
+ * original 354 / 1114B; 59 strict mismatches, first 110 (83.3% agreement).
+ * The three CalcMoveLine calls use a local view with two by-value Pos
+ * arguments, matching the original five pushed words (from.x, from.y,
+ * to.x, to.y, path). The shared scalar declaration is unchanged; the
+ * compiler emits direct calls to the same symbol.
  *
- * WHAT CLOSED 21 OF THE RESIDUAL THIS PASS -- two source-order levers, both
- * semantics-preserving and both measured against ~200 rejected variants:
- *  - `b = inst->bloke;` moved AHEAD of the station-search loop.  That alone
- *    puts the function-wide constant zero in EBX and the instance cursor in
- *    EBP, which is how the original has them; with `b` written after the
- *    search (the obvious spelling) the two are swapped and every `cmp r,0`,
- *    `push 0` and zero store in the function is off by a register.  All 24
- *    permutations of the four head assignments x 3 positions relative to the
- *    search were measured: the placement of `b` is the ONLY knob that flips
- *    it (assigning `inst` late flips it too, but then the `mov ebp,[eax+0xcc]`
- *    cannot stay in the prologue).  The first 110 instructions now match.
- *  - case 3's `b->flags &= ~0x80` written AFTER the two world stores.
+ * This recovers the original case-0 target-y copy (mov ecx,edx), its
+ * shifted-sum accumulation and the full executable extent. The former
+ * 208-mismatch body's 354th audit instruction was a relocated jump-table
+ * byte; its actual body had only 353 instructions. The recovered copy is
+ * real code, and the retained last instruction is RET.
  *
- * WHAT IS LEFT.  First divergence: index 110, the loop-2 head.  The original
- * allocates its three temps key->EAX(ax), st->ECX, next->EDX; we get
- * st->EAX and next/key sharing ECX.  Everything after it is knock-on:
- *   * the switch selector and `seat` land in ECX where the original uses EAX;
- *   * case 0's target arithmetic therefore runs one step out of phase -- the
- *     key.b.y read is scheduled BEFORE the seat-table dx load instead of
- *     after it, so the dx load takes EDI and the dy load takes EAX where the
- *     original re-uses its serial ECX for dx and spends the dead EBP on dy;
- *   * the final `add` then accumulates into the table value instead of into
- *     the shift result, so b->ty ends up in EAX, and the `mov ecx, edx` the
- *     original needs to free EDX for the b->tx reload never appears.  The
- *     body is exactly ONE instruction short because of that copy, which is
- *     why cases 1/3/4/5 are all off by one index.  Comparing our tail
- *     shifted by one leaves only 32 of 148 tail instructions wrong.
+ * A nonescaping two-int record holds case 0's X key/origin inputs before
+ * their sum. This restores the whole first loop, including the EDI timer
+ * constant hoist, without a volatile shim. Two independent scalars are
+ * inert; grouping the Y inputs too worsens to 65. Aligned register+offset-
+ * blind agreement improves 326/354 -> 347/354 (98.0%).
  *
- * THE ROOT CAUSE, located by probe: it is case 1's `for (i = 0; i < 3; i++)`
- * scan of the boat seats.  Stub that loop out (keeping its guard) and `st`
- * moves to ECX immediately; keep the loop and drop the guard and it stays in
- * EAX.  `st` and case 1's `i` interfere and VC6 colours them the other way
- * round from the original -- our `st` wins EAX, the original's `i` does.
+ * Scoping the escaped world output point to case 3 restores its paired
+ * loads before the flags change and position stores (62 -> 59). Scoping
+ * screen alone or changing declaration order is inert. All case-3, case-4
+ * and final-tail instructions now match.
  *
- * Ruled out (all measured, all identical or worse).  Head: every permutation
- * of the four head assignments and of moving `next`/`b` past the search;
- * for/while/do-while/rotated/`&&`-condition search shapes; a `static
- * __inline` finder taking BPosW or unsigned short; a separate cursor
- * variable; loop-2-only copies of st/key/next/b/i/seat (a separate `key`
- * moves its frame home and costs 2); block-scope declarations; `switch` on an
- * int or uchar temp; `case 2:`/`default:` added; `while (inst != 0)`,
- * `for(;;)`, `for (; inst; inst = next)` and a `goto tail`; comparing against
- * `inst->key.w`; writing the key or next store through a cast pointer to make
- * the local address-taken.  Case 1: while/`!=`/`continue`/`!p` loop forms, a
- * different index variable (fresh `j`, or `seat`), unsigned counters, and all
- * 60 orderings of the five stores in its body -- the current order is the
- * unique one that reproduces the original's store schedule.  Case 0: a
- * `SeatOfs*` pointer, `int oa[2]`, int temporaries for either table read,
- * `* 256`, operand swaps in both the inner and the outer sum, and
- * `(int)`/`(unsigned char)`/`|0`/`+0`/`&0xff`/byte-pointer spellings of
- * key.b.y.
+ * WEB ENGINEERING PASS (2026-09-05, 59 -> 17). The residual was ONE
+ * allocation decision: the original holds the loop-2 station pointer in
+ * ECX and the key temp (then the switch selector, then seat, then case 1's
+ * index) in EAX; we held that pair reversed, which renamed 37 sites and
+ * cost the 3-byte gap (6-byte `mov ecx,[g_jc_stations]` for the 5-byte A1
+ * form, and two 6-byte `and ecx,0xff` for the 5-byte `and eax,0xff`).
  *
- * Three spellings DO produce the original's case-0 register plan and the
- * missing `mov ecx, edx` -- `(unsigned char)(key.w >> 8)` for key.b.y (124
- * mismatches), and moving either `b->action = 7` or `b->flags |= 8` down
- * between the b->ty store and the CalcMoveLine call (130) -- but the first
- * costs an extra `xor/mov al` pair, the second is a semantic change the
- * original does not make (its action store is emitted after the call, so it
- * cannot have been before it in the source), the third puts a store the
- * original emits at the top of the block into the middle of it, and all
- * three cost the `mov edi, 0x96` hoist in loop 1.  They are recorded as
- * evidence that the one missing instruction is the whole tail, not adopted.
- * The correct fix is whatever makes case 1's `i` outrank `st` for EAX.
+ * THE LEVER IS RANK, NOT ORDER. `st` outranked the key temp because it is
+ * referenced ~20 times across the search loop and cases 0 and 1. Hoisting a
+ * named view of the queue-slot array above the switch, `bl = st->blokes`,
+ * lets VC6 common-subexpression it with case 0's scan base and case 1's
+ * slot 0, which drops `st` below the key temp: the head then emits
+ * `mov ecx,[g_jc_stations] / mov edx,[ebp] / mov ax,[ebp+0xc]` exactly, and
+ * the rename disappears from the whole switch. Reading the bloke below the
+ * search loop then lands the `mov esi,[ebp+8]` at index 122 as the original
+ * has it; on its own that spelling flips EBX/EBP and scores 87, but with
+ * the rank flip in place it is worth a further 4.
  *
- * 2026-09-04, lane C.  Nothing closed, but the root cause is now measured
- * rather than inferred, and three theories are dead:
- *  - IT IS A WEIGHT THRESHOLD ON `st`, NOT case 1's `i`.  Bisecting case 1's
- *    found-block one store at a time: with all of `st->riders[i] = b`,
- *    `st->count--` and `st->blokes[0] = 0` present (six `st` references in
- *    the case) `st` takes EAX; drop ANY ONE of them and it still takes EAX;
- *    keep only ONE of them and it moves to ECX, which is the original's
- *    assignment.  So `st` currently outranks `seat`/case-1-`i` by a small
- *    margin and the lever wanted is anything that lowers `st`'s weight (or
- *    raises `seat`'s) WITHOUT changing the emitted references -- our case 0
- *    and case 1 are already instruction-for-instruction identical to the
- *    original modulo the register names, so there is no spare reference to
- *    remove.
- *  - VC6 ALLOCATES WEBS, NOT NAMES.  Giving loop 1 and loop 2 their own
- *    `JcStation*` variable (either way round, and with either declared
- *    first) is BYTE-IDENTICAL, so loop 1's many `st->` references are not
- *    what is inflating loop 2's web.
- *  - The 24 head permutations were re-run with a detector that reads the
- *    register straight off case 0's `lea edi,[st+0x18]`: `st` is EAX in ALL
- *    24, and in all 6 of the `b`-after-search variants.  Also inert:
- *    for/while/`&&`-condition search shapes, `key.w == st->pos.w` swapped,
- *    a byte-pair compare, `--st->count` / `st->count = st->count - 1`,
- *    `*st->blokes`, `0 ==` operand swaps, `unsigned` seat, a `continue`-form
- *    case-1 loop, `switch` on a temp, and reversing the declaration block.
- *    `unsigned i` is worse (209).
- *  - CONFIRMED: the original really does read `inst->bloke` AFTER the station
- *    search (its `mov esi,[ebp+8]` is index 122, in the search's join block).
- *    Writing it there reproduces that instruction exactly but flips the two
- *    callee-saved webs -- the function-wide zero moves to EBP and the
- *    instance cursor to EBX, the reverse of the original -- because `inst`'s
- *    live range then spans the search loop and outranks the zero for EBX.
- *    So the missing lever has to fix BOTH the `st`/`seat` colouring and that
- *    ebx/ebp ranking; neither is reachable alone.
- *  - `if (b->action != 0) { inst = next; continue; }` instead of the
- *    `if (b->action == 0)` block DOES put `next` in EDX as the original has
- *    it and cuts the register-blind distance 17 -> 13, but it tail-duplicates
- *    `inst = next` into a `mov ebp,edx` copy the original does not have
- *    (205).  Recorded, not adopted.
- *  MEASURED BUT NOT ADOPTED (compensating errors): a
- *  `struct { int x, y; } spill; *(int* volatile*)&spill.x = (int*)st;` before
- *  the search scores 118 against 208 purely by inserting one instruction that
- *  shifts the tail into accidental alignment -- the register-blind distance
- *  goes UP (17 -> 18) and the original has no such store.  `volatile` shims
- *  on `st` in case 0 or case 1, on `seat` at the seat table and on `i` are
- *  all far worse (238..264).
+ * RULED OUT, MEASURED. The competing webs cannot be merged: making the key
+ * temp, the selector and seat ONE int variable forces a home at [esp+0x1c]
+ * and a callee-saved register, because the merged range crosses the case
+ * calls (283). Eight free-read spellings meant to raise the key temp's rank
+ * (`key = key`, `key.w |= key.w`, folded compares, a doubled compare, a
+ * guard conjunct) are all deleted before ranking and are bit-identical at
+ * 59. `sp = st` and every other plain copy is coalesced, so `st` cannot be
+ * split; an `int* cnt = &st->count` view is folded back to [reg+0x14] and
+ * changes nothing; `Bloke** rd = st->riders` and a case-0-local slot view
+ * do not reach the threshold. Placement matters more than use: the same
+ * object is produced whether `bl` feeds the case-0 scan, case 1's compare,
+ * or both, but assigning it INSIDE case 1 loses the flip entirely.
  *
- * 2026-09-04, lane K.  Nothing closed; four more theories are dead, one of
- * them the one this lane was sent to try.
- *  - THE goto-FLIP LEVER DOES NOT REACH THIS FUNCTION.  Writing the outer
- *    guard as `if (b->action != 0) goto endsw;` with `endsw:` at the loop's
- *    continue point, and every one of the 31 non-empty subsets of
- *    `break` -> `goto endsw;` over the five case tails, is BYTE-IDENTICAL to
- *    the committed body (32 variants, all exactly 208/1109).  So the
- *    identical-suffix hosting the lever moves is not what makes this body one
- *    instruction short -- the missing instruction is case 0's `mov ecx,edx`,
- *    and that is a consequence of the add destination below, not of block
- *    layout.
- *  - THE ADD-DESTINATION RANK DOES NOT REACH IT EITHER.  Case 0's `b->ty`
- *    add is the one place where our destination is the rank-1 inline memory
- *    operand (`add eax,edx` into the seat-table value) and the original's is
- *    the shift result (`add edx,ebp`, the table value parked in the dead
- *    EBP).  Routing either or both table reads through named `int` locals,
- *    and swapping the operands, are inert (VC6 forward-substitutes them back
- *    into temporaries); naming BOTH costs 3 bytes.  This is the
- *    "rotation-phase residual" case the playbook records -- the destination
- *    follows which register happened to be free, and in the original that is
- *    the dead instance cursor EBP.
- *  - EMISSION ORDER IS NOT THE DRIVER OF THE st COLOURING.  Reading the head
- *    global as `st = *(JcStation* volatile*)&g_jc_stations;` pins its load at
- *    index 110, exactly where the original emits it (ours otherwise emits
- *    `next = inst->next` first) -- and `st` STILL lands in EAX.  So the
- *    theory that the loop-2 block's scratch rotation starts one step late
- *    because our first-emitted load is a different one is disproved: the
- *    allocation is decided before the schedule, and the lever must change
- *    `st`'s PRIORITY, not its position.
- *  - Case 1's six `st` references are the original's too: read off
- *    0x4359d5..0x435a0b there are exactly six (`cmp esi,[ecx+0x18]`,
- *    `lea edx,[ecx+0x30]`, `mov [ecx+eax*4+0x30],esi`, `mov eax,[ecx+0x14]`,
- *    `mov [ecx+0x18],ebx`, `mov [ecx+0x14],eax`) and the original still gives
- *    `st` ECX.  So the reference count is not what separates us from the
- *    original -- our build merely sits just above a threshold the original's
- *    does not have.  Note the original does NOT reuse its walking pointer for
- *    the `st->riders[i] = b` store (base+index, not `[edx]`), which we
- *    already reproduce.
- *  The open question is unchanged and is now sharply stated: what raises
- *  case-0 `seat`/case-1 `i` above loop-2 `st` for EAX, while ALSO ranking the
- *  function-wide zero above `inst` for EBX with `b = inst->bloke` read after
- *  the station search (which is where the original reads it, index 122)?
+ * SCHEDULER SYMBOL PASS (2026-09-06, 17 -> 11). The two case-0 schedule
+ * sites are closed, and they were never allocation knock-ons: VC6's list
+ * scheduler disambiguates memory references by IL BASE SYMBOL, not by
+ * address. In cases 3 and 4 the by-value from-position read `*(Pos*)&b->x`
+ * and the `b->ty` store share the symbol `b` with disjoint offsets, so the
+ * y load is hoisted above the store to pair with `push eax`; likewise the
+ * `b->action` store is hoisted above the `b->dir8` store to pair with
+ * `add al,0x10`. The original's case 0 keeps both in order, i.e. it sees a
+ * dependence, i.e. its case-0 tail reads and writes through DIFFERENT
+ * symbols. A pointer view with a non-zero offset is folded back into the
+ * same `[esi+...]` addressing but stays a distinct symbol: `from =
+ * (Pos*)&b->x` read as the first CalcMoveLine argument keeps the y load
+ * after the ty store (17 -> 13, indices 185..188), and storing the
+ * direction through `unsigned char* p = &b->dir8` (with the value in a named
+ * local so the NewDirForAction argument needs no reload) keeps the action
+ * store after it (13 -> 11, indices 198/199). Both views must die before
+ * the call: a view that survives it needs a register and costs ~220. A
+ * scalar pointer store alone (`*act = 7` with the re-read left on
+ * b->dir8) reloads dir8; a struct-copy store, a named `d` alone, the
+ * five-int call form and a second bloke pointer are inert or worse.
+ * Corpus witness: BoatingSchool_Tick's original has the identical case-0
+ * signature (`add edx,ebp / mov [esi+28h],edx / mov eax,[esi+6Ch]` and
+ * dir8 before action, only in case 0), so the cause is the case-0 source
+ * shape shared by the two rides, not a one-off.
  *
- * PASS N+1 (2026-09-04, lane w7ticks).  NO CHANGE -- 208 strict, first
- * diverging index still 110.  Two things are now settled that were not:
+ * REMAINING 11, and WHICH BASIN THE ORIGINAL IS IN (2026-09-06). The
+ * original's case 1 addresses `[ecx+18h]` directly, so it materialises NO
+ * queue view anywhere: the original is in the NO-VIEW basin, and the
+ * 11-mismatch body here is a coincidence -- the hoisted `bl` happens to
+ * produce the original's whole register assignment (st ECX, selector AL,
+ * zero EBX, inst EBP) while emitting its own `lea edi,[st+18h]` in the
+ * block that ends with the jump table (126..132), CSEing case 1's two
+ * blokes[0] accesses onto it (207/224) and freeing EAX in the reject
+ * block (152/154). That view cannot be removed from the dispatch block:
+ * a case-1-local view of blokes[0], of riders, or one covering both
+ * arrays through the `q[6+i]` alias folds back onto `st` (three spellings,
+ * all bit-identical at 51 in the no-view basin), and blocking the CSE by
+ * pointer cast is also bit-identical -- VC6 CSEs by ADDRESS, not by
+ * source symbol. `volatile` does block it (+2B, `[ecx+18h]` restored) but
+ * reorders the case-1 head for 155.
  *
- *  (1) THE PERMUTATION-AWARE METRIC DOES NOT RESCUE THIS ONE.  permrank gives
- *      205 REAL against 208 strict (best perm `bpsibxdi`), i.e. renaming the
- *      callee-saved registers buys three instructions out of 208.  Whatever
- *      the colouring question does downstream, the bulk of the residual is
- *      genuinely different code, not different names.  Register-blind
- *      distance is 17 of 354, which is the number to drive down.
+ * THE NO-VIEW RESIDUAL IS ONE SCALAR: the weighted reference counts of
+ * exactly TWO webs, loop-2's `st` and case-0's `seat`. Whichever ranks
+ * first takes EAX; the other takes ECX, and case-0 `i` then takes EDX and
+ * the scan pointer EDI in either order. Measured from both sides on the
+ * best no-view body (axis_x + `b->flags |= 8` in both arms, 51/first 110):
+ * -3 `st` references IN CASE 1 flips st EAX->ECX (three independent
+ * triples: count-- plus blokes[0]=0, count-- plus the head compare,
+ * count-- plus riders[i]=b); -1 or -2 never does, and -3 in CASE 0
+ * (count++ plus the blokes[4] guard) does not either, so the weight is by
+ * BLOCK. From the other side, +2 references to `seat` in the join block
+ * flips it and +1 does not; +3 references to case-0 `i`, to the key temp,
+ * to the selector or to `st` itself all leave st in EAX. So the competitor
+ * is specifically `seat`, and the gap is two weighted references.
  *
- *  (2) READING `b = inst->bloke;` AFTER THE STATION SEARCH IS MEASURABLY
- *      WORSE, in every arrangement.  The old note says the original reads it
- *      there (index 122, between the search's `jne` and the first
- *      `cmp word ptr [esi+0xe],bx`), which invites moving the statement.
- *      Moving it below the `while (st)` loop costs 20 strict (228) AND breaks
- *      four instructions in the PROLOGUE (indices 3, 4, 5, 13) that are exact
- *      today -- the read then no longer anchors `inst` and the whole entry
- *      block reschedules.  Measured: b after the loop with the other three
- *      head statements in all six orders (228 x3, 242 x3); `next` also moved
- *      below (230 x3); and `b = inst->bloke;` pushed all the way down to
- *      immediately before `if (b->action == 0)` (228).  Also re-measured for
- *      completeness: the head statements {st =, next =, key =, b =} in six of
- *      their 24 orders with b kept before the loop -- four are 208 (the
- *      committed one among them) and two are 224.
- *      CONCLUSION: the original's late `mov esi,[ebp+8]` is a SCHEDULING
- *      consequence of the colouring, not evidence of a late source read.  A
- *      future pass should stop trying to reproduce it by statement placement.
+ * The two callee-saved levers are INDEPENDENT of that scalar and of each
+ * other only jointly: axis_x alone is 83, `b->flags |= 8` in both arms
+ * alone is 83, together 51; and the +2-seat diagnostic flips st to ECX
+ * with the callee-saved pair still wrong (zero EBP, inst EBX) on both the
+ * axis_x and the plain body. So the body needs BOTH levers AND a free
+ * +2 on seat, and no free +2 exists in anything measured: every
+ * constant-folding or CSEing spelling of a seat use is counted after the
+ * fold (a redundant `st->blokes[seat-1] = st->blokes[seat]`, `i <= seat`
+ * as the scan bound, `(g_jc_seat_ofs - seat)->dx` and three other
+ * pointer forms of the table index, the two offsets named at the top of
+ * the join, a 3-member axis_x carrying the offset or `-seat`, `register`
+ * on seat/i, unsigned/long seat, block scope for seat and i, merging
+ * case 1's index symbol into `seat`), and the two spellings that do add a
+ * real reference cost a byte the 1114-byte budget has not got
+ * (`st->blokes[seat] != 0` as the queue-full guard is +1B; `i != seat`
+ * for `i == 5` is a code change).
  *
- * PASS N+2 (2026-09-04, lane w8rides).  NO CHANGE (208 strict / 205 real /
- * register-blind 17), but the residual is now APPORTIONED and the colouring
- * question is answered as far as source can answer it.
+ * THE FRAME QUESTION IS CLOSED. The 0x1c of locals is next(+0x10, 4),
+ * key(+0x14) and the two Pos at +0x1c and +0x24; the apparent 4-byte hole
+ * at +0x18 is VC6 padding the 2-byte `key` home to 8 so that the byte
+ * extract `mov ecx,[esp+15h] / and ecx,0ffh` stays inside the object. It
+ * is not a missing local, our build reproduces it, and a separate BPosW
+ * for loop 1 would make the frame 0x20 -- which is the proof that `key`
+ * is ONE variable shared by both loops.
  *
- *  (a) THE SHAPE IS ALREADY RIGHT ALMOST EVERYWHERE.  Register-blind distance
- *      is 17 of 354, so ~190 of the 208 are the ONE eax/ecx swap and nothing
- *      else: case 0 and case 1 are instruction-for-instruction identical to
- *      the original with `st` renamed ECX->EAX and {key word, switch index,
- *      seat} renamed EAX->ECX, and case 3 likewise.  The 17 genuinely
- *      different instructions are, in full:
- *        4  the head schedule (our `mov esi,[ebp+8]` hoisted to index 112);
- *        8  case 0's tx/ty cluster, whose core is the `b->ty` add DESTINATION
- *           (original `add edx,ebp` -- the shift temp -- against our
- *           `add eax,edx` -- the table value) and, downstream of it, the
- *           original's extra `mov ecx,edx` at index 189, which is the ONE
- *           instruction our body is short (353 against 354);
- *        2  the `b->dir8` / `b->action = 7` store pair, emitted dir8-first by
- *           the original and action-first by us;
- *        2  case 3's `b->x = world.x; b->y = world.y;` -- the original hoists
- *           BOTH loads above the `b->flags &= ~0x80` and then does both
- *           stores, we interleave;
- *        1  case 4/5's `shl,8` then `+0x80`: `add ecx,0x80` in place against
- *           our `lea eax,[ecx+0x80]`.
- *      Every one of those five is downstream of the same eax/ecx decision.
+ * Also measured inert this pass, all at 354i/1111B: dropping `def`;
+ * `if (--seat == 0)`; a named `stage` for the selector; `while (inst != 0)`
+ * and the `for` form of the search loop; `st->count = st->count - 1`;
+ * `st->blokes[0] != b`; five statement orders of case 1's found block and
+ * the reversed queue-full guard; three head orders and the bloke read
+ * hoisted above the search loop (55); naming the CountStationBoats result,
+ * the scanned queue/rider slot, the compared station key, the class
+ * pointer or `inst->key` (the one-extra-IR-temporary rotation lever);
+ * free volatile reads of the list head (83), of `inst->key` and of the
+ * selector; a goto-reached join from one or both arms; extra folded
+ * records in loop 1 and in cases 3 and 4.
  *
- *  (b) EMISSION ORDER IS DEFINITIVELY NOT THE LEVER -- re-run loosely and
- *      INSPECTED this time rather than scored.  With
- *      `st = *(JcStation* volatile*)&g_jc_stations;` the global load really is
- *      emitted at index 110 exactly as the original does, and `next` is pushed
- *      to 111 -- and `st` STILL colours EAX while `next` takes ECX.  The same
- *      holds with the volatile moved onto `inst->next` instead.  In BOTH
- *      builds the FIRST-EMITTED load takes ECX, so the tempting rule
- *      "first emitted wins ECX" is false: allocation precedes scheduling and
- *      is not observable from the emitted order at all.
- *
- *  (c) NEWLY RULED OUT (all measured this pass, baseline 208/205/rb17):
- *      `next = inst->next;` read AFTER the search loop (209); `next` last in
- *      the head (224); `key` first (224); the search comparing `inst->key.w`
- *      inline with `key` copied afterwards (237); the search as a `for` with
- *      `st = g_jc_stations` in the initialiser (BYTE-IDENTICAL); `st`
- *      assigned last of the four head statements (BYTE-IDENTICAL).
- *      `b = inst->bloke;` after the search loop was re-measured and again
- *      reproduces the original's index-122 `mov esi,[ebp+8]` exactly while
- *      flipping ebx/ebp -- and `st` is STILL EAX there, so that statement is
- *      not the colouring lever either (228, rb 18).
- *  (d) TWO RECONSTRUCTION-ERROR HYPOTHESES TESTED AND REFUTED.  Case 3's
- *      load/load/store/store is NOT a whole-struct copy: writing it as
- *      `*(Pos*)&b->x = world;` is BYTE-IDENTICAL to the two field stores, so
- *      the original's hoist is a scheduling artefact of the colouring, not a
- *      `b->pos = world;` in the source.  And computing the move line into an
- *      `int` temp so `b->action = 7;` precedes `b->dir8 = ...` textually does
- *      NOT flip the emitted store order -- it costs 3 bytes and takes
- *      register-blind 17 -> 20.
- *
- *  WHY THE COLOURING CANNOT BE MOVED FROM SOURCE.  Both webs carry
- *  loop-weighted references (`st` four inside the station search, the key/seat
- *  web one there plus its defs inside case 0's five-slot find loop), the
- *  reference counts are equal to the original's, the live ranges are equal,
- *  and neither statement order nor loop form nor an extra name changes either.
- *  Our build sits one notch above the priority threshold the original's build
- *  sits below, and the input the allocator sees is identical -- which is the
- *  project's standing diagnostic for "the block under the microscope is the
- *  wrong place to look", except that here there is no other block: the rest of
- *  the function is exact.  RECOMMENDED FOR RETIREMENT on the same basis as
- *  UpdateControllerFromMouseData.
+ * Prior semantics remain: case 1 exits when all three seats are full;
+ * case 3 derives its walk target from the two-byte instance key, and passes
+ * the original unused third argument to ScreenToMapRef2. Original missing-
+ * station dereference and raw saved boat-seat pointer bugs are preserved --
+ * `bl` only forms an address, so a null station still faults at the same
+ * first dereference, exactly as the original's own `lea` does. No volatile
+ * shim was used or needed.
+ * Evidence and rejected controls: scratchpad/scope-h/animation7/report.md,
+ * with prior loop/pointer/aggregate controls in jungle2 and jungle4.
  */
-// WIP-FUNCTION: LEGOLAND 0x00435750  (354/354 insns, 208 mismatches / 205 real / register-blind 17, first diff at index 110: loop-2 `st` colours to EAX and `seat`/case-1 `i` to ECX, the reverse of the original -- ~190 of the 208 are that ONE swap, cases 0/1/3 being otherwise instruction-for-instruction exact; emission order is proven not to be the lever and the reference counts and live ranges match the original's)
+// WIP-FUNCTION: LEGOLAND 0x00435750  (354 executable insns/1111B; 11 mismatches, first 126: hoisted queue-view lea at the dispatch, its [edi] uses and one register knock-on)
 void JungleCruise_Tick(void)
 {
     ObjDef*    def = g_jc_station_cls;
@@ -1235,7 +1133,12 @@ void JungleCruise_Tick(void)
     int        seat;
     int        i;
     Pos        screen;
-    Pos        world;
+    void**     bl;
+    Pos*       from;
+    unsigned char d;
+
+    int (__cdecl* move)(Pos, Pos, void*) = (int (__cdecl*)(Pos, Pos, void*))CalcMoveLine;
+
 
     if (++g_jc_anim_tick == 0x50) {
         g_jc_anim_tick = 0;
@@ -1281,18 +1184,19 @@ void JungleCruise_Tick(void)
         st = g_jc_stations;
         next = inst->next;
         key = inst->key;
-        b = inst->bloke;
         while (st) {
             if (st->pos.w == key.w)
                 break;
             st = st->next;
         }
+        b = inst->bloke;
         if (b->action == 0) {
+            bl = st->blokes;
             switch (b->stage) {
             case 0:
                 seat = 4;
                 for (i = 0; i < 5; i++) {
-                    if (st->blokes[i] == b) {
+                    if (bl[i] == b) {
                         seat = i;
                         break;
                     }
@@ -1316,14 +1220,19 @@ void JungleCruise_Tick(void)
                         b->stage++;
                 }
                 b->flags |= 8;
-                b->tx = ((g_jc_station_cls->dx + key.b.x) << 8) + g_jc_seat_ofs[-seat].dx;
+                {
+                    struct { int coord, origin; } axis_x = { key.b.x, g_jc_station_cls->dx };
+                    b->tx = ((axis_x.coord + axis_x.origin) << 8) + g_jc_seat_ofs[-seat].dx;
+                }
                 b->ty = ((g_jc_station_cls->dy + key.b.y) << 8) + g_jc_seat_ofs[-seat].dy;
-                b->dir8 = (unsigned char)(CalcMoveLine(b->x, b->y, b->tx, b->ty, &b->path) + 0x10);
+                from = (Pos*)&b->x;
+                d = (unsigned char)(move(*from, *(Pos*)&b->tx, &b->path) + 0x10);
+                { unsigned char* p = &b->dir8; *p = d; }
                 b->action = 7;
-                NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
+                NewDirForAction(b, (unsigned char)((d >> 5) + 3));
                 break;
             case 1:
-                if (b != st->blokes[0])
+                if (b != bl[0])
                     break;
                 for (i = 0; i < 3; i++) {
                     if (st->riders[i] == 0) {
@@ -1336,7 +1245,8 @@ void JungleCruise_Tick(void)
                     }
                 }
                 break;
-            case 3:
+            case 3: {
+                Pos world;
                 screen.x = 0;
                 screen.y = 0;
                 BlokeWalkAnim(b);
@@ -1354,15 +1264,16 @@ void JungleCruise_Tick(void)
                 b->speed = 0xa;
                 b->tx = (((int)g_jc_station_cls->ox + key.b.x) << 8) - 0x180;
                 b->ty = (((int)g_jc_station_cls->oy + key.b.y) << 8) + 0x80;
-                b->dir8 = (unsigned char)(CalcMoveLine(b->x, b->y, b->tx, b->ty, &b->path) + 0x10);
+                b->dir8 = (unsigned char)(move(*(Pos*)&b->x, *(Pos*)&b->tx, &b->path) + 0x10);
                 b->action = 7;
                 NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
                 b->stage++;
                 break;
+            }
             case 4:
                 b->tx = (((int)g_jc_station_cls->ox + key.b.x) << 8) + 0x80;
                 b->ty = (((int)g_jc_station_cls->oy + key.b.y) << 8) + 0x80;
-                b->dir8 = (unsigned char)(CalcMoveLine(b->x, b->y, b->tx, b->ty, &b->path) + 0x10);
+                b->dir8 = (unsigned char)(move(*(Pos*)&b->x, *(Pos*)&b->tx, &b->path) + 0x10);
                 b->action = 7;
                 NewDirForAction(b, (unsigned char)((b->dir8 >> 5) + 3));
                 b->stage++;

@@ -110,7 +110,7 @@
  *   0x0040cc00   LFTrack_DrawNormal           28 insns
  *   0x00409040   LFPiece_LinkBefore           19 insns
  *   0x00409080   LFPiece_LinkAfter            19 insns
- *   0x00410180   LFDrop_Place                111 insns   [58 of 111 differ]
+ *   0x00410180   LFDrop_Place                111 insns   exact
  *   0x0040d3b0   LFPiece_TickCommon           22 insns
  *   0x0040cfd0   LFPiece_ScreenPos            67 insns
  *   0x0040d210   LFTrack_FindPieceAt          71 insns   [66 of 71 differ]
@@ -1231,174 +1231,27 @@ extern RideDef* g_lftr_def;             /* 0x004cbe30  LOG FLUME TRACK */
         sub->sq.b.y = y;                                                  \
     }                                                                     
 
-/* RESIDUAL: 111/111 instructions, 344 of 341 bytes, mismatch 82 -> 58 -> 45
- * by audit.py.  LCS-aligned register+offset-blind distance 18 of 111.
- * First diverging index 1.
+/* Exact: 111 instructions / 341 bytes.  The running square is a
+ * non-address-taken BPos.  Define BOTH coordinates before c.x += 2: this
+ * preserves the aggregate's two-field initialization phase and gives the
+ * running Y the original EBX register while X reuses the dead parameter
+ * byte.  Folding +2 into the first field assignment instead restores the
+ * wrong allocation; splitting +2 with two scalar coordinates is not enough.
  *
- * THE ALLOCATION (found in an earlier round, unchanged).  The function has
- * seven call-crossing values (parent, sub, prev, cellh, n, x, y) and only
- * four callee-saved registers, so exactly one of the two byte coordinates
- * gets ebx and the other is spilled into the DEAD parameter home at
- * [esp+0x1c].  The original gives ebx to the running Y -- `add bl, byte ptr
- * [esp+0x10]` is the loop's `y += cellh` -- and spills X at its definition
- * (`mov byte ptr [esp+0x1c], al`), reloading it at the TOP of each of the
- * three sub-piece blocks.  Every plain-C spelling picks the OTHER one: X in
- * ebx, Y spilled, which costs three extra instructions at each `y += cellh`.
- * The `volatile` READ of X in the macro above is the shim that takes X out
- * of that race; with it, `add bl,[esp+0x10]`, the whole flags/def store
- * group and the frame layout are exact.  Declaring Y an `int` also flips the
- * ranking (proof that TYPE, not spelling, is what the allocator reads) but
- * then emits `and ebx,0xff` and a dword add, so it cannot reach 0.
- *
- * 2026-09-04 (lane D): 58 -> 45, and the residual is now a SINGLE COUPLED
- * SWAP.  The gain came from re-running the store-order sweep with the
- * volatile read moved to the FIRST statement of the block and ranking the
- * 720 results by LCS-aligned structural distance rather than by the strict
- * index count -- the strict count had previously selected an order that is
- * worse on every structural measure (committed order was
- * kind,dir,x,run,def,flags,f28,y: strict 58 / structural 25; the order now
- * in the macro is strict 45 / structural 18, better on BOTH).
- *   With `sub->sq.b.x = *(volatile ...)&x;` written first, its load lands at
- *   the block top exactly where the original has it, and after the sweep the
- *   ONLY per-block difference left is that `mov byte ptr [esi+0x14], dl` and
- *   `mov dword ptr [esi+0x18], <kind>` are EXCHANGED: the original emits the
- *   kind store first and the x store second-to-last; we emit the x store
- *   first and the kind store second-to-last.  That is exactly the pair the
- *   shim couples -- VC6 will not hoist a volatile load, so the load and its
- *   store cannot be separated, and one of the two must be wrong.  Nothing
- *   else in blocks 1 and 2 differs, f28 included.
- *
- * MEASURED AND RULED OUT (re-run on the CURRENT baseline unless noted):
- *   - the full 720 orders of the eight stores with X first, ranked
- *     structurally; and the earlier 720 with X free, ranked strictly.
- *   - a block-scope temp `unsigned char xv = *(volatile ...)&x;` as the first
- *     statement with the store anywhere later, over four xv types
- *     (char/unsigned char/int/unsigned) x the store orders: best 61.  The
- *     temp costs a register; it does NOT decouple the load from the store.
- *   - X CANNOT BE MADE MEMORY-RESIDENT WITHOUT `volatile`: a
- *     `union { unsigned char b; unsigned short w; }` (read either way), a
- *     two-field struct with a live second field, `*(unsigned char*)&x`, a
- *     `static __inline` helper taking `&x`, `unsigned char x[1]` and `x[2]`
- *     are all scalarised straight back into the 82-point plain-C attractor.
- *     Declaring the whole variable `volatile unsigned char x` is worse (105)
- *     because the STORE is pinned too.  A `volatile unsigned char*` local
- *     assigned `&x` is byte-identical to the read shim.
- *   - the full x/y TYPE cross-product (6 x 6: char, unsigned char, short,
- *     unsigned short, int, unsigned, with the wrap written
- *     `y = (unsigned char)(y + cellh)` wherever y is wider), measured
- *     without the shim: best 82, both narrow.  With the shim only
- *     `unsigned char`/`char` y holds; short 108, int/unsigned 101.
- *     `unsigned char cellh` is 84.
- *   - THE TRIP COUNT IS CLOSED.  `24 / cellh - 2u`, `+ 0xfffffffeu`,
- *     `+ (int)0xfffffffe`, `+ -2`, `(unsigned)(24/cellh) + 0xfffffffeu`,
- *     `+ ~1`, `+ (0 - 2)`, a separate `n -= 2;`, a separate `n = n + (-2);`
- *     and the `while` loop form ALL compile byte-identically: VC6 folds
- *     every spelling, unsigned wrap included, to one SUB node.  The
- *     original's `add eax, -2` (index 45) is not reachable from any C
- *     spelling of this expression and must mean the value arrives from a
- *     different computation.
- *   - the head: all 12 dependency-legal orders of {cellh, def, px, py,
- *     x-calc, y-calc}, re-run.  Putting `cellh` first, or inlining
- *     `g_lfdr_def` at both uses, each FIXES index 1 (the eax<->ecx swap of
- *     the two head loads) and costs three elsewhere -- 48 either way.
- *     Swapping px/py is byte-identical; the y calc first is 71.
- *   - `if (x) {}` / `if (y) {}` empty-body extra-use probes (inert); four
- *     loop forms; splitting the cellh subtraction.
- *
- * STILL UNEXPLAINED, in order of size:
- *   1. the coupled x-store/kind-store swap (3 blocks, 6 indices) -- needs the
- *      shim gone;
- *   2. the head's px/py load-store interleave at indices 11..19;
- *   3. `add eax,-2` vs `sub eax,2` at index 45;
- *   4. the last block: VC6 sinks the final `y += cellh` past LFPiece_Alloc
- *      and emits `mov al,[esp+0x10] / add al,bl / or edx,4` where the
- *      original has `add bl,[esp+0x10]` BEFORE the call and `or al,4` after.
- *      That is where the three extra bytes are.
- *
- * NEXT: find the plain-C construct that lowers X's allocation priority below
- * Y's -- then the shim comes out, the reload hoists on its own and the store
- * order can go back to the natural kind,dir,run,f28,def,flags,x,y (which,
- * with the shim, gives EXACTLY 341/341 bytes but strict 66).  Every
- * construct that merely takes X's address is scalarised; what is wanted is
- * something that lowers its RANK, and the two-way unsigned-char tie-break
- * lever does not apply because the competitor here is a pointer, not a
- * second char.  Sibling LFTunnel_Place (0x0040f050, not yet ported) has the
- * IDENTICAL head shape with `add al, 6` instead of `add al, 2`, so whatever
- * closes this closes that too.
- *
- * 2026-09-05 (sixth lane).  45 -> 44, and the `add eax, -2` is CLOSED by a
- * RECONSTRUCTION FIX, not a spelling: the loop is an UP-COUNTING
- * `for (i = 0; i < 24 / cellh - 2; i++)`, not the down-counting
- * `for (n = 24 / cellh - 2; n > 0; n--)` that was here.  VC6 reverses the
- * up-counting loop into the same `test/jle` guard plus `dec/jne` latch, but
- * the trip count `24/cellh - 2` is then materialised by the LOOP
- * TRANSFORMATION rather than by the front end, and that node is an ADD with
- * a negative constant: `add eax, -2`.  (`n = 24/cellh; for (i = 0; i < n - 2;
- * i++)` is identical; `for (i = n - 2; i > 0; i--)`, `n = 24/cellh - 2;
- * for (i = 0; i < n; i++)` and `while (n-- > 2)` all go back to `sub eax,2`.)
- * *** This falsifies the DECOMP rule "VC6 canonicalises x + (-K), x - K,
- * x + ~(K-1), x + (0-K) and n -= K to ONE sub node, so `add reg, -K` is not
- * reachable from C" -- it is reachable, just not from the SUBTRACTION at
- * this site; here it comes from an up-counting loop's trip count.  A scan of
- * the whole `.text` section finds 75 `add r32, -K` instructions, and one of
- * them is already REPRODUCED EXACTLY by this tree: `add eax, -2` at
- * 0x0040c01f, LFEntrance_Activate case 2, from the plain narrowing
- * subtraction `(tile->b.x - 2) << 8` on a widened unsigned char.  So the
- * canonicalisation the rule describes is real for some operand shapes and
- * not for others; treat "not reachable from C" as retired. ***
- *  - THE EBX TIE-BREAK IS NOT REACHABLE FROM SOURCE, measured again this
- *    round on the CURRENT baseline and much harder than "not yet found":
- *    both coordinates are byte-typed, and on x86 the only byte-addressable
- *    CALLEE-SAVED register is EBX, so exactly one of them can survive the
- *    calls in a register and the other must spill -- the tie is FORCED, not
- *    an artefact.  Everything tried leaves X the winner and is
- *    BYTE-IDENTICAL in the head: variable NAMES (8 pairs, incl. reversed
- *    alphabetical and different lengths), declaration order, the x/y
- *    statement order, giving X two or three defs (`x = v0 + px; x += 2;`
- *    and `x = v0; x += px; x += 2;` -- both of which match the original's
- *    `mov al / add al / add al` shape), reusing `px`/`py` themselves as the
- *    running coordinates (either, or both), `int px, py`, and four store
- *    orders that put `sub->sq.b.y` first or before the x store (so Y's first
- *    USE precedes X's).  Only a TYPE change flips it, and either type change
- *    does: `int y` gives the original's WHOLE 18-instruction head exactly,
- *    plus one extra `and ebx,0xff`; `int x` (no mask, narrowing only at the
- *    store) gives the flipped allocation, the correct block store order and
- *    EXACTLY 341/341 bytes, but a dword head (`xor/xor/mov cl/mov dl/lea
- *    ecx,[ecx+edx+2]`, +2 instructions).  So the residual is now precisely
- *    "a byte-typed local that ranks like an int", and the two int forms
- *    bracket it from both sides.
- *  - The three families remain: shim + the store order committed here gives
- *    the x reload at each block top but swaps the x/kind stores and sinks
- *    the last `y += cellh` past LFPiece_Alloc (344B); shim + the natural
- *    order kind,dir,run,f28,def,flags,x,y gives 341/341 bytes and the
- *    correct last block but pins the reload to the x store (X=66); no shim
- *    gives X in ebx and Y spilled (X=78).  All three are one allocation
- *    decision apart.
- *
- * 2026-09-04 (fifth lane).  Unchanged at 45; not re-ground, but one
- * correction to the note above, because it points the next lane at the wrong
- * lever.  The note says "the two-way unsigned-char tie-break lever does not
- * apply because the competitor here is a pointer, not a second char" -- that
- * is wrong on its own evidence: the note's own analysis says X and Y are BOTH
- * `unsigned char` locals and exactly one of them gets ebx while the other is
- * spilled, which IS the recorded two-way tie-break ("An `unsigned char` local
- * loses a two-way callee-saved tie-break to another `unsigned char` even with
- * strictly more, loop-nested references; retyping the winner `int` flips
- * it").  The 6 x 6 type cross-product recorded above did measure every type
- * pairing, so the lever has been exercised even though it was mis-attributed
- * -- but the framing matters for what to try next: the question is not "lower
- * a char's rank against a pointer", it is "what separates two `unsigned char`
- * locals in VC6's ranking", which is an OPEN question with a worked example
- * elsewhere in the corpus and is worth attacking as a general rule rather
- * than on this function.
- */
-// WIP-FUNCTION: LEGOLAND 0x00410180  (111/111 insns, 344/341B, 44 by audit; the ebx tie-break between two byte coordinates -- see note)
+ * With that source shape, all three constructors use the original natural
+ * kind,dir,run,f28,def,flags,x,y order.  Their plain X reads hoist to each
+ * block's top while its stores stay near the end, reproducing the formerly
+ * coupled load/store ordering without the legacy macro's volatile shim.
+ * The separate Y pointer is no longer necessary, and the final Y increment
+ * still precedes allocation.  The existing up-counted loop is unchanged.
+ * Full-body evidence, counterfactuals and all four metrics are recorded in
+ * scratchpad/scope-h/animation4/report.md. */
+// FUNCTION: LEGOLAND 0x00410180
 void LFDrop_Place(LFPiece* parent)
 {
     int           cellh;
     RideDef*      def;
-    unsigned char x;
-    unsigned char y;
+    BPos          c;
     unsigned char px;
     unsigned char py;
     LFPiece*      sub;
@@ -1409,23 +1262,54 @@ void LFDrop_Place(LFPiece* parent)
     cellh = g_lf_footprint.v[3] - g_lf_footprint.v[1];
     px = parent->sq.b.x;
     py = parent->sq.b.y;
-    x = (unsigned char)((unsigned char)def->footprint.v[0] + px + 2);
-    y = (unsigned char)((unsigned char)def->footprint.v[1] + py);
+    c.x = (unsigned char)((unsigned char)def->footprint.v[0] + px);
+    c.y = (unsigned char)((unsigned char)def->footprint.v[1] + py);
+    c.x += 2;
 
-    LF_MAKE_SUB(3, 0)
+    sub = LFPiece_Alloc();
+    if (sub) {
+        sub->kind = 3;
+        sub->dir = 0;
+        sub->run = parent->run;
+        sub->f28 = (int)parent;
+        sub->def = g_lftr_def;
+        sub->flags |= 4;
+        sub->sq.b.x = c.x;
+        sub->sq.b.y = c.y;
+    }
     LFPiece_AddSub(parent, sub);
     parent->end_a = sub;
     prev = sub;
 
     for (i = 0; i < 24 / cellh - 2; i++) {
-        y += (unsigned char)cellh;
-        LF_MAKE_SUB(1, 0)
+        c.y += (unsigned char)cellh;
+        sub = LFPiece_Alloc();
+        if (sub) {
+            sub->kind = 1;
+            sub->dir = 0;
+            sub->run = parent->run;
+            sub->f28 = (int)parent;
+            sub->def = g_lftr_def;
+            sub->flags |= 4;
+            sub->sq.b.x = c.x;
+            sub->sq.b.y = c.y;
+        }
         LFPiece_AddSub(parent, sub);
         LFPiece_LinkAfter(prev, sub);
         prev = sub;
     }
-    y += (unsigned char)cellh;
-    LF_MAKE_SUB(3, 2)
+    c.y += (unsigned char)cellh;
+    sub = LFPiece_Alloc();
+    if (sub) {
+        sub->kind = 3;
+        sub->dir = 2;
+        sub->run = parent->run;
+        sub->f28 = (int)parent;
+        sub->def = g_lftr_def;
+        sub->flags |= 4;
+        sub->sq.b.x = c.x;
+        sub->sq.b.y = c.y;
+    }
     LFPiece_AddSub(parent, sub);
     LFPiece_LinkAfter(prev, sub);
     parent->end_b = sub;

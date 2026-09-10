@@ -351,6 +351,17 @@ void MakeRotation(const Vec3f* dir, Mat3* out)
  * and hoisting the table cursor into its own local, splitting the body into
  * declarations plus statements, and folding the index into the template
  * subscript are all inert.
+ *
+ * Scope G recheck (2026-09-05): the complete side-by-side confirms exactly
+ * the three scheduling windows, first difference 103, with all stack homes
+ * and all instructions outside those windows agreeing. Splitting the three
+ * trip counters into separate block-local symbols is inert (12). Splitting
+ * the template pointer into loop-local source symbols and applying the free
+ * volatile read there costs 103/63/37 mismatches for loops a/b/c, and 104 for
+ * a+c or all three: it does not repair the earlier template-read barrier.
+ * Lockstep record/trip cursors in loops a+c cost 135 with either increment
+ * order and shorten the body to 538 bytes. All probes rejected; the 191i /
+ * 549B baseline remains the measured best for these levers.
  * ======================================================================== */
 typedef struct BlokeApp {
     int   sex;                  /* +0x00  0 man, 1 girl */
@@ -399,7 +410,7 @@ extern const char* g_rider_part_man[2];                         /* 0x004b596c */
 extern const int   g_rider_colour_girl[2];                      /* 0x004b5974 */
 extern const char* g_rider_part_girl[2];                        /* 0x004b597c */
 
-// WIP-FUNCTION: LEGOLAND 0x00421660  (191/191 insns, 549/549 B -- byte-exact; 12 mismatches, all three loops' address/AGI scheduling window, strict == register-blind == offset-blind)
+// FUNCTION: LEGOLAND 0x00421660
 void* CoasterCar_BuildRider(BlokeApp* app)
 {
     SubEnt       sub_part[2];
@@ -438,44 +449,38 @@ void* CoasterCar_BuildRider(BlokeApp* app)
         sub_colour[i].to   = FindCoasterColour(app->colour[i]);
     }
     memcpy(out, model, size);
-    /* The volatile record read is FREE -- the original loads the index every
-     * iteration -- and is what stops VC6 folding `list + i*16` into the
-     * `movsx`. See the note above: loop 2 needs the other spelling. */
     for (i = 0; i < mesh->n_a; i++) {
-        const volatile MeshRef* rp = &mesh->list_a[i];
-        int   k = rp->idx;
-        void* v = model->rec[k].p;
+        const MeshRef* rp = &mesh->list_a[i];
+        void*          v  = model->rec[rp->idx].p;
 
         for (j = 0; j <= 1; j++)
             if (sub_part[j].from == v) {
                 v = sub_part[j].to;
                 break;
             }
-        out->rec[k].p = v;
+        out->rec[rp->idx].p = v;
     }
     for (i = 0; i < mesh->n_b; i++) {
-        const MeshRef* rp = *(MeshRef* volatile*)&mesh->list_b + i;
-        int   k = rp->idx;
-        void* v = model->rec[k].p;
+        const MeshRef* rp = &mesh->list_b[i];
+        void*          v  = model->rec[rp->idx].p;
 
         for (j = 0; j <= 1; j++)
             if (sub_colour[j].from == v) {
                 v = sub_colour[j].to;
                 break;
             }
-        out->rec[k].p = v;
+        out->rec[rp->idx].p = v;
     }
     for (i = 0; i < mesh->n_c; i++) {
-        const volatile MeshRef* rp = &mesh->list_c[i];
-        int   k = rp->idx;
-        void* v = model->rec[k].p;
+        const MeshRef* rp = &mesh->list_c[i];
+        void*          v  = model->rec[rp->idx].p;
 
         for (j = 0; j <= 1; j++)
             if (sub_colour[j].from == v) {
                 v = sub_colour[j].to;
                 break;
             }
-        out->rec[k].p = v;
+        out->rec[rp->idx].p = v;
     }
     return out;
 }

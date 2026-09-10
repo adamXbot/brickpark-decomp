@@ -391,29 +391,17 @@ extern void SetSpanClip(int l, int t, int r, int b);            /* 0x0041ef20 */
  * straight into another call and no branch joins the region, so VC6 defers
  * every clean-up to the end.
  *
- * WHAT CLOSED, AND WHAT IS LEFT.
- *  * `dx`/`dy` are built by converting EACH int to a float local first
- *    (`cxf = (float)centre.x; hf = (float)half; dx = cxf - hf;`).  Written as
- *    `(float)centre.x - (float)half` VC6 folds the second conversion into a
- *    single `fisub` and the body comes out two instructions short; the two
- *    float locals are what force the original's `fild / fild / fsubp` pair.
- *    A `(double)` spelling gets one of the two, a negated `-(b - a)` gets the
- *    count but not the schedule.
- *  * The two screen-centre components are BOTH computed before either is
- *    stored into the transform (x, y, m[3], m[7], not x, m[3], y, m[7]):
- *    worth 16 -> 10, because the y half's `movzx` pair is what VC6 schedules
- *    into the first conversion's x87 latency gap.
- *  * ONE free `volatile` read, on the FIRST of the four 2x2 copies.  Without
- *    it VC6 forward-propagates the struct copy and hoists all four loads ABOVE
- *    the `rep movsd` (30 mismatches, first divergence at index 1); the barrier
- *    on the first load alone pins the group after the copy and the other three
- *    then schedule exactly.  Making all four volatile is worse (21) because
- *    each load then has to stay glued to its own store instead of being
- *    batched.  A `volatile` STORE through the copy, a `volatile Mat4*` cursor,
- *    a separate float-array alias of the same global, a `Mat4*`/`float*` local
- *    and every one of the 4! fill orders were measured; none reaches it.
+ * Matching details: separate float locals preserve the original pair of fild
+ * conversions for each screen-minus-bounds difference. Both centre components
+ * are computed before either transform store, filling the x87 latency gap.
+ * The aggregate source copy is volatile so its scalar reads follow rep movsd.
+ * The bounds right/bottom pair is copied into Pos before accumulating left,
+ * preserving the original ECX sum and the input load order. Finally, explicit
+ * float casts on BOTH first eye.x products add no instructions but preserve
+ * the compiler scheduling window: lpConfig and its zero registers load in
+ * the last eye.y multiply/add/store gaps. 129 instructions, 466 bytes exact.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00425e20  (92.2%: 129/129 insns and 466/466 BYTES -- every encoding is right -- with 10 strict mismatches in three allocation clusters and nothing structural left. (a) indices 7-8: the m[0] and m[1] loads are the same two instructions with eax and ecx swapped; the free volatile pins m[0] first where the original loads m[1] first. (b) indices 51/53/54: `add ecx,eax / sar ecx,1 / mov [half],ecx` against our `add eax,ecx / sar eax,1 / mov [half],eax` -- the same three instructions accumulating into the other register; both operand orders of the sum, a two-statement `half = a + b; half >>= 1;`, per-operand shifts and volatile reads of either bound were measured and none flips it. (c) indices 76-80: a pure scheduling permutation -- the original threads `mov eax,[lpConfig] / xor edx,edx / xor ecx,ecx` into the `fmul/fadd/fstp` latency gaps and this build emits the three x87 ops back to back. Register-blind the whole residual is ~0: it is an allocation/scheduling floor, not a missing construct)
+// FUNCTION: LEGOLAND 0x00425e20
 void Coaster3D_SetupView(void)
 {
     int        half;
@@ -429,8 +417,8 @@ void Coaster3D_SetupView(void)
     float      cyf;
     float      tf;
 
-    g_view_xf = g_view_base;
-    inv[0] = *(volatile float*)&g_view_xf.m[0];
+    g_view_xf = *(volatile Mat4*)&g_view_base;
+    inv[0] = g_view_xf.m[0];
     inv[1] = g_view_xf.m[1];
     inv[2] = g_view_xf.m[4];
     inv[3] = g_view_xf.m[5];
@@ -443,7 +431,12 @@ void Coaster3D_SetupView(void)
     ScreenToMapRef(&centre, &square, 0);
     GetTileBounds(&square, &bounds);
 
-    half = (bounds.right + bounds.left) >> 1;
+    {
+        Pos corner = *(Pos*)&bounds.right;
+
+        corner.x += bounds.left;
+        half = corner.x >> 1;
+    }
     g_eye.z = 0.0f;
     cxf = (float)centre.x;
     hf = (float)half;
@@ -451,7 +444,7 @@ void Coaster3D_SetupView(void)
     cyf = (float)centre.y;
     tf = (float)bounds.top;
     dy = cyf - tf;
-    g_eye.x = dx * inv[0] + dy * inv[1];
+    g_eye.x = (float)(dx * inv[0]) + (float)(dy * inv[1]);
     g_eye.y = dx * inv[2] + dy * inv[3];
     g_eye.x += square.x * 20.0f;
     g_eye.y += square.y * 20.0f;
@@ -757,9 +750,121 @@ typedef void (*SpanFiller)(int tag, int* grad, int ne, SortKey* keys,
  *    VC6 loads it once into a register and subtracts twice; spelled
  *    `v1->a[m] - v0->a[m]` twice it folds both into memory operands.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x0042a2f0  (252/252 instructions and 743/743 BYTES -- every encoding, immediate and addressing form is right -- with 231 strict mismatches. The residual is FRAME and REGISTER allocation, not structure: every block is present in the original's order (the two clip tests, the clipper call, the ring close, the flat-gradient loop, the edge loop with its asymmetric arms, the bubble sort, the conditional 0x00423200 call and the indirect filler call), but this build's scalar frame is 0x1fc against 0x200 -- fifteen homed dwords against sixteen -- so every `[ebp-N]` is four bytes off and each counts as a mismatch. Measured and inert: `int g[3]`/`g[4]`/`g[5]`/`g[6]`/`g[7]` for the gradient scratch (g[6] gets `sub esp,0x200` but costs 3 bytes), a 24-byte struct holding the two difference temporaries and the gradients together (frame exact, 11 bytes short), moving the float/int temporaries and the two `inv` locals between block and function scope, and swapping the two vertex-array pointers' declaration order. The one homed dword this build cannot account for is a compiler temporary, so the next wave should look for a value the original keeps in memory that this build enregisters, not for a missing statement)
+/* Scope G reconstruction correction: audit's 252i/743B includes two NOPs
+ * after the actual compiled ret (250i/741B); the original is 252i/743B.
+ * The old instruction-/byte-exact and uniform-four-byte-frame-shift claims
+ * were therefore wrong. The frame is 0x1fc versus 0x200, but scalar homes
+ * also coalesce/permutate, the original keeps job in edi through the flat
+ * gradients, and the loop and sort have missing/reordered operations.
+ * Reversing the clip-nibble condition places mode=0/n-- on the fall-through
+ * path, as at 0x0042a32e in the original, and improves 231 -> 228 without
+ * changing semantics, true body size or any exact neighbor.
+ * Bounded new probes (strict mismatches): preserving integer dy separately
+ * from its in-place conversion 215 (253i/749B); distinct down/up inverse
+ * locals 209 (252i/749B); combining those with the branch reversal 227
+ * (254i/752B); a free volatile n read 240; reading the high clip flags early
+ * 231; PolyVtx-shaped gradient scratch with differences in f00/y 241
+ * (244i/733B). None improves size and structure together.
+ * Earlier probes to avoid repeating: g[3..7], a 24-byte difference/gradient
+ * aggregate, scope moves of float/int/inverse locals, and vp/jv declaration
+ * order. The mixed structural/allocation residual is still open. */
+/* Scope G continuation: keep the common divide in x87, then copy its result
+ * into separate down/up inverse locals after edge metadata. This recovers
+ * both original branch-local fstp sites without an extra integer reload.
+ * Actual body advances from 250i/741B to 251i/744B; the remaining discrepancy
+ * includes the missing outer-loop entry jump, scalar home reuse, and the
+ * job/attribute-count/dy register lifetimes. Strict positional score is 229
+ * versus the earlier 228; this is a structural correction, not exactness.
+ * Explicit counter homes, parameter qualifiers, integer cursor spellings,
+ * scalar/aggregate differences, and private inline conversion/gradient
+ * helpers were measured in scratch; none recovered the whole original web. */
+/* Scope G, edge-record snapshot + the allocator's real ranking rule
+ * (145 -> 142 strict, 252i/742B, first index 6, align 158/252).
+ *
+ * ONE LEVER RECOVERED, and it is a STATEMENT ABOVE the loop, not a register.
+ * `SpanEdge* e = ecur;` is the ring step's FIRST act, taken before the
+ * scanline height is even computed -- not the first statement inside
+ * `if (dy != 0)`.  Hoisting it out of the guard is what restores the
+ * original's loop-entry jump `jmp 0x42a429` at 0x0042a424: with `e` defined
+ * in the loop-body header, VC6 rotates the ring walk so the pre-header falls
+ * INTO the body past the `mov eax,[ebp-0x10]` reload of the ring cursor,
+ * exactly as the original does; with `e` defined under the guard it emits the
+ * store and an immediately redundant reload instead.  Indices 95..98 (the
+ * pre-header, the cursor store, the jump and the reload) all become exact.
+ * The position is tight: `e` must sit AFTER va and vb and BEFORE dy.  Ahead
+ * of va it costs eleven positions (153) though it does give the original's
+ * 743 bytes; after dy it gives back two (144); inside the guard, 145.  The
+ * `if (dy != 0)` guard itself is right -- rewriting it as a `continue` is
+ * worth the same 144 and no more, so it is the DEFINITION SITE of `e`, not
+ * the guard's shape, that carries the jump.
+ *
+ * THE ALLOCATOR'S RULE, measured rather than assumed (roughly 140 builds).
+ * VC6 hands out the callee-saved set in the preference order EDI, ESI, EBX --
+ * not ESI first -- to a ranked list of the values live across the clip call.
+ * The rank is a reference count with loop references weighted x4:
+ *   job = 6 + 4*2 = 14,  &job->v[0] = 1 + 4*3 = 13,  key cursor = 1 + 4*5 = 21.
+ * Two clean threshold probes confirm the weight and the order.  Feeding the
+ * vertex-array base extra depth-0 references flips it past the parameter at
+ * exactly +2 (+1 ties and loses), i.e. 13+2 > 14 >= 13+1, so the loop weight
+ * is 4 and ties go to the earlier candidate.  But the SAME probe applied to
+ * the parameter -- up to twelve extra depth-0 references (+12) and three
+ * extra gradient-loop references (+12) -- never demotes the key cursor from
+ * EDI.  So the cursor is NOT merely the heaviest: with a cursor initialised in
+ * the entry block and advanced in the edge loop, EDI is its own, and only the
+ * other two contest ESI/EBX by weight.  That is why every spelling of the
+ * cursor, every declaration order and every entry-block statement order (all
+ * 120 re-measured on this body) leaves the 3-cycle exactly where it is.
+ *
+ * WHAT DOES REACH THE ORIGINAL'S COLOURING, and why it is not yet usable.
+ * Three or more references to the PARAMETER placed INSIDE the edge loop give
+ * job=EDI, &job->v[0]=ESI and the key cursor=EBX -- the original's assignment,
+ * exactly -- and one reference already moves the array base to ESI.  So the
+ * 3-cycle is decided by whether the parameter's first web is weighted against
+ * the EDGE loop, not by any tie-break.  The original's parameter web dies at
+ * 0x0042a3cb and is reloaded at 0x0042a578, so its edge-loop references, if
+ * any, are ones the optimiser removes -- and hoisting does NOT preserve the
+ * weight: moving `65536.0f / job->area` inside the gradient loop is hoisted
+ * straight back into the pre-header and the rank does not move (219).  The
+ * open question is therefore narrow and concrete: which source-level
+ * reference to `job` inside the edge loop does VC6 delete outright while still
+ * counting it?
+ *
+ * Also measured and rejected on this body: the flat-gradient scratch as ONE
+ * address-escaped aggregate `{float k; int d1; int d2; int a[4];}` -- the
+ * layout is right (k at -0x40, a[0] at -0x34, the record base at -0x3c) but
+ * the escape does NOT stop constant propagation of the 65536, with or without
+ * volatile on the member, and the body loses the `mov [ebp-0x40],0x47800000`
+ * (736B, 221); counting the inner attribute loop against the parameter `n`
+ * directly instead of the volatile-read local (183); the vertex array read as
+ * `job->v[i]` with no named base (237); `keys[ne]` indexing for either key
+ * field (236-241, both escape the extent); a volatile-read local for the
+ * vertex base or for the key cursor (243-246); every dy spelling (a named
+ * y-temporary, a compound subtract) -- the original's `mov eax,[esi+4]` /
+ * `sub edi,eax` split is register pressure, not spelling, and no spelling
+ * moves it; the ring walk by subscript (143, align 161); `e->dir` before
+ * `kp->y` (147, but 743B -- the original's exact size). */
+/* FGH-100b (2026-09-07).  142 -> 108 and 742 -> 743 bytes (the original's
+ * size, with `sub esp,0x200`), first divergence still 6; behaviour verified
+ * identical to the original on 1,200 randomized polygons incl. clipped rings,
+ * empty edge lists, both edge directions, sort ties and all four rounding
+ * modes (scratchpad/fgh100b/diffexec.py).  Found by a MECHANICAL mutation
+ * search over ~5,200 textual variants (scratchpad/fgh100b/mutate.py,
+ * mutants/Raster_SubmitPoly/m2 + m3), not by hand.  Load-bearing, each
+ * measured by reverting it alone:
+ *  - the vertex `y` reads that feed the SHORT edge bounds go through named
+ *    `int` temporaries (`ya`, `yb`); spelled `(short)vb->y` inline the body is
+ *    744 bytes;
+ *  - in the downward arm `kp->y` and `e->y0` are written BEFORE `ne++;
+ *    ecur++`, and `kp++` before `e->y1`;
+ *  - `jt = job` -- the volatile view of the parameter is gone (143 with it).
+ * Inert and removed: `if (kp) { }`, a named `f10` temporary, `0 == cnt`.
+ * The entry block and the EDI/ESI/EBX 3-cycle (index 6 on) are unchanged;
+ * ~2,700 further variants from this body found no lower point. */
+// WIP-FUNCTION: LEGOLAND 0x0042a2f0  (57.1% strict audit agreement: 144/252 positions, 108 mismatches, first index 6; compiled body 252i/743B == original 252i/743B; class: one 3-cycle of the callee-saved registers (job/EDI, &job->v[0]/ESI, key cursor/EBX in the original) and the frame-home permutation and integer-dy residency that follow from it; the edge-arm and sort schedules downstream of it now match)
 void Raster_SubmitPoly(int n, PolyJob* job)
 {
+    int grad_count;
+    int inner_count;
     int       cnt;
     int       ne;
     int       mode;
@@ -767,105 +872,112 @@ void Raster_SubmitPoly(int n, PolyJob* job)
     int       m;
     PolyVtx** vp;
     PolyVtx** jv;
+    PolyJob*  jb;
     SortKey*  kp;
-    int       d1;
-    int       d2;
-    int       g[5];
-    volatile float k65536;
+    struct { volatile float k; int delta; } first;
+    struct { int d2; int a[4]; } grad;
     SortKey   keys[8];
     SpanEdge  edges[8];
 
+    jb = *(PolyJob* volatile*)&job;
     ne = 0;
     cnt = 3;
-    k65536 = 65536.0f;
+    first.k = 65536.0f;
+    vp = jb->v;
     kp = keys;
-    jv = job->v;
-    vp = jv;
-    if ((job->or_flags & 0xf0) == 0xf0) {
-        mode = 1;
-    } else {
+    if ((jb->or_flags & 0xf0) != 0xf0) {
         mode = 0;
         n--;
+    } else {
+        mode = 1;
     }
-    if ((job->and_flags & 0xf) != 0xf) {
+    if ((jb->and_flags & 0xf) != 0xf) {
         cnt = 0;
-        vp = Raster_ClipPoly(jv, &cnt, job->and_flags & 0xf, n);
+        vp = Raster_ClipPoly(vp, &cnt, jb->and_flags & 0xf, n);
         if (cnt == 0)
             return;
     }
+    jv = jb->v;
     vp[cnt] = vp[0];
-    g[0] = job->f10;
-    if (n > 1) {
-        float inv = 65536.0f / job->area;
+    grad_count = n;
+    grad.a[0] = jb->f10;
+    if (grad_count > 1) {
+        float inv = 65536.0f / jb->area;
 
-        for (m = 1; m < n; m++) {
+        for (m = 1; m < grad_count; m++) {
             float f;
             int   t;
             int   a0 = jv[0]->a[m];
 
-            d1 = jv[1]->a[m] - a0;
-            d2 = jv[2]->a[m] - a0;
-            f = ((float)d1 * job->dy2 - (float)d2 * job->dy1) * inv;
+            first.delta = jv[1]->a[m] - a0;
+            grad.d2 = jv[2]->a[m] - a0;
+            f = ((float)first.delta * jb->dy2 - (float)grad.d2 * jb->dy1) * inv;
             FTOI(f, t);
-            g[m] = t;
+            grad.a[m] = t;
             /* Original bug: `t` is dead after this, so the clamp is lost. */
             if (t < -0x200000 || t > 0x200000)
                 t = 0;
         }
     }
+    i = 0;
     if (cnt > 0) {
         SpanEdge* ecur = edges;
         PolyVtx** p = vp;
 
-        for (i = 0; i < cnt; i++) {
-            PolyVtx* va = p[0];
-            PolyVtx* vb = p[1];
-            int      dy = vb->y - va->y;
+        for (; i < cnt; i++, p++) {
+            PolyVtx*  va = p[0];
+            PolyVtx*  vb = p[1];
+            SpanEdge* e  = ecur;
+            int       dy = vb->y - va->y;
 
             if (dy != 0) {
-                SpanEdge* e = ecur;
-                float     inv;
+                float inv;
 
                 TOFLT(dy);
-                inv = k65536 / ASFLT(dy);
+                inv = first.k / ASFLT(dy);
                 kp->idx = ne;
                 if (dy < 0) {
+                    float down_inv;
+                    kp->y = vb->y;
+                    { int yb = vb->y; e->y0 = (short)yb; }
                     ne++;
                     ecur++;
-                    kp->y = vb->y;
                     e->dir = 0;
-                    e->y0 = (short)vb->y;
-                    e->y1 = (short)va->y;
                     kp++;
-                    for (m = 0; m < n; m++) {
+                    e->y1 = (short)va->y;
+                    down_inv = inv;
+                    inner_count = *(volatile int*)&n;
+                    for (m = 0; m < inner_count; m++) {
                         int d;
 
                         e->a[m] = vb->a[m] << 16;
                         d = vb->a[m] - va->a[m];
-                        FSCALE(d, inv);
+                        FSCALE(d, down_inv);
                         e->d[m] = d;
                     }
                 } else {
                     int d;
+                    float up_inv;
 
                     ne++;
                     ecur++;
                     kp->y = va->y;
                     e->dir = 1;
-                    e->y0 = (short)va->y;
-                    e->y1 = (short)vb->y;
+                    { int ya = va->y; e->y0 = (short)ya; }
+                    { int yb = vb->y; e->y1 = (short)yb; }
                     kp++;
+                    up_inv = inv;
                     e->a[0] = va->a[0] << 16;
                     d = vb->a[0] - va->a[0];
-                    FSCALE(d, inv);
+                    FSCALE(d, up_inv);
                     e->d[0] = d;
                 }
             }
-            p++;
         }
     }
     if (ne != 0) {
         int j;
+        PolyJob* jt;
 
         for (i = ne - 1; i >= 0; i--) {
             for (j = 0; j < i; j++) {
@@ -877,8 +989,9 @@ void Raster_SubmitPoly(int n, PolyJob* job)
                 }
             }
         }
-        if ((job->kind & 1) && mode == 1)
+        jt = job;
+        if ((jt->kind & 1) && mode == 1)
             Raster_AddSpanRecord(ne, edges[keys[ne - 1].idx].y1, keys, edges);
-        ((SpanFiller)job->shader[mode])(job->tag, &g[0], ne, keys, edges);
+        ((SpanFiller)jt->shader[mode])(jt->tag, &grad.a[0], ne, keys, edges);
     }
 }

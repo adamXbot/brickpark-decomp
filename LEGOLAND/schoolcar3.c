@@ -321,7 +321,137 @@ extern void TransformVerts(const Vec3f* s, TrackVtx* d, const Mat4* m, int st, i
  *    order they appear in: that is what puts 9*last in edx and 3*last back
  *    into `last`'s own register.  Worth 32 -> 8.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00428cb0  (94.7%: 151/151 insns, 442/441 bytes, 8 mismatches -- indices 21-22 are the two preheader spill stores in the other order, and 27-32 are one 6-instruction window in which this build reloads the element from its home (`mov esi,[ebp-0x14]`, 3 bytes) where the original copies the register it just loaded (`mov esi,ecx`, 2 bytes); the whole one-byte deficit is that reload)
+/* Scope G, Fable pass (8 -> 6) then two re-derivations.  Still 6.
+ *
+ * CLOSED EARLIER: the two preheader homing stores (old indices 21-22).  The
+ * vertex cursor is written as an expression of the loop counter at the TOP of
+ * the body, `out = g_track_verts + i * 6;`, with no `out = g_track_verts`
+ * before the loop and no `out += 6` latch.  The RULE behind it, confirmed
+ * this round from both sides: VC6 creates the two derived induction variables
+ * in REVERSE order of their first appearance in the body and homes them in
+ * CREATION order into the dead argument slots -- first created into o's slot
+ * [ebp+8], second into n's [ebp+0x14].  So `out` first in the body puts the
+ * LIST cursor in [ebp+8] (the original); putting the element statement first
+ * swaps both the homes (21-22) and their reloads (25-26), measured 44-48.
+ *
+ * OPEN (27-32): the element window.  Original:
+ *      27 mov edx,[edi+0x4c]   H  hooks       31 mov [ebp-0x14],ecx   S
+ *      28 mov ecx,[eax]        E  element     32 mov ecx,[ebp+0x10]   T slot
+ *      29 lea eax,[ebp-0x48]   A  &dir        33..35 push A, push esi, push o
+ *      30 mov esi,ecx          C  copy
+ *
+ * THE FRAME IS SETTLED (previous round): esp is exactly 0xc8 with no padding;
+ * &dir -0x48, &rot -0x3c, &pos -0x10, &xf -0x88, &mvp -0xc8, t -4 (via __asm)
+ * account for every escaping address, and NOTHING takes the address of -0x14.
+ * A plain local there is deleted and the frame closes up; a non-escaped object
+ * of any shape is scalarised.  So -0x14 can only be the first member of the
+ * aggregate whose escape is the `&pos` passed to get_pos:
+ *      struct { void* elem; Vec3f pos; } cur;   cur.elem = list[i];
+ * and the element must ALSO be a plain local `e`, because both hook calls push
+ * the same register.  That spelling gives 151 insns / 441 BYTES -- the
+ * original's length to the byte, its exact instruction multiset, and its
+ * `mov esi,<scratch>` register copy, with no volatile.  Call it build P.
+ *
+ * WHAT THIS ROUND ADDS.  Three measured facts that re-frame the residual.
+ *
+ *  1. IT IS NOT A REGISTER-CURSOR PHASE SHIFT.  Build P and the original are
+ *     in the SAME phase at index 26 (both `mov eax,[ebp+8]`) and both hand ecx
+ *     to the next allocation.  What differs is WHICH VALUE is allocated at
+ *     each step: the original allocates E, H, A, T; build P allocates H, A, E,
+ *     T.  VC6 hands out scratches on the cycle eax -> ecx -> edx; that cycle
+ *     is confirmed independently on the second hook call (its H,T,A triple is
+ *     the same cyclic sequence started one step later) and on MakeTransform's
+ *     three address arguments (&xf, &rot, &pos in the original; &rot, &pos,
+ *     &xf in build P -- the same cycle, rotated).  Everything from 27 to 78,
+ *     including the reordered `pos +=` block (with &pos off eax it stops being
+ *     anti-dependent on the last `fadd [eax+8]` and floats up), is downstream
+ *     of that ONE decision, and 79 re-syncs.
+ *
+ *  2. THE REAL QUESTION IS WHICH WEB OWNS THE FIRST PUSH, and it is narrower
+ *     than "make the element its own statement".  Build P emits the original's
+ *     three instructions -- load into a scratch, store, copy to esi -- but in
+ *     the order S,C and then pushes the SCRATCH (`push eax`), so the temp's
+ *     live range reaches the push and the whole call block rotates.  The
+ *     original emits C,S: the temp dies at the store, ecx is recycled for
+ *     `slot` at 32, and the push therefore has to name esi.  So what is needed
+ *     is the copy emitted BEFORE the store, i.e. `e`'s web owning both pushes.
+ *     STATEMENT POSITION IS NOT THE LEVER: with the element statement moved
+ *     ABOVE the `out` cursor VC6 still sinks the temp into the call tree
+ *     (hooks=ecx, &dir=edx, element=eax) and merely breaks the preheader too.
+ *
+ *  3. THE PIN IS THE VOLATILE READ, NOT THE VOLATILE STORE.  Measured on the
+ *     settled record: a cast-volatile STORE with a plain read does not pin at
+ *     all (443B, 123); a plain store with a cast-volatile READ reproduces this
+ *     build exactly (442B, 6).  So `union {void* p; void* volatile vp;}` here
+ *     is just `e = *(void* volatile*)&cur.elem`, and that read is doing both
+ *     jobs at once -- it fixes the allocation order to the original's E,H,A,T
+ *     AND, being volatile, stops `o->hooks` and `&dir` hoisting above it
+ *     (E,S,C,H,T,A against the original's H,E,A,C,S,T) and costs the byte
+ *     (`mov esi,[ebp-0x14]` 3 bytes for the original's `mov esi,ecx` 2).
+ *     Two exact complements: 441B with the wrong web, or the right web behind
+ *     a barrier.
+ *
+ * CORPUS EVIDENCE.  The original's shape -- a scratch loaded from memory, then
+ * COPIED to a callee-saved register BEFORE a frame store of the same scratch --
+ * occurs EXACTLY ONCE in the whole 80,686-instruction .text of legoland.exe:
+ * here.  Build P's shape (copy to the callee-saved register, then push the
+ * SCRATCH) is what VC6 emits routinely and is present in exact bodies
+ * (PositionRouteCars 0x0041da10 and JungleCruise_Draw 0x00435bd0 both give
+ * `mov eax,<mem>; mov <cs>,eax; push eax`).  This site is an outlier, like
+ * Joust_Update's once-in-the-binary cross-jump, so the next lens should expect
+ * an unusual construct rather than another spelling of the usual one.
+ *
+ * RULED OUT THIS ROUND (~40 measured spellings on top of the ~145 already in
+ * the log; every one is 441B/42 or 440B/121-123 unless noted):
+ *  - `e = list[i]` in any position, alone or with the store before/after it,
+ *    and `cur.elem = e`, `cur.elem = e = list[i]`: `e`'s def IS the load, it
+ *    takes esi directly (`mov esi,[eax]`) and the store sinks below the pushes
+ *    -- 440B, 121.  Reading `list[i]` twice does the same (CSE).
+ *  - `e = cur.elem` in any position, `e = cur.elem = list[i]`, an initialised
+ *    inner declaration, a nested block with `void* e = cur.elem;`, `const`:
+ *    all exactly build P, 441B/42.
+ *  - statement fusion by comma in both directions (`out = (cur.elem = L, ...)`,
+ *    `cur.elem = (out = ..., L)`, one three-comma statement): 42, or 48 when
+ *    the list expression ends up first and the preheader homes swap.
+ *  - an EMPTY `__asm { }` between the element statement and the call is NOT a
+ *    scheduling barrier -- byte-identical to no barrier (42).  Nor is `;`.
+ *  - hoisting the call's own operands into locals to get them above the pin:
+ *    `h = o->hooks` (before or after the element statement, one use or two),
+ *    `dp = &dir` with two uses, `s = slot`, a function-pointer local, and
+ *    `(o->hooks + slot)->get_dir` -- all fold back (42, or 439B/129 when `h`
+ *    survives for both calls and kills the second load).
+ *  - struct-typed intermediates (`struct Elem {void* p;} tmp;` with the copy
+ *    and the struct store in all three orders): 440B or 441B, never the order
+ *    C-then-S.  Element member typed `unsigned`, `char*`: 42.
+ *  - `cur` and `e` in every scope/declaration-order combination (both outer,
+ *    both inner, either order): byte-identical, 42.
+ *  - both hook calls reading `cur.elem` with no `e`: VC6 parks `slot` in esi
+ *    and reloads the member after get_dir (440B, 123); mixing (first call `e`,
+ *    second `cur.elem`) reloads too.
+ *  - `out` as a user IV (`out = g_track_verts` before the loop, `out += 6` at
+ *    the bottom) combined with the element statement first, plain and volatile:
+ *    44 and 8, both diverging at 21 -- the preheader rule above forbids it.
+ * The 6-mismatch build is kept because 6 < 42 on the audit metric; build P is
+ * the byte-exact one and is the base to start from if the next lens finds a
+ * non-volatile way to make `e`'s copy precede the store.
+ *
+ * fgh-100d (scope-V cancel, from pickup's uncommitted m5_slot).  Reconstructed
+ * with function-scope `cur` / `e` / `tc` and
+ * `tc.y = (int)slot; tc.x = (int)cur.elem; tc.x += tc.y; tc.x -= tc.y;`.
+ * That is 151i / 446B, aligned ~38, first 19: copy-before-store and both
+ * hook e-pushes from esi, but `slot` hoists into ebx (`mov ebx,[ebp+10h]`)
+ * and the verts IV is an immediate store to [ebp+14h].  Untried idea 1
+ * (cancel anchored on a load through `out`: `tc.y = out->x` / `out->shade` /
+ * `g_track_verts[i*6].x`, CSE recomputes, depth-2 `if (out)`, user-IV
+ * `out += 6`, `int sl = slot` outside the loop) keeps ebx = verts and does
+ * not hoist slot, and still emits copy-before-store + push esi, but LICM
+ * leaves a dead `mov ecx,[ebx]` in the preheader and the list cursor takes
+ * [ebp+14h] (out stays a register IV, so there is only one memory IV).
+ * 439B / aligned ~45 / first 19, worse than the volatile 6.  Frame-address
+ * and self-anchors still fold or add arithmetic, as pickup measured.  The
+ * cancel lever reproduces the window or the preheader, not both; incumbent
+ * 6 kept. */
+// WIP-FUNCTION: LEGOLAND 0x00428cb0  (96.0%: 151/151 insns, 442/441 bytes, 6 mismatches -- indices 27-32; the element window.  The volatile read that pins the original's allocation order (E,H,A,T) is also a scheduling barrier and costs the byte; the complementary non-volatile record spelling is 441 bytes exact with the instruction multiset right but lets the temp own the first push, rotating 27-78.  Class: which web owns the first push, not a register-cursor phase)
 MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
                                    int n, void** list)
 {
@@ -342,7 +472,6 @@ MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
         pop  eax
     }
     if (last >= 0) {
-        out = g_track_verts;
         for (i = 0; i <= last; i++) {
             float a;
             float b;
@@ -351,6 +480,7 @@ MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
             Vec3f dir;
             Vec3f pos;
             Mat4 mvp;
+            out = g_track_verts + i * 6;
             elem.vp = list[i];
             o->hooks[slot].get_dir(o, elem.p, &dir);
             MakeRotation(&dir, &rot);
@@ -370,7 +500,6 @@ MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
             for (j = 0; j < 6; j++)
                 out[j].shade = (int)(a * g_ring_normals[j].e0 +
                                      b * g_ring_normals[j].e1 + c);
-            out += 6;
         }
     }
     g_track_mesh.nverts = 18 * last + 6;
@@ -493,7 +622,14 @@ extern int   g_stat_c_60f8fc;                                   /* 0x0060f8fc */
  *    eliminates the destination, so the mixed form is only half the answer --
  *    but it removes nine of the seventeen.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x004234e0  (95.4%: 173/173 insns, 514/514 BYTES, 8 mismatches, all at indices 31-47 in the index-resolution loop's preheader: the original eliminates the DESTINATION induction variable, keeping `tri - src` in a register (`lea esi,[ebp-0x5c] / sub esi,ecx`) and addressing the store as `[esi+ecx]` with only the source stepping, where this build keeps both cursors and steps each. Same instruction and byte total either way: one more step in the body, one fewer `sub` in the preheader. Eliminated, all identical at 8: both cursors as walks, both as subscripts (517 B, 142), source subscripted with the destination walked (18), a down-counting `k`, and the declaration order of the two cursors -- plus the earlier wave's hoisted source pointer, joined store, inlined resolver, both `if` polarities, `while` form, `unsigned k`, flat `int*` typings and scope moves)
+/* Scope G continuation: explicitly share the byte displacement between the
+ * walked source and tri. The offset is invariant across the three stores;
+ * advance the source after either arm. This reproduces the original
+ * sub esi,ecx / [esi+ecx] addressing form, closing all eight mismatches.
+ * Integer address arithmetic avoids subtracting pointers to separate arrays.
+ * Full-body exact: 173 instructions / 514 bytes, no escaped branches.
+ */
+// FUNCTION: LEGOLAND 0x004234e0
 int Coaster3D_DrawMesh(const MeshDesc* m)
 {
     unsigned int t;
@@ -524,15 +660,20 @@ int Coaster3D_DrawMesh(const MeshDesc* m)
         TrackVtx* vc;
 
         {
-            const int* s = &m->tris[i][0];
+            /* The source cursor also addresses tri through one invariant
+             * byte offset. Integer addresses preserve the original 32-bit
+             * subtraction without subtracting pointers to separate arrays. */
+            unsigned int s = (unsigned int)&m->tris[i][0];
+            unsigned int diff = (unsigned int)tri - s;
 
             for (k = 0; k < 3; k++) {
-                int e = *s++;
+                int e = *(const int*)s;
 
                 if (e & 0x80000000)
-                    tri[k] = m->pairs[e & 0x7fffffff][1];
+                    *(int*)(s + diff) = m->pairs[e & 0x7fffffff][1];
                 else
-                    tri[k] = m->pairs[e & 0x7fffffff][0];
+                    *(int*)(s + diff) = m->pairs[e & 0x7fffffff][0];
+                s += 4;
             }
         }
         tri[3] = tri[0];
@@ -640,7 +781,51 @@ extern int   g_mesh_tris[][3];                                  /* 0x00612708 */
  *    inert; declaring `eig = 3 * six` as a local rather than spelling it at
  *    the use costs 21.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x00428f00  (69.5%: 174/174 insns, 592B against 582B, 53 mismatches. The first 96 instructions -- both seam-pair loops and the whole twelve-triangle template loop -- are still EXACT, and the pair-copy inner loop is now structurally exact too. What is left is ONE allocation decision: the original homes the instance counter `s` at [esp+0x14] and keeps the pair-table cursor `base` in ebx; this build does the reverse, which shifts every index from 97 on. The original computes 6*s AND 18*s from `s` in the loop HEADER (`lea/lea/shl/shl` off one register) where this build derives 18*s from 6*s after the pair loop. Measured this wave and inert or worse: incrementing `base` inside the inner loop (85), walking the seam table with a pointer (71), storing the pair's two fields in the other order (53, byte-identical), and every combination of hoisting the two multipliers. Earlier waves also eliminated: `t` and `base` sharing one variable; `base += cnt` before the loop (89); an `mp` pointer for the pair cursor (86); `g_mesh_tris[12*s+j]` subscripting instead of an `out` cursor (100); `out += 12` at the loop head (85); `s != 29` inverted (76); and `g_seam_pairs[5][0] = 5` or `= a` for the post-loop store (81). The ring loop at the end is instruction-for-instruction exact)
+/* Scope G closure (wave sixteen): the whole residual was the REGISTER
+ * ALLOCATION of the replication loop, and it is decided by the PAIR loop.
+ *
+ * Three loop-carried values -- `base`, `out` and `s` -- compete for the one
+ * callee-saved register the inner loops leave free (EBX; EDI is `eighteen`,
+ * ESI the trip counters, EBP/EAX/ECX/EDX the loop temps).  The original keeps
+ * `base` in EBX and homes `out` at [esp+0x10] and `s` at [esp+0x14].  Written
+ * with `base` only touched outside the pair loop (a cursor seeded from it,
+ * `base += cnt` beside it), VC6's weights rank s > out > base and it homes
+ * `base` instead, adding a loop-entry `jmp` -- which is what the two volatile
+ * shims (the `s` latch read, the `out` self-read) were compensating for, and
+ * the self-read is a scheduling barrier, so the template constant could only
+ * land before the `out` reload (index 120) or sink to the preheader's end
+ * (123), never in the original's slot after it.
+ *
+ * THE LEVER: `base` is the pair loop's own ROW INDEX, bumped once per pair
+ * (`g_mesh_pairs[base][0] = ...; g_mesh_pairs[base][1] = ...; base++;`
+ * inside a counted `for (i = 0; i < cnt; i++)`).  Referenced at depth 2 it
+ * outweighs `out` and `s`, wins EBX, and VC6 then ELIMINATES it from the loop
+ * by final-value replacement -- `add ebx,esi` in the preheader is `base +=
+ * cnt` computed by the compiler, and `dec esi / jne` is the counted `i`
+ * reversed into the trip count -- so the loop body is untouched.  With `out`
+ * and `s` homed naturally there is no barrier, and the list scheduler's
+ * critical-path order puts the template constant right after the `out`
+ * reload, closing 120..123 with the PLAIN triangle loop (`for j / for k`,
+ * `g_tri_template[j][k++]`, `dst = &out[0][0]; out += 12;`) and a plain
+ * `s++` latch: no volatile anywhere, no cast bound.
+ *
+ * The one companion rule: the seam reads must be INDEXED FROM A LOCAL
+ * POINTER ANCHORED AT THE SECOND FIELD (`seam = &g_seam_pairs[0][1]`,
+ * `seam[2*i-1]`, `seam[2*i]`).  A local pointer anchors the induction
+ * variable at its own address and neither load folds into its add
+ * (`mov ebp,[ecx-8]; add ebp,edx`); indexing the global `g_seam_pairs[i][k]`
+ * directly anchors the variable at the last use and folds that bare load
+ * (`mov ebp,edx; add ebp,[ecx-8]`, 2 mismatches); anchoring at the first
+ * field puts the variable at 0x613908 and costs the displacement byte
+ * (581B).  Both cursors sit on the second field in the original for the same
+ * reason.  Ruled out on the way: `base++` in a `do/while (--cnt)` (no
+ * final-value replacement, `inc ebx` stays in the loop), an explicit walking
+ * cursor inside the counted `for` (a guard and a spill), `i++, base++` in
+ * the for clause (the IV registers swap), temps or derefs on the loads
+ * (folded back), and every address-taking, aggregate and volatile spelling
+ * of `out`/`s` recorded in the earlier waves.
+ */
+// FUNCTION: LEGOLAND 0x00428f00
 void Coaster3D_InitTrackTopology(void)
 {
     int    a;
@@ -657,12 +842,15 @@ void Coaster3D_InitTrackTopology(void)
     float  ang;
 
     t = 0;
-    for (a = 0; a <= 4; a++) {
-        g_seam_pairs[a][0] = a;
-        g_seam_pairs[a][1] = a + 1;
+    {
+        int* row = &g_seam_pairs[0][1];
+        for (a = 0; a <= 4; a++, row += 2) {
+            row[-1] = a;
+            row[0] = a + 1;
+        }
     }
-    g_seam_pairs[a][0] = a;
-    g_seam_pairs[a][1] = 0;
+    g_seam_pairs[5][0] = a;
+    g_seam_pairs[5][1] = 0;
 
     n = 6;
     for (d = 0; d <= 4; d++) {
@@ -712,24 +900,31 @@ void Coaster3D_InitTrackTopology(void)
     for (s = 0; s < 30; s++) {
         int cnt;
         int six = 6 * s;
+        int eighteen = 18 * s;
 
         cnt = 18;
         if (s == 29)
             cnt = 24;
-        for (j = 0; j < cnt; j++) {
-            g_mesh_pairs[base + j][0] = g_seam_pairs[j][0] + six;
-            g_mesh_pairs[base + j][1] = g_seam_pairs[j][1] + six;
+        {
+            int i;
+            /* The seam table is read through a pointer anchored at its
+             * SECOND field, and `base` is the row index, bumped per pair. */
+            const int* seam = &g_seam_pairs[0][1];
+            for (i = 0; i < cnt; i++) {
+                g_mesh_pairs[base][0] = seam[2 * i - 1] + six;
+                g_mesh_pairs[base][1] = seam[2 * i] + six;
+                base++;
+            }
         }
-        base += cnt;
         {
             int* dst = &out[0][0];
-
+            out += 12;
             for (j = 0; j < 12; j++)
-                for (k = 0; k < 3; k++)
-                    *dst++ = ((g_tri_template[j][k] & 0x7fffffff) + 3 * six) |
-                             (g_tri_template[j][k] & SEAM);
+                for (k = 0; k < 3;) {
+                    int value = g_tri_template[j][k++];
+                    *dst++ = ((value & 0x7fffffff) + eighteen) | (value & SEAM);
+                }
         }
-        out += 12;
     }
 
     ang = 0.0f;

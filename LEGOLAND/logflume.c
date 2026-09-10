@@ -2585,11 +2585,39 @@ extern void RemoveAllBlokesFromRide(RideDef* def, BPosW sq);     /* 0x0048a2e0 *
  *    destination as soon as the byte is a named symbol, whatever the
  *    assignment form.
  */
-// WIP-FUNCTION: LEGOLAND 0x0040abf0  (89%, schedule of the origin/copy block, see note)
+/* Scope H continuation (2026-09-05): 11 -> 8 -> 3 mismatches, full
+ * 102 instructions / 343 bytes, first at index 51. A local two-field record
+ * holds the Y byte widened to int and its footprint origin. Initialize the
+ * coordinate through a named pointer before the ordinary X-origin store;
+ * then initialize the origin field and sum them for cur.y. Direct field
+ * initialization gives 8; the named initial write restores the original
+ * add destination and all instructions through index50. No new runtime
+ * operation, frame slot, helper, callee type or volatile read is introduced.
+ *
+ * The last three differences are a moved load: p->sq's word is read after
+ * the cursor-footprint REP MOVSD instead of immediately before its source
+ * LEA. Everything else, including the remaining tail, is exact. Explicit
+ * early scalar/aggregate snapshots do hoist it, but alter earlier register
+ * choices or frame homes, so are not retained. The older universal-floor
+ * arguments above are superseded by this concrete improvement; the remaining
+ * scheduling question is still open. All 82 exact neighbours pass and W3
+ * is clean. Evidence: scratchpad/scope-h/root6/report.md and full listings.
+ */
+/* Scope H closure (2026-09-05): all 102 instructions / 343 bytes now exact.
+ * The escaped edit cursor is born in the block containing only its origin
+ * calculations, footprint copy and StandardRemoveObject call. Its lifetime
+ * ends before the cost handling and LFRun_RemovePiece call. Merely moving
+ * the declaration to loop entry leaves the three scheduling differences;
+ * this narrower block restores the square-word load before the copy.
+ * The Y-axis record and every operation remain unchanged, as does the
+ * 0x1838 frame. No helper, extra copy, volatile access or ABI view is needed.
+ * All 82 previous exact neighbours and W3 pass; complete RET extent and
+ * raw COMDAT padding checked in scratchpad/scope-h/jungle20/report.md.
+ */
+// FUNCTION: LEGOLAND 0x0040abf0
 void LFEntrance_Remove(RideElem* elem, BPosW sq, void* c)
 {
     LFRun*        st;
-    EditCursorRec cur;
     LFPiece*      p;
     LFPiece*      next;
 
@@ -2602,10 +2630,19 @@ void LFEntrance_Remove(RideElem* elem, BPosW sq, void* c)
             g_lftr_def->footprint = g_lf_footprint;
             g_lftr_def->footprint.v[2] = g_lftr_def->footprint.v[2] - 1;
             g_lftr_def->footprint.v[3] = g_lftr_def->footprint.v[3] - 1;
-            cur.x = p->sq.b.x + g_lf_footprint.v[0];
-            cur.y = p->sq.b.y + g_lf_footprint.v[2];
-            cur.footprint = g_lftr_def->footprint;
-            StandardRemoveObject(g_lftr_def->fc4, p->sq, &cur);
+            {
+                EditCursorRec cur;
+                {
+                    struct { int coord; int origin; } axis_y;
+                    int* pyc = &axis_y.coord;
+                    *pyc = p->sq.b.y;
+                    axis_y.origin = g_lf_footprint.v[2];
+                    cur.x = p->sq.b.x + g_lf_footprint.v[0];
+                    cur.y = axis_y.coord + axis_y.origin;
+                }
+                cur.footprint = g_lftr_def->footprint;
+                StandardRemoveObject(g_lftr_def->fc4, p->sq, &cur);
+            }
             if (p->flags & 2)
                 UseBricks(GetObjCost(g_lftr_def));
             LFRun_RemovePiece(st, p);

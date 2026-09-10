@@ -395,377 +395,31 @@ void Carousel_TickInstances(void)
     }
 }
 
-/* =========================================================================
- * 0x0042c820 -- CAROUSEL, the +0xa8 per-tick update.
+/* Scope F close (2026-09-05): 378/378 instructions,
+ * 1225/1225 bytes, strict/rb/ob 0/0/0.
  *
- * Fifteen actions (0..14); 3, 4, 6 and 9..12 have no case and fall to the
- * default, so the original's byte index table has seven entries pointing at
- * the join.  The cycle:
+ * Keep the BNV position objects inside their owning cases. Their earlier
+ * function-wide lifetime falsely constrained stores before the first escape;
+ * narrowing it restores the person/flag hoists and departure short-load order.
+ * The separate person-cache workaround is no longer needed.
  *
- *   0   claim the machine: bump its visitor count, set the 180-frame boarding
- *       timer, take the "on this ride" flag and walk to (tx-3, ty+0.5)
- *   1   MOUNT (the shared sequence documented at the top of this file): pick a
- *       seat with Carousel_PickSeat, build the boarding path name by printing
- *       the ONE-BASED seat number into "BlokeBox??", and start the
- *       CarouselOn .bnv path with the rider's own screen position as origin
- *   2   play that path back; when it runs out free it, ask for pose set 1 and
- *       jump to action 5
- *   5   sit down: riding flag on, frame 0, re-take the z-sprite and depth,
- *       and count the boarder.  When `boarded` reaches the class capacity the
- *       machine starts (Carousel_StartRide)
- *   7   stand up: walk animation, pose set 2, and a SECOND .bnv path
- *       (CarouselOff, tag 2) whose origin is the rider's own in-ride offset
- *       (+0x3c/+0x3e) doubled -- not a screen solve, because the rider is
- *       already positioned by the machine
- *   8   play that back; when it ends free it, face direction 3, action 13
- *   13  release the seat, drop the z-sprite, convert the 3D model's screen
- *       position back to a map reference (UnAdjustBlokePosition +
- *       ScreenToMapRef), scale the result to 24.8 and walk to the tile centre
- *   14  leave: RemoveBlokeFromRide, clear the ride flag, and when the last
- *       rider is off reset `boarded` and let the machine accept riders again
+ * Keep the unshifted y product in sy, with an empty-if consumer BOTH before
+ * and after sy2 = sy >> 9. Then accumulate the origin-minus-scroll delta
+ * into sy2, retaining the third empty-if before the pivot subtractions.
+ * The two early consumers vanish only after the compiler has kept the
+ * multiplication/shift webs separate. Both are required: neither or only
+ * the post-shift consumer gives Spider 34; only the pre-shift one gives 343;
+ * both give zero, and the same shape closes all five BNV ride callbacks.
  *
- * Note the class payload is read from the ride's OWN global (0x006160bc) for
- * the capacity, not from the `item` the callback was handed; they are the
- * same object, but the original spells it that way and it is reproduced.
- * ========================================================================= */
-
-/* NOTE (2026-09-04, lane K): 378/378 instructions, 1225/1225 BYTES, the whole
- * block layout, both jump tables and the ENTIRE FRAME MAP are reproduced.
- * Audit mismatch 29/378 -- but read the next paragraph before "improving" it:
- * this body is 29 where an earlier one was 27, and it is nevertheless MUCH
- * closer to the original.
- *
- * MODULO A RENAMING OF THE THREE CALLEE-SAVED REGISTERS the body is 8
- * mismatches, not 29.  Apply the permutation ebx->ebp, ebp->edi, edi->ebx to
- * our stream (widths included: bx/bp/di) and only indices 123-127 and
- * 228/229/231 differ; the whole
- * Y block (110-122, 128-138) becomes instruction-for-instruction identical,
- * INCLUDING the original's `sub edx,ecx`, its `mov ecx,[esi+4]` at 119 and its
- * in-place `add <sy2>,edx` at 120.  Measured for the three candidate bodies:
- *     this one   audit 29    8 real mismatches after the renaming
- *     `sy2 = sy + (oy - Get_YScroll())`   audit 27   27 real (nothing renames)
- *     `sy2 = sy - Get_YScroll(); sy2 += oy;`  audit 13   13 real
- *   (scratchpad/laneK/permrank.py computes that column; the strict count
- *    ranks these three 13 < 27 < 29 and the disassembly ranks them the other
- *    way round, so RANK CANDIDATES ON THE POST-RENAMING COUNT.)
- * So the source shape below is the original's and the residual is ONE
- * allocator question, stated at the bottom.
- *
- * WHAT THE SOURCE SHAPE IS, and why (this closed 27 -> "9 modulo renaming",
- * and it is the same shape mechrides.c proved for its four BNV _Activate
- * callbacks -- see mechrides.c ROUND 5/6; do not re-derive it):
- *  (1) THE Y CHAIN IS ONE WEB.  `sy2 = (wx + wy) * th >> 9;` then
- *      `sy2 += g_map_cfg->oy - Get_YScroll();`.  The compound assignment is
- *      in-place on the shift's own web, which is what puts the accumulate in
- *      sy2's register (`add ebx,edx` in the original) with the parenthesised
- *      delta folded.  Spelled `sy2 = sy + (oy - Get_YScroll())` the delta is a
- *      compiler TEMPORARY and wins the add-rank destination copy, so the sum
- *      lands in a scratch register (`add ecx,ebx`) and ecx is then busy from
- *      113 to 137, which ALSO costs the b->person hoist.  X is deliberately
- *      NOT compound -- `sx2 = g_map_cfg->ox - Get_XScroll() + sx;` gives
- *      `add edi,ebp` (destination = the ox load's register, sx folded), which
- *      is what the original has.  The asymmetry is real and load-bearing.
- *  (2) `p = b->person;` NAMES THE FIRST b->person READ ONLY.  The original
- *      hoists that `mov ecx,[esi+4]` twenty instructions, above the two
- *      escaped `pos` stores; a store to an escaped local is a schedule
- *      barrier for a pointer load, so it cannot climb on its own.  Caching it
- *      for the f30/depth reads as well is much worse -- the original really
- *      does reload after each store through the pointer.
- *  (3) THE PHANTOM HOME (from the previous pass, 278 -> 34, unchanged).
- *      `struct { int x, y; } spill; *(volatile int*)&spill.x = sx;` reserves
- *      the never-touched entry-0x34 dword and emits the original's dead
- *      `mov [esp+0x24],ebp`.  Frame: -0x3c item  -0x38 key + the dead sx store
- *      -0x34 NEVER TOUCHED  -0x30 tw  -0x2c th  -0x28 rec  -0x24 next
- *      -0x20/-0x1c screen  -0x18/-0x14 pos  -0x10/-0x0c pos2  +0x04 r.
- *  (4) `sx = (wx - wy) * tw >> 9;` BEFORE the sum (difference-before-sum:
- *      `mov ebp,ebx / add ebx,edi / sub ebp,edi`; sum-first gives `lea` and
- *      one instruction fewer), case 7's two pos2 stores through block-scope
- *      temporaries, and `b->action++` before `b->flags62 |= 0x80`.
- *
- * WHAT IS LEFT (3 causes, 8 indices).
- *  (a) THE CALLEE-SAVED ROTATION (indices 86-138, and it is the whole
- *      difference between 29 and single digits).  Ours colours wy=ebp,
- *      wx=ebx... i.e. ours is the original's assignment rotated by one:
- *      original (wy=edi, wx/sum/sy2=ebx, sx=ebp), ours (wy=ebp,
- *      wx/sum/sy2=edi, sx=ebx).  Merging the Y chain into the wx web is what
- *      drops that web to the LAST callee-saved register; with the Y chain
- *      split at any point the priority order is the original's.  The residual
- *      is exactly "give the merged sy2 web ebx".  THIS IS THE SAME WALL AS
- *      mechrides.c's four _Activate callbacks -- solving it there solves it
- *      here.  Inert against it (measured this pass, ~45 variants, ALL exactly
- *      29): both world-read orders; `register`/`unsigned`/`long` on sy2 and
- *      wx; commuting either product; all 24 orders of the four subtraction
- *      statements; `pos.y = sy2 + sy2` / `<< 1` (an extra reference is NOT
- *      the driver -- and the two-statement form, which DOES get the right
- *      colouring, differs only by having one); a name boundary at every point
- *      of the Y chain (before the `sar`, before the imul, on `wx += wy`) --
- *      all byte-identical to the merged form, so it is the WEB, not the name;
- *      `if (v) { }` consumers on sy2/sx2/wx/th; `p` at three other positions;
- *      spill.y as the volatile target; b35 moved.
- *  (b) INDICES 123-127: we hoist the `screen.ox` load into the edx freed by
- *      the cdq at 121 (`mov edx,[esp+0x44]` at 123, `sub ebp,edx` at 127);
- *      the original leaves edx idle and re-uses eax serially
- *      (`sar/sub/mov eax,[esp+0x44]/sub/mov eax,[dy]`).  The original has the
- *      same register free, so this is a scheduler-priority difference, very
- *      probably a knock-on of (a).
- *  (c) INDICES 228/229/231 (case 7): the two `movsx` come out in DESCENDING
- *      displacement order (+0x3e then +0x3c) where the original has
- *      ascending, and our second doubling is `add eax,eax` where the original
- *      has `shl eax,1`.  Registers, shift order and store order are already
- *      the original's.  Storing pos2.y first DOES fix the load order but then
- *      reverses the stores (15); `*2` / `<<1` / `x+x` are byte-identical in
- *      every position; so are doubled temps, direct field reads, a `short*`
- *      walk, and a static __inline setter with either argument order (both
- *      inert -- 13 variants).
- *
- * MEASURED AND NOT COMMITTED (recorded so they are not re-derived):
- *  - `sy2 = sy - Get_YScroll(); sy2 += g_map_cfg->oy; if (sy2) { }` scores 13
- *    and gets the callee-saved colouring right (the name boundary keeps the
- *    wx web short), but the original's index-118 instruction is `sub edx,ecx`
- *    = oy - yscroll, and this body emits `sub ebx,ecx` = sy - yscroll: a
- *    DIFFERENT computation in a different register, which then displaces the
- *    two GetUnitDepth pushes.  It is 13 real mismatches after any renaming,
- *    against this body's 9.  The empty `if` is also required (without it VC6
- *    flattens the two later `sy2 -=` back into the sum: 251, and all 24
- *    subtraction orders are identical at 251).  Not the original's source.
- *  - `pos.y` before `pos.x` scores 26 by shifting two stores into accidental
- *    alignment; the original emits the whole X chain first.
- *  - Forcing the b->person load early with a scoped `Person3D* p` around the
- *    pos stores (120), and `sx = -(wy - wx) * tw >> 9` (inserts a `neg`).
- *  - All difference/delta spellings canonicalise: `sy2 = sy - (Get_YScroll()
- *    - oy)`, `sy2 = sy; sy2 += delta;`, `sy2 = sy; sy2 -= ys - oy;`, a named
- *    delta local on either side, and both operand orders of the `+` are
- *    byte-identical to `sy2 = sy + (oy - Get_YScroll())`.
- * Data confirmed here: lpConfig (0x004bcbf4) is a POINTER, not a struct, and
- * MapConfig.ox/oy at +0x20/+0x22 are `unsigned short` (zero-extended) while
- * Get_XScroll/Get_YScroll return `short` (movsx).
- *
- * PASS N+1 (2026-09-04, lane w7ticks).  NO CHANGE -- still 29 strict / 8 real,
- * same first diverging index 86, same residual indices {123..127, 228, 229,
- * 231}.  ~130 further variants, all measured with the permutation-aware
- * ranker (scratchpad/w7ticks/pk.py, a parallel permrank; ~0.3 s per build, so
- * these were cheap and the whole matrix is reproducible).
- *
- * THE HARD FACT THIS PASS ADDS: the permutation is INVARIANT.  Every single
- * one of the ~130 variants -- including ones scoring 15, 22, 254, 274 and 293
- * -- came back with permrank perm `bpdibxsi` (our ebx = the original's ebp,
- * our ebp = its edi, our edi = its ebx).  Only four variants moved it at all,
- * and all four are structurally destroyed bodies (>= 248 real).  Nothing that
- * keeps the original's instruction sequence changes the colouring, which is
- * why "one more spelling of the Y chain" is not the way in.
- *
- * NEWLY RULED OUT (all still exactly 29 strict / 8 real unless noted):
- *   - THE FOUR NEW CROSS-LANE LEVERS, none of which reaches this wall:
- *       * a named local holding a CSE'd byte field -- tried on every CSE'd
- *         byte in the function: `rec->boarded` (`char nb = ++rec->boarded;`
- *         and a block-scoped form), `b->b74`, `b->seat`, `b->action` fed to
- *         the switch.  All 29/8, permutation unmoved.  (`nb` written as the
- *         two-statement `nb = rec->boarded + 1; rec->boarded = nb;` is 36 and
- *         an int `nb` is 188 -- both change case 5, neither the colouring.)
- *       * spelling a memory operand INLINE rather than through a named temp:
- *         `b->world.x` and/or `b->world.y` inline in both products (16 / 22 /
- *         22 -- the loads move, the colouring does not).
- *       * the add-destination RANK rule at every site in the block: X written
- *         compound (`sx2 = sx; sx2 += ox - Get_XScroll();`), X reversed
- *         (`sx + (ox - Get_XScroll())`), Y written flat
- *         (`sy2 = oy - Get_YScroll() + sy2;`), the delta named on either
- *         side.  ALL 29/8 -- none of them moves the colouring.
- *   - BUT ONE SITE HERE DOES DECIDE THE DISPUTED TIE-BREAK, and the answer is
- *     LAST-DEFINED-WINS.  `wx + wy` at index 96 has two named locals as its
- *     operands and nothing else; `wx` is the read-first operand in BOTH
- *     spellings because the difference `(wx - wy)` is written first either
- *     way, so only the DEFINITION order varies:
- *         wy = b->world.y; wx = b->world.x;   ->  add <wx's reg>, <wy's reg>
- *         wx = b->world.x; wy = b->world.y;   ->  add <wy's reg>, <wx's reg>
- *     The destination follows the local defined LAST, not the one read
- *     first, and read-first-wins is therefore refuted at this site.  (The
- *     original's `add ebx,edi` with ebx = `b->world.x` says its source
- *     defines wy before wx, which is the order committed here.)
- *   - the 24 orders of the four subtraction statements RE-RUN under permrank
- *     (the old note recorded them as "all exactly 29"; they are also all
- *     exactly 8 real, and the perm never moves) -- 18 of the 24 stay at 8, six
- *     go to 20 and two to 33.
- *   - the 24 orders of the four case-1 SETUP statements (screen =, wy =,
- *     wx =, GetTileDimensions): the committed order is the unique minimum;
- *     the next best is 13.
- *   - VARIABLE IDENTITY IS NOT A LEVER (this is the cleanest new negative):
- *     reusing `tx`/`ty` as `wx`/`wy`, `tx` as `sx`, `tx`/`ty` as `sy2`/`sx2`,
- *     `seat` as `wy` -- all byte-identical to the separate-name forms or
- *     worse (14).  VC6 allocates webs, and MERGING two names into one is as
- *     inert as splitting one into two.
- *   - block scope for {wx, wy, sx, sx2, sy2} (all five, the two screen
- *     locals, the two world locals, `sx` alone), `register` on all five and
- *     on each one alone, and ten declaration-order permutations: every one
- *     byte-identical.
- *   - volatile spellings and positions of the phantom home: the store moved
- *     to five other points (15 / 16 / 35 / 35), `spill.y` as the target (9 --
- *     one worse, it adds index 102), both slots stored (264), and no store at
- *     all (274, which is what the phantom home is worth).
- *   - case 7 (indices 228/229/231) attacked on its own with 30 variants:
- *     direct field reads, one temp, doubled temps, `<< 1` / `+ x` / `2 * x`
- *     mixed per site, `short` temps, a `short*` walk, per-axis nested blocks,
- *     `int d[2]` and a `Vec3` carrier, a volatile read, a `pos2.z` filler.
- *     The committed form is the minimum; the load order (descending
- *     displacement, +0x3e before +0x3c) is VC6's canonical sort of two
- *     structurally identical `movsx`+`shl` operands and nothing reverses it
- *     without also reversing the stores.
- * WHERE A FUTURE PASS SHOULD LOOK.  Not at case 1's source.  The four webs
- * (wy, wx/sum/sy2, sx, sx2) have IDENTICAL reference counts and live ranges
- * in both builds -- the emitted streams are instruction-for-instruction equal
- * modulo the renaming over 86..122 and 128..138 -- so the allocator's INPUT
- * is the same and only its choice differs.  Modelling both builds as
- * "priority = refs / live-range length, first free register in a fixed
- * preference order" fits the ORIGINAL exactly with the order (ebp, edi, ebx)
- * and CANNOT be made to fit ours; so the preference order itself, or the
- * priority key, is decided by something outside this switch arm.  The next
- * experiment worth running is a diagnostic one: perturb case 5 or case 13
- * (whose webs also live in ebx and ebp) and see whether case 1's colouring
- * moves at all.  If it does, the driver is function-wide and case 1 is the
- * wrong place to look.
- *
- * PASS w8rides (2026-09-04).  NO CHANGE (29 strict / 8 real / register-blind
- * 3), but the diagnostic the paragraph above asks for HAS NOW BEEN RUN, and
- * it comes back negative.
- *
- *  THE DRIVER IS NOT FUNCTION-WIDE.  Case 13 was perturbed four ways -- the
- *  two `b->world` shifts swapped, `tx` hoisted above `ty`, the two
- *  `b->target` stores swapped, and both target shifts moved below the two
- *  world shifts.  Two of the four change case 13's own emitted code (the
- *  world swap adds four mismatches at 317/318/323/324, the target swap six at
- *  315-320), so the perturbation really did reach the allocator.  Case 1's
- *  colouring did not move a hair in ANY of them: identical best permutation
- *  `bpdibxsi`, identical first divergence at index 86, identical residual set
- *  {123, 124, 125, 126, 127, 228, 229, 231}.  So the answer to the question
- *  this note posed is "no": disturbing another switch arm whose webs live in
- *  the same two callee-saved registers does not shift case 1 at all.  With
- *  the allocator's input already shown identical to the original's, there is
- *  now no block left that source can reach -- neither case 1 (invariant over
- *  ~130 variants) nor a neighbour (invariant over these four).
- *
- *  CLUSTER (c) IS A TWIN, AND THE TWIN IS ALSO STUCK.  Indices 228/229/231
- *  are byte-for-byte the same phenomenon as SpiderRide_Activate's indices
- *  195/196/198 in mechrides.c -- same two `movsx` off +0x3c/+0x3e, same
- *  descending emission order, same `shl edx,1` / `add eax,eax` split, same
- *  three-index residual -- reached from two independently written source
- *  spellings.  Nine further spellings were measured on the SpiderRide side
- *  this pass (pre-doubled temps in both store orders, plain field reads in
- *  both orders, `+ x`, `<< 1`, a second temp pair, a reversed temp
- *  declaration order); every one either ties at the same residual or
- *  ESCAPES.  Together with the 30 already measured here that is 39 spellings
- *  across two functions and two lanes.  (THE DIRECTION IN THIS SENTENCE IS
- *  WRONG and is corrected in the PASS w9rides paragraph below: the ORIGINAL
- *  is ascending, ours is descending.  The cluster is still unreachable.)
- *
- *  RECOMMENDED FOR RETIREMENT.  8 real mismatches in 378 instructions, in
- *  two clusters, both now shown invariant under everything source can
- *  express.
- *
- * PASS w9rides (2026-09-04).  NO CHANGE (29 strict / 8 real /
- * register-blind 3).  Both clusters are now stated correctly.
- *
- *  CLUSTER (b), 123-127, IS THE FIVE-FUNCTION FAMILY SLOT, and this
- *  function is where it is cleanest.  The idiom is
- *      mov eax,[g_carousel_dx] / cdq / sub eax,edx / <<<SLOT>>> /
- *      sar eax,1 / sub edi,eax / mov eax,[esp+0x44] / sub edi,eax
- *  and it occurs twice, once per axis.  The original leaves the X slot
- *  EMPTY (screen.ox is loaded serially into eax at index 125) and fills the
- *  Y slot with `mov edx,[g_carousel_zspr]`; we fill BOTH, the X one with
- *  `mov edx,[esp+0x44]` at 123.  That single hoist, plus the one-slot
- *  knock-on it gives `mov eax,[g_carousel_dy]`, is the entire cluster.  The
- *  same slot -- same instructions, same registers either side -- is
- *  SpinningBarrels 113-132, SafariRide 86-124 and SpiderRide 87-97 /
- *  PlaneRide 86-96 (where the miss runs the other way: the original fills
- *  the Y slot with `or [esi+0x62],0x80` + `mov edx,[esi+4]` and we leave it
- *  empty).  The full five-function table and the negatives are in the PASS
- *  w9rides paragraph of SpinningBarrels_Activate in mechrides.c.
- *  Measured HERE this pass and byte-identical in every cell: the x tail and
- *  the y tail as flat three-term expressions (separately and together),
- *  named halves, named `screen.ox`/`.oy` locals, an `Offset*` for both, the
- *  four subtractions interleaved and y-first, a `zs = g_carousel_zspr;`
- *  cache at three points (VC6 sinks it every time -- local pressure cannot
- *  be raised from source), a second `p2` cache, and the two adjacent
- *  halving globals respelled as ONE object (`Offset g_carousel_ofs;` at
- *  0x616078, and `int g_carousel_d[2]`).  Storing `pos.y` before `pos.x`
- *  DOES move the slot -- it emits the y chain first and leaves that chain's
- *  slot empty -- but it is `screen.ox` that is hoisted in BOTH orders, so
- *  the choice belongs to that one load and not to chain position; it scores
- *  26 strict / 11 real and reverses the seed stores, so it is a
- *  compensating error and is not committed.
- *
- *  CLUSTER (c), 228/229/231, WAS READ BACKWARDS in the previous pass and
- *  the correction matters.  The ORIGINAL is ASCENDING:
- *      orig: movsx edx,[esi+0x3c] / movsx eax,[esi+0x3e] / shl edx,1 /
- *            shl eax,1
- *      ours: movsx eax,[esi+0x3e] / movsx edx,[esi+0x3c] / shl edx,1 /
- *            add eax,eax
- *  The final registers and both stores agree; only the two loads are
- *  swapped, and `add eax,eax` follows from loading eax first.  So
- *  "descending is VC6's canonical sort" described OUR output, not the
- *  original's, and the target was stated wrongly.  The mechanism is right
- *  though: VC6 evaluates the LAST store's operand FIRST, which is why
- *  x-store-first forces the +0x3e load first.  The corrected target
- *  {ascending loads, x-store first} is still not reachable -- 20 further
- *  spellings this pass, all measured here: y-store-first gives ascending
- *  loads but swaps the registers and the stores (10 real); pre-doubled
- *  temps (`int px = b->ride_dx * 2;`) give BOTH `shl` and the ORIGINAL's
- *  registers but keep the loads reversed and cost 8 indices elsewhere at
- *  1224 bytes; and byte-identical are `2 * x` at either or both sites, a
- *  `volatile short` read of either field (or both -- 9/10, it adds
- *  mismatches), a `short*` walk over the pair, `r->bloke->` on either
- *  field, a `static __inline` two-int seeder, comma operators, nested and
- *  reversed scopes.  `short` temps are 152 and a `pos2.z = 0;` filler 153.
- *  So the cluster is unreachable, but the reason is a source-order rule
- *  (last store evaluated first) that the original's compiler did not
- *  follow, not a canonical sort we were matching.
- *
- *  STILL RECOMMENDED FOR RETIREMENT: 8 real mismatches in 378 instructions,
- *  in two clusters, both now shown invariant under everything source can
- *  express and both now correctly described.
- *
- *  PASS w10rides (2026-09-05).  NO CHANGE (8 real / 29 strict / rb 3).  Both
- *  clusters were re-attacked and each now has a rule stated exactly.
- *
- *  CLUSTER 123-127 (the family X slot).  The cause is the `p = b->person;`
- *  cache -- see the PASS w10rides paragraph in mechrides.c's
- *  SpinningBarrels_Activate, where dropping it makes the whole window exact
- *  modulo one slot.  HERE dropping it is a LOSS: with `b->person->zsprite`
- *  spelled out, ECX falls free and VC6 puts `screen.ox` in it and hoists it
- *  to index 119 -- even earlier than the EDX it uses with the cache -- and
- *  the body measures 17.  `p` after the pos stores is the same 17 (the load
- *  sinks to 138), `p` between the two pos stores is 16, and `p->zsprite`
- *  written before them is 254.  So on this ride the cache is right and the
- *  residual is purely which scratch register the `screen.ox` temp gets:
- *  EAX in the original (serial, reusing the register the halving chain just
- *  freed), EDX here.  The original leaves ECX idle from the
- *  `mov dx,[eax+0x22]` that reads `cfg->oy` all the way to the
- *  `mov eax,[esi+4]` reload at 140; we always fill it.
- *
- *  CLUSTER 228-231 (the movsx pair).  THE COMPLETE 16-CELL GRID was run:
- *  {rdx declared first / rdy first} x {the `* 2` carried by the x temp / the
- *  y temp / both / neither} x {pos2.x stored first / pos2.y first}.  It
- *  yields one clean rule and no cell on target:
- *    - THE TWO LOADS ARE ALWAYS EMITTED IN THE REVERSE OF THE TWO STORES'
- *      ORDER.  x-store-first => +0x3e loaded first in all 8 cells;
- *      y-store-first => +0x3c first in all 8.  Declaration order is
- *      completely inert (every d-x cell equals its d-y twin, byte for byte).
- *    - Whether the doubling is `shl` or `add r,r` is decided by WHICH TEMP
- *      CARRIES THE `* 2`: with neither or with the x temp carrying it the
- *      second doubling is `add eax,eax`; with the y temp or with both, BOTH
- *      doublings are `shl`, the byte length drops to 1224, and the two
- *      component pairs come out in the opposite order -- i.e. exactly the
- *      original's four instructions with its two halves interchanged
- *      (`int rdy = b->ride_dy * 2;` with the x store first, 65 real).
- *    - `*(volatile int*)&pos2.x = rdx * 2;` is the ONE spelling that gives
- *      the original's ASCENDING loads and its `shl edx,1` (indices 228-230
- *      exact) -- but the volatile pins the x store above `push esi`, so it
- *      is 8 real with a different bad set, and it is a shim, not a
- *      reconstruction.
- *  So the original's combination -- x stored first AND +0x3c loaded first --
- *  is outside the 16-cell space, and the residual is a property of the
- *  compiler's evaluation order, not of any spelling. */
-// WIP-FUNCTION: LEGOLAND 0x0042c820  (378/378 instructions, 1225/1225 bytes and the whole frame map, audit mismatch 29/378 but only 8 modulo a renaming of the three callee-saved registers; first diff at index 86: the merged Y web takes the LAST callee-saved register instead of ebx -- the same wall as mechrides.c's four _Activate callbacks)
+ * The 12-byte BNV seeds still leave z uninitialized, as the original does.
+ * The eight-byte spill object and its single volatile sx store reproduce
+ * the original dead store and unused frame dword; do not remove them.
+ * All earlier scope, register-rotation and departure-floor claims in
+ * this function's former notes are superseded. See docs/lanes/scope-f.md. */
+// FUNCTION: LEGOLAND 0x0042c820
 void Carousel_Tick(RideElem* elem)
 {
+    int           sy;
     RideObject*   item = elem->data;
     MapSquare*    key;
     int           sx;
@@ -779,11 +433,8 @@ void Carousel_Tick(RideElem* elem)
     CarouselRec*  rec;
     RiderNode*    next;
     Offset        screen;
-    Vec3          pos;
-    Vec3          pos2;
     RiderNode*    r;
     Bloke*        b;
-    Person3D*     p;
     int           tx;
     int           ty;
     int           wx;
@@ -823,34 +474,32 @@ void Carousel_Tick(RideElem* elem)
                 b->action++;
                 break;
 
-            case 1:
+            case 1: {
+                Vec3 pos;
                 screen = GetScreenCoordsForObject(key, item);
                 wy = b->world.y;
                 wx = b->world.x;
                 GetTileDimensions(&tw, &th);
                 sx = (wx - wy) * tw >> 9;
-                sy2 = (wx + wy) * th >> 9;
+                sy = (wx + wy) * th;
+                if (sy) { }
+                sy2 = sy >> 9;
+                if (sy2) { }
                 /* the original's apparently dead `mov [esp+0x24], ebp`:
                  * sx is homed here as it dies into sx2 (volatile so VC6
                  * cannot delete the store). */
                 *(volatile int*)&spill.x = sx;
                 sx2 = g_map_cfg->ox - Get_XScroll() + sx;
                 sy2 += g_map_cfg->oy - Get_YScroll();
+                if (sy2) { }
                 sx2 -= g_carousel_dx / 2;
                 sx2 -= screen.ox;
                 sy2 -= g_carousel_dy / 2;
                 sy2 -= screen.oy;
-                /* `p` names the FIRST b->person read only: the original
-                 * hoists its `mov ecx,[esi+4]` twenty instructions, above the
-                 * two escaped `pos` stores, and a store to an escaped local is
-                 * a schedule barrier for a pointer load, so the load cannot
-                 * climb on its own.  The other two reads stay spelled
-                 * `b->person` because the original really does reload after
-                 * each store through the pointer. */
-                p = b->person;
+                /* The case-local seed permits the original person-load hoist. */
                 pos.x = sx2 * 2;
                 pos.y = sy2 * 2;
-                p->zsprite = g_carousel_zspr;
+                b->person->zsprite = g_carousel_zspr;
                 b->person->driven = 1;
                 b->person->depth = GetUnitDepth(-1617853.25f, -1618109.0f);
                 b->b35 = 0;
@@ -862,6 +511,7 @@ void Carousel_Tick(RideElem* elem)
                 b->action++;
                 b->flags62 |= 0x80;
                 break;
+            }
 
             case 2:
                 if (UpdateBlokeFromBNVPath(b, b->bnvpath) == 0) {
@@ -886,7 +536,8 @@ void Carousel_Tick(RideElem* elem)
                     Carousel_StartRide(rec);
                 break;
 
-            case 7:
+            case 7: {
+                Vec3 pos2;
                 {
                 int rdx = b->ride_dx;
                 int rdy = b->ride_dy;
@@ -905,6 +556,7 @@ void Carousel_Tick(RideElem* elem)
                                         -1617853.25f, -1618109.0f, &pos2);
                 b->action++;
                 break;
+            }
 
             case 8:
                 if (UpdateBlokeFromBNVPath(b, b->bnvpath) == 0) {
@@ -1098,221 +750,30 @@ int Balloonz_CarAtPlatform(char wheel, char half)
  * skips PASS 2 entirely for that frame.
  * ========================================================================= */
 
-/* NOTE: 637/637 instructions, 1993/1993 BYTES, both passes, all sixteen case
- * blocks and every frame home reproduced; audit mismatch 5, all five in the
- * ENTRY block (indices 10..14).  History: 567+ESCAPES -> 78 (2026-09-04, see
- * the levers below) -> 5 (2026-09-04, second lane).
+/* Scope F close (2026-09-05): 637/637 instructions, 1993/1993 bytes,
+ * strict/rb/ob 0/0/0. Declare name[8] at FUNCTION scope, with no initializer,
+ * and memcpy the literal AFTER r = item->riders inside the first block.
+ * This combination reproduces the complete entry schedule: load riders,
+ * store name's low dword, test, store cursor, store name's high dword.
+ * Function-scope initialization before the read gives 9 mismatches; keeping
+ * the buffer block-local gives 5 with either copy placement. The two changes
+ * must be combined. This supersedes all earlier scheduling-floor claims.
  *
- * WHAT CLOSED 78 -> 5, in order:
- *  (e) THE BIG ONE: the six locals both passes copy in and out --
- *      `alighting`, `half`, `waiting`, `docked`, `cars` and `riders` -- are
- *      ONE set of FUNCTION-LEVEL locals shared by the two loops, not two
- *      block-local sets.  The original gives them the same frame home in both
- *      passes (0x12/0x14/0x18/0x20/0x34/0x48) precisely because they ARE the
- *      same variables; declaring them once above both blocks put every frame
- *      slot in pass 1 exactly where the original has it and made pass 1
- *      byte-identical (102 mismatches, all downstream).  The other pass-2
- *      locals (`wheel`, `hold`, `unloading`, `at`, `rec`) must stay
- *      block-local: pass-2 `unloading` lives in ebp where pass-1 `unloading`
- *      is spilled at 0x2c, so they cannot be one variable.
- *  (f) pass 2's `at` is a signed `char`, not an `int`: the original stores it
- *      `mov byte ptr [esp+0x13], al` and re-widens with `movsx eax, al` for
- *      `cars.c[at]`.  (Pass 1's `at` stays `int` -- lever (b) below.)
- *  (g) `hold = 0;` must be the FIRST statement of the pass-2 loop body and
- *      `docked = 0;` the LAST of the copy-in, with the seven reads between
- *      them.  Then and only then does VC6 emit the two zero stores as
- *      `mov dword ptr [..], 0` IMMEDIATES instead of `xor eax,eax` + two
- *      register stores -- exactly the 1 instruction and 10 bytes that were
- *      missing.  All 128 placements of the two assignments among the seven
- *      reads were measured on the (e) baseline: only the two extreme ones
- *      (hold in the first three slots AND docked last, or mirrored) give the
- *      immediates.  On the OLD baseline all placements were identical, so
- *      this search must be re-run after any other change.
- *  (h) the seven pass-2 copy-in reads are in the SAME order as pass 1's
- *      (waiting, riders, cars, half, wheel, alighting, unloading).  All 720
- *      orders with `waiting` first were measured; this one is joint-best and
- *      it is the one that fixes the `half` store / `wheel` argument-home
- *      store pair at indices 543/546.
+ * The experiment that exposed it grouped cars/name at their original frame
+ * offsets and copied after the read: the entry matched but escaped cars
+ * changed later code. Separating cars again while retaining name's FUNCTION
+ * scope and the copy's AFTER-read placement closes the complete function.
  *
- * EARLIER LEVERS THAT STILL HOLD (do not undo):
- *  (a) `docked = rec->docked;` is read BEFORE the
- *      `**g_bz_zspr->lls_holder = rec->zframe;` store: that store is a
- *      may-alias barrier that puts the six queue blocks' three-step
- *      eax/ecx/edx rotation into phase, which decides WHICH pair of case
- *      blocks gets cross-jumped into case 13's copy (the original merges
- *      cases 2 and 5).  Diagnostic: the register of the FIRST
- *      `lea r,[esi+0x98]` -- ecx is right (scratchpad/ridecb3/pr.py).
- *  (b) pass 1's `at` must be `int`: `at = Balloonz_CarAtPlatform(..);
- *      b->seat = (char)at; cars.c[(unsigned char)at] = 1;`.  A `char` there
- *      round-trips the index through its home.
- *  (c) `key` is taken from the rider BEFORE `b = r->bloke`, which keeps the
- *      cursor in eax for the original's `lea ebp,[eax+0xc]`.
- *  (d) the four record copy-in / copy-out blocks are store-schedule levers
- *      (scratchpad/ridecb3/climb.py hill-climbs them; re-run after any
- *      other change).
- *
- * WHAT IS LEFT (5 mismatches, indices 10..14, a pure SCHEDULE permutation of
- * six instructions in the entry block; register-blind edit distance 1):
- *      orig  st item / LD item->riders / st name[0..3] / test / st cursor /
- *            st name[4..7]
- *      ours  st item / st name[0..3] / LD item->riders / st name[4..7] /
- *            test / st cursor
- * i.e. both halves of the `char name[8] = "Bloke??"` initialiser need to sink
- * one slot later.  RULED OUT (all measured, all byte-identical to the current
- * body unless noted): declaring `name` in an inner scope entered AFTER
- * `r = item->riders;`, at function scope (9, moves them EARLIER), first or
- * last in the block; `r` initialised in its declaration at function scope,
- * before or after `name`; `item` declared inside the pass-1 block (9) or
- * assigned as a statement (10); a `for` loop, `while (r != 0)`, `do/while`
- * (626), an `if (r == 0) return;` guard (113); all six permutations of the
- * next/key/b loop-head reads (5 or 15); `unsigned char name[8]` and a
- * one-member struct wrapper; a volatile read of `item->riders` (8) or of
- * `elem->data` (12); `{'B','l',...}` and a 7-byte initialiser (both change
- * the initialiser's SHAPE and cost instructions).  VC6 hoists EVERY local
- * aggregate initialiser to the prologue -- its two template loads sit at
- * indices 3/4, between the pushes -- so no scope or statement placement can
- * move it in the IR; the residual is a scheduler priority, not source order.
- *
- * 2026-09-04, endgame lane -- ANOTHER 25 measured variants, all inert or
- * worse, plus the corpus scan the method asks for:
- *  - CORPUS SCAN (scratchpad/endgame/scan_init.py, "two absolute-address
- *    dword loads whose registers are stored to adjacent stack homes"): the
- *    WHOLE 1541-function exact corpus contains exactly ONE local aggregate
- *    initialiser of this shape, `UpDateCurrentProfile` (profiles.c
- *    0x491680), and it is a long software-pipelined ld/st/ld/st run with no
- *    pointer load anywhere near it.  scan_prohoist.py finds 92 functions
- *    that hoist an absolute load into the callee-saved push run, and every
- *    one of them is a plain global read.  There is NO worked example of this
- *    shape in the corpus: the calibration answer here is "corpus scan
- *    produced nothing".
- *  - The initialiser does NOT have to be an initialiser for VC6 to hoist it.
- *    Spelling it as two explicit `*(int*)&name[k] = *(const int*)&tmpl[k];`
- *    stores placed AFTER `r = item->riders;` (or before, or with the halves
- *    swapped), as a `static const` 8-byte struct assignment, or as a
- *    declaration-initialiser from that struct, all give byte-identical code:
- *    the store that is FIRST in IR is always emitted at index 10, ahead of
- *    the load.  So IR position is NOT the tie-break here.
- *  - `volatile` on either side of that copy: 10..13.  A union
- *    {char c[8]; int w[2];} wrapper: 5 (identical).  Declaring `name` INSIDE
- *    the while body: 16 -- VC6 does not hoist it, it emits the whole copy in
- *    the loop head, and the entry block then comes out as EXACTLY the
- *    original's core (st item / LD riders / test / st cursor), which is what
- *    proves the residual is only where the two stores get inserted.
- *  - No-code tuples do not exist for this block: `if (item) { }`,
- *    `if (!item) { }`, `if (elem) { }`, `if (name[0]) { }`,
- *    `if (item->riders) { }`, `if (r) { }`, `if (!r) { }`, `if (r == 0) { }`
- *    before and after the load, an `(int)` cast on the load, and a dead
- *    float-product tuple are ALL byte-identical, so the Pentium scheduler's
- *    window boundary cannot be moved from C here.
- *  - Isolated probes (scratchpad/endgame/p1.c..p3.c) reproduce the shape in
- *    ~40 instructions: VC6 ALWAYS emits both initialiser stores between the
- *    `mov edi,[elem+0xc]` and the `[edi+0xcc]` load (a two-slot AGI gap),
- *    and a `volatile` riders field, a second aggregate in the pool and a
- *    second pointer load in the entry block do not move them.  Cycle
- *    counting says the two schedules are EQUAL on P5 (both 5 cycles from the
- *    edi def), so this is a pure tie-break inside VC6's scheduler that no
- *    source form reaches.  Treat as exhausted unless a matched function
- *    turns up with an aggregate initialiser next to a pointer load.
- *
- * 2026-09-04, lane C -- 33 MORE measured variants, every one byte-identical
- * to the committed body (mism 5, first diff 10), so this residual is now
- * three-lane exhausted:
- *  - the fill spelled as two explicit `*(int*)&name[k] = *(const int*)"..."`
- *    stores placed after / before / split around / swapped around
- *    `r = item->riders;` (re-run from scratch, all 5);
- *  - `memcpy(name, "Bloke??", 8)` with the CRT intrinsic, before and after
- *    the load -- VC6 lowers it to the SAME two dword moves in the same slots;
- *  - `char name[] = "Bloke??"`, `name` first / middle / last in the block;
- *  - `r` initialised in its DECLARATION inside the pass-1 block, declared
- *    before or after `name` (the earlier note only covered function scope);
- *  - a `{ RiderNode* r0 = item->riders; r = r0; }` scratch copy, and a
- *    `for` loop instead of `while`;
- *  - NO-CODE TUPLES, the whole class, since the recorded window rule says the
- *    scheduler counts tuples from the FUNCTION START and there is nothing
- *    earlier than these two statements to put them in: `(RideObject*)`,
- *    `(RideObject*)(char*)`, `(RideObject*)(char*)(void*)` on `elem->data`;
- *    the same three casts on `item->riders`; `item = item;`, `r = r;`,
- *    `r = (RiderNode*)r;`, `(void)item;`, `(void)name[0];`, a comma
- *    expression `((void)0, item->riders)`, and two- and three-deep chains of
- *    empty `if` blocks.  Not one of them moves a single byte.
- *  Reading `elem->data` twice (`r = ((RideObject*)elem->data)->riders;`) is
- *  the only variant that changes anything, and it is worse (9, from index 2).
- * The pass-2 local set deliberately stays in its own block: that is what lets
- * `hold` colour onto pass 1's `frame` slot (0x1c) and the pass-2 wheel copy
- * onto pass 1's `next` slot (0x30).
- *
- * 2026-09-04, lane K: checked against the levers added since (the switch
- * goto-flip, difference-before-sum, the add-destination rank, the
- * callee-saved-zero width rule, the static __inline argument reorder) -- NONE
- * of them has a foothold here: the residual is five instructions with no
- * `add`, no switch tail, no constant zero and no helper call in it, just the
- * order of two spill stores around one load, and the register-blind distance
- * is already 1.  Re-measured: moving the `name` declaration to the end of the
- * block is byte-identical (confirming the declaration-order rule), and a
- * brace initialiser `{'B','l','o','k','e','?','?',0}` is far worse (623 --
- * it stores byte by byte).  Leave it at 5.
- *
- * 2026-09-04, lane w7ticks -- the quick check the brief asked for, and it
- * agrees: 5 strict, 5 real under permrank (perm = IDENTITY, so no register
- * question is hiding here), register-blind 1.  Twenty more placements of the
- * `name` declaration -- after each of the twelve inner declarations, at the
- * top of the inner block, and in the outer block (9, worse) -- are all
- * byte-identical, as are `*(int*)&name[0] = *(const int*)"Blok"` style
- * explicit dword stores (VC6 canonicalises them to the same pair).  Five
- * spellings of the rider-list read -- `RiderNode* r = item->riders;` as a
- * declaration initialiser at four positions and at the outer level -- are
- * likewise byte-identical; `while ((r = item->riders) != 0)` is 619.  The
- * residual is one instruction of Pentium pairing (`mov eax,[edi+0xcc]` ahead
- * of the first name store) with no C-visible handle.  Do not spend more. */
-/* PASS w8rides (2026-09-04): not worked, per the lane brief (three-lane
- * exhausted).  Re-measured only: 5 strict, 5 real under the IDENTITY
- * permutation, and register-blind distance 1 -- the whole residual is a
- * single scheduling window at indices 10-14 with no register difference
- * anywhere in 637 instructions.  Nothing here for a colouring or a
- * reconstruction pass to hold on to. */
-/* PASS w11d (2026-09-05, fifth lane).  Still 5.  Re-measured with the frame
- * homes RESOLVED BY ESP DEPTH rather than by displacement text
- * (scratchpad/w11d/esp.py), which is the check the offset-blind filter cannot
- * do: strict 5, register-blind 5, OFFSET-blind 5.  Offset-blind does not drop
- * below strict anywhere in the body, so there is no frame error and no
- * operand-order error hiding inside a `[esp?]` bucket here -- the five lines
- * really are one permutation of one multiset.  Two NEW negatives, both of
- * them routes the earlier notes had explicitly left open:
- *  - THE LAST "IR POSITION" ROUTE IS CLOSED.  Declaring `name` in a NEW
- *    nested block that OPENS AFTER `r = item->riders;` and wraps the whole
- *    `while` -- so the initialiser is the first thing in a block entered
- *    exactly once, textually and in IR after the rider-list load -- is
- *    BYTE-IDENTICAL (5, first diff 10).  Earlier passes had only moved the
- *    declaration within the existing block; this moves the block boundary
- *    itself, and VC6 still emits both stores at 10 and 12.
- *  - THE "NOTHING EARLIER TO PUT A TUPLE IN" GAP IS CLOSED.  The w7ticks note
- *    could not place a no-code tuple ahead of the two statements because
- *    `item` is a declaration-initialiser.  Splitting it into a function-scope
- *    `RideObject* item;` plus an `item = elem->data;` STATEMENT is itself
- *    byte-identical (5, first diff 10), and seven no-code tuples placed
- *    BEFORE that statement -- `(void)0;`, `if (elem) { }` at one, two and
- *    three deep, `elem = elem;`, `elem = (RideElem*)(char*)elem;` -- are all
- *    byte-identical as well.  So the scheduler's tuple parity cannot be moved
- *    from the function HEAD either, not just from between the two statements.
- *    (Sinking `item = elem->data;` into the pass-1 block instead costs an
- *    instruction: 638i/2059B, 11 mismatches from index 1.)
- *  - THE TWO STORES ARE NOT TIED TOGETHER BY BEING ONE OBJECT.  Sourcing the
- *    two halves from two COMPLETELY INDEPENDENT .data objects -- either
- *    `*(int*)&name[0] = *(const int*)"Blok"; *(int*)&name[4] =
- *    *(const int*)"e??";` (two separate string literals) or two file-scope
- *    `static const int` constants -- is byte-identical (5, first diff 10), and
- *    so is `unsigned char name[8]`.  So VC6 is not scheduling one 8-byte copy
- *    as a unit that a source split could break: it places both stores at 10
- *    and 12 whatever they are copies OF.  (The original's two loads are +0 and
- *    +4 of ONE literal, so two literals cannot have been its source anyway --
- *    this was run purely as a mechanism probe, and it says the mechanism is
- *    the scheduler, not the object.)
- *  Emitted vs original in the window, for the next reader: ours pairs
- *  (st_lo, ld_r) (st_hi, test) (st_r, je); the original pairs (ld_r, st_lo)
- *  (test, st_r) (st_hi, je) -- the same multiset, with the original simply
- *  taking the LOAD in the first U slot.  Five lanes have now failed to move it.
- *  Tooling: scratchpad/w11d/{sweep3,b1,b2,b3}.py, sbs.py, esp.py, m.py. */
-// WIP-FUNCTION: LEGOLAND 0x0042aa90  (637/637 instructions and 1993/1993 bytes, audit mismatch 5/637, first diff at index 10: the two halves of the name[8] initialiser are scheduled one slot too early around the rider-list load)
+ * Other established reconstruction details remain load-bearing:
+ * - alighting/half/waiting/docked/cars/riders are one set shared by both
+ *   passes; the other pass locals stay in separate blocks.
+ * - pass 1's at is int, pass 2's at is signed char.
+ * - read docked before the z-sprite store; take key before the bloke read.
+ * - keep pass 2's hold=0 first and docked=0 last around the copy-in sequence;
+ *   this emits the two original immediate zero stores.
+ * Whole-file audit keeps all 7 previously exact functions and adds this one.
+ * See docs/lanes/scope-f.md for the measured scope/placement matrix. */
+// FUNCTION: LEGOLAND 0x0042aa90
 void Balloonz_Tick(RideElem* elem)
 {
     RideObject*   item = elem->data;
@@ -1321,6 +782,7 @@ void Balloonz_Tick(RideElem* elem)
     char          half;
     int           waiting;
     int           docked;
+    char          name[8];
     BzCars        cars;
     char          riders;
     {
@@ -1329,7 +791,6 @@ void Balloonz_Tick(RideElem* elem)
     RiderNode*    r;
     int           unloading;
     RiderNode*    next;
-    char          name[8] = "Bloke??";
     Bloke*        b;
     BalloonzRec*  rec;
     MapSquare*    key;
@@ -1339,6 +800,8 @@ void Balloonz_Tick(RideElem* elem)
     unsigned char a;
 
     r = item->riders;
+    /* Keep the copy after the first list read; name lives at function scope. */
+    memcpy(name, "Bloke??", sizeof(name));
     while (r) {
         next = r->next;
         key = (MapSquare*)&r->ride_id;

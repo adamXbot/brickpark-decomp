@@ -360,196 +360,29 @@ void LFQueue_AddRider(LFQueue* q, RiderNode* r)
  * back out of p1 even when p1 is null.
  * ========================================================================= */
 
-/* RESIDUAL: ONE register choice.  Every block, constant, call, store and
- * frame slot of the original is reproduced; the original keeps `st` in ebx
- * (pushed at entry) and `p1` -- reused for `i` -- in ebp (the deferred push),
- * this body has them the other way round, and because the scratch rotation
- * follows that choice ~200 of the 256 instructions differ index-for-index.
- * Secondary residual (a) IS CLOSED (2026-09-04, fourth lane): computing `n`
- * BEFORE `last = p1` instead of after it makes VC6 hoist `n - 1` into its
- * own spill slot after the loop guard exactly as the original does
- * (`dec eax / mov [esp+0x18],eax`, then `cmp ebp,[esp+0x18]` in the loop),
- * which restores the 0x28 frame and puts n/def/midy/sq/a/b in the original's
- * slots.  220 -> 206, and with ebx/ebp exchanged on our side indices 0..61
- * are now IDENTICAL (scratchpad/laneF/sbswap.py).  The unreferenced slot at
- * entry-0x14 is not a variable: it is the 8-byte alignment hole between the
- * 4-byte `sq` slot and the Pos `b`, and this body has it too.
+/* 2026-09-05 (scope H continuation): exact, 256 instructions / 812 bytes.
+ * The two AddBasicObject coordinates are DISTINCT block-scoped Pos locals;
+ * the running a/b coordinates remain non-address-taken aggregates.  A Pos
+ * whose address escapes to either call prevents the original's early byte
+ * reloads; replacing it with two scalars instead loses the aggregate's
+ * arithmetic grouping.  Separate objects recover BOTH properties at once.
  *
- * What IS load-bearing and committed (each verified against the listing):
- *  - `def->footprint.v[0]`/`v[1]` read into int temps BEFORE the a.x/a.y
- *    stores, then `a.x++; a.y -= dy;` as separate statements: `a` is
- *    address-taken, so a load through `def` after an a.x store cannot be
- *    hoisted and would force a second a.x store (the sibling
- *    LFEntrance_Update has that double store; the original here does not).
- *    With the temps, indices 26..53 are exact modulo the ebx/ebp swap.
- *  - the tail square: x fully (add, inc) then y (`+ v[3] - 1` then `+= dy`
- *    keeps the `lea [edx+ecx-1] / add ecx,esi` association).
- *  - a separate `last` cursor (p1 as the cursor keeps it in a register and
- *    spills `i` instead; the original spills the cursor into the dead `elem`
- *    slot and keeps `i` in the p1 register).
+ * Measured independently: a distinct tail-call Pos fixes the original head
+ * and p1 block through index 82 (206 -> 105); a distinct first-call Pos also
+ * fixes the loop (105 -> 52).  For p3, assign b.x AND b.y before b.x++ and
+ * b.y += dy, preserving the aggregate's partial sums (52 -> 2).  Finally
+ * place p3->flags |= 3 immediately after p3->dir = 2 (2 -> 0).  Moving that
+ * flags update one statement earlier or later leaves two differences.
+ * All stores, calls, frame homes and the ebx/ebp allocation now agree.
  *
- * The st/p1 swap is a priority tie: measured with probes (not committed), it
- * flips to the original's allocation with +2 unconditional stores through
- * `st` outside the loop, +3 stores through `st` inside the loop, -2 of the
- * `p1->sq` byte reads, an `unsigned char` loop counter, or an inlined
- * allocating helper whose int arguments are live across LFPiece_Alloc; +1
- * ref, +2 loop refs, +2 conditional refs, -1 ref and -2 if-block stores do
- * not.  No legal spelling found that supplies the missing weight: redundant
- * `if (st)` guards, `p2->run`/`p3->run` forwarded as the call argument,
- * `st->f18` as the LinkAfter argument, byte-wise `sq` copy, p1 stamped via
- * an inlined helper (parameter or local copy), post-guard inner scopes for
- * any subset of locals, `i = 0` at nine earlier points (memory-homes i),
- * five `if (p1)`/`if (!p1)` spellings, `RideTile sq`, every order of the
- * four opening statements (dy, midy, queue.path, a) on this body, do/while
- * and while forms, unsigned/long/char counters.  For (a), ~40 spellings of
- * `n - 1` (named local, two-def `nm1 = n; nm1--`, const, block-scope,
- * unsigned/long/short/char, pointer, struct/array member, address-taken,
- * inline-helper parameter, `i + 1 == n`, `i <= n - 1`, `i < nm1 + 1`,
- * `n - i == 1`, static, register, a second dead use) all forward-substitute
- * into the loop; only `volatile`, `short` or a use after the loop keep the
- * slot, none with the original's memory-operand `cmp`.  M1-style helpers
- * and `volatile` were rejected as not the original's code.
- *
- * 2026-09-04 (third lane) -- A DECISIVE DIAGNOSTIC, not committable.
- * Declaring the loop counter `unsigned char i;` and changing NOTHING else
- * produces the ORIGINAL'S REGISTER ALLOCATION AND FRAME EXACTLY:
- *     sub esp,0x28 / push ebx / push esi / push edi ... mov ebx,eax (st) ...
- *     push ebp (deferred) / mov ebp,[...] (the scratch)
- * i.e. `st` in ebx pushed at entry and the p1/i web in the deferred ebp,
- * and the `n - 1` spill slot appears on its own (both secondary residuals
- * (a) and (b) go with it).  220 -> 157, first divergence 13, and indices
- * 0..12 and 14..34 are exact.  It is NOT the original's type -- the body
- * comes out 833 bytes against 812 because every use of `i` is widened, and
- * the original's loop test is the dword `cmp ebp,[esp+18h]` -- so it is left
- * OUT of the committed body; what it proves is the DIRECTION: the tie is
- * decided by the weight of the p1/i web against `st`, and making the counter
- * a byte is enough to tip it.  With the allocation right the only remaining
- * head differences are two SPILL-SLOT offsets (`def` at [esp+14h] in the
- * original, [esp+1ch] here; midy at [esp+40h] vs [esp+3ch]), so a frame-slot
- * lever would be the next thing to look for once the tie is broken legally.
- * `signed char i` is 187, `char` 187, `short` 205, `unsigned short` 199 --
- * all flip the frame to 0x28 but only the two `char` forms flip the
- * registers.  `unsigned`/`long` i, `short`/`unsigned short`/`long` n,
- * `i != n`, `++i`, a hand-rolled `while` loop, a named `nm1` local, an extra
- * `st->queue.path` store after the guard or after LFRun_AddPiece, reading
- * `p1->sq` once through a `BPosW` local (207), `last = p1` hoisted so
- * LFPiece_LinkAfter takes `last` (219) and `if (last == p1)` in place of
- * `if (i == 0)` (207) all leave the swap in place; combining the
- * reference-count reductions with the byte counter is worse (200-201, and
- * the frame grows to 0x2c).
- *
- * 2026-09-04 (fourth lane).  220 -> 206 by moving the `n = ...` statement
- * ahead of `last = p1` (see (a) above -- that one edit is committed).  What
- * is left is ONE callee-saved tie plus what follows from it; measured on the
- * NEW baseline with a swap-blind lister (ebx<->ebp exchanged on our side,
- * scratchpad/laneF/sbswap.py: base swap-blind 187):
- *  - Indices 0..61 are swap-blind IDENTICAL.  The first real divergence is
- *    at 62: the original pulls the `mov dl,[esp+30h]` (a.x) load UP into the
- *    p1 store run, and at 73 it splits the second footprint byte into a
- *    register (`mov cl,[4b472ch] / sub al,cl`) where we fold it
- *    (`sub al, byte ptr [4b472ch]`).  COUNTED over the whole body: the
- *    original has 1 folded byte `sub` and 3 load-then-sub pairs, we have 4
- *    and 2, so exactly 3 of our 6 missing instructions are folds the
- *    original does not make (the body is 250 insns / 803 bytes against
- *    256 / 812).
- *  - The fold is BREAKABLE: moving `p1->dir = 0` to the end of the p1 store
- *    block schedules that store between the load and the `sub` and the
- *    peephole no longer applies (153 strict / 126 swap-blind, the best
- *    number seen) -- but the original emits that store FIRST (index 59), so
- *    it is not the original's order and is NOT committed.  A load-op fold
- *    needs the load and the ALU op ADJACENT AFTER SCHEDULING: any unrelated
- *    store landing between them prevents it.  Evidence the fold is instead
- *    DOWNSTREAM of the register tie: the one probe that did flip the tie
- *    (below) emits the split form on its own.
- *  - PROBE that flips the tie: spelling the p1 y-square as
- *    `a.y - g_lf_footprint.v[3] + dy` (algebraically identical, since
- *    dy = v[3] - v[1]) gives `push ebx` at entry, `st` in ebx, `p1` in ebp
- *    and STRICT first-divergence 62 -- the original's allocation.  It costs
- *    two extra instructions (821 bytes) so it is a diagnostic only.  So the
- *    tie is decided by the p1 block's pressure, not only by the loop
- *    counter's type, and it is flippable from inside that block.
- *  - Measured this round and inert or worse (all still `first=2`): all 7
- *    positions each of `p1->run = st`, `p1->dir = 0`, `p1->flags |= 3`,
- *    `p1->sq` and `p3->run = st` inside their store blocks; all 6 orders of
- *    the p2 block; all 6 positions of `p->run = st` in the loop block; all
- *    24 orders of the four opening statements again; `st->f18 = p2` before
- *    and after `LFRun_AddPiece`; `g_lftr_def->footprint` block before the
- *    p1->sq read-back; `v[3]--` before `v[2]--`; `--` instead of `- 1`;
- *    nine spellings of the p3 tail block (`b.x++` fused vs split, `b.y`
- *    two-def, `-1` moved, y before x, temps) -- ALL byte-identical, so that
- *    block's shape is fixed by pressure, not spelling; `unsigned` i,
- *    `short` n, `if (last == p1)`, the `BPosW` read-back, and int/uchar
- *    temps for the footprint bytes at one or all three sites (172-181; the
- *    int temps load a DWORD, which the original does not).
- *
- * 2026-09-04 (fifth lane, small-residual sweep).  No change; two negatives
- * worth recording so they are not re-derived.
- *  - The NEWEST recorded lever -- "a named local holding a CSE'd BYTE FIELD
- *    moves a callee-saved ranking that reference mutations cannot"
- *    (SpaceTower_Activate) -- DOES NOT TRANSFER HERE.  The obvious
- *    candidates are the two CSE'd byte fields of the local key: `sq.b.y`
- *    (three consumers: midy, a.y, the p3 y) and `sq.b.x` (two: a.x, the p3
- *    x).  Naming either or both, as `int` or as `unsigned char`, is much
- *    worse and diverges at index 0: 215 (sx), 237 (sy), 216 (both int), 233
- *    (both uchar) against the 206 baseline, and the bodies lose 2-6
- *    instructions.  The reason is structural: `sq` is ADDRESS-TAKEN (its
- *    address goes to LFStation_FindAt), so the original genuinely re-reads
- *    it from the frame at each site -- the SpaceTower lever needs a field
- *    the original keeps live across a jump table, and this one is the
- *    opposite case.
- *  - Restating the tie precisely, since permrank now measures it: strict
- *    206, best-callee-saved-permutation 187, and indices 0..61 are exact
- *    under the single ebx<->ebp exchange.  So the ebx/ebp tie explains only
- *    19 of the 206; the other 187 sit past index 62 and are the fold /
- *    schedule residual described above.  Fixing the tie alone will NOT close
- *    this function -- it is worth about 19 - and the two residuals should be
- *    costed separately from here on.
- *
- * 2026-09-05 (sixth lane).  Unchanged at 206, but the p1 STORE BLOCK is now
- * EXPLAINED and reproduced exactly -- at the cost of the head, which makes
- * the two halves provably incompatible from any single spelling of `a`.
- *  - THE p1 BLOCK IS AN ESCAPE PROBLEM, not a schedule one.  Replacing the
- *    `Pos a` used by the head / p1 / loop with two PLAIN INT SCALARS
- *    `ax, ay` (the tail's `AddBasicObject(g_lftr_elem, &a)` keeping its own
- *    `Pos a`) reproduces the original's p1 block INSTRUCTION FOR
- *    INSTRUCTION, including all four things this note has been chasing:
- *    the `mov dl,[a.x]` load HOISTED above the def/run/parent/flags stores,
- *    `mov [p1+0x24],ebx` between the flags load and the `or`, the SPLIT
- *    `mov cl,[4b472ch] / sub al,cl` (the fold is gone), the a.y load before
- *    the x store -- AND the callee-saved tie flips to the original's
- *    (`ebp` = p1, `ebx` = st).  So all of those are downstream of ONE fact:
- *    in the original the p1 block's coordinate is NOT an address-taken
- *    local, so its reload is not alias-pinned behind the pointer stores.
- *  - WHY IT CANNOT BE COMMITTED.  The head needs the opposite.  The
- *    original's head emits `add eax,ecx` ... `inc eax` ... ONE store, which
- *    is exactly the escaped-store shape already recorded here; with plain
- *    scalars VC6 folds the two defs at the IR level into
- *    `lea eax,[eax+edx+1]` and the head loses instructions.  All six legal
- *    orders of {ax=, ay=, ax++, ay-=dy}, `ax = sq.b.x + fx + 1` and putting
- *    the `st->queue.path` store between the defs are byte-identical: the
- *    fold is not preventable for a scalar.  Net: strict 225, LCS-aligned
- *    register-blind 68 against the base's 34.  Frame: the two scalars need
- *    ONE extra slot (0x2c) unless the tail's `Pos a` is put in an INNER
- *    BLOCK SCOPE, which brings the frame back to the original's 0x28 --
- *    worth knowing, because the original's -0x08/-0x04 pair really is
- *    shared between the head coordinate and the tail's address-taken Pos.
- *    So the original's `ax` is a compiler TEMPORARY lifetime-coloured onto
- *    the tail Pos's home, not a named local -- and nothing found makes a
- *    once-defined, thrice-used-across-calls value a temporary.
- *  - TWO COMPENSATING IMPROVEMENTS, both REJECTED by the standing test
- *    (strict falls, LCS-aligned register-blind RISES): `p1->sq.b.x` written
- *    FIRST in the p1 block (154 strict, rb-aligned 34 -> 37), and
- *    `ax = a.x;` after the head with p1/loop reading `ax` (150 strict,
- *    rb-aligned 34 -> 77).  Neither is the original's shape.
- *  - Re-measured and INERT on the current baseline: ALL 720 permutations of
- *    the six p1 scalar stores (every one is 206 and emits the same
- *    canonical order), all 7 positions of `p1->sq.b.x` alone and all 7 of
- *    `p1->sq.b.y` alone (only position 0 moves, and that is the rejected
- *    case above), and an early `xx = a.x;` read at four points inside the
- *    p1 block (210 -- the read does NOT pin the load where the original has
- *    it).
+ * This corrects the prior claim that the head and p1 requirements were
+ * incompatible: aggregate arithmetic protection and address escape are
+ * independent levers.  Neither volatile nor altered types are needed.
+ * Original quirks remain: the p1 square is read even after allocation
+ * failure; p2 is dereferenced without a null check; the class footprint is
+ * overwritten globally before the first extra track object is placed.
  */
-// WIP-FUNCTION: LEGOLAND 0x0040a600  (20% by audit.py, 206/256 index mismatches, body 250 insns; st/p1 in the opposite callee-saved pair -- swap-blind the first 62 are exact)
+// FUNCTION: LEGOLAND 0x0040a600
 void LFEntrance_Add(RideElem* elem, const Pos* pos)
 {
     RideDef* def;
@@ -583,7 +416,7 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
                      + ((def->footprint.v[3] - def->footprint.v[1]) >> 1));
     st->queue.path = g_lf_anim_a;
     fx = def->footprint.v[0];      /* both loads BEFORE the a.x store: */
-    fy = def->footprint.v[1];      /* `a` is address-taken, def may alias */
+    fy = def->footprint.v[1];      /* keep the two inputs defined together */
     a.x = sq.b.x + fx;
     a.y = sq.b.y + fy;
     a.x++;
@@ -602,13 +435,15 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
     }
     LFRun_AddPiece(st, p1);
 
-    b.x = p1->sq.b.x;
-    b.y = p1->sq.b.y;
-    g_lftr_def->footprint = g_lf_footprint;
-    g_lftr_def->footprint.v[2] = g_lftr_def->footprint.v[2] - 1;
-    g_lftr_def->footprint.v[3] = g_lftr_def->footprint.v[3] - 1;
-    AddBasicObject(g_lftr_elem, &b);
-
+    {
+        Pos first;
+        first.x = p1->sq.b.x;
+        first.y = p1->sq.b.y;
+        g_lftr_def->footprint = g_lf_footprint;
+        g_lftr_def->footprint.v[2] = g_lftr_def->footprint.v[2] - 1;
+        g_lftr_def->footprint.v[3] = g_lftr_def->footprint.v[3] - 1;
+        AddBasicObject(g_lftr_elem, &first);
+    }
     p2 = LFPiece_Alloc();
     p2->run = st;
     p2->def = g_lfen_def;
@@ -649,14 +484,14 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
     fx = def->footprint.v[0];
     fy = def->footprint.v[3];
     b.x = sq.b.x + fx;
-    b.x++;
     b.y = sq.b.y + fy - 1;
+    b.x++;
     b.y += dy;
     p3 = LFPiece_Alloc();
     if (p3 != 0) {
-        p3->flags |= 3;
         p3->kind = 3;
         p3->dir  = 2;
+        p3->flags |= 3;
         p3->parent = 0;
         p3->def  = g_lftr_def;
         p3->run  = st;
@@ -664,9 +499,12 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
         p3->sq.b.y = (unsigned char)(b.y - g_lf_footprint.v[1]);
     }
     LFRun_AddPiece(st, p3);
-    a.x = p3->sq.b.x;
-    a.y = p3->sq.b.y;
-    AddBasicObject(g_lftr_elem, &a);
+    {
+        Pos tail;
+        tail.x = p3->sq.b.x;
+        tail.y = p3->sq.b.y;
+        AddBasicObject(g_lftr_elem, &tail);
+    }
     LFPiece_LinkAfter(last, p3);
     LFRun_Finish(st);
 }
@@ -918,7 +756,115 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
  *    the sum, and the function offers none (case 10 re-reads qy from a
  *    reloaded `def`, and qx is never read again).
  */
-// WIP-FUNCTION: LEGOLAND 0x0040bf70  (95.5%, 222/222 insns; the tx sum is `add` not `lea`, which renames the 10-instruction preamble)
+/* SCOPE H FIRST PASS, 2026-09-05.  Unchanged at 10/222 mismatches, first
+ * index 14, 672/673B.  Four bounded tests of the newer named-pointer lever:
+ * name &r->ride_id before the RideTile cast; name &tile->b for the two sums;
+ * name &r->next before loading next; name the current node before its three
+ * field reads.  All four reproduce the baseline instruction stream exactly.
+ * The original preamble and every case were re-read; no reconstruction error
+ * found.  A named field-address or node pointer does not separate qx from tx
+ * here.  No previously recorded volatile shim was added or re-swept.
+ * Evidence: scratchpad/scope-h/animation/activate-*-sbs.txt. */
+/* SCOPE H, 2026-09-06 (this round).  Still ten, first index 14, 672/673B; no
+ * spelling committed.  The round did NOT sweep the divergence again -- it
+ * re-derived the register decision from the disassembly and from an exact
+ * twin, and the result RETIRES the "coalescing" framing that the fourth,
+ * fifth and sixth lanes worked under.
+ *
+ * THE RULE (three independent witnesses, all measured here).  When the two
+ * dead scratch temps of this block -- `qx` (the movsx of def->qx) and `next`
+ * (the load of r->next that feeds the home store) -- have OVERLAPPING ranges
+ * in the emitted block, VC6 gives EDX to the one whose load is emitted
+ * FIRST and ECX to the other.  When they do not overlap, both take ECX.
+ *   - ours (b, tile, tx, next, ty): `mov edx,[ebp]` at 14, `movsx ecx,
+ *     [ebx+24h]` at 16, store at 19 -> ranges overlap, next is first -> next
+ *     EDX, qx ECX, and the sum folds in place, `add ecx,eax` (2 bytes).
+ *   - goldrush.c Fort_TickRiders 0x004066ac, AUDIT-EXACT and the same source
+ *     shape: `mov edx,[edi]` (next) at +0, `mov ecx,[ebx+0ch]` (item->base_x)
+ *     at +2, next's store five slots later -> overlap, next first -> next
+ *     EDX, base_x ECX, `add ecx,ebp`.
+ *   - THE ORIGINAL: `movsx edx,[ebx+24h]` (qx) at 14, `mov ecx,[ebp]` (next)
+ *     at 15, store at 21 -> overlap, QX FIRST -> qx EDX, next ECX, and the
+ *     sum needs a third register, `lea ecx,[edx+eax]` (3 bytes -- the whole
+ *     672/673 byte difference).
+ *   So the crosswise packing is NOT a coalescing decision, not a rank
+ *   decision and not a liveness decision.  It is one thing only: WHICH OF
+ *   THE TWO LOADS THE LIST SCHEDULER EMITS FIRST.  The late spill store, the
+ *   sequential x-then-y groups at 19-25 and the three-register lea are all
+ *   downstream of that single swap; get `movsx edx,[ebx+24h]` emitted before
+ *   `mov ecx,[ebp]` and the other nine mismatches close with it.
+ * CONFIRMED BY CONSTRUCTION: a probe that gives `next` a second use after
+ * the sums (`tx += (int)next & 1`, semantics-changing, not committed)
+ * reproduces the original's `mov ecx,[ebp]` at index 15 with next in ECX.
+ * An extended next range does produce the original's packing; this function
+ * offers no semantics-preserving second use, because every other read of
+ * `next` is after a call and therefore reads the home, not the register.
+ *
+ * WHAT IS NOW KNOWN TO BE UNREACHABLE.  In every non-volatile spelling this
+ * body admits, the scheduler emits the `next` load FIRST in the loop-body
+ * block; it is the highest-priority ready node of the DAG and no source
+ * permutation demotes it.  Measured this round, all inert or worse:
+ *   - all 40 legal statement orders re-run (best is the committed BTXNY=10;
+ *     next best TBXNY/TXBNY/TXNBY=59 at 669B, then 63, 92-124).  Three
+ *     orders reach the right byte count (TBNXY/TNBXY/TNXBY, 673B) but at 118.
+ *   - the tile assignment EMBEDDED in the tx expression so that `tx` is the
+ *     first statement (`tx = def->qx + (tile = (RideTile*)&r->ride_id)->b.x`)
+ *     -- 10 with b second/third, and with `b` last it reaches rb=9/672B but
+ *     flips the callee-saved assignment order (esi takes `def`), first=2.
+ *     Same for `if (!(b = r->bloke)->state)`.  `b` must be defined before
+ *     `tile` in the source or the prologue breaks; that constraint plus
+ *     "tile before both sums" leaves only the 40 orders already swept.
+ *   - no `tile` local at all, the cast inlined at every use, all 24 orders:
+ *     77 at best, and the entry block moves (first=2/3).
+ *   - block-scoped declarations inside the loop, with and without a comma
+ *     initialiser carrying `next` (both byte-identical to the base).
+ *   - every "temp plus a late store" shape: `{RiderNode* t = r->next; tx =
+ *     ...; next = t;}` is BYTE-IDENTICAL to the base and `{int q = def->qx;
+ *     next = r->next; tx = q + tile->b.x;}` compiles to the plain next-first
+ *     order (95).  VC6 forward-substitutes a single-use local across a store
+ *     to another local's home, so the load always sinks to its use.
+ *   - an ADDRESSABLE home for `next` does not block that substitution: a
+ *     one-element array `RiderNode* next[1]` and a one-field struct written
+ *     as `nx.p` both behave exactly like the scalar (10 / 95 / 94).
+ *   - rank probes: `tx` given ONE reference (case 10 recomputing the x sum)
+ *     is inert at 10; `ty` given TWO (case 10 using ty) is catastrophic at
+ *     207 -- ty escapes to a callee-saved ebp.  So neither temp's register
+ *     is decided by the variable's reference count.
+ *   - IL-symbol views, both objects: a local `struct {unsigned char x,y;}`
+ *     view of `tile->b` (named local and inline cast), `*(const unsigned
+ *     char*)&tile->b.x` / `&tile->b.y`, an inline `struct {signed char x,y;}`
+ *     view of `def->qx` -- all BYTE-IDENTICAL; the same view through a NAMED
+ *     pointer local is 58.  `next` through a folding non-zero-offset view
+ *     (`*(RiderNode**)((char*)&r->prev - 4)`) is just the next-first order.
+ *   - both sum operand orders (`tile->b.x + def->qx`) byte-identical.
+ *   - `for (r = def->riders; r; r = next)` only sinks the riders load past
+ *     LFRun_TickAll (12, first=6); no `b` local at all is 190.
+ * CORPUS: a scan of every `// FUNCTION:` body in LEGOLAND/*.c for a
+ * three-register `lea rD,[rA+rB]` with a byte-load temp as an operand finds
+ * ZERO instances.  The shape at index 22 has no witness anywhere in the
+ * matched corpus, so there is nothing to copy; it must be derived.
+ * VOLATILE SHIMS re-measured, NOT committed: a volatile read of `r->next` in
+ * the base position scores 8 (it pins the load AFTER the sum and indices 16
+ * and 23-25 fall into place); both loads volatile scores 9; a volatile `qx`
+ * alone stays at 10.  None of them is the original's shape -- they reach a
+ * different local optimum (next late) rather than the original's (next early
+ * with a long range).
+ * NEXT LANE: the target is one sentence -- make the list scheduler emit the
+ * `def->qx` load before the `r->next` load in the loop-body block, with the
+ * two ranges still overlapping.  Do not re-sweep statement orders, symbol
+ * identity, pointer/byte views, operand orders, storage classes, loop shapes,
+ * declaration scope or reference counts; all are measured dead above.
+ * CLOSED (fgh-100b, 222/222, 673/673): it took TWO of the "dead" levers at
+ * once.  Case 10 spells its x target as `((def->qx + tile->b.x) << 8) + 0x80`
+ * -- VC6 CSEs that with the head's sum, so the code is the same but `tx` is
+ * now a one-reference local -- AND the head reads `next` before `tx`.  With
+ * both, `next` is allocated first and takes ecx for six instructions, the
+ * `qx` load can no longer coalesce into `tx`'s register and goes to edx, and
+ * the sum becomes the original's `lea ecx,[edx+eax]` after the spill.  Either
+ * change alone is inert at 10 (the rank probe above measured the case-10
+ * change with the old head order).  Differential execution 1200/1200.
+ */
+// FUNCTION: LEGOLAND 0x0040bf70
 void LFEntrance_Activate(RideElem* elem)
 {
     RideDef*      def = elem->data;
@@ -935,8 +881,8 @@ void LFEntrance_Activate(RideElem* elem)
     while (r) {
         b    = r->bloke;
         tile = (RideTile*)&r->ride_id;
-        tx   = def->qx + tile->b.x;
         next = r->next;
+        tx   = def->qx + tile->b.x;
         ty   = tile->b.y + def->qy;
         if (!b->state) {
             switch (b->action) {
@@ -1016,7 +962,7 @@ void LFEntrance_Activate(RideElem* elem)
                 LFPath_StepBloke(g_lf_anim_b, tx, ty, b);
                 break;
             case 10:
-                b->target.x = (tx << 8) + 0x80;
+                b->target.x = ((def->qx + tile->b.x) << 8) + 0x80;
                 b->target.y = ((tile->b.y + def->qy) << 8) + 0x80;
                 dir = (unsigned char)CalcMoveLine(b->world, b->target,
                                                   b->path) + 0x10;

@@ -364,30 +364,55 @@ extern void  PositionRouteCars(CoasterRoute* rt, int a,
 extern void  Route_SetSpeed(CoasterRoute* rt, int v);           /* 0x0041dad0 */
 extern float Route_StepToPieceEnd(CoasterRoute* rt, float dt);  /* 0x0041df00 */
 
-// WIP-FUNCTION: LEGOLAND 0x0041e000  (76/76 insns, 217/218 B, 64 of 75 aligned; one 5-instruction window at the loop head)
+/* Scope G closure (2026-09-06, Fable): 76/76 instructions, 218/218 bytes,
+ * strict 0. THE LEVER IS THE FRAME, not the copy: the dword the original
+ * stores at frame+0x24 before every Phys_Step call is NOT a context field --
+ * it is the SNAPSHOT RECORD'S OWN FIRST FIELD landing in its stack home.
+ * 0x00420310 only ever touches +0x00 of its second argument (`fadd [eax]` /
+ * `fstp [eax]`: an elapsed-time accumulator), so that argument is a lone
+ * FLOAT, and the 0x20-byte frame is acc/step/i/n, the float, then the
+ * twelve-byte snapshot at +0x24..+0x2f. VC6 forwards the two fields that are
+ * read (t and v, into edi/ebx across the call) and drops their stores, but a
+ * block-copy field that is NEVER loaded keeps its store -- that is the
+ * `mov ecx,[eax]` / `mov [esp+0x2c],ecx` pair, with the copy's temp in ecx
+ * and the base left alone in eax until `lea eax,[esi+0x2c]` reuses it.
+ * Spelling the store as `ctx.f04 = saved.f` into a 16-byte context was the
+ * reconstruction error: it made the first field a FORWARDED value with a
+ * competing use, which is what split the base eax->ecx. Route_StepToPieceEnd
+ * (schoolcar6.c) has the identical frame -- hi, the float, the record.
+ *
+ * Ruled out before this (see the earlier scans): every pointer, cast,
+ * unsigned-address and split-record spelling of the copy source (all fold
+ * the base back into esi), a 16-byte context with the store forwarded or
+ * volatile, declaration orders and scopes for the record, comma forms and
+ * named argument temps. None touches the frame, so none could reach it.
+ * The free volatile read of `acc` is still load-bearing (without it the
+ * accumulate inverts to `fld step / fadd acc`). The file-scope `StepCtx`
+ * typedef is kept for the shared prototype; the cast below is free.
+ */
+// FUNCTION: LEGOLAND 0x0041e000
 float Route_StepFree(CoasterRoute* rt, float dt)
 {
-    StepCtx ctx;
-    float   acc;
-    float   step;
-    int     i;
-    int     n;
+    typedef struct Snapshot {int f,t,v;} Snapshot;  /* rt+0x20..+0x2b */
+    Snapshot saved;
+    float    elapsed;           /* all 0x00420310 reads of its context */
+    float    acc;
+    float    step;
+    int      i;
+    int      n;
 
     n = (int)ceil(dt * 70.0f);
     acc = 0.0f;
-    ctx.f00 = 0.0f;
+    elapsed = 0.0f;
     step = dt / n;
     for (i = 0; i < n; i++) {
-        int t;
-        int v;
-
-        ctx.f04 = rt->f20;
-        t = *(int*)&rt->t;
-        v = *(int*)&rt->speed;
-        Phys_Step(&rt->phys, &ctx, step);
+        /* The whole twelve-byte record is copied; only t and v are read
+         * back, so f's store is the dead one the original keeps. */
+        saved = *(Snapshot*)&rt->f20;
+        Phys_Step(&rt->phys, (StepCtx*)&elapsed, step);
         if (rt->t > rt->pos.obj->t1) {
-            PositionRouteCars(rt, t, &rt->pos);
-            Route_SetSpeed(rt, v);
+            PositionRouteCars(rt, saved.t, &rt->pos);
+            Route_SetSpeed(rt, saved.v);
             return Route_StepToPieceEnd(rt, step) + acc;
         }
         /* The volatile read is FREE -- the original loads `acc` here anyway
@@ -440,20 +465,12 @@ float Route_StepFree(CoasterRoute* rt, float dt)
  * two winners are copied with INTEGER moves, which is VC6's float-to-float
  * copy when no arithmetic is wanted.
  *
- * WIP RESIDUAL: 110/110 instructions, 355/356 bytes, 104 of 109 aligned, and
- * the ONLY difference is which of two values VC6 leaves on the x87 stack:
- *   original   `fst m` (kept)  ... `fstp b2` then `fld b2 / fmul b2 / fxch`
- *   ours       `fstp m / fld m`  ... `fst b2` (kept) then `fmul b2`
- * -- i.e. the original keeps the chord slope in st across its own store and
- * evaluates `c1 - m` BEFORE `b2*b2`, and we do the mirror image. Measured and
- * inert: six spellings of the discriminant (operand order, `4.0f` first,
- * parenthesisation, negation), naming `(c1-m)` or the whole `4ac` term in a
- * local, swapping the `a3`/`b2` statements, computing `den` early, `a3` as a
- * repeated expression (78) and `b2` as one (111 instructions), the embedded
- * assignment `c = pa - (m = ...) * a` (102), a free volatile read of `g->c1`
- * (103), three positions for the `best` initialiser and block- versus
- * function-scope for the two loop temporaries. It is a scheduler choice inside
- * one expression, with the frame, every constant and both recursions exact.
+ * Exact reconstruction: the root pointer and remaining count belong to one
+ * initialized iterator. Its field order and aggregate initializer place the
+ * integer count setup between the slope division and store. Separate scalar
+ * locals delayed that setup by fifteen instructions. The free volatile c1
+ * read preserves the slope/b2 x87 residency, and the free volatile scoring
+ * c3 read selects the original fld-c3/fmul-root operand order.
  * ======================================================================== */
 #pragma intrinsic(sqrt, fabs)
 
@@ -469,39 +486,39 @@ extern TrackGeom* g_tc_curve_b;                                 /* 0x004dd648 */
 extern float*     g_tc_wp;                                      /* 0x004dd64c */
 extern int        g_tc_n;                                       /* 0x004dd650 */
 
-// WIP-FUNCTION: LEGOLAND 0x00421e90  (110/110 insns, 355/356 B, 104 of 109 aligned; two x87 stack-residency choices)
+/* Scope G closure: 110/110 instructions and 356/356 bytes, strict 0.
+ * All other exact bodies and shared declarations are unchanged. */
+// FUNCTION: LEGOLAND 0x00421e90
 void TrackCurve_Refine(float a, float pa, float b, float pb)
 {
     TrackGeom* g;
-    float*     r;
     float      root[2];
     float      m, c, a3, b2, q, den;
     float      best, bx, by;
-    int        i;
+    struct Iter { float* r; int i; } it = {root, 2};
 
     best = 1.1754944e-038f;             /* FLT_MIN, 0x00800000 */
-    m = (pb - pa) / (b - a);
     g = g_tc_curve_b;
-    r = root;
-    c = pa - m * a;
+    c = pa - (m = (pb - pa) / (b - a)) * a;
     a3 = g->c3 * 3.0f;
     b2 = g->c2 + g->c2;
-    q = (float)sqrt(b2 * b2 - (g->c1 - m) * a3 * 4.0f);
+    q = *(volatile float*)&g->c1 - m;
+    q = (float)sqrt(b2 * b2 - q * a3 * 4.0f);
     den = a3 + a3;
     root[0] = (q - b2) / den;
     root[1] = (-b2 - q) / den;
-    for (i = 2; i != 0; i--) {
-        if (*r >= a && *r <= b) {
-            float zr = ((g->c3 * *r + g->c2) * *r + g->c1) * *r + g->c0;
-            float dev = (float)fabs(zr - m * *r - c);
+    for (; it.i != 0; it.i--) {
+        if (*it.r >= a && *it.r <= b) {
+            float zr = ((*(volatile float*)&g->c3 * *it.r + g->c2) * *it.r + g->c1) * *it.r + g->c0;
+            float dev = (float)fabs(zr - m * *it.r - c);
 
             if (dev > best) {
-                bx = *r;
+                bx = *it.r;
                 by = zr;
                 best = dev;
             }
         }
-        r++;
+        it.r++;
     }
     if (fabs(best) <= 1.0)
         return;

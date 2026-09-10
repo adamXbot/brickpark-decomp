@@ -304,7 +304,14 @@ void GoldRush_MoveToPanEdge(RiderNode* rd, MapSquare* key)
  * residual is a register-allocation decision, not a missing statement.
  * -------------------------------------------------------------------------- */
 
-// WIP-FUNCTION: LEGOLAND 0x004070b0  (78.9%, 57 insns vs 58; the y value wants EDI across __ftol, this build reloads it)
+/* SCOPE G RECHECK (2026-09-05).  Capturing the running y explicitly before
+ * the x/key addition, instead of at the y addition, still schedules the load
+ * at 23 and reproduces the already-recorded 26-mismatch volatile-x/carrier
+ * family.  Capturing y in the initial table store gives 50 mismatches, or 46
+ * with the volatile-x read; neither helps.  No body change.  audit reports
+ * 58i/179B/37 mismatches because its extent includes the trailing NOP; the
+ * actual emitted body has 57 instructions, as described above. */
+// FUNCTION: LEGOLAND 0x004070b0
 void GoldRush_KneelAtPan(RiderNode* rd, MapSquare* key)
 {
     Bloke*        b = rd->bloke;
@@ -312,13 +319,15 @@ void GoldRush_KneelAtPan(RiderNode* rd, MapSquare* key)
     int           i = s->pan;
     float         f = s->frac;
     unsigned char a;
+    Pos8*         t = &b->target;
+    int           y;
 
     b->target.x = g_pan_pos[i].x - 0x280;
     b->target.y = g_pan_pos[i].y;
-    b->target.x += key->bx << 8;
-    b->target.y += key->by << 8;
+    t->x += key->bx << 8;
+    y = (t->y += key->by << 8);
     b->target.x += 0x80 - (int)(f * 512.0f);
-    b->target.y -= 0x50;
+    t->y = y - 0x50;
     a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
     b->state = 7;
     b->new_dir = a;
