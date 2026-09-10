@@ -359,9 +359,21 @@ extern void  Phys_Step(RoutePhys* p, StepCtx* ctx, float dt);   /* 0x00420310 */
 /* Both of these really take a FLOAT; declared with the raw dword here (as
  * coaster.c already declares them) because that is what keeps the two
  * snapshots in edi/ebx across Phys_Step instead of giving them stack homes. */
+#ifndef LEGOLAND_PORTABLE
 extern void  PositionRouteCars(CoasterRoute* rt, int a,
                                const RoutePos* at);             /* 0x0041da10 */
 extern void  Route_SetSpeed(CoasterRoute* rt, int v);           /* 0x0041dad0 */
+#else
+/* schoolcar.c defines both with `float`. The `int` spelling above is the
+ * frame lever (it keeps the snapshot's t and v in edi/ebx across Phys_Step);
+ * on wasm32 it is a different function type, so the bits of the snapshot
+ * dwords are handed over with LL_ASFLT instead. */
+extern void  PositionRouteCars(CoasterRoute* rt, float a,
+                               const RoutePos* at);             /* 0x0041da10 */
+extern void  Route_SetSpeed(CoasterRoute* rt, float v);         /* 0x0041dad0 */
+#define PositionRouteCars(_rt, _a, _at) PositionRouteCars((_rt), LL_ASFLT(_a), (_at))
+#define Route_SetSpeed(_rt, _v)         Route_SetSpeed((_rt), LL_ASFLT(_v))
+#endif
 extern float Route_StepToPieceEnd(CoasterRoute* rt, float dt);  /* 0x0041df00 */
 
 /* Scope G closure (2026-09-06, Fable): 76/76 instructions, 218/218 bytes,

@@ -340,8 +340,18 @@ typedef struct CoasterRoute {
 
 /* `a` is a float in the original; it is spelled `int` here so the caller
  * copies it as a raw dword (see the codegen note above). */
+#ifndef LEGOLAND_PORTABLE
 extern void  Route_SetTrainAt(CoasterRoute* rt, int a,
                               const RoutePos* at);              /* 0x0041d950 */
+#else
+/* coaster11.c defines this with `float a`. `a` here is the hook's scalar
+ * out-parameter, filled in through an `int*` and forwarded as a raw dword
+ * (the dead-argument-slot lever above); on wasm32 that is a different
+ * function type, so LL_ASFLT hands the callee the same bits. */
+extern void  Route_SetTrainAt(CoasterRoute* rt, float a,
+                              const RoutePos* at);              /* 0x0041d950 */
+#define Route_SetTrainAt(_rt, _a, _at) Route_SetTrainAt((_rt), LL_ASFLT(_a), (_at))
+#endif
 extern int   GetGameTimer(void);                                /* 0x00499430 */
 extern float Route_SumCarVelocity(CoasterRoute* rt);            /* 0x0041dae0 */
 extern float Route_AccelDistance(CoasterRoute* rt, float dt);   /* 0x0041ddb0 */

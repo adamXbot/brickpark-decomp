@@ -1191,8 +1191,22 @@ typedef struct CoasterRoute {
 } CoasterRoute;
 
 extern void RestoreRoutePos(const unsigned char* src, unsigned char* dst, CoasterRec* r); /* 0x00426f10 */
+#ifndef LEGOLAND_PORTABLE
 extern void PositionRouteCars(CoasterRoute* rt, int a, unsigned char* sub);                 /* 0x0041da10 */
 extern void Route_SetSpeed(CoasterRoute* rt, int a);                                     /* 0x0041dad0 */
+#else
+/* schoolcar.c defines both of these with a `float` second parameter; this
+ * file spells it `int` because the value comes straight out of the save
+ * record as a raw dword and the original pushes it without touching the FPU.
+ * On x86 the two prototypes push identical bytes; on wasm32 f32 and i32 are
+ * different function types. LL_ASFLT re-reads the save-record dword as the
+ * float it is, so the callee sees exactly the original's bits -- a numeric
+ * `(float)` conversion here would pass a completely different value. */
+extern void PositionRouteCars(CoasterRoute* rt, float a, unsigned char* sub);               /* 0x0041da10 */
+extern void Route_SetSpeed(CoasterRoute* rt, float a);                                   /* 0x0041dad0 */
+#define PositionRouteCars(_rt, _a, _sub) PositionRouteCars((_rt), LL_ASFLT(_a), (_sub))
+#define Route_SetSpeed(_rt, _a)          Route_SetSpeed((_rt), LL_ASFLT(_a))
+#endif
 
 /* The two timers are stored RELATIVE to the save point and re-based against
  * the live game clock on load. */

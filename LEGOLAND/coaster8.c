@@ -161,8 +161,20 @@ extern char* ModelRecord_CopyToken(const char* rec, char* out);  /* 0x00422300 *
 extern void* AllocZeroed(unsigned int size, int a, int b, int c); /* 0x004775b0 */
 extern void  RouteNode_InitSeats(RouteNodeSeats* node, int kind); /* 0x0041e6a0 */
 /* Both take a float; spelled `int` so the caller forwards the raw dword. */
+#ifndef LEGOLAND_PORTABLE
 extern void  PositionRouteCars(CoasterRoute* rt, int t, void* at); /* 0x0041da10 */
 extern void  Route_SetSpeed(CoasterRoute* rt, int v);           /* 0x0041dad0 */
+#else
+/* RoutePhys_SetState already reinterprets the solver vector's floats as ints
+ * (`*(int*)&value->v[0]`) precisely to avoid the FPU; on wasm32 the raw-dword
+ * prototype is a different function type from schoolcar.c's `float` one, so
+ * LL_ASFLT undoes the reinterpretation at the call and the callee receives
+ * the same bits it always did. */
+extern void  PositionRouteCars(CoasterRoute* rt, float t, void* at); /* 0x0041da10 */
+extern void  Route_SetSpeed(CoasterRoute* rt, float v);         /* 0x0041dad0 */
+#define PositionRouteCars(_rt, _t, _at) PositionRouteCars((_rt), LL_ASFLT(_t), (_at))
+#define Route_SetSpeed(_rt, _v)         Route_SetSpeed((_rt), LL_ASFLT(_v))
+#endif
 extern float RouteCar_GetVelocity(RouteNode* car);              /* 0x0041e810 */
 extern RiderClass* CastleClassDef(int index);                   /* 0x0041ec00 */
 

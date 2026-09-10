@@ -136,7 +136,17 @@ extern void LFQueue_PopFront(LFQueue* q, RiderNode** out);       /* 0x00412060 *
  * but only the by-VALUE Pos spelling schedules the two sums the way the
  * original does (x first, into the base_x register), and only with the class
  * global read directly at both uses: a `RideDef* def` local costs 76 of 123. */
+#ifndef LEGOLAND_PORTABLE
 extern void LFQueue_StepFront(LFQueue* q, Pos t);                /* 0x004120a0 */
+#else
+/* The by-value spelling is the evaluation-order lever noted at the top of
+ * this file; on x86 both forms push the same two dwords. On wasm32 a by-value
+ * struct is passed as a POINTER to a copy, which makes it a different function
+ * type from lfmisc2.c's `(LFQueue*, int, int)` definition, so the one call
+ * below resolves to a trapping stub. Unpack the point at the call. */
+extern void LFQueue_StepFront(LFQueue* q, int tx, int ty);       /* 0x004120a0 */
+#define LFQueue_StepFront(_q, _t) LFQueue_StepFront((_q), (_t).x, (_t).y)
+#endif
 extern int  LFQueue_IsFull(LFQueue* q);                          /* 0x00411e60 */
 extern void Ride_SetFlagToNotLetAnyoneOn(BPosW* sq);             /* 0x00442fa0 */
 extern void Ride_ClearFlagToNotLetAnyoneOn(BPosW* sq);           /* 0x00443000 */

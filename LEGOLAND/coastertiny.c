@@ -84,7 +84,17 @@ extern void PhysObj_WriteState(PhysObj*, void*);          /* 0x004203f0 */
 extern void PhysVec_InitOps(PhysOps*, int);               /* 0x00421540 */
 extern int PackTrackClass(void*);                        /* 0x0041ebd0 */
 extern void Shade_BuildRamp(unsigned int, unsigned short*); /* 0x00422e40 */
+#ifndef LEGOLAND_PORTABLE
 extern void TrackCurve_EvaluateOffset(RoutePos*, int, float, float, Vec3f*); /* 0x00429bb0 */
+#else
+/* coaster9.c's definition takes the curve parameter as a RAW DWORD (`int`)
+ * and forwards it to the geometry vtable that way; on wasm32 that is a
+ * different function type from f32, so TrackCursor_Evaluate below has to hand
+ * over the bits of `cursor->t`, which is what its `push` did. */
+extern void TrackCurve_EvaluateOffset(RoutePos*, int, int, float, Vec3f*); /* 0x00429bb0 */
+#define TrackCurve_EvaluateOffset(_at, _m, _t, _o, _out) \
+    TrackCurve_EvaluateOffset((_at), (_m), LL_ASINT(_t), (_o), (_out))
+#endif
 extern void Coaster3D_SetCarClipDepth(void);              /* 0x00425c40 */
 extern void TrackAddBasicObject(void*, Pos*);            /* 0x0041ed90 */
 

@@ -554,7 +554,25 @@ extern int   FindObjectsPower(ObjDef* d);                           /* 0x00459fa
 extern int   GetGardenerCount(void);                                /* 0x00499550 */
 extern int   GetMechanicCount(void);                                /* 0x00499560 */
 extern char* GetVisitorName(void* bloke);                           /* 0x00482ba0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PopUpInfoSetUp(PopUpKey key, int x, int y);            /* 0x00471950 */
+#else
+/* The record-by-value spelling is what the original's three call sites emit
+ * (see the note above: `sub esp,0xc` plus three stores), and its stack image
+ * is identical to the five scalars fpui2.c's definition reads. On wasm32 a
+ * by-value struct is passed as a POINTER to a copy, so the record form is a
+ * 3-parameter function against the definition's 4 and the link traps. Hand
+ * over the five dwords the callee reads. */
+extern void  PopUpInfoSetUp(int type, void* obj, int ref, Pos pos); /* 0x00471950 */
+static void ll_popup_info_setup(const PopUpKey* key, int x, int y)
+{
+    Pos p;
+    p.x = x;
+    p.y = y;
+    PopUpInfoSetUp(key->type, key->obj, key->ref, p);
+}
+#define PopUpInfoSetUp(_key, _x, _y) ll_popup_info_setup(&(_key), (_x), (_y))
+#endif
 extern void  DrawPopUpMock(void);                                   /* 0x004720a0 */
 extern int   MeasurePopUpTitle(const char* s, int a, int b, int c, int d, int e); /* 0x00471840 */
 extern int   MeasurePopUpBody(const char* s, int a, int b, int c, int d, int e);  /* 0x004717a0 */

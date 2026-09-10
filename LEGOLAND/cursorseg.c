@@ -22,7 +22,28 @@ extern int       g_cursor_phase;                  /* 0x007cacd4  the marching-an
 extern ClipRect  g_clip;                          /* 0x004bdea0  SPRITE_ClipRect */
 
 extern int GetNearestColour(int r, int g, int b);                  /* 0x0044e6c0 */
+#ifndef LEGOLAND_PORTABLE
 __declspec(dllimport) int __stdcall PtInRect(const ClipRect* r, int x, int y);   /* [0x4ab2c0] */
+#else
+/* USER32's PtInRect is `PtInRect(const RECT*, POINT)` -- the POINT by value is
+ * the same two pushed dwords as two ints on x86 stdcall, which is why the
+ * flattened declaration above is correct against the real import. On wasm32 a
+ * by-value struct is passed as a POINTER to a copy, so the host shim
+ * (portable/src/hostwin/user32.c, PORT-B's file) exports a 2-parameter
+ * function and this declaration links to a trapping stub. Build the POINT on
+ * the game side; ClipRect already has RECT's layout and the shim's LLPoint is
+ * two 32-bit words like this one. */
+typedef struct LLPointCompat { int x, y; } LLPointCompat;
+extern int PtInRect(const ClipRect* r, LLPointCompat pt);                       /* [0x4ab2c0] */
+static int ll_pt_in_rect(const ClipRect* r, int x, int y)
+{
+    LLPointCompat pt;
+    pt.x = x;
+    pt.y = y;
+    return PtInRect(r, pt);
+}
+#define PtInRect(_r, _x, _y) ll_pt_in_rect((_r), (_x), (_y))
+#endif
 
 /* WIP. audit: ours 160i/460B, original 160i/458B, mismatch 93; matchfull
  * 145/154. ONE block-layout difference, everything else identical: after the

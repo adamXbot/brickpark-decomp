@@ -950,7 +950,18 @@ extern int   ScreenToMapRef2(Pos* screen, Pos* out, int unused); /* 0x0045be00 *
 /* Declared with FIVE int parameters rather than the two by-value Pos of
  * workers2.c/blokeai.c: identical ABI, but it keeps the caller from building
  * the two aggregates and reproduces the original's push order here. */
+#ifndef LEGOLAND_PORTABLE
 extern int   CalcMoveLine(int fx, int fy, int tx, int ty, void* path); /* 0x00480740 */
+#else
+/* "Identical ABI" is an x86 statement: four pushed dwords are four pushed
+ * dwords. On wasm32 a by-value struct is passed as a POINTER to a copy, so
+ * the flattened form is a genuinely different function type from the one
+ * bnvmove.c defines, and the link resolves it to a trapping stub. The only
+ * use of the name in this file is the by-value cast inside
+ * JungleCruise_StepBoats below, so declaring the definition's shape here
+ * makes that cast an identity and changes no call site. */
+extern int   CalcMoveLine(Pos from, Pos to, void* path);              /* 0x00480740 */
+#endif
 extern int   NewDirForAction(Bloke* b, unsigned char dir);   /* 0x004833d0 */
 extern void  RemoveBlokeFromRide(ObjDef* cls, RideInst* r);  /* 0x0048a100 */
 

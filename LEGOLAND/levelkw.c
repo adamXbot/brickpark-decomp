@@ -423,7 +423,15 @@ extern void         progress_tick(void);                                  /* 0x0
 extern void         GetTileDimensions(int* w, int* h);                    /* 0x00460540 */
 extern void*        GenerateGardener(Pos* pos, int in_hut);               /* 0x0049a1a0 */
 extern void*        GenerateMechanic(Pos* pos, int in_hut);               /* 0x0049a340 */
-extern void*        NewScriptEvent(void* a, void* b, void* c);            /* 0x004689f0 */
+/* NAME FIX (PORT-M2): this was spelled `NewScriptEvent`, which is a DIFFERENT
+ * function -- sysstubs.c's ScriptEvent allocator at 0x00468910. 0x004689f0 is
+ * the script-string intern, defined and matched as `AddScriptString` in
+ * gameframe2.c (whose file header already flagged the collision). The address
+ * comment and the relocations here were always right, so no byte gate could
+ * see it; the portable link collapsed both names onto the two-argument
+ * allocator and PROMPT called the wrong function. Renamed for both builds --
+ * the identifier is all that changes, so the emitted bytes are unaffected. */
+extern void*        AddScriptString(void* a, void* b, void* c);           /* 0x004689f0 */
 extern void         SetCurrency(int amount);                              /* 0x00457900 */
 extern void         LoadBriefingFile(const char* name);                   /* 0x004687f0 */
 extern void         LoadHintsFile(const char* name);                      /* 0x00468810 */
@@ -640,9 +648,9 @@ int LevelKw_PROMPT(char** args, int argc, int extra)
         return 0;
     if (argc > 0) {
         if (argc > 1)
-            g_script_root = NewScriptEvent(args[1], args[2], (void*)1);
+            g_script_root = AddScriptString(args[1], args[2], (void*)1);
         else
-            g_script_root = NewScriptEvent(args[1], 0, (void*)1);
+            g_script_root = AddScriptString(args[1], 0, (void*)1);
     } else {
         g_script_root = 0;
     }

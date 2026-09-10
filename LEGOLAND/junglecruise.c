@@ -262,7 +262,32 @@ void JcBoat_Unlink(JcBoat* boat)
 /* Recursive river-route tracer (0x00437260): walks out of (x,y) through the
  * `links` bits, following only squares that belong to *owner and have not
  * been marked, and hands the finished route back through *route. */
+#ifndef LEGOLAND_PORTABLE
 extern void JungleCruise_TraceRoute(int x, int y, int tx, int ty, BPosW* owner, void** route); /* 0x00437260 */
+#else
+/* jcroute.c's definition takes the two squares as by-value `JcRoutePos`
+ * aggregates; the four flattened ints above push the identical dwords on x86,
+ * but on wasm32 a by-value struct travels as a POINTER to a copy, so this is a
+ * different function type and the link resolves the call to a trapping stub.
+ * Build the two aggregates at the one call site. */
+struct JcRoutePos { int x; int y; };
+extern void JungleCruise_TraceRoute(struct JcRoutePos here,
+                                    struct JcRoutePos target,
+                                    BPosW* owner, void** route); /* 0x00437260 */
+static void ll_jc_trace_route_xy(int x, int y, int tx, int ty,
+                                 BPosW* owner, void** route)
+{
+    struct JcRoutePos here;
+    struct JcRoutePos target;
+    here.x = x;
+    here.y = y;
+    target.x = tx;
+    target.y = ty;
+    JungleCruise_TraceRoute(here, target, owner, route);
+}
+#define JungleCruise_TraceRoute(_x, _y, _tx, _ty, _o, _r) \
+    ll_jc_trace_route_xy((_x), (_y), (_tx), (_ty), (_o), (_r))
+#endif
 /* One step of the breadth-first re-link pass (0x00437440); it consumes
  * g_jc_route_cur and leaves the next square in g_jc_route_next. */
 extern void JungleCruise_StepRoute(int id);                  /* 0x00437440 */

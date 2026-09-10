@@ -191,7 +191,13 @@ extern void  RefillNarrationRing(void);                             /* 0x0049825
 /* ResetLevelGlobals' callees; the unnamed ones are first named here from
  * their bodies. */
 extern void  FreeScriptStrings(void);                               /* 0x004689a0 frees g_script_strings[0..count) */
-extern void* NewScriptEvent(void* a, void* b, void* c);             /* 0x004689f0 */
+/* NAME FIX (PORT-M2): spelled `NewScriptEvent` before, which is sysstubs.c's
+ * ScriptEvent allocator at 0x00468910 -- a different function. 0x004689f0 is
+ * the script-string intern, matched as `AddScriptString` in gameframe2.c, and
+ * the FreeScriptStrings() call immediately above its use below is the
+ * confirmation: this re-interns the first (NULL) entry into the table that was
+ * just freed. Renamed for both builds; the identifier is the only change. */
+extern void* AddScriptString(void* a, void* b, void* c);            /* 0x004689f0 */
 extern void  ClearReportState(void);                                /* 0x004441f0 g_report_state[0] = 0 */
 extern void  ClearSim832b9c(void);                                  /* 0x0044db20 */
 extern void  ClearAppraisalState(void);                             /* 0x0044db80 zeroes 0x00832978 and g_instant_appraisal */
@@ -385,7 +391,7 @@ void ResetLevelGlobals(void)
     g_visitor_cap = g_level_cfg->visitor_cap;
     g_visitor_cap_extra = 0;
     FreeScriptStrings();
-    g_script_root = NewScriptEvent(0, 0, 0);
+    g_script_root = AddScriptString(0, 0, 0);
     g_level_db_active = 1;
     ClearReportState();
     ClearSim832b9c();

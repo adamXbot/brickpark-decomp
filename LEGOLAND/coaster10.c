@@ -67,10 +67,35 @@ extern void TrackCursor_Evaluate(NodeCursor*, int, Vec3f*);  /* 0x0042a640 */
 extern void Mat3_BuildBasis(Mat3* forward, Mat3* out);           /* 0x00429af0 */
 extern int ModelRecord_GetName(ModelImage*, char*, int);     /* 0x00422390 */
 extern int _stricmp(const char*, const char*);               /* 0x004aab90 */
+#ifndef LEGOLAND_PORTABLE
 extern void TrackCurve_EvaluateTangent(RoutePos*, int mode, int t, Vec3f*); /* 0x00429ac0 */
 typedef struct PhysVec { int n; float v[20]; } PhysVec;      /* pool slot, 0x54 (coaster8.c) */
 extern void FiniteDifference(void (*fn)(int t, PhysVec* out), void* ops, int t, float h, PhysVec* out); /* 0x0041f4e0 */
 extern void TrackCurve_DerivSample(int t, PhysVec* out);     /* 0x00429c10 */
+#else
+/* All three of these pass the curve parameter as a RAW DWORD -- `int t` where
+ * the body takes a float -- which is free on x86 and a different function type
+ * on wasm32. Unlike the rest of that family these do NOT show up as wasm-ld
+ * signature mismatches, because this file calls them under names no file
+ * defines: 0x00429ac0 is `TrackCurve_EvalVtable` and 0x00429c10 is
+ * `TrackCurve_SolverSample` (both coaster13.c), and 0x0041f4e0 is
+ * `Romberg_Evaluate` (coastershade2.c). gen_link.py bridges a stale name with a
+ * forwarder that CASTS the function pointer when the two signatures disagree,
+ * so the mismatch becomes a call_indirect of the wrong type -- and binaryen's
+ * directize pass turns that into a direct call, which fails wasm validation
+ * ("call param types must match"). Declaring the definitions' real types is
+ * what makes the generated forwarders type-identical and the module valid.
+ * `FiniteDifference` also has to own Romberg_Evaluate's `int` return here for
+ * the same reason. */
+extern void TrackCurve_EvaluateTangent(RoutePos*, int mode, float t, Vec3f*); /* 0x00429ac0 */
+typedef struct PhysVec { int n; float v[20]; } PhysVec;      /* pool slot, 0x54 (coaster8.c) */
+extern int  FiniteDifference(void (*fn)(float t, PhysVec* out), void* ops, float t, float h, PhysVec* out); /* 0x0041f4e0 */
+extern void TrackCurve_DerivSample(float t, PhysVec* out);   /* 0x00429c10 */
+#define TrackCurve_EvaluateTangent(_at, _m, _t, _out) \
+    TrackCurve_EvaluateTangent((_at), (_m), LL_ASFLT(_t), (_out))
+#define FiniteDifference(_fn, _ops, _t, _h, _out) \
+    FiniteDifference((_fn), (_ops), LL_ASFLT(_t), (_h), (_out))
+#endif
 extern double sqrt(double);
 
 /* Finite-difference sample context read by TrackCurve_DerivSample. */

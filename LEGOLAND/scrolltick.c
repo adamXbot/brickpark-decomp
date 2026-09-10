@@ -122,7 +122,26 @@ typedef struct RepairMap {
 extern RepairMap* g_repair_map; /* 0x004bcbf4 — the same object as g_map */
 
 extern int  GetSimClock(void);                              /* 0x00499460 */
+#ifndef LEGOLAND_PORTABLE
 extern int  AddRepairOrderForObject(DmgClass* cls, int x, int y); /* 0x0049b930 */
+#else
+/* workers2.c defines the second parameter as a by-value `Pos`, which on x86
+ * is just the two dwords this flattened declaration pushes -- but on wasm32 a
+ * by-value struct is passed as a POINTER to a copy, so the two prototypes are
+ * different function types and the link resolves this call to a trapping
+ * stub. Build the aggregate at the call instead; the x/y pair below is
+ * already a `Pos*`'s two fields. */
+extern int  AddRepairOrderForObject(DmgClass* cls, Pos pos);      /* 0x0049b930 */
+static int ll_add_repair_order_xy(DmgClass* cls, int x, int y)
+{
+    Pos p;
+    p.x = x;
+    p.y = y;
+    return AddRepairOrderForObject(cls, p);
+}
+#define AddRepairOrderForObject(_cls, _x, _y) \
+    ll_add_repair_order_xy((_cls), (_x), (_y))
+#endif
 extern int  FindObjectsPower(DmgClass* cls);                /* 0x00459fa0 */
 extern void ShedPowerLoad(void);                            /* 0x0045a0d0 */
 

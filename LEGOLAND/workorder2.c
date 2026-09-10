@@ -355,7 +355,23 @@ extern void  SetOrderRepairAmount(WorkOrder* o, float a); /* 0x00499760 */
 extern int   GetObjCost(WClass* cls);                     /* 0x00480da0 */
 extern WorkOrder* GetGardenerWorkOrderAt(int x, int y);   /* 0x0049b130 */
 extern WorkOrder* GetMechanicWorkOrderAt(int x, int y);   /* 0x0049b180 */
+#ifndef LEGOLAND_PORTABLE
 extern WorkOrder* AddRepairOrderForObject(WClass* cls, int x, int y); /* 0x0049b930 */
+#else
+/* workers2.c's definition takes a by-value `Pos`. Two pushed dwords on x86,
+ * a pointer to a copy on wasm32, so the flattened form is a different
+ * function type there and the link traps. Build the aggregate at the call. */
+extern WorkOrder* AddRepairOrderForObject(WClass* cls, Pos pos);   /* 0x0049b930 */
+static WorkOrder* ll_add_repair_order_xy(WClass* cls, int x, int y)
+{
+    Pos p;
+    p.x = x;
+    p.y = y;
+    return AddRepairOrderForObject(cls, p);
+}
+#define AddRepairOrderForObject(_cls, _x, _y) \
+    ll_add_repair_order_xy((_cls), (_x), (_y))
+#endif
 extern void  PutWorkerOnRide(Bloke* b, Cell* cell);       /* 0x0049a0d0 */
 extern void* PlayInstanceOfSample(void* def, int a, int b, void* src); /* 0x00496d20 */
 extern void  FreePTPOpenList(void);                       /* 0x004821e0 */

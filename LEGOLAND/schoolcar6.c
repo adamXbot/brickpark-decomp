@@ -256,8 +256,18 @@ typedef struct CoasterRoute {
 /* Both of these really take a FLOAT; declared with the raw dword here (as
  * coaster.c and schoolcar5.c already declare them) because that is what
  * keeps the two snapshots in edi/ebx across the probe. */
+#ifndef LEGOLAND_PORTABLE
 extern void PositionRouteCars(CoasterRoute* rt, int a, const RoutePos* at); /* 0x0041da10 */
 extern void Route_SetSpeed(CoasterRoute* rt, int v);            /* 0x0041dad0 */
+#else
+/* schoolcar.c defines both with `float`; the raw-dword spelling above is the
+ * frame lever. On wasm32 the two are different function types, so the
+ * snapshot dwords go across as the floats they are. */
+extern void PositionRouteCars(CoasterRoute* rt, float a, const RoutePos* at); /* 0x0041da10 */
+extern void Route_SetSpeed(CoasterRoute* rt, float v);          /* 0x0041dad0 */
+#define PositionRouteCars(_rt, _a, _at) PositionRouteCars((_rt), LL_ASFLT(_a), (_at))
+#define Route_SetSpeed(_rt, _v)         Route_SetSpeed((_rt), LL_ASFLT(_v))
+#endif
 
 // FUNCTION: LEGOLAND 0x0041df00
 float Route_StepToPieceEnd(CoasterRoute* rt, float dt)

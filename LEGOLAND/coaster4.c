@@ -545,8 +545,18 @@ extern void* g_support_model_a[];                               /* 0x004b6150 */
 extern void* g_support_model_b[];                               /* 0x00615f70 */
 
 extern float Vec3Dot(const Vec3f* a, const Vec3f* b);           /* 0x00425d30 */
-extern void  DrawSupportModel(void* a, void* b, const Vec3f* p,
-                              const Mat3* r, int mode);         /* 0x00420e90 */
+/* NAME FIX (PORT-M2): this declaration stood as `DrawSupportModel` while its
+ * address comment, the relocation and the argument list all say 0x00420e90 =
+ * Coaster3D_DrawModel (defined in coaster9.c, spelled that way by coaster10.c,
+ * coaster13.c and coastertiny.c). DrawSupportModel is a DIFFERENT function,
+ * 0x00429490 in coastertiny.c, which takes two arguments and itself calls
+ * 0x00420e90. Invisible to every byte gate -- the address comment and the
+ * relocation target were both correct -- but the portable link collapsed this
+ * call onto coastertiny.c's two-argument function, so it called the wrong
+ * code. Evidence: 0x00429476, the last call in DrawSupportShadow below, is
+ * `call 0x420e90`, and 0x00429490's own body is `call 0x420e90`. */
+extern void  Coaster3D_DrawModel(void* a, void* b, const Vec3f* p,
+                                 const Mat3* r, int mode);      /* 0x00420e90 */
 
 // FUNCTION: LEGOLAND 0x004292f0
 void DrawSupportShadow(const Vec3f* pos, const Mat3* rot)
@@ -616,5 +626,5 @@ void DrawSupportShadow(const Vec3f* pos, const Mat3* rot)
     ident.m[6] = 0.0f;
     ident.m[7] = 0.0f;
     ident.m[8] = 1.0f;
-    DrawSupportModel(g_support_model_a, g_support_model_b, &org, &ident, 1);
+    Coaster3D_DrawModel(g_support_model_a, g_support_model_b, &org, &ident, 1);
 }
