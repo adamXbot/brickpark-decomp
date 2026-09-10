@@ -91,3 +91,30 @@ Worktree `.worktrees/scope-ac`.
 - `g_ride_cam_ox/oy`, `g_ride_mtx_{chan,row,sign_a,sign_b}`, outfit tables
   (LoadAltTextures), `g_advisor_bmi`, six `g_ad_*` clip slots,
   AVIFile thunks (same non-dllimport spelling as movie.c).
+
+## 2026-09-10 — `LoadAltTextures` 0x00442980 taken from `scope/AC` (78 -> 6)
+
+`scope/AC` was never merged and sat 404 commits behind. Its `mantex.c` is
+BEHIND main on `PutOne3DBlokeOnRide` (main closed 0x00441980 exact; the branch
+still had it WIP at 34) but well AHEAD on `LoadAltTextures`: 229i/752B
+size-exact at **6 mismatches**, against main's 229i/748B at 78. Main's four
+exact bodies were kept and only that one body was spliced in, so the file is
+now 4 exact + one much closer WIP. Gate: audit PASS, relocs 0 MISMATCH, /W3
+clean.
+
+The branch's residual analysis, carried over verbatim:
+
+2. `LoadAltTextures` — 229i/752B size-exact, **6 mism** (from 14), one
+   class: a 3-cycle in the homes of the four 2-ref pointers. Original
+   listB 0x2c, text2 0x30, listA 0x34, titleB 0x38; ours text2 0x2c,
+   titleB 0x30, listA 0x34, listB 0x38. VC6 orders that tie by first load
+   in the loop (layout order, proven by e1/e2 swaps; def order, declaration
+   order, names, goto/while reshapes all inert), so the original's order
+   needs a weight difference (listB heavier, titleB lighter) that has not
+   been found. Fail-path fold is closed (see levers: phantom homes).
+
+The branch doc's `PutOne3DBlokeOnRide` section (the EAX-exclusion proof via
+`xchg eax,eax`) is SUPERSEDED — main closed that body — and is deliberately
+not folded back in, so the lane doc cannot be read as claiming an open floor
+on a function that is already exact.
+

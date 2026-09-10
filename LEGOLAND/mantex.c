@@ -209,21 +209,27 @@ void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
 
 /* Load altman/altwoman name lists and map visitor.txt rows onto the outfit
  * tables for one sex. ctx is unused (caller still passes the anim context).
- * The alt file layout matches LookupTextureName's two-section pack.
+ * The alt file layout matches LookupTextureName's two-section pack: title,
+ * count, names..., empty, title B, count B, names B... `text2` is the
+ * section-A title the loop compares against (its own home at +0x30); `text`
+ * is only the allocation, freed at the end.
  *
- * FLOOR: 229i exact, sub esp 0x3c0 via path/line/name/pad struct; ~78 mism /
- * −4B. countB unread on !text/!countA (original `mov ebp,[esp+0x14]` uninit
- * home). Fail-path countA is `xor ebx,ebx` vs `mov ebx,[text]`. Residual is
- * scalar-home permutation + tolower esi/edi swap. */
-// WIP-FUNCTION: LEGOLAND 0x00442980  (72%, 229i/748B; 78 mism)
+ * FLOOR: 229i/752B size-exact, 6 strict mism, one class. countA and countB are
+ * deliberately left UNASSIGNED on the fail paths: the original's
+ * `mov ebx,[esp+0x24]` / `mov ebp,[esp+0x14]` are uninitialised reads whose
+ * phantom homes VC6 shares with `text` and `file`; any `else countA = ...`
+ * folds to `xor ebx,ebx` (-2B). The residual is the home permutation of the
+ * four 2-ref pointers (listB/text2/listA/titleB), which VC6 orders by first
+ * load in the loop; the original's order is listB, text2, listA, titleB.
+ * See docs/lanes/scope-ac.md. */
+// WIP-FUNCTION: LEGOLAND 0x00442980  (229i/752B; 6 mism: listB/text2/listA/titleB homes)
 void LoadAltTextures(const char* alt, const char* base, const char* dir,
                      int sex, void* ctx)
 {
     struct {
         char path[0x100];
         char line[0x200];
-        char name[0x60];
-        char pad[0x24];
+        char name[0x80];
     } buf;
     char*  text;
     char*  text2;
@@ -238,10 +244,20 @@ void LoadAltTextures(const char* alt, const char* base, const char* dir,
     int*   palB;
     void*  file;
     int    index;
-    int    a, b, c, d, e;
+    /* The five sscanf ints. Separate scalars home by argument position
+     * (e,b,d,a,c ascending, names inert); the original's ascending order is
+     * arg3, arg1, arg4, arg5, arg2, which only an aggregate reproduces. */
+    struct {
+        int i2;
+        int i0;
+        int i3;
+        int i4;
+        int i1;
+    } num;
     char*  p;
     char*  q;
     int    n;
+    char   ch;
 
     (void)ctx;
     index = 0;
@@ -250,9 +266,9 @@ void LoadAltTextures(const char* alt, const char* base, const char* dir,
         text2 = text;
         q = text + strlen(text) + 1;
         countA = *(int*)q;
-        listA = q + 4;
+        q += 4;
+        listA = q;
         if (countA) {
-            q = listA;
             do {
                 q += strlen(q) + 1;
             } while (strlen(q) != 0);
@@ -262,10 +278,7 @@ void LoadAltTextures(const char* alt, const char* base, const char* dir,
             countB = *(int*)q;
             listB = q + 4;
         }
-    } else {
-        countA = (int)text;
     }
-    (void)text2;
     sprintf(buf.path, kAltTexPathFmt, dir, base);
     if (!sex) {
         g_outfitA_n0 = countA;
@@ -292,20 +305,20 @@ void LoadAltTextures(const char* alt, const char* base, const char* dir,
         ReadAltLine(file, buf.line, 0x200);
         if (ReadAltLine(file, buf.line, 0x200)) {
             do {
-                p = buf.line;
                 q = buf.path;
+                p = buf.line;
                 for (;;) {
-                    n = tolower(*p);
-                    p++;
-                    if ((char)n == '.')
-                        n = 0;
-                    *q = (char)n;
+                    ch = (char)tolower(*p++);
+                    if (ch == '.')
+                        ch = 0;
+                    *q = ch;
                     q++;
-                    if (!(char)n)
+                    if (!ch)
                         break;
                 }
-                sscanf(p, kAltTexLineFmt, buf.name, &a, &b, &c, &d, &e);
-                if (NameCompare(text, buf.path) == 0)
+                sscanf(p, kAltTexLineFmt, buf.name, &num.i0, &num.i1, &num.i2,
+                       &num.i3, &num.i4);
+                if (NameCompare(text2, buf.path) == 0)
                     *palA = index;
                 else if (NameCompare(titleB, buf.path) == 0)
                     *palB = index;
