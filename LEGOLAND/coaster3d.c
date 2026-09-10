@@ -560,8 +560,51 @@ extern void Piece_InitStraight(int dir, int side, int off,
  *  * The entry/exit heading pointers are declared b-then-a, which is what puts
  *    arg0 in eax and arg1 in ebp.  All nine orderings of the four locals were
  *    measured.
+ *
+ * 2026-09-10 (scope LL21).  38 -> 35, still 143/143 instructions and 528/528
+ * bytes, by the scope-Codex-F cancelled-pair ANCHOR lever (docs/DECOMP.md,
+ * SCOPE Codex-F): the EXIT heading's table index is carried through
+ * `t.ib += t.ia; t.ib -= t.ia;` on two members of one flat struct, with the
+ * ENTRY index as the anchor.  The pair cancels at instruction selection (no
+ * frame slot, no instruction, byte count unchanged) and the priority bump it
+ * hands the entry index is what fixes the exit index into ecx -- the register
+ * the original loads it into -- so the two `mov` loads at the head of the
+ * curve loop now come out in the original's order and registers.  Measured
+ * around it (156 variants this pass):
+ *  - the anchor MUST be the entry index.  Address constants
+ *    (`g_heading`/`g_pieces`/`g_corner`/`g_corner_dirs`/`g_corner_radii`),
+ *    `i`, `n` and the exit index itself are all inert at 38; anchoring the
+ *    ENTRY index instead (carrier = entry, anchor = exit) is 41.
+ *  - carrying the POINTER rather than the index is 74 (a stray +/-0xc), and
+ *    sub-then-add does not fold here at all (79).
+ *  - all 24 declaration orders of {r0, r1, b, a} were re-swept: the committed
+ *    r1-r0-b-a is the byte-exact minimum, and the r0-first orders lose the r1
+ *    spill (below).
+ * WHAT IS LEFT, and the one measured trade.  The residual is the argument
+ * schedule of both Piece_InitCurve calls: the original evaluates BOTH heading
+ * indices before either `lea x3` (so both multiplies are IN PLACE,
+ * `lea ecx,[ecx+ecx*2]` / `lea eax,[eax+eax*2]`), and it RELOADS both radii
+ * from their frame slots to push them.  Naming the two indices in their own
+ * `int` locals and forming the pointers in the ARGUMENT
+ * (`int ia = ...a; float r0; float r1; int ib = ...b;` then
+ * `Piece_InitCurve(&g_heading[ia], &g_heading[ib], ...)`) buys the first half
+ * exactly -- both loads and both in-place multiplies match, 34 mismatches --
+ * but the same declaration order un-spills r1 (`mov ecx,edx` where the
+ * original has `mov ecx,[esp+14h]`) and the body drops to 526 bytes.  The two
+ * halves are mutually exclusive across all 48 orderings measured: every
+ * spelling that reloads both radii keeps the out-of-place multiply, and every
+ * spelling with in-place multiplies keeps r1 live.  Forcing the spill back
+ * costs more than it saves in every form tried -- `volatile float r1` (74),
+ * both radii volatile (79), `float r1[1]` and a one-member struct home (34 /
+ * 39, no change to the copy), split declaration and assignment (34), an
+ * `FPair` struct copy (83), a second named copy of r1 (34), and re-reading
+ * the radii at the second call site (82).  The original has SEVEN values live
+ * across the push block (eax=3a, ecx=3b, edx=n, ebx=&g_corner[i], ebp=b,
+ * esi=n, edi=i), which is why it has no register left for either radius; this
+ * build is one live value short of that and so keeps one.  That deficit, not
+ * the declaration order, is the thing to attack next.
  * ========================================================================= */
-// WIP-FUNCTION: LEGOLAND 0x004284d0  (73.4%: 143/143 insns and 528/528 BYTES over the true body 0x004284d0..0x004286df, 38 strict mismatches, first divergence at index 60; audit.py now bounds it correctly since the 2026-09-05 walker fix. The residual: all four scale loops (indices 0-59) and the entire straight-piece double loop (indices 106-142) are exact index for index; everything left is register allocation in the curve loop's argument setup -- the original keeps the entry heading in eax and 3*b in ecx where this build uses ecx and edx, and the two `inc esi` land one slot later. Free `volatile` reads at all four load sites move it by at most 1 (38 -> 37), which by the recorded one-experiment test makes it a global web rank, not a reachable construct)
+// WIP-FUNCTION: LEGOLAND 0x004284d0  (75.5%: 143/143 insns and 528/528 BYTES over the true body 0x004284d0..0x004286df, 35 strict mismatches, first divergence at index 62. All four scale loops (0-59) and the whole straight-piece double loop are exact index for index; the residual is the two Piece_InitCurve argument schedules -- the original evaluates both heading indices before either `lea x3` and reloads BOTH radii from their frame slots to push them, and no declaration order reaches both at once: see the note)
 void Coaster3D_BuildPieceGeometry(void)
 {
     int i;
@@ -592,10 +635,23 @@ void Coaster3D_BuildPieceGeometry(void)
     }
 
     for (i = 0; i <= 3; i++) {
+        /* `t` is a scope-V cancelled pair, not a data structure: the add/sub
+         * on t.ib cancels at instruction selection and costs nothing, and the
+         * priority bump it hands the ANCHOR (t.ia, the entry heading's index)
+         * is what puts the exit index in ecx the way the original loads it.
+         * See the note above; every other anchor is inert at 38. */
+        struct { int ib, ia; } t;
         float        r1 = g_corner_radii[i].b;
         float        r0 = g_corner_radii[i].a;
-        const Vec3f* b = &g_heading[g_corner_dirs[i].b];
-        const Vec3f* a = &g_heading[g_corner_dirs[i].a];
+        const Vec3f* b;
+        const Vec3f* a;
+
+        t.ia = g_corner_dirs[i].a;
+        t.ib = g_corner_dirs[i].b;
+        t.ib += t.ia;
+        t.ib -= t.ia;
+        b = &g_heading[t.ib];
+        a = &g_heading[t.ia];
 
         Piece_InitCurve(a, b, &g_corner[i], &g_pieces[n], r0, r1);
         n++;
