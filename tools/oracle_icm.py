@@ -113,6 +113,25 @@ def c_str(s):
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def c_str_or_null(s):
+    """A zero-length string in the file is a NULL POINTER in the loaded record.
+
+    LLIDB_LoadICM (data2.c 0x0047aff0) reads the length first and, for both the
+    label and the image, does
+
+        _read(fd, &len, 4);
+        if (len == 0) { elem->image = 0; }
+        else { elem->image = MemAlloc(len + 1); ... }
+
+    so an element whose image name is empty gets a null `image`, not a pointer
+    to "". Emitting "" here made the C look wrong (`got "(null)", want ""`)
+    when it was doing exactly what the original does; the oracle was the side
+    that was wrong. `value == ""` is equivalent to `len == 0` in the file, so
+    the two cases are exactly the same set. (PORT-A2's verdict on the
+    llidb_icm divergence; docs/lanes/scope-port-a2.md §3.)"""
+    return '0' if s == "" else '"%s"' % c_str(s)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--header")
@@ -156,7 +175,9 @@ def main():
             w("#define ORACLE_ICM_DIGEST   0x%016xull\n" % digest(d["elems"]))
             w("#define ORACLE_ICM_TRAILING %d\n\n" % d["leftover"])
             w("/* LLIDB_FindElement / ElemID probes; `query` is the name with\n"
-              "   its case mangled, to prove the lookup is case-insensitive. */\n")
+              "   its case mangled, to prove the lookup is case-insensitive.\n"
+              "   A NULL label or value means the file holds a zero LENGTH for\n"
+              "   it, which LLIDB_LoadICM stores as a null pointer, not \"\". */\n")
             w("static const struct {\n"
               "    const char*  query;\n"
               "    int          found;\n"
@@ -166,9 +187,10 @@ def main():
               "    unsigned int type_flags;\n"
               "} oracle_icm_probes[] = {\n")
             for p in probes:
-                w('    { "%s", %d, %d, "%s", "%s", 0x%08xu },\n'
+                w('    { "%s", %d, %d, %s, %s, 0x%08xu },\n'
                   % (c_str(p["query"]), p["found"], p["index"],
-                     c_str(p["label"]), c_str(p["value"]), p["type_flags"]))
+                     c_str_or_null(p["label"]), c_str_or_null(p["value"]),
+                     p["type_flags"]))
             w("};\n#define ORACLE_ICM_PROBE_N %d\n\n" % len(probes))
             w("#endif\n")
 

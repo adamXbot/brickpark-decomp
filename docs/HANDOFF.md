@@ -140,6 +140,27 @@ for PORT-C to rule on); `loadpos` traps in `ShowWindow` because
 CLEAN directories — a stale object in `CMakeFiles/` (PORT-C's retired
 stopgap) made the generator think the CRT thunks were defined.
 
+**Port wave, round two (2026-09-11 evening): PORT-A2 and PORT-B2 merged.**
+The page now opens all three RES volumes and reads their directories (the
+pointer-word resolver: symbol / interior of a rebuilt block / game object /
+gap; `fopen` wrapped; install paths resolved case-insensitively), GDI text is
+real, `MessageBoxA` can answer IDCANCEL, and the shim is node-safe. Tests
+under node 4/5. The page then dies in an unnamed wasm `unreachable` right
+after the loader: **live prototype conflicts inside the game** — 13 files
+declare `extern void RES_CloseFile(void*)` while sweep4.c defines
+`int RES_CloseFile(RVol*)`; `RES_CloseVolume` in InitSession; `DBPrintf`
+defined `void DBPrintf(void)` and called variadically from 30+ files. On x86
+cdecl these are harmless; on wasm each mismatched call site traps. Fixing
+them is a matching lane's job: caller-side prototypes under
+`#ifdef LEGOLAND_PORTABLE` (never between a marker and its signature), every
+touched file re-gated with audit.py and relocs.py. `linkreport.py`'s
+"prototype conflicts" census (542; 130 survive wasm-ld's DCE as warnings)
+is the work list; `--profiling-funcs` plus an `-O0` relink names a poisoned
+call site as `signature_mismatch:<callee> <- <caller>`. Also queued for the
+generator: `g_key_state[256]` is emitted as five `aligned(16)` fragments
+(interior aliases of one array), so a 256-byte `GetDeviceState` write and the
+shift/ctrl reads use wrong bytes.
+
 ## 1. Where the project stands
 
 Goal: human-written C that, compiled with the VC6 SP3 toolchain the game shipped
