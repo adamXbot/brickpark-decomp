@@ -429,8 +429,139 @@ skip:       add     edi, 4
 done:       mov     rc, eax
         }
 #else
-        LL_UNPORTED_ASM(); /* 16-bpp 50% blend blit */
-        rc = 0;
+        {
+        /* 0x00489190's RGB565 arm in C.  The clip first: drect is the sprite
+         * rectangle (x, y, x+w-1, y+h-1) trimmed to g_clip_rect and srect is
+         * how much each edge lost, so srect is in sprite-local coordinates.
+         *
+         * The blit works on DWORDS -- two 16-bpp pixels at a time -- and the
+         * source pointer is aligned DOWN to a dword boundary.  Each half is
+         * masked with 0xf7def7de (the low bit of every 5/6/5 field cleared)
+         * and halved, and the two are added: a 50% blend with no carry between
+         * channels.  A source dword that is zero after the mask is transparent.
+         * Every result is stored TWICE, to this row and to the row one dpitch
+         * below, and both pointers advance two rows per pass -- the effect is
+         * drawn at half vertical resolution.
+         *
+         * The three faults the header lists are all here:
+         *   - `add eax,4` runs BEFORE `mov edx,[eax]`, while the stores use
+         *     [eax-4], so the destination pair read for the blend is the one
+         *     AFTER the pair written;
+         *   - the opaque path's `jns pixel` falls THROUGH into the
+         *     transparent-skip block, so one extra `add edi,4 / sub ecx,2`
+         *     runs at the end of every row (harmless -- both are reloaded);
+         *   - the row and column counts come from SRECT
+         *     (`srect.bottom - srect.top - 1`, `srect.right - srect.left - 2`),
+         *     and the value left in eax -- hence returned -- is the advanced
+         *     destination ROW POINTER, not a status.  Reproduced. */
+        unsigned int*  sp;
+        unsigned int*  dp;
+        unsigned char* rowbase;
+        unsigned char* srow;
+        int            rowcount, colcount;
+        unsigned int   sv, dv;
+        int            ex, eb;
+
+        /* ---- the left edge ------------------------------------------- */
+        ex = x;
+        if (ex < g_clip_rect.left) {
+            drect.left = g_clip_rect.left;
+            srect.left = g_clip_rect.left - ex;
+        } else {
+            drect.left = ex;
+            srect.left = 0;
+        }
+        /* ---- the right edge ------------------------------------------ */
+        eb = (int)w - 1;
+        ex = x + eb;
+        if (ex > g_clip_rect.right) {
+            eb -= ex - g_clip_rect.right;
+            drect.right = g_clip_rect.right;
+            srect.right = eb;
+        } else {
+            drect.right = ex;
+            srect.right = eb;
+        }
+        /* ---- the top edge ------------------------------------------- */
+        ex = y;
+        if (ex < g_clip_rect.top) {
+            drect.top = g_clip_rect.top;
+            srect.top = g_clip_rect.top - ex;
+        } else {
+            drect.top = ex;
+            srect.top = 0;
+        }
+        /* ---- the bottom edge ---------------------------------------- */
+        eb = (int)h - 1;
+        ex = y + eb;
+        if (ex > g_clip_rect.bottom) {
+            eb -= ex - g_clip_rect.bottom;
+            drect.bottom = g_clip_rect.bottom;
+            srect.bottom = eb;
+        } else {
+            drect.bottom = ex;
+            srect.bottom = eb;
+        }
+
+        rc = 0;                                  /* xor eax,eax at doneb */
+        if (drect.left >= drect.right)
+            break;
+        if (drect.top >= drect.bottom)
+            break;
+
+        dpitch = dst.pitch;
+        dpitch2 = dst.pitch;
+        rowbase = (unsigned char*)dst.pixels
+                + (unsigned int)dpitch * (unsigned int)drect.top
+                + drect.left * 2;
+        spitch = src.pitch;
+        srow = (unsigned char*)src.pixels
+             + (unsigned int)spitch * (unsigned int)srect.top
+             + srect.left * 2;
+        srow = (unsigned char*)((__SIZE_TYPE__)srow & ~(__SIZE_TYPE__)3);
+        rowcount = srect.bottom - srect.top - 1;
+        cols = srect.right - srect.left - 2;
+        spitch <<= 1;                            /* two rows per pass */
+        dpitch2 <<= 1;
+
+        for (;;) {                               /* row */
+            sp = (unsigned int*)srow;
+            dp = (unsigned int*)rowbase;
+            colcount = cols;
+            for (;;) {                           /* pixel */
+                sv = *sp;
+                dp++;                            /* add eax,4 -- BEFORE the
+                                                    destination read */
+                sv &= 0xf7def7deu;
+                if (sv != 0) {
+                    sv >>= 1;
+                    dv = *dp & 0xf7def7deu;      /* the pair AFTER this one */
+                    dv >>= 1;
+                    sp++;
+                    sv += dv;
+                    colcount -= 2;
+                    dp[-1] = sv;
+                    *(unsigned int*)((unsigned char*)(dp - 1) + dpitch) = sv;
+                    if (colcount >= 0)
+                        continue;
+                    /* and otherwise FALL THROUGH into the skip block, which
+                     * is the documented fault -- one extra step per row. */
+                }
+                sp++;                            /* skip */
+                colcount -= 2;
+                if (colcount >= 0)
+                    continue;
+                break;
+            }
+            rowbase += dpitch2;
+            srow += spitch;
+            rowcount -= 2;
+            if (rowcount < 0)
+                break;
+        }
+        /* `done: mov rc, eax` with eax the advanced row pointer. */
+        rc = (int)(unsigned int)(__SIZE_TYPE__)rowbase;
+        }
 #endif
         break;
     }
