@@ -8,6 +8,9 @@
 > `docs/lanes/scope-port-a.md` / `-b.md` / `-c.md`. No VC6 object prefix: these
 > lanes do not match; they compile with clang/emcc only.
 > **PORT-B: IN PROGRESS (claimed 2026-09-11 by PORT-B).**
+> **PORT-A2 — Status: IN PROGRESS (claimed 2026-09-11 by PORT-A2)** — PORT-A's
+> follow-up: the ILP32 re-pointing blocker, the spine past the loader, the
+> KERNEL32 work the loaders still need. Notes `docs/lanes/scope-port-a2.md`.
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
