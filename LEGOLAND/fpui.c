@@ -1030,8 +1030,46 @@ char CheckFocussedIcon(void)
  * a schedule in which the register holding the value is immediately needed
  * for the next argument load.  If a lever is ever found for that site, try it
  * here before re-opening anything else.
+ *
+ * 2026-09-10 (scope LL22).  RETIREMENT WITHDRAWN -- the missing copy IS
+ * reachable, and the residual is now ONE OPERAND, not one instruction.
+ * The whole family above searched for a spelling that adds a COPY to the
+ * single `p->obj` web.  That was the wrong target: the original has TWO
+ * webs there, and the second one is what the lane was missing.  Reading the
+ * argument through a per-site volatile cast --
+ * `GetObjCost(*(ObjDef* volatile*)&p->obj)` -- gives the argument its own
+ * web and takes the body from 22 audit mismatches / 170B to ONE mismatch /
+ * 172B (matchfull 67/68 = 98.5%).  Everything the old note called
+ * unreachable falls out at once: the `push` now reads a second register,
+ * and -- the independent confirmation that the two-web reading is right --
+ * the spilled first cost is reloaded into ECX (`mov ecx,[esp+1ch]` /
+ * `cmp eax,ecx`) exactly as the original does, instead of into EDX.  So the
+ * "two independent register differences" were one missing web all along.
+ * The ONLY surviving difference is how that second web is DEFINED:
+ *     original  0x004756aa   mov edx, eax          (2 bytes, a copy)
+ *     ours                   mov edx, [esi+4]      (3 bytes, a reload)
+ * i.e. +1 byte, index-for-index identical otherwise.  VC6 will not produce
+ * a register copy into a second web from C at this site: measured inert on
+ * this base (all 68i, none producing a copy) are the scope-V cancelled-pair
+ * copy web through a struct member (`t.o = (int)p->obj; t.o += (int)n;
+ * t.o -= (int)n;` -- and the `^=`/`|= 0`/`&= -1` cancels, all folded before
+ * allocation), a plain `int` cancel, a pointer-typed struct member, the
+ * Codex-F `char*` cast, `(ObjDef volatile*)`/`(const volatile*)` POINTEE
+ * casts (only a volatile READ makes the web; a volatile pointee does not),
+ * a comma expression, an `ObjDef**` alias to `&p->obj`, and the dead-`d`
+ * carrier.  Naming the volatile read into a local (`b = *(volatile...)`)
+ * gives the frame-exact 171B but homes `b` (25 mismatches).  Free volatile
+ * reads elsewhere are all losses: on `a = n->obj` VC6 folds the parent
+ * compare into `cmp ecx,[eax+58h]` (-1 instruction); on `g_object_list`
+ * it costs 3; on the `p = p->next` latch it is inert.  Reading the parent
+ * compare through the volatile instead of the argument re-plans the whole
+ * body (26 mismatches, `prev` moves to ebx).
+ * WHAT IS LEFT: one 2-byte `mov edx,eax` in place of a 3-byte reload.  The
+ * remaining question is no longer "why is there a copy" but "how does a
+ * second pointer web get DEFINED BY A COPY rather than by a reload", which
+ * is the same question `BoatingSchool_Tick` (ridecb5.c, idx 105/206) asks.
  */
-// WIP-FUNCTION: LEGOLAND 0x00475630  (67 of 68 insns, 169B vs 171B; audit.py prints 68i/170B counting a pad byte. First diverging index 46: one missing `mov edx,eax` argument copy which has NEITHER a phi NOR interference behind it -- proposed for retirement, see note)
+// WIP-FUNCTION: LEGOLAND 0x00475630  (68i/172B vs 68i/171B, 1 mismatch = 98.5%; the sole residual is index 46 `mov edx,eax` (copy) where we emit `mov edx,[esi+4]` (reload) -- see the 2026-09-10 note)
 void InsertChildIntoList(ObjDef* d)
 {
     ObjNode* p = g_object_list;
@@ -1064,7 +1102,11 @@ found:
             n->next = p;
             return;
         }
-        if (GetObjCost(a) <= GetObjCost(p->obj)) {
+        /* The volatile cast is a codegen lever, not semantics (nothing writes
+         * p->obj in between): it is what gives the argument its OWN register
+         * web, which is what puts the spilled first cost back in ecx and the
+         * push on a second register.  See the 2026-09-10 note above. */
+        if (GetObjCost(a) <= GetObjCost(*(ObjDef* volatile*)&p->obj)) {
             prev->next = n;
             n->next = p;
             return;
