@@ -522,10 +522,22 @@ extern PieceDesc g_pieces[];                                    /* 0x00828fe0 */
 
 /* Fills one prototype piece: three Vec3f, the two radii, and the fixed
  * 0..pi/2 parameter range and hook table every curve shares. */
-extern void Piece_InitCurve(const Vec3f* d0, const Vec3f* d1,
-    const Vec3f* org, PieceDesc* out, float r0, float r1);      /* 0x00421ce0 */
-extern void Piece_InitStraight(int dir, int side, int off,
-    PieceDesc* out, int slot);                                  /* 0x00428350 */
+/* castletrack2.c DEFINES 0x00421ce0 as
+ * `TrackCurve_InitArc(..., int r0, int r1)` and stores both with
+ * `*(int*)&curve->r0 = r0`, i.e. the parameter carries a float's BIT PATTERN
+ * through a GPR. `float` here is what this translation unit was compiled with
+ * and pushes the same four bytes, so the VC6 arm keeps it; on wasm32 f32 and
+ * i32 are different function types and the link's forwarder cannot bridge
+ * them, so the portable arm declares the definition's shape and passes the
+ * bits unchanged. A numeric (int) conversion would pass a different number. */
+#ifndef LEGOLAND_PORTABLE
+extern void Piece_InitCurve(const Vec3f* d0, const Vec3f* d1, const Vec3f* org, PieceDesc* out, float r0, float r1); /* 0x00421ce0 */
+#else
+extern void Piece_InitCurve(const Vec3f* d0, const Vec3f* d1, const Vec3f* org, PieceDesc* out, int r0, int r1); /* 0x00421ce0 */
+#define Piece_InitCurve(_d0, _d1, _org, _out, _r0, _r1) \
+    Piece_InitCurve((_d0), (_d1), (_org), (_out), LL_ASINT(_r0), LL_ASINT(_r1))
+#endif
+extern void Piece_InitStraight(int dir, int side, int off, PieceDesc* out, int slot); /* 0x00428350 */
 
 /* =========================================================================
  * 0x004284d0 -- Coaster3D_BuildPieceGeometry (coaster.c's `Coaster3D_BuildPieceGeometry`, run

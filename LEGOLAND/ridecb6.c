@@ -437,7 +437,7 @@ extern void  BsWater_Relink(int x, int y, int* owner);            /* 0x0041bab0 
  * The callee reads only `cx`, but the caller pushes a full dword, so the
  * parameter is spelled `int` HERE (ridecb5.c declares the same function with
  * a BPosW by value for its own call sites).  DEFINED at the end of this file. */
-void  BoatingSchool_AddTake_I(int key, int amount);               /* 0x0041b0d0 */
+extern void BoatingSchool_AddTake_I(int key, int amount);         /* 0x0041b0d0 */
 /* Lays a boat route between two map squares; returns the route record. */
 extern void* BoatingSchool_BuildRoute(int x0, int y0, int x1, int y1); /* 0x0041c8c0 */
 extern void  IncrementObjectCount(ObjDef* cls);                   /* 0x00480d40 */

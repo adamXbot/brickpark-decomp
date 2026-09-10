@@ -166,8 +166,7 @@ extern void   LFRun_TickAll(void);                               /* 0x0040bf50 *
 extern void   LFQueue_AddRider(LFQueue* q, RiderNode* r);        /* 0x00411f20 */
 extern int    LFQueue_IsFull(LFQueue* q);                        /* 0x00411e60 */
 extern void   LFPath_StartReverse(void* path, Bloke* b);         /* 0x004122a0 */
-extern void   LFPath_StepBloke(void* path, int tx, int ty,
-                               Bloke* b);                        /* 0x00412300 */
+extern void LFPath_StepBloke(void* path, int tx, int ty, Bloke* b); /* 0x00412300 */
 
 extern void* g_lf_anim_b;               /* 0x004c2af8 the 5-frame path set */
 

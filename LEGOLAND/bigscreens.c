@@ -235,7 +235,9 @@ extern Sprite* GetProfileOffSprite(char slot);
 /* 0x00491540 (not exported): non-zero when the temp profile has a name. */
 extern int     TempProfileHasName(void);
 /* 0x0048d470 (not exported). */
-extern void    SavedGame_48d470(void);
+/* frontend2.c's SaveSavedGameIconHandlers: stashes g_icon_handler1/2 before
+ * the saved-game screen replaces them. */
+extern void    SaveSavedGameIconHandlers(void);         /* 0x0048d470 */
 /* Saved-game screen icon input handlers (other lanes). */
 extern char    FreePlayGoBackInput(Icon*, int);     /* 0x0048fb80 */
 extern char    SaveGoBackInput(Icon*, int);     /* 0x0048db10 */
@@ -551,7 +553,7 @@ void InitSavedGameScreen(void)
         g_accept_icon->input = LoadAcceptInput;
     }
     g_icon_handler1 = g_accept_icon->input;
-    SavedGame_48d470();
+    SaveSavedGameIconHandlers();
     DeleteSavedGameList();
     LoadSavedGamesList(g_cur_profile.profile_slot);
     node = g_savedgame_list;

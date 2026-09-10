@@ -134,8 +134,7 @@ extern void  TrackCurve_EvaluateDerivative(RoutePos* at, int mode, int t,
 #endif
 extern int   JointDir_ToIndex(int direction);                         /* 0x0041cca0 */
 extern void  MapSquareToWorld(const short* sq, float h, Vec3f* out);  /* 0x00425cb0 */
-extern void  TrackGeom_BuildRamp(Vec3f* p0, Vec3f* p1, const Vec3f* half,
-                                 RouteGeom* out);                     /* 0x00422180 */
+extern void TrackGeom_BuildRamp(Vec3f* p0, Vec3f* p1, const Vec3f* half, RouteGeom* out); /* 0x00422180 */
 
 extern Vec3f g_joint_world[4];   /* 0x004b6398 */
 extern Vec3f g_joint_half[4];    /* 0x004b63c8 */
@@ -150,7 +149,8 @@ extern float g_step_hi2;         /* 0x00615fdc */
 extern float g_step_lo2;         /* 0x00615fe0 */
 extern int   g_step_far;         /* 0x00615fe4 */
 extern int   g_step_up;          /* 0x00615fe8 */
-extern int (*g_track_solver)(float (*fn)(float), float lo, float hi, float* out); /* 0x004b63fc */
+typedef int (*TrackSolverFn)(float (*fn)(float), float lo, float hi, float* out);
+extern TrackSolverFn g_track_solver;                            /* 0x004b63fc */
 
 #ifndef LEGOLAND_PORTABLE
 extern void  TrackCurve_EvaluatePosition(RoutePos* at, int mode, float t,

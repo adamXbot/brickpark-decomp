@@ -111,7 +111,8 @@ extern int     g_icons2_mode;      /* 0x00668e38  non-zero: alternate icon set *
 extern int     g_last_tick;        /* 0x00667d68  GetTickCount at frame end */
 extern int     g_rdtsc_last;       /* 0x00813a18  cycle counter at last read */
 extern int     g_rdtsc_accum;      /* 0x00813a2c  cycles accumulated this frame */
-extern int   (*g_present)(void);   /* 0x004b9ca4  -> 0x00466080 (flip) */
+typedef int  (*PresentFn)(void);
+extern PresentFn g_present;       /* 0x004b9ca4  -> 0x00466080 (flip) */
 
 /* ---- externals ---------------------------------------------------------- */
 

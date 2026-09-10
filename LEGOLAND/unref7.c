@@ -290,6 +290,9 @@ extern const char   g_fmt_save_default[];   /* 0x004bf2e8 "%s%d" */
 extern Bloke*       g_mechanic_list;        /* 0x0079a8ac (export MechanicList) */
 extern PathSquare*  g_path_squares;         /* 0x0066b44c */
 extern Pos          g_suggest_target;       /* 0x004bcec0  (.y at 0x004bcec4) */
+/* The three LLIDB page-table words. legoland.h declares them for every user;
+ * the annotations live here (linkreport.py/gen_link.py scan LEGOLAND/*.c only). */
+extern unsigned int g_llidb_capacity;       /* 0x006691a0  multiple of 0x100 */
 extern unsigned int g_llidb_count;          /* 0x006691a4 */
 extern LLElem**     g_llidb_pages;          /* 0x006691a8  256 elements per page */
 extern void*        g_music_sys;            /* 0x004bf774  music engine instance */

@@ -172,7 +172,7 @@ extern void  EnterNewProfileCheckBoxIcons(Icon* panel);  /* 0x0048c650 */
 
 /* The popup's background sprite name @ 0x004bf6e4 (string contents live in
  * .rdata; only its address is load-bearing here). */
-extern const char g_new_profile_popup_lls[];
+extern const char g_new_profile_popup_lls[];   /* 0x004bf6e4 */
 
 /* Builds the "enter new profile" popup 0x1b pixels above the parent icon,
  * gives it string 0x50, marks it with flag 0x2000 (the same bit the checkbox

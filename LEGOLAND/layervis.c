@@ -44,7 +44,7 @@ typedef struct LLSNode {
 /* ---- globals ------------------------------------------------------------ */
 
 /* Head of the playing list (@ 0x006691ac). */
-extern LLSNode* g_lls_playing;
+extern LLSNode* g_lls_playing;   /* 0x006691ac  head of the playing list */
 
 /* ---- externals ---------------------------------------------------------- */
 

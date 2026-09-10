@@ -471,8 +471,7 @@ extern int   NameCompare(const char* a, const char* b);     /* 0x004aab90 (_stri
 
 /* scope LL13 owns these two: wrapped-text measure and draw. */
 extern int   MeasureWrappedText(const char* text, int font, int width); /* 0x004551a0 */
-extern void  DrawWrappedText(int x, int y, const char* text, int font,
-                             int width);                    /* 0x00455220 */
+extern void DrawWrappedText(int x, int y, const char* text, int font, int width); /* 0x00455220 */
 
 int RunListPicker(char** items, const char* title, void* backdrop, IRect* r,
                   void (*overlay)(int sel), void** icons, int a7, int a8,

@@ -475,12 +475,42 @@ extern const char g_s_shed[];     /* 0x004b89ac "POTTING SHED" */
 extern const char g_s_hut[];      /* 0x004b899c "MECHANICS HUT" */
 extern const char g_s_path[];     /* 0x004b8a70 "PATH CONTROL" */
 extern const char g_s_entrance[]; /* 0x004b83d0 "ENTRANCE 1" */
-extern const char g_lls_bgmain[], g_lls_bgct[], g_lls_bgrt[], g_lls_bglm[], g_lls_bgcm[], g_lls_bgrm[],
-    g_lls_bglb[], g_lls_bgcb[], g_lls_bgrb[], g_lls_mock[], g_lls_repairok[], g_lls_norepair[],
-    g_lls_delete_on[], g_lls_delete[], g_lls_close_on[], g_lls_close[], g_lls_gardener_on[],
-    g_lls_gardener[], g_lls_mech_on[], g_lls_mech[], g_lls_next[], g_lls_next_on[], g_lls_prev[],
-    g_lls_prev_on[], g_lls_sad[], g_lls_norm[], g_lls_happy[], g_lls_hungry[], g_lls_peckish[],
-    g_lls_full[], g_lls_corner[];
+/* The pop-up panel's sprite-name strings. One annotated extern per name:
+ * the address is the load-bearing part (the .rdata string itself is not),
+ * and linkreport.py / gen_link.py read it per line. Where another file
+ * already names the same address, the note says so -- gen_link aliases the
+ * two spellings onto one block instead of inventing a second object. */
+extern const char g_lls_bgmain[];    /* 0x004baca4 */
+extern const char g_lls_bgct[];      /* 0x004bac90 */
+extern const char g_lls_bgrt[];      /* 0x004bac7c */
+extern const char g_lls_bglm[];      /* 0x004bac68 */
+extern const char g_lls_bgcm[];      /* 0x004bac54 */
+extern const char g_lls_bgrm[];      /* 0x004bac40 */
+extern const char g_lls_bglb[];      /* 0x004bac2c */
+extern const char g_lls_bgcb[];      /* 0x004bac18 */
+extern const char g_lls_bgrb[];      /* 0x004bac04 */
+extern const char g_lls_mock[];      /* 0x004babf4 */
+extern const char g_lls_repairok[];  /* 0x004babe0 */
+extern const char g_lls_norepair[];  /* 0x004babcc */
+extern const char g_lls_delete_on[]; /* 0x004babb4 */
+extern const char g_lls_delete[];    /* 0x004baba0 */
+extern const char g_lls_pu_close_on[]; /* 0x004bab8c  frontend2.c/profiles.c/screens2.c spell it this way */
+extern const char g_lls_pu_close[];    /* 0x004bab78  ditto */
+extern const char g_lls_gardener_on[]; /* 0x004bab60 */
+extern const char g_lls_gardener[];  /* 0x004bab4c */
+extern const char g_lls_mech_on[];   /* 0x004bab34 */
+extern const char g_lls_mech[];      /* 0x004bab20 */
+extern const char g_lls_next[];      /* 0x004bab10 */
+extern const char g_lls_next_on[];   /* 0x004bab00 */
+extern const char g_lls_prev[];      /* 0x004baaf0 */
+extern const char g_lls_prev_on[];   /* 0x004baae0 */
+extern const char g_lls_sad[];       /* 0x004baad4 */
+extern const char g_lls_norm[];      /* 0x004baac8 */
+extern const char g_lls_happy[];     /* 0x004baabc */
+extern const char g_lls_hungry[];    /* 0x004baaac */
+extern const char g_lls_peckish[];   /* 0x004baa9c */
+extern const char g_lls_full[];      /* 0x004baa90 */
+extern const char g_lls_corner[];    /* 0x004baa7c */
 
 extern int     LLIDB_FindElement(const char* name, void** out, unsigned int* idx); /* 0x0047b330 */
 __declspec(noreturn) void exit(int code);                                          /* 0x004a02b8 */
@@ -541,8 +571,8 @@ void InitPopUpInfo(void)
         g_popup.spr_norepair = LoadSprite(g_lls_norepair, 4);
         g_pu_delete_on = LoadSprite(g_lls_delete_on, 4);
         g_pu_delete = LoadSprite(g_lls_delete, 4);
-        g_pu_close_on = LoadSprite(g_lls_close_on, 4);
-        g_pu_close = LoadSprite(g_lls_close, 4);
+        g_pu_close_on = LoadSprite(g_lls_pu_close_on, 4);
+        g_pu_close = LoadSprite(g_lls_pu_close, 4);
         g_pu_gardener_on = LoadSprite(g_lls_gardener_on, 4);
         g_pu_gardener = LoadSprite(g_lls_gardener, 4);
         g_pu_mech_on = LoadSprite(g_lls_mech_on, 4);

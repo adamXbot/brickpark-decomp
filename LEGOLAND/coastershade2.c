@@ -77,8 +77,7 @@ extern unsigned short* g_span_ramp;                            /* 0x004d89c0 */
 extern int g_span_dshade_hi;                                   /* 0x004d89b4 */
 extern int g_span_dshade_lo;                                   /* 0x004d89bc */
 extern RouteGeom* GetTrackNodeWorldPos(TrackNode* node, Vec3f* out); /* 0x0041cff0 */
-extern PhysVec*** Romberg_Build(RombergFn fn, PhysOps* ops, int n,
-                                float t, float h);              /* 0x0041f3e0 */
+extern PhysVec*** Romberg_Build(RombergFn fn, PhysOps* ops, int n, float t, float h); /* 0x0041f3e0 */
 extern void Romberg_Release(PhysVec*** tab, PhysOps* ops, int n); /* 0x0041f4c0 */
 
 /* Indexed reader for the .ltx table LoadCoasterData fills through

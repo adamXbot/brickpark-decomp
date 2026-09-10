@@ -477,8 +477,7 @@ struct RouteNode {
 
 extern void  Sub_42a620(TrackCursor* c, const RoutePos* at, float a);   /* 0x0042a620 */
 extern void  Sub_42a640(TrackCursor* c, int mode, Vec3f* out);          /* 0x0042a640 */
-extern void  Sub_429f30(Vec3f* dir, float step, RoutePos* from, float f40,
-                        float tol, RoutePos* out, float* out_a);        /* 0x00429f30 */
+extern void Sub_429f30(Vec3f* dir, float step, RoutePos* from, float f40, float tol, RoutePos* out, float* out_a); /* 0x00429f30 */
 extern float Sub_41e7e0(RouteNode* n);                                  /* 0x0041e7e0 */
 
 // FUNCTION: LEGOLAND 0x0041e820

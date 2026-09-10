@@ -709,8 +709,7 @@ extern void  StandardRemoveObject(void* obj, unsigned int tile,
  * block's owner is a u16 field and the original pushes it with `mov ax,[..] /
  * push eax`, i.e. WITHOUT zero-extending, which only a `unsigned short`
  * parameter produces.  (ridecb6.c does the same for 0x0041b0d0.) */
-extern void  StandardRemoveObject_W(void* obj, unsigned short tile,
-                                    EditCursorRec* ctx);      /* 0x0045f220 */
+extern void StandardRemoveObject_W(void* obj, unsigned short tile, EditCursorRec* ctx); /* 0x0045f220 */
 extern void  RemoveAllBlokesFromRide(void* cls, unsigned int tile); /* 0x0048a2e0 */
 extern void  DefaultCursor(EditCursorRec* c);                 /* 0x0045a390 */
 extern void  AddBricks(int n);                                /* 0x004578a0 */
@@ -1413,8 +1412,7 @@ extern BsMermaid* g_bs_mermaids;                              /* 0x004d2164 */
 
 /* StandardRemoveObject a third time, with the packed square BY VALUE: the
  * mermaid's remove handler takes it that way and forwards it unchanged. */
-extern void StandardRemoveObject_B(void* obj, BPosW tile,
-                                   EditCursorRec* ctx);       /* 0x0045f220 */
+extern void StandardRemoveObject_B(void* obj, BPosW tile, EditCursorRec* ctx); /* 0x0045f220 */
 extern int  CountSamplesFromSource(RideSoundSource* src);     /* 0x00496b10 */
 extern void UnSourceAndFadeAllSamplesFromSource(RideSoundSource* src,
                                                 int fade);    /* 0x00496c80 */

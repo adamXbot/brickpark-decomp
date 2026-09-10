@@ -1788,7 +1788,8 @@ extern void*      g_font_24;                       /* 0x00668090 */
 extern void*      g_font_18;                       /* 0x00668094 */
 extern void*      g_font_28;                       /* 0x00668098 */
 extern int        g_init_flag;                     /* 0x007cacd4 */
-extern int      (*g_present)(void);                /* 0x004b9ca4 */
+typedef int     (*PresentFn)(void);
+extern PresentFn  g_present;                       /* 0x004b9ca4 */
 extern WinRect    g_clip_rect;                     /* 0x004bdea0 */
 extern FontFace   g_font_face;                     /* 0x004b86e0 "Lego" */
 
@@ -1814,8 +1815,10 @@ __declspec(dllimport) int __stdcall AdjustWindowRect(WinRect* rc, unsigned long 
 extern void* WNDENV_GethInstance(void);            /* 0x0047fe40 */
 extern void  WNDENV_Sethwnd(void* hwnd);           /* 0x0047fe50 */
 extern void* WNDENV_Gethwnd(void);                 /* 0x0047fe60 */
-extern long  __stdcall WindowProc(void* h, unsigned int m, unsigned int w, long l);
-                                                   /* 0x0047fe90 */
+/* input2.c's LegoLandWindowProc -- the registered window procedure, exported
+ * as `_LegoLandWindowProc@16`. Declared on one line so linkreport.py's
+ * line-oriented extern scanner sees the address comment. */
+extern long  __stdcall LegoLandWindowProc(void* h, unsigned int m, unsigned int w, long l); /* 0x0047fe90 */
 extern int   ProcessSystemEvents(void);            /* 0x00480050 */
 extern void  SetClipping(WinRect* r);              /* 0x0048a5c0 */
 extern void  LoadColourTable(void);                /* 0x0044e580 */
@@ -1839,7 +1842,7 @@ int InitScreen(void)
 
     wc.cbSize = sizeof(WndClassEx);
     wc.style = 0;
-    wc.lpfnWndProc = WindowProc;
+    wc.lpfnWndProc = LegoLandWindowProc;
     wc.cbClsExtra = 0;
     wc.cbWndExtra = 0;
     wc.hInstance = WNDENV_GethInstance();

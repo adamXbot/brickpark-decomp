@@ -134,7 +134,8 @@ struct Bloke {
 /* The fort's interior, in tiles relative to the placement's own square:
  * x from -1 to +3, y from -3 to +3.  Four initialised ints that are read as
  * one rectangle, so they are declared as one object. */
-extern struct FortArea { int x0, y0, x1, y1; } g_fort_area;  /* 0x004b4580 */
+typedef struct FortArea { int x0, y0, x1, y1; } FortArea;
+extern FortArea g_fort_area;                                 /* 0x004b4580 */
 
 extern int  CalcMoveLine(Pos8 from, Pos8 to, void* path);            /* 0x00480740 */
 extern int  NewDirForAction(Bloke* b, unsigned char dir);            /* 0x004833d0 */
