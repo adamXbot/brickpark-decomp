@@ -867,7 +867,13 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                                     int dword = src[0];
                                     {
                                         int dlt = *(int*)((char*)src + delta) - dword;
+#ifndef LEGOLAND_PORTABLE
                                         *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
+#else
+                                        /* PORT-M5: 0x0041f17a is a call to the
+                                         * ROUNDING helper 0x00458930. */
+                                        *(int*)((char*)src + dest) = dword + LL_FISTP((float)dlt * t);
+#endif
                                     }
                                     src++;
                                     k++;
@@ -900,7 +906,12 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                                 int dword = src[0];
                                 {
                                     int dlt = *(int*)((char*)src + delta) - dword;
+#ifndef LEGOLAND_PORTABLE
                                     *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
+#else
+                                    /* PORT-M5: 0x0041f215, the same helper. */
+                                    *(int*)((char*)src + dest) = dword + LL_FISTP((float)dlt * t);
+#endif
                                 }
                                 src++;
                                 k++;

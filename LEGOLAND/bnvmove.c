@@ -265,7 +265,14 @@ int CalcMoveLine(Pos from, Pos to, MoveLine* line)
     line->dy = (short)(int)floor(sin(angle) * 256.0 + 0.5);
     line->x = (from.x << 8) + 0x80;
     line->y = (from.y << 8) + 0x80;
+#ifndef LEGOLAND_PORTABLE
     return (int)(angle * 40.74366612653722);
+#else
+    /* PORT-M5: 0x00458930 rounds.  The two `floor(... + 0.5)` conversions
+     * above are insensitive -- floor's result is already integral -- but this
+     * one is not: it is the direction CODE every walker turns by. */
+    return LL_FISTPD(angle * 40.74366612653722);
+#endif
 }
 
 /* The per-tick visitor walker. */
@@ -518,7 +525,11 @@ void SetBlokePositionFromBNV(BNVBin* bin, Bloke* bloke, const char* name,
     /* The float cast sits on the average alone: it is what places the
      * fxch pair before the subtraction of far_z. */
     delta_z = (float)(sum_z * 0.125) - far_z;
+#ifndef LEGOLAND_PORTABLE
     height = (int)(delta_z * (49152.0f / (near_z - far_z)) + 8192.0f);
+#else
+    height = LL_FISTP(delta_z * (49152.0f / (near_z - far_z)) + 8192.0f); /* PORT-M5 */
+#endif
     bloke->person->slope = height >> 8;
     bloke->map_x = (short)(sum_x / 8 / 2);
     bloke->map_y = (short)(sum_y / 8 / 2);

@@ -3000,8 +3000,14 @@ void RenderFullMap(void)
     g_fm_spany = g_fm_h2 + 1;
     scale_x = (g_fm_view.w << 16) / g_fm_spanx;
     scale_y = (g_fm_view.h << 16) / g_fm_spany;
+#ifndef LEGOLAND_PORTABLE
     g_fm_cw = (short)(int)((float)g_fm_view.w * tw / g_fm_spanx + 1.0f);
     g_fm_ch = (short)(int)((float)g_fm_view.h * th / g_fm_spany + 1.0f);
+#else
+    /* PORT-M5: 0x00456980 / 0x004569a4 call 0x00458930, which ROUNDS. */
+    g_fm_cw = (short)LL_FISTP((float)g_fm_view.w * tw / g_fm_spanx + 1.0f);
+    g_fm_ch = (short)LL_FISTP((float)g_fm_view.h * th / g_fm_spany + 1.0f);
+#endif
     RenderBlock(0, 0, g_fm_view.w, g_fm_view.h, GetNearestColour(0, 0, 0));
 
     saved_ox = g_map->origin_x;
@@ -3079,9 +3085,18 @@ void RenderFullMap(void)
             tile.y = def->dy;
             HalfPos(&tile);
             tb.top += tile.y + (g_scroll_y >> 8);
+#ifndef LEGOLAND_PORTABLE
             my = (int)((float)(tb.top - g_fm_oy) * fsy) + g_fm_cy;
             tb.left += tile.x + (g_scroll_x >> 8);
             mx = (int)((float)(tb.left - g_fm_ox) * fsx);
+#else
+            /* PORT-M5: pass 2's FLOAT scale form (see the file header) goes
+             * through 0x00458930, which ROUNDS.  That is part of why it "rounds
+             * differently" from the integer-scale passes. */
+            my = LL_FISTP((float)(tb.top - g_fm_oy) * fsy) + g_fm_cy;
+            tb.left += tile.x + (g_scroll_x >> 8);
+            mx = LL_FISTP((float)(tb.left - g_fm_ox) * fsx);
+#endif
             PrintScaledSprite(g_tile_sprites[c.tile], mx, my,
                               g_fm_cw + 1, g_fm_ch + 1);
         }

@@ -364,7 +364,11 @@ int UpdateBlokeFromBNVPath(BNVBloke* bloke, BNVPath* path)
         delta_x = (float)(local.sum_x * 0.125 - path->x);
         delta_y = (float)(local.sum_y * 0.125 - path->y);
         delta_z = (float)(local.sum_z * 0.125 - path->z_base);
+#ifndef LEGOLAND_PORTABLE
         height = (int)(delta_z * path->vertical_scale + 8192.0f);
+#else
+        height = LL_FISTP(delta_z * path->vertical_scale + 8192.0f); /* PORT-M5 */
+#endif
         ((BNVPerson*)bloke->person)->slope = height >> 8;
         angle = (float)atan2(delta_y, delta_x);
         path->step_x = (float)(cos(angle) * (float)bloke->speed * 0.25);
@@ -372,8 +376,15 @@ int UpdateBlokeFromBNVPath(BNVBloke* bloke, BNVPath* path)
     }
 
     local.person->height = path->person_height + path->person_height;
+#ifndef LEGOLAND_PORTABLE
     bloke->map_x = (short)(int)(path->x * 0.5f);
     bloke->map_y = (short)(int)(path->y * 0.5f);
+#else
+    /* PORT-M5: 0x00484fbc / 0x00484fce round, and a halving is exactly the
+     * case where truncation and rounding differ on every odd coordinate. */
+    bloke->map_x = (short)LL_FISTP(path->x * 0.5f);
+    bloke->map_y = (short)LL_FISTP(path->y * 0.5f);
+#endif
     sub_483830(bloke);
     return 1;
 }
@@ -430,7 +441,11 @@ void BNVPath_SetDFrame(BNVBloke* bloke, BNVPath* path, int dframe)
     delta_x = (float)(sum_x * 0.125 - path->x);
     delta_y = (float)(sum_y * 0.125 - path->y);
     delta_z = (float)(sum_z * 0.125 - path->z_base);
+#ifndef LEGOLAND_PORTABLE
     height = (int)(delta_z * path->vertical_scale + 8192.0f);
+#else
+    height = LL_FISTP(delta_z * path->vertical_scale + 8192.0f); /* PORT-M5 */
+#endif
     ((BNVPerson*)bloke->person)->slope = height >> 8;
     angle = (float)atan2(delta_y, delta_x);
     path->step_x = (float)(cos(angle) * (float)bloke->speed * 0.25);

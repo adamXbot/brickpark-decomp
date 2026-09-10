@@ -238,7 +238,11 @@ void GoldRush_MoveToPanEdge(RiderNode* rd, MapSquare* key)
     b->target.y = g_pan_pos[i].y;
     b->target.x += key->bx << 8;
     b->target.y += (key->by << 8) + 0x80;
+#ifndef LEGOLAND_PORTABLE
     b->target.x += 0x80 - (int)(f * 512.0f);
+#else
+    b->target.x += 0x80 - LL_FISTP(f * 512.0f);   /* PORT-M5: 0x00458930 rounds */
+#endif
     a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
     b->state = 7;
     b->new_dir = a;
@@ -326,7 +330,11 @@ void GoldRush_KneelAtPan(RiderNode* rd, MapSquare* key)
     b->target.y = g_pan_pos[i].y;
     t->x += key->bx << 8;
     y = (t->y += key->by << 8);
+#ifndef LEGOLAND_PORTABLE
     b->target.x += 0x80 - (int)(f * 512.0f);
+#else
+    b->target.x += 0x80 - LL_FISTP(f * 512.0f);   /* PORT-M5: 0x00458930 rounds */
+#endif
     t->y = y - 0x50;
     a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
     b->state = 7;
@@ -358,7 +366,11 @@ void GoldRush_StandUpFromPan(RiderNode* rd, MapSquare* key)
     b->target.y = g_pan_pos[i].y;
     b->target.x += key->bx << 8;
     b->target.y += (key->by << 8) + 0x80;
+#ifndef LEGOLAND_PORTABLE
     b->target.x += 0x80 - (int)(f * 512.0f);
+#else
+    b->target.x += 0x80 - LL_FISTP(f * 512.0f);   /* PORT-M5: 0x00458930 rounds */
+#endif
     a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
     b->state = 7;
     b->new_dir = a;

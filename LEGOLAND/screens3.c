@@ -240,9 +240,9 @@ extern int   g_save_is_load;              /* 0x007cb328  non-zero: loading, not 
 extern int   g_pending_state;             /* 0x00832ba0 */
 extern int   g_newsave_popup_up;          /* 0x00798700 */
 extern unsigned char g_save_type;         /* 0x0080ffe5  CurProfile+0x45: 1 normal, 2 free */
-extern int   g_movie_7cb2f0;              /* 0x007cb2f0 */
-extern int   g_movie_7cb300;              /* 0x007cb300 */
-extern int   g_movie_7cb30c;              /* 0x007cb30c */
+extern int   g_movie_state_c;             /* 0x007cb2f0 (uimisc3.c's name) */
+extern int   g_movie_state_b;             /* 0x007cb300 (uimisc3.c's name) */
+extern int   g_movie_state_a;             /* 0x007cb30c (uimisc3.c's name) */
 extern unsigned char g_cur_save_slot;     /* 0x0080ffe4  CurProfile+0x44 */
 extern Icon* g_np_icon_ok;                /* 0x007986d8  popup OK icon */
 extern Icon* g_np_close_icon;             /* 0x007986dc  popup close icon */
@@ -469,9 +469,12 @@ void KillLowMarkerSprites(void);                              /* 0x0048bd70 */
 void LoadLowMarkerSprites(void);                              /* 0x0048bd00 */
 void ReferenceLowMarkerSprites(void);                         /* 0x0048bd40 */
 
-/* 0x0048f9f0 (not exported): starts the intro movie from the three title
- * blocks at 0x007cb30c / 0x007cb300 / 0x007cb2f0. */
-extern void  PlayTitleMovie(int* a, int* b, int* c);          /* 0x0048f9f0 */
+/* 0x0048f9f0 (not exported): frontend2.c's `SaveFrontEndState` -- PUSH the
+ * front-end state the title screen's movie will clobber into the three
+ * blocks at 0x007cb30c / 0x007cb300 / 0x007cb2f0.  It starts nothing
+ * (scope PORT-M5); uimisc3.c's `RestoreFrontEndState` (0x0048fa40) is the
+ * pop, and it already spells the three blocks `g_movie_state_a/b/c`. */
+extern void  SaveFrontEndState(int* a, int* b, int* c);       /* 0x0048f9f0 */
 extern void  RemoveObjectListIcons(int group);                /* 0x0046fb40 */
 /* 0x0048e420 (not exported): un-lights the save popup's OK / close icons. */
 extern void  ResetSavePopupIcons(void);
@@ -539,12 +542,26 @@ extern void  SetInfoPanelText(const char* a, const char* b);
 #else
 extern int SetInfoPanelText(const char* a, const char* b);
 #endif
-/* 0x0046b700 (not exported): ends the running script. */
-extern void  EndScript(void);                                 /* 0x0046b700 */
-/* 0x00474750 (not exported): drops the side panel's object icons. */
-extern void  ClearObjectMenuIcons(void);                      /* 0x00474750 */
-/* 0x0048a800 (not exported): re-reads the selected profile into CurProfile. */
-extern void  SelectProfileSlot(void);                         /* 0x0048a800 */
+/* 0x0046b700 (not exported): eventmake.c's `ShowStepHint` -- put the pending
+ * hint string up as advisor help, or the current step's text, and answer
+ * whether a step was running.  It does NOT end the script (scope PORT-M5:
+ * the body reads g_script_cur, calls AddHelpMessage / ShowScriptStepText +
+ * ResetScriptTimer, and returns 1/0; nothing unlinks or frees a script).
+ * This translation unit keeps the `void` return it was recovered with
+ * (HANDOFF section 3); the portable arm carries the definition's `int`. */
+#ifndef LEGOLAND_PORTABLE
+extern void  ShowStepHint(void);                              /* 0x0046b700 */
+#else
+extern int   ShowStepHint(void);                              /* 0x0046b700 */
+#endif
+/* 0x00474750 (not exported): popupmisc.c's `CloseActiveThemeButton` -- mark
+ * the open theme's menu closed and put its button back to the OFF sprite.
+ * It does not touch the object-menu icons (scope PORT-M5). */
+extern void  CloseActiveThemeButton(void);                    /* 0x00474750 */
+/* 0x0048a800 (not exported): frontend2.c's `ResetFreePlayTable` -- clear the
+ * +0x0c word of every free-play table row.  It does not read a profile
+ * (scope PORT-M5). */
+extern void  ResetFreePlayTable(void);                        /* 0x0048a800 */
 
 /* =========================================================================
  *  Small state accessors
@@ -586,12 +603,15 @@ char BriefIconInput(Icon* p, int buttons, int a3, int a4)
     return 1;
 }
 
-/* Script-end button: stop the running script. */
+/* Script-end button: put the running step's hint (or its text) up again --
+ * 0x0046b700 is eventmake.c's ShowStepHint, not a script teardown.  The
+ * button's name is ours and the shipped binary does not name it; only the
+ * callee is settled (scope PORT-M5). */
 // FUNCTION: LEGOLAND 0x00474fa0
 char ScriptEndIconInput(Icon* p, int buttons, int a3, int a4)
 {
     if (g_game_mode != 1 && (buttons & 2))
-        EndScript();
+        ShowStepHint();
     return 1;
 }
 
@@ -753,7 +773,7 @@ char LegolandThemeInput(Icon* p, int buttons, int a3, int a4)
             g_menu_index = 0;
             g_object_list_mode = 0;
             if (TestMenu(&g_menus[0]) == 1) {
-                ClearObjectMenuIcons();
+                CloseActiveThemeButton();
                 g_active_theme_icon = p;
                 SetIconSprite(p, g_theme_legoland_on);
                 g_theme_closed[0] = 0;
@@ -765,7 +785,7 @@ char LegolandThemeInput(Icon* p, int buttons, int a3, int a4)
                 }
             }
         } else {
-            ClearObjectMenuIcons();
+            CloseActiveThemeButton();
             g_theme_closed[0] = 1;
             g_menu_index = 5;
             g_panel_state.f00 = 1;
@@ -796,7 +816,7 @@ char WesternThemeInput(Icon* p, int buttons, int a3, int a4)
             g_menu_index = 1;
             g_object_list_mode = 0;
             if (TestMenu(&g_menus[1]) == 1) {
-                ClearObjectMenuIcons();
+                CloseActiveThemeButton();
                 g_active_theme_icon = p;
                 SetIconSprite(p, g_theme_western_on);
                 g_theme_closed[2] = 0;
@@ -808,7 +828,7 @@ char WesternThemeInput(Icon* p, int buttons, int a3, int a4)
                 }
             }
         } else {
-            ClearObjectMenuIcons();
+            CloseActiveThemeButton();
             g_theme_closed[2] = 1;
             g_menu_index = 5;
             g_panel_state.f00 = 1;
@@ -839,7 +859,7 @@ char CastleThemeInput(Icon* p, int buttons, int a3, int a4)
             g_menu_index = 2;
             g_object_list_mode = 0;
             if (TestMenu(&g_menus[2]) == 1) {
-                ClearObjectMenuIcons();
+                CloseActiveThemeButton();
                 g_active_theme_icon = p;
                 SetIconSprite(p, g_theme_castle_on);
                 g_theme_closed[1] = 0;
@@ -851,7 +871,7 @@ char CastleThemeInput(Icon* p, int buttons, int a3, int a4)
                 }
             }
         } else {
-            ClearObjectMenuIcons();
+            CloseActiveThemeButton();
             g_theme_closed[1] = 1;
             g_menu_index = 5;
             g_panel_state.f00 = 1;
@@ -886,7 +906,7 @@ char AdventureThemeInput(Icon* p, int buttons, int a3, int a4)
             g_menu_index = 3;
             g_object_list_mode = 0;
             if (TestMenu(&g_menus[3]) == 1) {
-                ClearObjectMenuIcons();
+                CloseActiveThemeButton();
                 g_active_theme_icon = p;
                 SetIconSprite(p, g_theme_adv_on);
                 g_theme_closed[3] = 0;
@@ -895,7 +915,7 @@ char AdventureThemeInput(Icon* p, int buttons, int a3, int a4)
                 TestMenu(&g_menus[g_menu_index]);
             }
         } else {
-            ClearObjectMenuIcons();
+            CloseActiveThemeButton();
             g_theme_closed[3] = 1;
             g_menu_index = 5;
             g_panel_state.f00 = 1;
@@ -941,7 +961,7 @@ char ProfileSlotInput(Icon* p, int buttons, int a3, int a4)
 {
     if (g_frontend_checkbox_closed && (buttons & 2)) {
         g_profile_slot = p->slot;
-        SelectProfileSlot();
+        ResetFreePlayTable();
     }
     return 1;
 }
@@ -1181,14 +1201,16 @@ char TitleRegInput(Icon* p, int buttons, int a3, int a4)
     return 1;
 }
 
-/* Title screen Movie: plays the intro, then comes back to sub-screen 9 with
- * the alternate icon set. */
+/* Title screen Movie: PUSH the front-end state (0x0048f9f0 is frontend2.c's
+ * SaveFrontEndState, not the player), then go to sub-screen 9 with the
+ * alternate icon set -- which is what plays the intro and whose Go Back pops
+ * the state through uimisc3.c's RestoreFrontEndState. */
 // FUNCTION: LEGOLAND 0x0048ffe0
 char TitleMovieInput(Icon* p, int buttons, int a3, int a4)
 {
     if (g_frontend_checkbox_closed && (buttons & 2)) {
         PlayInstanceOfSample(g_snd_click, 0, 1, 0);
-        PlayTitleMovie(&g_movie_7cb30c, &g_movie_7cb300, &g_movie_7cb2f0);
+        SaveFrontEndState(&g_movie_state_a, &g_movie_state_b, &g_movie_state_c);
         g_game_mode = 2;
         g_cur_screen = -1;
         g_screen_mode = 9;

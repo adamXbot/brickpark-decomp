@@ -239,7 +239,13 @@ Offset BNVPath_GetBINVScreenCoords(BNVPathHdr* path, int dframe)
         sum_z += vertex->z;
     }
 
+#ifndef LEGOLAND_PORTABLE
     out.ox = (int)(sum_x * 0.125);
     out.oy = (int)(sum_y * 0.125);
+#else
+    /* PORT-M5: 0x0048508b / 0x0048509c round (0x00458930). */
+    out.ox = LL_FISTPD(sum_x * 0.125);
+    out.oy = LL_FISTPD(sum_y * 0.125);
+#endif
     return out;
 }

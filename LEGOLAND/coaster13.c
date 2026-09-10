@@ -764,7 +764,73 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
                     add  esp, 4
                 }
 #else
-                LL_UNPORTED_ASM(); /* textured z-tested span: not ported */
+                /* PORT-M5 -- the asm arm above, instruction for instruction.
+                 *
+                 * The span runs from x0 = ed[0].x >> 16 (left) to
+                 * x1 = ed[2].x >> 16 (right) INCLUSIVE; the asm biases both
+                 * row pointers to x1 and counts a NEGATIVE index up to zero
+                 * (`xchg ebx,eax / sub ebx,eax / lea edi,[edi+eax*2]`, then
+                 * `add ebx,1 / jle pix`), so `[edi+ebx*2]` starts at x0.
+                 *
+                 * Three interpolants are stepped per scanline, exactly as the
+                 * narrow arm below does, and then scaled into accumulators:
+                 *   rest[2] -> `sar eax,cl` by shift0          the U half
+                 *   rest[3] -> `shl edx,8 / shr edx,cl` by shift1   the V half
+                 *   rest[1] -> the 16.16 Z, stepped by g_span_dz
+                 * The texel address is ((g_span_mask & V) | U) >> 16 masked
+                 * with g_span_tmask -- g_span_mask is
+                 * `(int)0xff000000 >> shift0`, so V contributes the ROW bits
+                 * and U the column bits, which is the same addressing tri3d.c
+                 * uses (V is the row; PORT-B5's FINDING 1).  Both shifts of
+                 * the combined word are LOGICAL.
+                 *
+                 * The Z test is a 16-bit UNSIGNED compare (`cmp cx, [esi+ebx*2]`
+                 * then `jb skip`), so a pixel is drawn on `>=` and an equal key
+                 * overwrites; the key stored is the LOW WORD of z >> 16.
+                 *
+                 * The asm reaches the texture and the colour LUT through esi
+                 * (the z row) with two precomputed biases on the stack --
+                 * `esi - tex` and `(esi - lut) >> 1` -- which is only a way to
+                 * free a register; the effective addresses are tex[index] and
+                 * ((short*)lut)[texel], spelled directly here. */
+                {
+                    short* ll_crow;
+                    short* ll_zrow;
+                    int    ll_n;
+                    unsigned int ll_u;
+                    unsigned int ll_v;
+                    int    ll_z;
+                    int    ll_x0 = ed[0].x >> 16;
+                    int    ll_x1 = ed[2].x >> 16;
+
+                    ll_n    = ll_x0 - ll_x1;
+                    ll_crow = s.crow + ll_x1;
+                    ll_zrow = s.zrow + ll_x1;
+
+                    ed[0].rest[2] += ed[1].rest[2];
+                    ed[0].rest[3] += ed[1].rest[3];
+                    ed[0].rest[1] += ed[1].rest[1];
+
+                    ll_u = (unsigned int)(ed[0].rest[2] >> s.shift0);
+                    ll_v = ((unsigned int)ed[0].rest[3] << 8) >> s.shift1;
+                    ll_z = ed[0].rest[1];
+                    do {
+                        unsigned short ll_key =
+                            (unsigned short)((unsigned int)ll_z >> 16);
+                        if (ll_key >= (unsigned short)ll_zrow[ll_n]) {
+                            unsigned int ll_t;
+                            ll_zrow[ll_n] = (short)ll_key;
+                            ll_t = (((unsigned int)g_span_mask & ll_v) | ll_u) >> 16;
+                            ll_t &= (unsigned int)g_span_tmask;
+                            ll_crow[ll_n] =
+                                ((short*)lut)[((unsigned char*)tex)[ll_t]];
+                        }
+                        ll_u += (unsigned int)g_span_dshade;
+                        ll_v += (unsigned int)g_span_dv;
+                        ll_z += g_span_dz;
+                        ll_n += 1;
+                    } while (ll_n <= 0);
+                }
 #endif
             } else {
                 ed[0].rest[2] += ed[1].rest[2];

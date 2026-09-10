@@ -184,8 +184,14 @@ void Raster_DrawLine(const Pos* from, const Pos* to, int colour)
     int       i;
 
     for (i = 0; i < 30; i++) {
+#ifndef LEGOLAND_PORTABLE
         pts[i].x = (int)x;
         pts[i].y = (int)y;
+#else
+        /* PORT-M5: 0x0042384b / 0x00423855 both call the rounding helper. */
+        pts[i].x = LL_FISTP(x);
+        pts[i].y = LL_FISTP(y);
+#endif
         x += sx;
         y += sy;
     }

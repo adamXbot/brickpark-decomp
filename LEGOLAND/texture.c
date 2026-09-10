@@ -201,8 +201,15 @@ typedef struct Shade {
 
 /* The 0x2c-byte texture descriptor RegisterTextureImage (0x00488670) mallocs
  * and files in g_textures[slot]; tri3d.c's two textured fillers read it as
- *   texel = texels[(high16(u) << ushift) + high16(v)]
+ *   texel = texels[(high16(v) << ushift) + high16(u)]
  *   pixel = ramps[texel]->table[high16(shade << 6)]
+ * -- V is the ROW and +0x00 is the row shift, which is exactly what the
+ * row-major fill in BuildTextureRecord below does (`texels[img->w * y + x]`,
+ * and +0x00 is set from img->w).  PORT-B5 found this line transposed here and
+ * in tri3d.c's file header; PORT-M5 corrected both.  Nothing in the C moved:
+ * this body is exact, so `texels[w*y + x]` IS the original's addressing
+ * (0x00443933 `imul eax, edx` with edx = y and eax = img->w, then 0x00443949
+ * `mov byte ptr [esi+edi], cl` with edi = x).
  * Only the six fields this file fills are known; the remaining 0x14 bytes are
  * left as the malloc found them. */
 typedef struct Texture {

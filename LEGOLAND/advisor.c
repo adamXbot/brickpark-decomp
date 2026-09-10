@@ -1,8 +1,22 @@
 /* LEGOLAND — advisor movie / clip control (scope AC).
  *
- * InitAdvisorMovies / KillAdvisorMovies (gamemain.c) and StartAdvisorClip
+ * InitAdvisorMovies / KillAdvisorMovies (gamemain.c) and SetVidAnim
  * (screens3.c). SetAdvisorPose and RenderScriptEndIcon live elsewhere —
  * declare only.
+ *
+ * 0x00443dc0 IS CALLED `SetVidAnim` BY THE SHIPPED BINARY (scope PORT-M5).
+ * RenderAdvisorIcon (0x00443e30) stamps a debug breadcrumb into 0x00667c40
+ * immediately before each operation it performs, and the four strings are
+ * "SetVidAnim", "AVI GetFrame", "BltAdvisor", "Exit Advisor":
+ *   0x00443e93  mov dword ptr [0x667c40], 0x4b7dc4   ; "SetVidAnim"
+ *   0x00443e9d  call 0x443dc0
+ *   0x00443eb6  mov dword ptr [0x667c40], 0x4b7db4   ; "AVI GetFrame"
+ *   0x00443ec5  call 0x49e418                        ; AVIStreamGetFrame
+ *   0x00443ecc  mov dword ptr [0x667c40], 0x4b7da8   ; "BltAdvisor"
+ *   0x00443ee6  call 0x4659a0                        ; BltAdvisor
+ * The third breadcrumb names a function we had ALREADY recovered as
+ * `BltAdvisor`, which is what proves the convention names the callee rather
+ * than the caller.  `StartAdvisorClip` was ours; this is the game's own name.
  *
  * VC6 SP3 /O2 /Gy /Gd. Addresses are load-bearing; names are ours except the
  * three already named by callers.
@@ -118,7 +132,7 @@ extern unsigned long __stdcall AVIFileRelease(void* pfile); /* 0x0049e3dc */
 
 void InitAdvisorBmi(void);
 void AdvisorMovieTick(void);
-void StartAdvisorClip(AdvisorClip* clip);
+void SetVidAnim(AdvisorClip* clip);
 
 /* Open one advisor .AVI (video stream only) into a 0x28-byte clip record.
  * Declaration order mirrors OpenMovie without the audio = 0 home: only
@@ -212,7 +226,7 @@ void InitAdvisorMovies(void)
     g_ad_wobble = LoadAdvisorMovie(kAdWobble);
     if (g_ad_wobble)
         g_ad_wobble->tick = AdvisorMovieTick;
-    StartAdvisorClip(g_ad_blink);
+    SetVidAnim(g_ad_blink);
 }
 
 /* Clear the first dword of the report-state block. */
@@ -288,9 +302,11 @@ void FreeAdvisorClip(AdvisorClip* clip)
         AVIFileExit();
 }
 
-/* Start (or clear) the current advisor clip; opens a GETFRAME on the BMI. */
+/* Start (or clear) the current advisor clip; opens a GETFRAME on the BMI.
+ * The game's own name, from RenderAdvisorIcon's debug breadcrumb (file
+ * header); screens3.c has always declared it `SetVidAnim`. */
 // FUNCTION: LEGOLAND 0x00443dc0
-void StartAdvisorClip(AdvisorClip* clip)
+void SetVidAnim(AdvisorClip* clip)
 {
     g_advisor_a = 0;
     g_advisor_b = 0;

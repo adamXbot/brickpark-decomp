@@ -50,7 +50,7 @@ exact in `savemisc2.c` / `data3.c` — declare them `extern`, do not redefine.
 | 0x00443bd0 | `sub_443bd0` | 123 | called by 0x00444090 |
 | 0x00443d50 | `sub_443d50` | 22 | called by `KillAdvisorMovies` |
 | 0x00443d90 | `sub_443d90` | 5 | called by 0x00444090 |
-| 0x00443dc0 | `StartAdvisorClip` | 33 | `RenderAdvisorIcon` (screens3.c notes) |
+| 0x00443dc0 | `SetVidAnim` | 33 | `RenderAdvisorIcon` (screens3.c notes); this scope called it `StartAdvisorClip` -- scope PORT-M5 took the shipped debug breadcrumb's name |
 | 0x00443f90 | `sub_443f90` | 17 | called by 0x00444020 |
 | 0x00443fe0 | `sub_443fe0` | 15 | called by 0x00444020 |
 | 0x00444020 | `sub_444020` | 17 | pointer in 0x00444090 |

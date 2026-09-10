@@ -593,7 +593,13 @@ void ScanBlokeSurroundings(Bloke* b)
                             break;
                         age = b->world.x >> 8;
                         n = b->world.y >> 8;
+#ifndef LEGOLAND_PORTABLE
                         if ((int)sqrt((double)(abs(age - p.x) * abs(age - p.x) + abs(n - p.y) * abs(n - p.y))) <= 1) {
+#else
+                        /* PORT-M5: 0x00450709 rounds, so a distance of 1.5
+                         * counts as 2 here and as 1 under a C cast. */
+                        if (LL_FISTPD(sqrt((double)(abs(age - p.x) * abs(age - p.x) + abs(n - p.y) * abs(n - p.y)))) <= 1) {
+#endif
                             b->focus = d->elem;
                             b->saved.x = cell->bx;
                             b->saved.y = cell->by;

@@ -654,7 +654,11 @@ void LFBoat_Fall(LFBoat* b)
             b->frame = 0;
         } else if (t < 4.0f) {
             f = (t - 2.0f) * 0.5f;
+#ifndef LEGOLAND_PORTABLE
             b->frame = (int)(f * 120.0f);
+#else
+            b->frame = LL_FISTP(f * 120.0f);   /* PORT-M5: 0x0041189f rounds */
+#endif
             b->speed = 0.05f;
         }
         if (t >= 4.0f && t <= 5.0f) {
@@ -663,7 +667,11 @@ void LFBoat_Fall(LFBoat* b)
         }
         if (t >= 5.0f && t <= 10.0f) {
             f = (t - 5.0f) * 0.2f;
+#ifndef LEGOLAND_PORTABLE
             b->frame = 120 - (int)(f * 120.0f);
+#else
+            b->frame = 120 - LL_FISTP(f * 120.0f); /* PORT-M5: 0x00411900 rounds */
+#endif
             b->speed = b->speed + 0.05f;
             if (t >= 9.0f)
                 b->flags &= ~4;
@@ -917,7 +925,11 @@ void LFBoat_Draw(LFBoat* b, LFPiece* p, int mode)
         AdjustOffsetForViewMode(&off);
         k = spr->h * 0.75f;
         off.x -= spr->w >> 1;
+#ifndef LEGOLAND_PORTABLE
         off.y -= (int)(k + (b->frame >> 1));
+#else
+        off.y -= LL_FISTP(k + (b->frame >> 1));   /* PORT-M5: 0x0040b0e9 rounds */
+#endif
         if (mode) {
             PrintSprite(spr, off.x + base.x, off.y + base.y, 0, 0);
             if (b->rider && (b->rider->bloke->vis & 0x80)) {

@@ -1191,6 +1191,45 @@ static void ll_cb_ac_SharkCafe_FreeResources(void* ll_elem)
     (void)ll_elem;
     SharkCafe_FreeResources();
 }
+
+/* PORT-M5: the ONE +0xa0 slot PORT-M3 left open, and it is not a recovery
+ * error -- it is an ORIGINAL DEFECT that the shipped build never reaches.
+ *
+ *   0x00452c51  mov dword ptr [esi+0xa0], 0x45dcf0
+ *
+ * is what the original does, so the callee is right (this is NOT the wrong-
+ * callee class PORT-M2 found at 1a).  But +0xa0's contract is fixed by its
+ * only consumer, renderview.c:1221 --
+ *
+ *   if (def->flags & 0x400) { ... desc = def->draw(def->ctx, base); ... }
+ *   SpriteDesc* (*draw)(void* ctx, BPos base);     renderview.c:304
+ *
+ * -- and the nine other bodies registered in it are all
+ * `<desc>* <Class>_GetDrawDesc(elem, base)`.  pathtile2.c's DrawBasicPath is
+ * `void DrawBasicPath(int tile, int x, int y, int mode)`: a four-argument
+ * PAINTER in a two-argument GETTER slot, and it is referenced nowhere else in
+ * the image, so there is no second caller that would fit it.
+ *
+ * Why the shipped game survives it: +0xa0 is read only behind `flags & 0x400`,
+ * and the PATH CONTROL class never raises that bit.  Bit 10 is set by a
+ * class's own +0xa4 create handler (`def->flags |= 0x420`, e.g. mechrides.c,
+ * catapult.c, joust.c, ridecb8.c) and PATH CONTROL registers no create
+ * handler at all; and it is not in the data either -- over all 155 `.odf`
+ * members of the three shipped RES volumes the class-flags dword at ODF+0x1c
+ * uses only bits 0-2 and 16-25, so bit 10 is never loaded from disk.  Were it
+ * ever reached, the original would call DrawBasicPath(ctx, base, <garbage>,
+ * <garbage>) and index g_tile_sprites with a pointer.
+ *
+ * The adapter therefore has the slot's type (so the slot holds ONE wasm type
+ * and nothing else in the table has to move) and traps if the impossible
+ * happens, rather than forwarding two invented arguments into a wild read. */
+static void* ll_cb_a0_DrawBasicPath(void* ll_ctx, unsigned short ll_base)
+{
+    (void)ll_ctx;
+    (void)ll_base;
+    LL_DEBUGBREAK();   /* unreachable: PATH CONTROL never sets flags & 0x400 */
+    return 0;
+}
 #endif
 // FUNCTION: LEGOLAND 0x00452c20
 void SetCustomCallbacks(RideElem* elem)
@@ -1200,7 +1239,11 @@ void SetCustomCallbacks(RideElem* elem)
     if (NameCompare(elem->name, kPathControl) == 0) {
         def->cb_add = AddBasicPath;
         def->cb_remove = RemoveBasicPath;
+#ifndef LEGOLAND_PORTABLE
         def->cb_a0 = DrawBasicPath;
+#else
+        def->cb_a0 = ll_cb_a0_DrawBasicPath;   /* PORT-M5 */
+#endif
     } else if (NameCompare(elem->name, kFountain1) == 0
             || NameCompare(elem->name, kFountain2) == 0
             || NameCompare(elem->name, kFountain3) == 0) {
