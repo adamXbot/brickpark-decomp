@@ -441,7 +441,68 @@ void Span_FillShade(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
             done:
             }
 #else
-            LL_UNPORTED_ASM(); /* gouraud span with carry-chained shade: not ported */
+            /* PORT-M5 -- the asm arm above, instruction for instruction.
+             *
+             * THE CARRY-CHAINED SHADE.  The 16.16 shade is split by
+             * `ror ecx,16` into two registers: ecx keeps the INTEGER half in
+             * its low word (`and ecx,0ffffh`, so it is taken UNSIGNED) and is
+             * then turned into a POINTER by adding g_shade_clamp_mid, while
+             * eax keeps the FRACTION in its HIGH half (`and eax,0ffff0000h`).
+             * Per pixel `add eax,g_span_dshade_lo` (the fraction step, which is
+             * grad[1] << 16) sets CF, and `adc ecx,g_span_dshade_hi` walks the
+             * clamp pointer by the integer step plus that carry -- a 48-bit
+             * accumulator across two registers, with the table lookup free.
+             *
+             * A NEGATIVE dshade was negated into `grad[1]` and `flip` raised,
+             * and the negative arm uses `sbb` for the integer half while still
+             * ADDING the fraction.  That is deliberate, not a slip: carries out
+             * of `frac + |step|` occur at the same rate as borrows out of
+             * `frac - |step|`, so the pointer walks backwards at the right
+             * speed.  Reproduced exactly.
+             *
+             * The span is [x0, x1] inclusive with both ends biased to x1 and a
+             * negative index counted up to zero, as in Span_FillFlat.  The
+             * shade interpolant is stepped in BOTH arms (the narrow arm does
+             * `mov ecx,ed[4] / add ecx,ed[24] / mov ed[4],ecx` before it
+             * leaves).  The original splits the loop on `flip` before entering
+             * it; one loop with the test inside is the same arithmetic. */
+            {
+                int ll_l, ll_r, ll_n, ll_sh;
+                unsigned int ll_frac;
+                const unsigned char* ll_cp;
+                unsigned short* ll_ramp;
+                short* ll_row;
+
+                ed[0].x += ed[1].x;
+                ed[2].x += ed[3].x;
+                if (ed[2].x - ed[0].x < 0x8000) {
+                    ed[0].r4 += ed[1].r4;
+                } else {
+                    ll_l = ed[0].x >> 16;
+                    ll_r = ed[2].x >> 16;
+                    ll_n = ll_l - ll_r;
+                    ll_row = r.row + ll_r;
+                    ed[0].r4 += ed[1].r4;
+                    ll_sh = ed[0].r4;
+                    ll_ramp = g_span_ramp;
+                    ll_frac = (unsigned int)ll_sh << 16;
+                    ll_cp = g_shade_clamp_mid
+                          + (((unsigned int)ll_sh >> 16) & 0xffffu);
+                    do {
+                        unsigned int ll_t;
+                        ll_row[ll_n] = (short)ll_ramp[*ll_cp];
+                        ll_t = ll_frac + (unsigned int)g_span_dshade_lo;
+                        if (flip)
+                            ll_cp -= (unsigned int)g_span_dshade_hi
+                                   + (ll_t < ll_frac);
+                        else
+                            ll_cp += (unsigned int)g_span_dshade_hi
+                                   + (ll_t < ll_frac);
+                        ll_frac = ll_t;
+                        ll_n += 1;
+                    } while (ll_n <= 0);
+                }
+            }
 #endif
             r.row += r.pitch;
         }
@@ -591,7 +652,69 @@ void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
             done:
             }
 #else
-            LL_UNPORTED_ASM(); /* gouraud z-tested span: not ported */
+            /* PORT-M5 -- the asm arm above, instruction for instruction.
+             *
+             * ONE REGISTER CARRIES THE Z AND THE SHADE FRACTION.  eax is
+             * seeded with `(z >> 8) & 0xffffff` -- the 16.16 Z shifted down
+             * eight, so its integer part sits in bits 8..23 -- and
+             * g_span_dshade_lo packs `(grad[1] & 0xffffff00) << 16` (the top
+             * eight bits of the shade fraction, into bits 24..31) with
+             * `(grad[2] >> 8) & 0xffffff` (the Z step, into bits 0..23).  One
+             * `add` therefore advances both, `and eax,0feffffffh` after the
+             * carry clears bit 24 so a Z carry cannot pollute the shade, and
+             * `adc ecx,g_span_dshade_hi` walks the clamp POINTER exactly as in
+             * Span_FillShade (see its note for the `sbb` arm).
+             *
+             * The Z key is `sar edx,8` of that register, whose low word is
+             * bits 8..23 = z >> 16, compared 16-bit UNSIGNED (`jb posskip`):
+             * drawn on `>=`, an equal key overwrites.  Unlike Span_FillShade
+             * the integer shade is taken SIGNED here (`sar ecx,16`, no mask),
+             * so a negative shade indexes BELOW g_shade_clamp_mid -- which is
+             * what the "mid" in that pointer's name is for. */
+            {
+                int ll_l, ll_r, ll_n, ll_sh;
+                unsigned int ll_acc;
+                const unsigned char* ll_cp;
+                unsigned short* ll_ramp;
+                short* ll_crow;
+                short* ll_zrow;
+
+                ed[0].x += ed[1].x;
+                ed[0].z += ed[1].z;
+                ed[2].x += ed[3].x;
+                if (ed[2].x - ed[0].x < 0x8000) {
+                    ed[0].r4 += ed[1].r4;
+                } else {
+                    ll_l = ed[0].x >> 16;
+                    ll_r = ed[2].x >> 16;
+                    ll_n = ll_l - ll_r;
+                    ll_crow = r.crow + ll_r;
+                    ll_zrow = r.zrow + ll_r;
+                    ed[0].r4 += ed[1].r4;
+                    ll_sh = ed[0].r4;
+                    ll_acc = (unsigned int)(ed[0].z >> 8) & 0xffffffu;
+                    ll_cp = g_shade_clamp_mid + (ll_sh >> 16);
+                    ll_ramp = g_span_ramp;
+                    do {
+                        unsigned short ll_key = (unsigned short)(ll_acc >> 8);
+                        unsigned int ll_t;
+
+                        if (ll_key >= (unsigned short)ll_zrow[ll_n]) {
+                            ll_zrow[ll_n] = (short)ll_key;
+                            ll_crow[ll_n] = (short)ll_ramp[*ll_cp];
+                        }
+                        ll_t = ll_acc + (unsigned int)g_span_dshade_lo;
+                        if (flip)
+                            ll_cp -= (unsigned int)g_span_dshade_hi
+                                   + (ll_t < ll_acc);
+                        else
+                            ll_cp += (unsigned int)g_span_dshade_hi
+                                   + (ll_t < ll_acc);
+                        ll_acc = ll_t & 0xfeffffffu;
+                        ll_n += 1;
+                    } while (ll_n <= 0);
+                }
+            }
 #endif
             r.crow += r.pitch;
             r.zrow += r.pitch;

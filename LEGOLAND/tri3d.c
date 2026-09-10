@@ -102,11 +102,23 @@
  *   shift turns the normalised coordinate into a 16.16 TEXEL coordinate.
  *   Those are then interpolated down the edges and across the span like z.
  *   Per pixel:
- *       texel = texels[(high16(u) << ushift) + high16(v)]
+ *       texel = texels[(high16(v) << ushift) + high16(u)]
  *       pixel = ramps[texel]->table[high16(shade << 6)]
- *   DrawGouraudTexTri masks both halves first (`& umask`, `& vmask`), so it
- *   tiles; DrawFlatTexTri does NOT mask and will read outside the texture if
- *   an interpolated coordinate leaves the [0,1) range.
+ *   -- V is the ROW, scaled by the shift at +0x00, and U is the fast axis.
+ *   (PORT-B5 found this paragraph transposed and PORT-M5 corrected it; the C
+ *   below, and the LLTexDesc comment further down, were always right.  Three
+ *   independent witnesses: `movzx edx, word ptr [ebp-0x26]` in DrawFlatTexTri
+ *   is the V accumulator's high word and it is what `shl edx, cl` shifts;
+ *   texture.c's BuildTextureRecord fills the texels ROW-MAJOR with +0x00 =
+ *   log2(w) -- `imul eax, edx` over y then `mov byte ptr [esi+edi], cl` over
+ *   x at 0x00443933..0x00443949 -- so the row is what gets multiplied by the
+ *   width; and unref7.c's separate hand-written SampleTexturePixel
+ *   (0x00488730) computes `(cv << shift) + cu`.)
+ *   DrawGouraudTexTri masks both halves first, so it tiles; DrawFlatTexTri
+ *   does NOT mask and will read outside the texture if an interpolated
+ *   coordinate leaves the [0,1) range.  The two masks are CROSSED in the
+ *   shipped code -- the row index is masked with umask (w-1) and the column
+ *   with vmask (h-1), reproduced; see the LLTexDesc comment.
  *
  * SHADING RAMPS (MakeShadedColour and the cache)
  *
