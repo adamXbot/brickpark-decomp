@@ -15,6 +15,11 @@
 > the DirectInput shapes checked against `input.c`/`input2.c`, and the page
 > instrumented. Notes `docs/lanes/scope-port-b2.md`.
 > **PORT-A2 — Status: MERGED (2026-09-11) — pointer words resolve to symbol / interior-of-block / game object / gap (272 exact + 441 interior), all three RES volumes open; fopen wrapper + install-path resolution; tests link the shim, llidb_icm 47/47 (oracle was wrong); spine now reaches LoadSprite -> unreachable in __BMPLoader, caused by live prototype conflicts (RES_CloseFile, RES_CloseVolume, DBPrintf) — a matching lane's work under LEGOLAND_PORTABLE guards**
+> **PORT-A3 — Status: IN PROGRESS (claimed 2026-09-11 by PORT-A3)** — the
+> follow-up to PORT-A2 on the generator and the node harness: one block per
+> object (interior aliases), trap naming as a one-command tool, the node path
+> of the full spine, and case-insensitive install paths over a preloaded
+> MEMFS. Notes `docs/lanes/scope-port-a3.md`.
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
