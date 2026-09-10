@@ -229,7 +229,11 @@ extern void   Remove3DPersonFromList(Person3D* p);                /* 0x0043f840 
 extern void   Free3DPerson(Person3D* p);                          /* 0x0043f870 (unexported) */
 extern void   KillAllSamplesFromSource(BlokeSoundSource* src);    /* 0x00496b80 */
 extern void   AdjustBlokePosition(PersonPos* p);                  /* 0x00442d60 */
+#ifndef LEGOLAND_PORTABLE
 extern void   ScreenToMapRef(Pos* screen, Pos* map, int mode);    /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(Pos* screen, Pos* map, int mode);    /* 0x0045be90 */
+#endif
 extern void   ResetMoveAWorkerStruct(void);                       /* 0x00470930 */
 extern void*  MemAlloc(int size);                                 /* 0x0049e4ff */
 extern void   MemFree(void* p);                                   /* 0x0049e4d0 */

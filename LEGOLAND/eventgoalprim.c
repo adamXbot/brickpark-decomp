@@ -40,7 +40,11 @@ extern ScriptEvent* NewScriptEvent(int kind, int mode);           /* 0x00468910 
 extern int GetGameTimer(void);                                   /* 0x00499430 */
 extern void ResetScriptTimer(void);                              /* 0x00468d00 */
 extern void SetButtonFlash(int which, int on);                    /* 0x00476030 */
+#ifndef LEGOLAND_PORTABLE
 extern void UpDateCurrentProfile(void);                          /* 0x00491680 */
+#else
+extern int UpDateCurrentProfile(void);                          /* 0x00491680 */
+#endif
 extern void SetThemeIconEnabled(int which, int on);               /* 0x00476140 */
 extern void QueuePendingEvent(ScriptEvent* e);                    /* 0x00468c80 */
 extern ScriptEvent* NewTimedEvent(int kind, int mode);            /* 0x00468cd0 */

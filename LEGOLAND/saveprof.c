@@ -196,7 +196,11 @@ void InitNewProfilePoPUp(Icon* parent)
 
 extern void* CreateSourceImage(const char* name, int kind);  /* 0x00497280 */
 extern int   __BMPLoader(void* image);                       /* 0x0044e010 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillImage(void* image);                         /* 0x00497510 */
+#else
+extern int KillImage(void* image);                         /* 0x00497510 */
+#endif
 
 /* Allocates the image record (name copied inline after the 0x18-byte header)
  * and decodes the BMP into it; a decode failure frees the record again. The

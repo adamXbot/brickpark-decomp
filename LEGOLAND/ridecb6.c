@@ -296,7 +296,11 @@ extern Pos     g_edit_cursor_origin;   /* 0x007fffc4 == g_edit_cursor.origin */
 extern Rect    g_edit_cursor_rect;     /* 0x007fffd4 == g_edit_cursor.rect */
 extern Cursor* g_edit_cursor_next;     /* 0x008003f0 == g_edit_cursor.next */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#endif
 extern void  DefaultCursor(Cursor* c);                       /* 0x0045a390 */
 extern void  ValidateCursor(Cursor* c, ObjDef* cls);         /* 0x0045f810 */
 extern int   CursorIsValid(Cursor* c);                       /* 0x0045f4b0 */
@@ -543,7 +547,11 @@ extern void*      g_bs_mermaid_sample; /* 0x004b52d4 the splash sample */
 
 extern void  AddBasicObject(void* obj, Pos* pos);                 /* 0x0045efe0 */
 extern void  SetMapTile(int x, int y, unsigned short tile);       /* 0x00461780 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayInstanceOfSample(void* def, int a, int b, RideSoundSource* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* def, int a, int b, RideSoundSource* src); /* 0x00496d20 */
+#endif
 
 /* =========================================================================
  * 0x0041b2a0 -- Mermaid_Add (BOATING SCHOOL MERMAID cb_98).

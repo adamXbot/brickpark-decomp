@@ -116,8 +116,16 @@ extern const char kUnSourceClearFmt[]; /* 0x004bfe30 */
 
 /* ---- callees ----------------------------------------------------------- */
 extern int     StartPlayableSample(Sample* s);   /* 0x004928a0 (internal) */
+#ifndef LEGOLAND_PORTABLE
 extern void    UpdateSampleSource(Sample* s);    /* 0x004966a0 (internal) */
+#else
+extern int UpdateSampleSource(Sample* s);    /* 0x004966a0 (internal) */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void    ClearSampleSource(Sample* s);     /* 0x00496660 (internal) */
+#else
+extern int ClearSampleSource(Sample* s);     /* 0x00496660 (internal) */
+#endif
 extern Sample* MakePlayable(void);               /* 0x00492110 (internal) */
 extern int     PlaySample(Sample* s, int a, int b); /* 0x00492710 */
 extern int     PauseSingleSample(Sample* s);     /* 0x00492800 */

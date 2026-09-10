@@ -577,7 +577,11 @@ void Temple_Draw(RideElem* elem, int x, int y, MapSquare* sq,
 
 extern void*  GetSpriteForLayer(RenderObj* obj, int layer);          /* 0x00441ec0 */
 extern void*  GetLLSForSprite(void* spr);                            /* 0x00441e80 */
+#ifndef LEGOLAND_PORTABLE
 extern void   LLSStop(void* lls);                                    /* 0x0047d4c0 */
+#else
+extern int LLSStop(void* lls);                                    /* 0x0047d4c0 */
+#endif
 extern void   LLSSetFrame(void* lls, int frame);                     /* 0x0047d5a0 */
 
 typedef struct FortBloke {

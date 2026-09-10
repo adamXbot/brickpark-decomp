@@ -268,7 +268,11 @@ void* memset(void* p, int v, unsigned int n);
 /* ---- engine entry points ------------------------------------------------ */
 extern void   Load_FXList(FXEntry* list, int count);                 /* 0x00496dd0 */
 extern void   Kill_FXList(FXEntry* list, int count);                 /* 0x00496e30 */
+#ifndef LEGOLAND_PORTABLE
 extern void   PlayInstanceOfSample(void* s, int a, int b, SoundSource* q); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* s, int a, int b, SoundSource* q); /* 0x00496d20 */
+#endif
 extern void   UnSourceAndFadeAllSamplesFromSource(SoundSource* s, int f); /* 0x00496c80 */
 extern void   AddBasicObject(WWMapObj* obj, Pos* pos);               /* 0x0045efe0 */
 extern void   AddObjectToMap(WWMapObj* obj, BPos bp, unsigned int flags); /* 0x0045dd80 */
@@ -280,10 +284,18 @@ extern void   MemFree(void* p);                                      /* 0x0049e4
 extern int    rand(void);                                            /* 0x0049e4b2 (CRT) */
 extern int    LLIDB_FindElement(const char* n, void** o, unsigned int* i); /* 0x0047b330 */
 extern void*  LLIDB_LoadData(void* elem);                            /* 0x0047d3a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   LLIDB_UnLoadData(void* elem);                          /* 0x0047d450 */
+#else
+extern int LLIDB_UnLoadData(void* elem);                          /* 0x0047d450 */
+#endif
 extern Spr*   LoadSprite(const char* name, int mode);                /* 0x00497ab0 */
 extern int    KillSprite(Spr* s);                                    /* 0x00497bd0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   ScreenToMapRef(int screen, Pos* out, int mode);        /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int screen, Pos* out, int mode);        /* 0x0045be90 */
+#endif
 extern void   ValidateCursor(void* cursor, WWDef* def);              /* 0x0045f810 */
 extern void   SetCursorError(void* cursor, int code);                /* 0x0045f480 */
 extern void   PropagateCursorStatus(void* cursor);                   /* 0x0045f4d0 */

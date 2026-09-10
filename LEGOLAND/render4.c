@@ -258,7 +258,11 @@ extern int g_bridge_half0_shadow_oy;        /* 0x00805f44 */
 extern void SetClipping(WinRect* r);                        /* 0x0048a5c0 */
 extern void PushRenderingStatusAndLockVideoSurface(void);   /* 0x00463fc0 */
 extern void PopRenderingStatus(void);                       /* 0x004641f0 */
+#ifndef LEGOLAND_PORTABLE
 extern int  PrintSpriteXY(void* s, int x, int y);           /* 0x00485f00 */
+#else
+extern void PrintSpriteXY(void* s, int x, int y);           /* 0x00485f00 */
+#endif
 extern int  IsPathCell(Cell* c);                            /* 0x0045ce10 */
 extern void DrawPathTileOverlay(Pos* tile, int x, int y, int mode); /* 0x00460e90 */
 extern void SortSprite(void* sprite, int x, int y, int key, int mode, void* ctx); /* 0x00485d70 */

@@ -126,7 +126,11 @@ void* __DEBUG_MALLOC(char* tag, int line, unsigned int size)
 
 int  LLIDB_RegisterNewElement(char* name, char* image, unsigned int type);  /* 0x0047b610 */
 int  LLIDB_GetElement(unsigned int idx, LLElem** out);                      /* 0x0047b2e0 */
+#ifndef LEGOLAND_PORTABLE
 extern int LLIDB_LoadDataByIndex(int idx);                                  /* 0x0047b7b0 (internal) */
+#else
+extern void LLIDB_LoadDataByIndex(int idx);                                  /* 0x0047b7b0 (internal) */
+#endif
 
 /* Register + immediately load. Index 0 is treated as failure. */
 // FUNCTION: LEGOLAND 0x0047b860
@@ -215,7 +219,11 @@ int LLIDB_FreeILFTable(IlfData* t)
 }
 
 int LLIDB_UnLoadODFData(LLElem* e);   /* 0x0047cdd0 */
+#ifndef LEGOLAND_PORTABLE
 int LLIDB_UnLoadTSMData(LLElem* e);   /* 0x0047cf80 */
+#else
+extern void LLIDB_UnLoadTSMData(LLElem* e);   /* 0x0047cf80 */
+#endif
 int LLIDB_UnLoadLLSData(LLElem* e);   /* 0x0047c6a0 */
 
 /* Drop a reference; on the last one clear loaded/on-level bits (0x1 and
@@ -235,7 +243,17 @@ int LLIDB_UnLoadData(LLElem* e)
                 case 0x1010:
                     return LLIDB_UnLoadLLSData(e);
                 case 0x20:
+#ifndef LEGOLAND_PORTABLE
                     return LLIDB_UnLoadTSMData(e);
+#else
+                    /* savemisc2.c defines this one `void` because 0x0047cf80
+                     * really does fall off its end, so the original's `jmp`
+                     * here propagates whatever EAX happens to hold -- and so
+                     * does this function, which also falls off its end.  The
+                     * portable arm drops the value instead of inventing one. */
+                    LLIDB_UnLoadTSMData(e);
+                    break;
+#endif
                 case 0x400:
                     LLIDB_FreeILFTable((IlfData*)e->data);
                     break;

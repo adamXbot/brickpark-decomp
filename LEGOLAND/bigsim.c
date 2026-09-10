@@ -205,8 +205,16 @@ extern int    PlayBlokeAnim(Bloke* b);                            /* 0x004408a0 
 extern void   BlokeWalkAnim(Bloke* b);                            /* 0x00440910 */
 extern int    GetBrickCount(void);                                /* 0x004578e0 */
 extern void   UseBricks(int n);                                   /* 0x004578c0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   RepairCellTick(Cell* cell, WClass* cls);            /* 0x0049b0d0 */
+#else
+extern int RepairCellTick(Cell* cell, WClass* cls);            /* 0x0049b0d0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void   ShowMessage(int which);                             /* 0x004735e0 */
+#else
+extern int ShowMessage(int which);                             /* 0x004735e0 */
+#endif
 /* Walk the order's span to its end (unexported). */
 extern void   WalkOrderSpan(RepairJob* o);                        /* 0x00499720 */
 extern void   GiveBackGardenerOrder(RepairJob* o);                /* 0x00499e60 */

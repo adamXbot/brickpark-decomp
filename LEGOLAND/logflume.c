@@ -1350,7 +1350,11 @@ typedef struct LFPiece {
 
 extern int  g_lf_splash_dx;     /* 0x004b4860  = -74 */
 extern int  g_lf_splash_dy;     /* 0x004b4864  = 149 */
+#ifndef LEGOLAND_PORTABLE
 extern void LLSStop(LLS* lls);                                   /* 0x0047d4c0 */
+#else
+extern int LLSStop(LLS* lls);                                   /* 0x0047d4c0 */
+#endif
 
 // FUNCTION: LEGOLAND 0x004104b0
 void LFDrop_Interact(RideElem* elem, int b, int c, const BPos* sq,
@@ -1459,7 +1463,11 @@ extern SpriteRec* g_lfc3_spr_m3;        /* 0x004c8d68  "fc3_m3.lls" */
 extern int   LLIDB_FindElement(const char* name, void** out,
                                unsigned int* idx);                /* 0x0047b330 */
 extern void* LLIDB_LoadData(void* elem);                          /* 0x0047d3a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_UnLoadData(void* elem);                        /* 0x0047d450 */
+#else
+extern int LLIDB_UnLoadData(void* elem);                        /* 0x0047d450 */
+#endif
 extern void  LFTrack_BuildGeometry(void);                         /* 0x004113d0 */
 
 // FUNCTION: LEGOLAND 0x0040c350
@@ -1548,7 +1556,11 @@ extern EditCursorRec g_ghost_cursor;    /* 0x00810160 */
 extern Footprint     g_lf_footprint;    /* 0x004b4728  the flume's cell rect */
 extern Pos           g_mapref;          /* 0x007fffc4  ScreenToMapRef output */
 
+#ifndef LEGOLAND_PORTABLE
 extern void ScreenToMapRef(int screen, Pos* out, int mode);      /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int screen, Pos* out, int mode);      /* 0x0045be90 */
+#endif
 extern void ResetCursorFootprint(EditCursorRec* c);              /* 0x0045f460 */
 extern void SetCursorError(EditCursorRec* c, int code);          /* 0x0045f480 */
 extern int  CursorIsValid(EditCursorRec* c);                     /* 0x0045f4b0 */

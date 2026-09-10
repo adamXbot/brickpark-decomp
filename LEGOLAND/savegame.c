@@ -183,7 +183,11 @@ extern void DBError(const char* fmt, ...);    /* 0x00453ce0 */
 
 /* ---- LLIDB --------------------------------------------------------------- */
 extern int   LLIDB_GetCount(void);                                   /* 0x47b2d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_GetElement(int index, LLElem** out);              /* 0x47b2e0 */
+#else
+extern int LLIDB_GetElement(int index, LLElem** out);              /* 0x47b2e0 */
+#endif
 extern int   LLIDB_FindElement(const char* name, LLElem** out, unsigned int* idx); /* 0x47b330 */
 extern int   LLIDB_FindElementFromDataPtr(void* data, LLElem** out, unsigned int* idx); /* 0x47b410 */
 extern void* LLIDB_LoadData(LLElem* elem);                           /* 0x47d3a0 */
@@ -447,7 +451,11 @@ extern void  CalculateMapRenderOrder(void);      /* 0x0045a4a0 */
 extern Cell* GetFirstObjectMatching(void* obj);  /* 0x0045a910 */
 extern void  RestoreCurrentMenu(void);                   /* 0x00475f10 */
 extern void  SetMapReady(int v);                  /* 0x00458bb0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RestoreScriptStepHelp(void);                   /* 0x0046b760 */
+#else
+extern int RestoreScriptStepHelp(void);                   /* 0x0046b760 */
+#endif
 
 /* The animation record GetBlokeAnim3DFromPerson returns. */
 typedef struct BlokeAnim3D {

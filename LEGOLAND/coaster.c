@@ -868,7 +868,11 @@ TrackNode* FindTrackNodeOfClass(CoasterRec* rec, void* cls, void* p)
  * Building and tearing down the whole coaster.
  * ======================================================================== */
 extern void RemoveTrackNode(TrackNode* n);              /* 0x0041d7f0 */
+#ifndef LEGOLAND_PORTABLE
 extern void AddTrackSquareCount(int d);                 /* 0x0041d6d0 */
+#else
+extern int AddTrackSquareCount(int d);                 /* 0x0041d6d0 */
+#endif
 extern RideElem* g_dummy_elem;                          /* 0x00829c00 */
 
 /* Take every piece off the coaster. A closed circuit is one ring walk; an
@@ -1232,14 +1236,22 @@ extern void* g_829abc;                                  /* 0x00829abc */
 extern void* g_castle_sprite;                           /* 0x00829c04 */
 extern int   g_610a04;                                  /* 0x00610a04  castle placed */
 extern void* LoadSprite(const char* name, int mode);    /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  MemScratchInit(void);                          /* 0x00477400 */
+#else
+extern int MemScratchInit(void);                          /* 0x00477400 */
+#endif
 extern void  Coaster3D_ResetScene(void);                          /* 0x00425a50 */
 extern void  CarPoolInit(void);                          /* 0x00421470 */
 extern void  LoadCoasterData(void);                          /* 0x00420440 */
 extern void  CoasterGeomInit(void);                          /* 0x00423740 */
 extern void  CarClassTablesInit(void);                          /* 0x00422210 */
 extern void  CoasterSceneInit(void);                          /* 0x00428b70 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RouteSystemInit(void);                          /* 0x0041ef00 */
+#else
+extern int RouteSystemInit(void);                          /* 0x0041ef00 */
+#endif
 extern void  CoasterFxPoolInit(void);                          /* 0x0042a2e0 */
 extern void  InstallCastleHooks(void);                          /* 0x00423db0 */
 extern void  RouteNodePoolInit(void);                          /* 0x0041e620 */
@@ -1559,7 +1571,11 @@ extern int   g_8003e8;                                  /* 0x008003e8 */
 extern MapRef g_mapref;                                 /* 0x007fffc4 */
 extern int    EditCursor;                               /* 0x007febc0 */
 extern void SetEditCursorFootPrint(Footprint* fp);      /* 0x0045f440 */
+#ifndef LEGOLAND_PORTABLE
 extern void ScreenToMapRef(int screen, MapRef* out, int mode); /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int screen, MapRef* out, int mode); /* 0x0045be90 */
+#endif
 extern void DefaultCursor(EditCursorRec* cur);          /* 0x0045a390 */
 extern void ResetCursorFootprint(void* cur);            /* 0x0045f460 */
 extern void SetCursorError(void* cur, int code);        /* 0x0045f480 */

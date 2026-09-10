@@ -334,7 +334,11 @@ extern void* g_snd_fp_denied;    /* 0x004b92d8 */
 extern void* g_snd_fp_remove;    /* 0x004b92cc */
 
 extern LLElem* ElemID(const char* name);                          /* 0x0047b3f0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayInstanceOfSample(void* def, int a, int b, void* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* def, int a, int b, void* src); /* 0x00496d20 */
+#endif
 /* 0x0048aef0 / 0x0048af40 / 0x0048afa0 (not exported): can this class still
  * be afforded, and charge / refund it (both go through 0x0048a840). */
 extern int   FreePlayItemAvailable(const char* name, LLElem* parent); /* 0x0048aef0 */
@@ -618,7 +622,11 @@ extern void EnqueueStepEndEvent(ScriptStep* s);             /* 0x0046c580 */
 extern void EnqueueStepStartEvent(ScriptStep* s);           /* 0x0046c540 */
 /* 0x0046b5d0 / 0x0046b520 (not exported): unlink a step, and free it with the
  * two event records it owns. */
+#ifndef LEGOLAND_PORTABLE
 extern void UnlinkScriptStep(ScriptStep* s);                /* 0x0046b5d0 */
+#else
+extern int UnlinkScriptStep(ScriptStep* s);                /* 0x0046b5d0 */
+#endif
 extern void FreeScriptStep(ScriptStep* s);                  /* 0x0046b520 */
 
 // FUNCTION: LEGOLAND 0x0046b2d0

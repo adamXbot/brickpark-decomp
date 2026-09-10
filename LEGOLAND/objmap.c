@@ -115,7 +115,11 @@ extern MapAI      g_map_ai;           /* 0x00832800 */
 extern void* MemAlloc(int size);                         /* 0x0049e4ff */
 extern void  GetTileDimensions(int* out_w, int* out_h);  /* 0x00460540 */
 extern void  DefaultCursor(void* cursor);                /* 0x0045a390 */
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int sx, void* out, int sy);  /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int sx, void* out, int sy);  /* 0x0045be90 */
+#endif
 extern void  ValidateCursor(void* cursor, ObjClass* cls);/* 0x0045f810 */
 
 Cell* GetFirstRenderObject(void);

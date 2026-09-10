@@ -133,7 +133,11 @@ typedef struct ObjDef {
 
 /* ---- shared callees ----------------------------------------------------- */
 extern void  HeapFree_w(void* p);                                 /* 0x0049e4d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayInstanceOfSample(void* sample, int a, int b, int c); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* sample, int a, int b, int c); /* 0x00496d20 */
+#endif
 
 
 /* =========================================================================

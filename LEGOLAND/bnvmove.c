@@ -223,7 +223,11 @@ extern void        SetPathSquareDistance(Pos* from, PathSquare* sq);   /* 0x0048
 extern void FreePTPOpenList(void);                    /* 0x004821e0 */
 extern void FreePTPRouteList(void);                   /* 0x00482210 */
 extern void ClearPTPVisited(void);                    /* 0x004821c0 */
+#ifndef LEGOLAND_PORTABLE
 extern int  AddPTPOpenNode(int x, int y, PTPNode* parent); /* 0x00482240 */
+#else
+extern void AddPTPOpenNode(int x, int y, PTPNode* parent); /* 0x00482240 */
+#endif
 extern int  BuildPTPRoute(void);                      /* 0x00482430 */
 
 /* BNV accessors (bnvpath.c / math3d.c). */

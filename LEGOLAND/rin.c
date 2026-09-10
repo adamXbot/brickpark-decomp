@@ -268,7 +268,11 @@ extern void   Render_SetViewport(WinRect* r);                     /* 0x00441800 
 extern void   Draw3DPersonModel(Person3D* p);                     /* 0x00440a30 */
 extern Bloke* GetSelectedBloke(void);                             /* 0x004700f0 */
 extern void   FreeAnim3D(Anim3D* a);                              /* 0x0043fde0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   UnInitModelTextures(void);                          /* 0x00442c70 */
+#else
+extern int UnInitModelTextures(void);                          /* 0x00442c70 */
+#endif
 extern void   UnInit3DPrintList(void);                            /* 0x00486250 */
 extern void   UnInitRasterTables(void);                           /* 0x004886a0 */
 extern void   FreeRasterBuffer(void);                             /* 0x00485fa0 */

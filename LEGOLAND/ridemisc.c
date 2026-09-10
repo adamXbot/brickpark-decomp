@@ -256,7 +256,11 @@ typedef struct FavElem {
 } FavElem;
 
 extern int  LLIDB_GetCount(void);                    /* 0x0047b2d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void LLIDB_GetElement(int i, FavElem** out);  /* 0x0047b2e0 */
+#else
+extern int LLIDB_GetElement(int i, FavElem** out);  /* 0x0047b2e0 */
+#endif
 extern int  rand(void);                              /* 0x0049e4b2 (CRT) */
 
 /* LEVER (worth 19 of 70): the cursor-advance block is written TWICE, once

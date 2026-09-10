@@ -75,7 +75,11 @@ extern int g_imt_cmd_arg;                        /* 0x0079a6a8 */
 extern void* g_imt_event;                        /* 0x0079a6a0 */
 
 extern int GetGameTimer(void);                           /* 0x00499430 */
+#ifndef LEGOLAND_PORTABLE
 extern void ClosePrimaryPopUp(void);                     /* 0x00473160 */
+#else
+extern int ClosePrimaryPopUp(void);                     /* 0x00473160 */
+#endif
 extern void SetClipping(ClipRect*);                      /* 0x0048a5c0 */
 extern void ResetInfoStruct(void);                       /* 0x00471510 */
 extern int SaveGameRead(void*, unsigned int);            /* 0x0047d730 */
@@ -169,9 +173,24 @@ void SetOrderRepairAmount(RepairOrder* order, float amount)
 {
     order->amount = amount; order->charge = amount * 1.5f;
 }
-/* Despite its historical name, this consumes only one four-byte value. */
+/* Despite its historical name, this consumes only one four-byte value.
+ *
+ * 0x0047d7e0 ends `call SaveGameRead` / `add esp,0xc` / `ret`, so EAX leaves
+ * the function holding SaveGameRead's result -- savegame.c's thirteen
+ * `if (!SkipMeasuredBlock())` tests are reading a real value and its
+ * `extern int` is the honest declaration.  `void` here is byte-identical
+ * (nothing touches EAX after the call) and is what VC6 keeps; the portable
+ * build needs the type the callers use, so the matched body is renamed out of
+ * the way and an `int` twin takes its place. */
+#ifdef LEGOLAND_PORTABLE
+#define SkipMeasuredBlock SkipMeasuredBlock_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047d7e0
 void SkipMeasuredBlock(void) { int length; SaveGameRead(&length, 4); }
+#ifdef LEGOLAND_PORTABLE
+#undef SkipMeasuredBlock
+int SkipMeasuredBlock(void) { int length; return SaveGameRead(&length, 4); }
+#endif
 /* Original leaves the released device pointer unchanged. */
 // FUNCTION: LEGOLAND 0x00473a50
 void KillKeyboardDevice(void)

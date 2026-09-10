@@ -42,7 +42,11 @@ extern void  RES_CloseFile(void* file);         /* 0x489de0 */
 extern int RES_CloseFile(void* file);         /* 0x489de0 */
 #endif
 extern int   RES_GetFilePointer(void* file);    /* 0x489db0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_SetFilePointer(void* file, int pos); /* 0x489d70 */
+#else
+extern int RES_SetFilePointer(void* file, int pos); /* 0x489d70 */
+#endif
 extern void  ResetBuildStats(void);             /* 0x459880 */
 extern void  PutObjOnMap(void* cls, void* obj, Pos* pos); /* 0x459ad0 */
 extern void  SetMapTile(int x, int y, unsigned short tile);  /* 0x461780 */

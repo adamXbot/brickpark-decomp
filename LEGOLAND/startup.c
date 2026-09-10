@@ -39,16 +39,32 @@ extern int RES_CloseVolume(void* vol);                            /* 0x00489dc0 
 extern void  LoadStrings(void);                                     /* 0x00498d00  (first named here: paired with DeleteStrings) */
 extern void  DeleteStrings(void);                                   /* 0x00498ff0 */
 extern char* GetString(int id);                                     /* 0x00498f50 */
+#ifndef LEGOLAND_PORTABLE
 extern void  InitHostSystemGPU(void);                               /* 0x00463700 */
+#else
+extern int InitHostSystemGPU(void);                               /* 0x00463700 */
+#endif
 extern void  KillHostSystemGPU(void);                               /* 0x004637e0 */
 extern int   InitScreen(void);                                      /* 0x00463870 */
 extern int   InitInputSystem(void);                                 /* 0x00473870 */
 extern void  KillInputSystem(void);                                 /* 0x00473ae0 */
 extern Sprite* LoadSprite(const char* name, int mode);              /* 0x00497ab0 */
 extern void  KillSprite(Sprite* s);                                 /* 0x00497bd0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_LoadICM(void);                                   /* 0x0047aff0 */
+#else
+extern int LLIDB_LoadICM(void);                                   /* 0x0047aff0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_CloseICM(void);                                  /* 0x0047be00 */
+#else
+extern int LLIDB_CloseICM(void);                                  /* 0x0047be00 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_RegisterNewElement(const char* name, int a, int b); /* 0x0047b610 */
+#else
+extern int LLIDB_RegisterNewElement(const char* name, int a, int b); /* 0x0047b610 */
+#endif
 extern void  RunGame(void);                                         /* 0x00459520  gamemain.c */
 extern int   sprintf(char* buf, const char* fmt, ...);              /* 0x0049e573 */
 extern void* malloc(unsigned int bytes);                            /* 0x0049e4ff */

@@ -80,7 +80,11 @@ extern SrcImage* LoadTextureImage(const char* path, int fmt);   /* 0x004436d0 */
  * First named here. */
 extern void  RegisterTextureImage(SrcImage* img, int slot);     /* 0x00488670 */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  KillImage(SrcImage* img);          /* 0x00497510 */
+#else
+extern int KillImage(SrcImage* img);          /* 0x00497510 */
+#endif
 extern void  DBPrintf(const char* fmt, ...);    /* 0x00453a20 */
 
 extern const char kTexPathFmt[];   /* 0x004b7d58 "%s\\%s%04d.BMP" */

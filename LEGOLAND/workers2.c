@@ -297,7 +297,11 @@ extern int    GetBrickCount(void);                                /* 0x004578e0 
 extern void   UseBricks(int n);                                   /* 0x004578c0 */
 extern void   SetObjRectFlags(void* desc, Pos* pos, int flags);   /* 0x0045dee0 */
 extern int    BuildObject(void* desc, Pos* pos);                  /* 0x0045eb30 */
+#ifndef LEGOLAND_PORTABLE
 extern void   ShowMessage(int which);                             /* 0x004735e0 */
+#else
+extern int ShowMessage(int which);                             /* 0x004735e0 */
+#endif
 extern void   ClearObjFootprint(void* desc, Pos* pos);            /* 0x0045e300 */
 extern void   RefreshObjList(void* head);                         /* 0x0045d770 */
 extern void*  PlayInstanceOfSample(void* def, int a, int b, SoundSource* src); /* 0x00496d20 */
@@ -307,7 +311,11 @@ extern int    PrintSprite(WSprite* s, int x, int y, int mode, void* ctx); /* 0x0
 extern void   LLSNextFrame(void* lls);                            /* 0x0047d5d0 */
 /* Wear one point of life back onto a cell under repair; returns the new life
  * (unexported). */
+#ifndef LEGOLAND_PORTABLE
 extern void   RepairCellTick(Cell* cell, WClass* cls);            /* 0x0049b0d0 */
+#else
+extern int RepairCellTick(Cell* cell, WClass* cls);            /* 0x0049b0d0 */
+#endif
 extern void   FreeRepairOrder(RepairOrder* r);                    /* 0x0049b6e0 */
 
 /* Next leg of a route from `from` to `to` (world coords), unexported:
@@ -329,7 +337,11 @@ extern void   FreeGardenerOrder(WorkOrder* o);                    /* 0x00499e30 
 extern void   FreeMechanicOrder(WorkOrder* o);                    /* 0x00499eb0 */
 extern void   ResetWorkersOldCoords(void);                        /* 0x004708d0 */
 extern void   SetWorkersPositionAtMouse(void);                    /* 0x004701f0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   ScreenToMapRef(Pos* screen, Pos* map, int mode);    /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(Pos* screen, Pos* map, int mode);    /* 0x0045be90 */
+#endif
 extern int    SetGardenerWorkOrderAtPostion(Bloke* g, int x, int y); /* 0x0049b2c0 */
 /* Mouse-hit helpers for a carried worker (unexported): is the hit a ride the
  * worker can be put on; the work order under the hit (its tile in *cell). */

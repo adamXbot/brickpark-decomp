@@ -501,7 +501,11 @@ typedef struct TowerRec {
 } TowerRec;                         /* 0xb4 */
 
 extern void SpaceTower_DrawCarUnder(TowerRec* rec, int car, int mode); /* 0x0043ae20 */
+#ifndef LEGOLAND_PORTABLE
 extern void SpaceTower_PlaceCar(TowerRec* rec, int car);              /* 0x0043ad00 */
+#else
+extern int SpaceTower_PlaceCar(TowerRec* rec, int car);              /* 0x0043ad00 */
+#endif
 extern void SpaceTower_DrawCarOver(TowerRec* rec, int car, int mode);  /* 0x0043ad90 */
 extern void IP_RenderBlokeIn3DNow(Bloke* b);                          /* 0x00440010 */
 

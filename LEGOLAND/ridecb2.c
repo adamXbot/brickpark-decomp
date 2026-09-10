@@ -571,7 +571,11 @@ void JungleCruise_Remove(MapObj* obj, BPosW bp, Cursor* ctx)
  * ========================================================================= */
 
 extern void  DefaultCursor(Cursor* c);                       /* 0x0045a390 */
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#endif
 extern void  ValidateCursor(Cursor* c, ObjDef* cls);         /* 0x0045f810 */
 extern int   CursorIsValid(Cursor* c);                       /* 0x0045f4b0 */
 extern void  ResetCursorFootprint(Cursor* c);                /* 0x0045f460 */

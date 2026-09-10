@@ -130,7 +130,11 @@ extern Icon*   LoadSpriteIcon(const char* name, int mode, int x, int y, int grou
 extern void    RemoveIconGroup(int group);                              /* 0x0046d520 */
 extern char*   GetString(int id);                                       /* 0x00498f50 */
 extern int     RenderFlashingSpriteIcon(Icon*);                         /* 0x0046e8a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void    UpDateCurrentProfile(void);                              /* 0x00491680 */
+#else
+extern int UpDateCurrentProfile(void);                              /* 0x00491680 */
+#endif
 
 /* Progress-screen helpers (not exported). */
 extern void    NormaliseLevelsDone(void);        /* 0x0048b6d0 */
@@ -216,7 +220,11 @@ extern void    LightUpthisDeleteIcon(Icon* slot, int lit);              /* 0x004
 extern void    UpdateProfileCheckBoxIcons(void);                        /* 0x0048ce20 */
 extern void    EnterNewProfile(Icon* panel);                            /* 0x00491bd0 */
 extern void    DeleteSavedGameList(void);                               /* 0x0048e160 */
+#ifndef LEGOLAND_PORTABLE
 extern void    LoadSavedGamesList(char slot);                           /* 0x0048e190 */
+#else
+extern int LoadSavedGamesList(char slot);                           /* 0x0048e190 */
+#endif
 extern Sprite* GetSavePanelBK(char slot);                               /* 0x0048db50 */
 extern char    DeleteIconInput(Icon*, int);                             /* 0x0048cc30 */
 /* 0x00455e50 (not exported): the cached text blitter (money.c). */
@@ -862,7 +870,11 @@ extern char CastleThemeInput(Icon*, int);           /* 0x004753a0 */
 extern char AdventureThemeInput(Icon*, int);        /* 0x004752a0 */
 extern char BriefIconInput(Icon*, int);             /* 0x00474f40 */
 extern char ScriptEndIconInput(Icon*, int);         /* 0x00474fa0 */
+#ifndef LEGOLAND_PORTABLE
 extern void UpdateHelpIconForText(void* block);      /* 0x00491240 */
+#else
+extern int UpdateHelpIconForText(void* block);      /* 0x00491240 */
+#endif
 extern void StopScript(int stop);                   /* 0x0046b240 */
 extern int  ScriptRunning(void);             /* 0x0046b280 */
 extern void ToggleHelpIcon(int on);                 /* 0x004748a0 */

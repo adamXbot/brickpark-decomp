@@ -303,7 +303,11 @@ extern void       RemoveObjectListIcons(int group);               /* 0x0046fb40 
 extern void       RemoveFreePlayList(int group);                  /* 0x0048b4a0 */
 extern void       UpdateSidePanelScroll(int step);                /* 0x0046ec50 */
 extern void       RenderIconsExtra(void);                         /* 0x004760a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void       FreePlayItemUpdate(int value, int a);           /* 0x0048a840 */
+#else
+extern int FreePlayItemUpdate(int value, int a);           /* 0x0048a840 */
+#endif
 extern int        FreePlayItemAvailable(int value, int b);        /* 0x0048aef0 */
 extern void       InsertObjectNode(ObjDef* d);                    /* 0x004755c0 */
 extern void       MoveIcons(int mask, short group, short dx, short dy); /* 0x0046dcd0 */

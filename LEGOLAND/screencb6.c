@@ -29,7 +29,11 @@ extern void KillMoneySFX(void); /* 0x00453930 */
 extern void StandardRemoveObject(RideElem* elem, unsigned int square, void* cursor); /* 0x0045f220 */
 extern void RemoveAllBlokesFromRide(RideDef* def, unsigned int square); /* 0x0048a2e0 */
 extern void StopMoneySFX(unsigned int* square); /* 0x004539a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void PlayInstanceOfSample(void* sample, int a, int b, SoundSource* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* sample, int a, int b, SoundSource* src); /* 0x00496d20 */
+#endif
 extern unsigned int rand(void); /* 0x0049e4b2 */
 extern void FreeBinV(void* bnv); /* 0x0044dd60 */
 extern void Balloonz_FreeRecords(void); /* 0x0042a9f0 */

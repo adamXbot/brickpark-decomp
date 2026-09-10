@@ -23,7 +23,11 @@ int   LLIDB_FindElement(char* name, LLElem** out_elem, unsigned int* out_idx);
 void* LLIDB_LoadData(LLElem* elem);
 void* LoadSprite(const char* name, int flag);
 void  LLSPlay(void* frames, void* hdr);
+#ifndef LEGOLAND_PORTABLE
 void  LLSStop(void* lls);
+#else
+extern int LLSStop(void* lls);
+#endif
 void* GetSpriteForLayer(void* sprite, int layer);
 void* GetLLSForSprite(void* sprite);
 void  SetStandardCallbacks(void* obj);

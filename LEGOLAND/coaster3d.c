@@ -371,7 +371,11 @@ extern Mat4  g_view_matrix;                                     /* 0x008299fc */
 extern void Invert2x2(float* m);                                /* 0x00425de0 */
 extern void MatIdentity(Mat4* out);                             /* 0x004260f0 */
 extern void MatMul(const Mat4* a, const Mat4* b, Mat4* out);    /* 0x00426120 */
+#ifndef LEGOLAND_PORTABLE
 extern void ScreenToMapRef(Pos* screen, Pos* map, int mode);    /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(Pos* screen, Pos* map, int mode);    /* 0x0045be90 */
+#endif
 extern void GetTileBounds(Pos* tile, TileBounds* out);          /* 0x0045acc0 */
 extern void SetSpanClip(int l, int t, int r, int b);            /* 0x0041ef20 */
 

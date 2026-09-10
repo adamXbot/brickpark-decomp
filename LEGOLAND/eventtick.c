@@ -184,7 +184,11 @@ extern void  sub_4969d0(void);                                           /* 0x00
 extern void  GetTileCentre(Pos* tile, Pos* out);                         /* 0x0045ad60 */
 extern void  RefreshObjList(void* head);                                 /* 0x0045d770 */
 extern void  PutObjOnMap(ObjDef* d, LLElem* elem, Pos* pos);             /* 0x00459ad0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  SetSampleFade(void* sample, int rate);                      /* 0x00492af0 */
+#else
+extern int SetSampleFade(void* sample, int rate);                      /* 0x00492af0 */
+#endif
 extern void* PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
 extern void  SetSampleLooping(void* s);                                  /* 0x00496d10 */
 extern void  AddSFX_Callback(void* sfx, int delay, void* cb);            /* 0x00496db0 */
@@ -200,9 +204,17 @@ extern int   FreezeGameClock(void);                                      /* 0x00
 extern void  ThawGameClock(void);                                        /* 0x004993c0 */
 extern int   SetPointer(int shape);                                      /* 0x00463850 */
 extern void  sub_496e60(int a, int b);                                   /* 0x00496e60 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayMovie(const char* name, int a, int b);                  /* 0x004771f0 */
+#else
+extern int PlayMovie(const char* name, int a, int b);                  /* 0x004771f0 */
+#endif
 extern void  KillAdvisorHelp(void);                                      /* 0x0046ce20 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RestoreScriptStepHelp(void);                                /* 0x0046b760 */
+#else
+extern int RestoreScriptStepHelp(void);                                /* 0x0046b760 */
+#endif
 extern void  ShowInfoPanel(int kind);                                    /* 0x00490600 */
 extern int   LoadHelpTextFor(const char* key);                           /* 0x004907a0 */
 extern void  ResetAppraisalDeadline(void);                                           /* 0x0044db40 */
@@ -215,7 +227,11 @@ extern void  SetSimTuningB(int i, int v);                                /* 0x00
 extern void  StopScript(int stop);                                       /* 0x0046b240 */
 extern void  GetTileDimensions(int* out_w, int* out_h);                  /* 0x00460540 */
 extern void  SetThemeIcon(int icon, char on);                            /* 0x00468860 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddLevelFlag(int flag, char on);                            /* 0x00468890 */
+#else
+extern int AddLevelFlag(int flag, char on);                            /* 0x00468890 */
+#endif
 extern void  SetBridges(int count, char on);                             /* 0x004688f0 */
 extern void  SetBriefingFile(const char* name);                          /* 0x004687f0 */
 extern void  SetHintsFile(const char* name);                             /* 0x00468810 */

@@ -110,7 +110,11 @@ extern int      g_render_order_dirty;   /* 0x00667cdc */
 extern ClipRect g_clip_rect;            /* 0x004bdea0 SPRITE_ClipRect */
 extern int      g_screen_depth;         /* 0x00668088  0 = 8-bit, 1 = 555, 2 = 565 */
 extern int   GetSprite(SpriteHandle* out, SpriteRec* s);        /* 0x00497c30 */
+#ifndef LEGOLAND_PORTABLE
 extern void  ReleaseSprite(SpriteHandle* h);                    /* 0x00497dc0 */
+#else
+extern int ReleaseSprite(SpriteHandle* h);                    /* 0x00497dc0 */
+#endif
 
 
 extern int   GetObjCost(ObjDef* d);                             /* 0x00480da0 */
@@ -554,7 +558,11 @@ extern void  PopUpInfoSetUp(PopUpKey key, int x, int y);            /* 0x0047195
 extern void  DrawPopUpMock(void);                                   /* 0x004720a0 */
 extern int   MeasurePopUpTitle(const char* s, int a, int b, int c, int d, int e); /* 0x00471840 */
 extern int   MeasurePopUpBody(const char* s, int a, int b, int c, int d, int e);  /* 0x004717a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  ClampPopUpToScreen(int size);                          /* 0x004718c0 */
+#else
+extern int ClampPopUpToScreen(int size);                          /* 0x004718c0 */
+#endif
 extern void  DrawPopUpFrame(void);                                  /* 0x00471f10 */
 extern void  PushRenderingStatusAndUnlockVideoSurface(void);        /* 0x00464080 */
 extern void  PopRenderingStatus(void);                              /* 0x004641f0 */
@@ -563,7 +571,11 @@ extern void  PrintCachedText(const char* text, int x, int y, int w, int h,
 extern int   GetBlokeMood(void* bloke);                             /* 0x00482d30 */
 extern signed char GetBlokeAgeGroup(void* bloke);                   /* 0x0044eb10 */
 extern int   PrintSprite(void* s, int x, int y, int mode, void* ctx);/* 0x004853a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RenderBlock(int x, int y, int w, int h, int colour);   /* 0x004890c0 */
+#else
+extern int RenderBlock(int x, int y, int w, int h, int colour);   /* 0x004890c0 */
+#endif
 extern int   GetBuildTime(ObjDef* d);                               /* 0x00450c40 */
 extern int   PopUpCanDelete(void);                                  /* 0x004723f0 */
 extern void  ClosePopUpIcons(void);                                 /* 0x00471610 */

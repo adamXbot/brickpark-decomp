@@ -562,7 +562,11 @@ extern Pos     g_edit_cursor_origin;    /* 0x007fffc4 == g_edit_cursor.origin */
 extern Rect    g_edit_cursor_rect;      /* 0x007fffd4 == g_edit_cursor.rect */
 extern Cursor* g_edit_cursor_next;      /* 0x008003f0 == g_edit_cursor.next */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#endif
 extern void  DefaultCursor(Cursor* c);                       /* 0x0045a390 */
 extern void  ValidateCursor(Cursor* c, ObjDef* cls);         /* 0x0045f810 */
 extern int   CursorIsValid(Cursor* c);                       /* 0x0045f4b0 */
@@ -874,7 +878,11 @@ extern Pos    GetScreenCoordsForObject(MapSquare* sq, ShopDef* def); /* 0x00442c
 extern int    LLIDB_FindElement(const char* name, void** out,
                                 unsigned int* idx);             /* 0x0047b330 */
 extern void*  LLIDB_LoadData(void* elem);                       /* 0x0047d3a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   LLIDB_UnLoadData(void* elem);                     /* 0x0047d450 */
+#else
+extern int LLIDB_UnLoadData(void* elem);                     /* 0x0047d450 */
+#endif
 
 extern int      g_edit_changed;                                 /* 0x008119b0 */
 extern ObjDef*  g_edit_object;                                  /* 0x008119b8 */

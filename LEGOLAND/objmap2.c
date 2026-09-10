@@ -230,7 +230,11 @@ extern int   CheckForPeople(WinRect* r);                       /* 0x00485260 */
 extern void  TakeRenderNodeByPos(unsigned short bpos, Pos* out); /* 0x0045a430 */
 extern void  TakeRenderNodeInColumn(Pos* p);                   /* 0x0045a3e0 */
 extern void  EraseWorkOrdersAt(ObjDef* d, BPos bp);            /* 0x0049b270 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayInstanceOfSample(int sample, int a, int b, SoundSource* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(int sample, int a, int b, SoundSource* src); /* 0x00496d20 */
+#endif
 extern void  RemoveObjectsPowerStats(MapObj* obj, BPos bp);    /* 0x0045a230 */
 extern int   GetRectArea(Rect* rect);                          /* 0x00480960 */
 extern int   UnmarkObjectTiles(Pos* pos);                      /* 0x00489f50 */

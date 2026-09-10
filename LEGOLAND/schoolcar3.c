@@ -556,7 +556,11 @@ typedef struct PolyJob {
 
 typedef struct RasterState { unsigned char b[0x18]; } RasterState;
 
+#ifndef LEGOLAND_PORTABLE
 extern void Raster_SaveState(RasterState* g);                   /* 0x00423760 */
+#else
+extern int Raster_SaveState(RasterState* g);                   /* 0x00423760 */
+#endif
 extern void Raster_RestoreState(RasterState* g);                /* 0x00423790 */
 extern void Raster_SubmitPoly(int nverts, PolyJob* job);        /* 0x0042a2f0 */
 extern void* g_span_fillers[2];                                 /* 0x004b5658 */

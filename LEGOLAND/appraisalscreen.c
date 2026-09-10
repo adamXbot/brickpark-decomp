@@ -72,7 +72,11 @@ extern void  ReadGameButtons(void);                         /* 0x00452460 */
 extern int   rand(void);                                    /* 0x0049e4b2 (CRT) */
 extern int   sprintf(char* buf, const char* fmt, ...);      /* 0x0049e573 (CRT) */
 extern char* GetString(int id);                             /* 0x00498f50 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayNarrationFile(const char* name);           /* 0x00498630 */
+#else
+extern int PlayNarrationFile(const char* name);           /* 0x00498630 */
+#endif
 extern void  CountAttractions(int* num, int* variety);      /* 0x00444bf0 */
 extern void  CountScenery(int* num, int* variety);          /* 0x00444c70 */
 extern void  CountFood(int* num, int* variety);             /* 0x00444cd0 */
@@ -104,15 +108,27 @@ extern void  NewPrintColoured(const char* text, int font, AppraisalBox rc, unsig
 extern void  NewPrintCent(const char* text, int font, AppraisalBox rc, char white); /* 0x00491d60 */
 extern void  RenderIcons2(unsigned short g1, unsigned short g2, unsigned short g3); /* 0x0046f010 */
 extern void  ResetHitInfo(void);                            /* 0x00485ef0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  SetPointer(int shape);                         /* 0x00463850 */
+#else
+extern int SetPointer(int shape);                         /* 0x00463850 */
+#endif
 extern void  ProcessFrontEndHelp(void);                     /* 0x0046d080 */
 extern void  UpdateFocussedIconPtr(void);                   /* 0x004700a0 */
 extern char  CheckFocussedIcon(void);                       /* 0x0046f4c0 */
 extern int   RenderingComplete(void);                       /* 0x00466500 */
 extern void  UpdateHelpBar(void);                           /* 0x0046d110 */
 extern int   IsNarrationPlaying(void);                      /* 0x00498cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PauseCurrentTrack(void);                       /* 0x00498920 */
+#else
+extern int PauseCurrentTrack(void);                       /* 0x00498920 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  ResumeCurrentTrack(void);                      /* 0x00498b00 */
+#else
+extern int ResumeCurrentTrack(void);                      /* 0x00498b00 */
+#endif
 extern void  SetInGameIconHandlers(void);                   /* 0x00474880 */
 extern void  sub_498b40(void);                              /* 0x00498b40 */
 

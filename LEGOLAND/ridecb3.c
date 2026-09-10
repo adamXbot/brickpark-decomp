@@ -255,7 +255,11 @@ extern void*  NewBNVPath(void* bin, int tag, const char* name,
                          float near_z, float far_z, Vec3* origin);   /* 0x00484c20 */
 extern int    UpdateBlokeFromBNVPath(Bloke* b, void* path);          /* 0x00484cd0 */
 extern void   UnAdjustBlokePosition(Offset* p);                      /* 0x00442d80 */
+#ifndef LEGOLAND_PORTABLE
 extern void   ScreenToMapRef(Offset* screen, Pos* out, int mode);    /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(Offset* screen, Pos* out, int mode);    /* 0x0045be90 */
+#endif
 extern int    CalcMoveLine(Pos from, Pos to, void* path);            /* 0x00480740 */
 extern int    NewDirForAction(Bloke* b, unsigned char dir);          /* 0x004833d0 */
 extern void   BlokeSitAnim(Bloke* b);                                /* 0x00440780 */

@@ -126,7 +126,11 @@ extern Cursor* g_edit_cursor_next;     /* 0x008003f0 == g_edit_cursor.next */
  * river arm the piece can hang off. */
 extern Cursor g_jctree_cursors[4];     /* 0x00622320, stride 0x1834 */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#endif
 extern void  DefaultCursor(Cursor* c);                       /* 0x0045a390 */
 extern void  ValidateCursor(Cursor* c, ObjDef* cls);         /* 0x0045f810 */
 extern int   CursorIsValid(Cursor* c);                       /* 0x0045f4b0 */

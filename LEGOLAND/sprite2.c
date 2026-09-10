@@ -159,8 +159,16 @@ extern SpriteRec* NewSprite(void);                        /* 0x00497580 */
 extern int   KillSprite(SpriteRec* s);                    /* 0x00497bd0 */
 extern int   MakeSpriteDrawable(SpriteRec* s);            /* 0x00499500 */
 extern unsigned short ReferenceImage(ImageRec* p);        /* 0x00497500 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RegisterDetailImage(ImageRec* p);            /* 0x00496fc0 */
+#else
+extern int RegisterDetailImage(ImageRec* p);            /* 0x00496fc0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  UnregisterDetailImage(ImageRec* p);          /* 0x00497020 */
+#else
+extern int UnregisterDetailImage(ImageRec* p);          /* 0x00497020 */
+#endif
 extern int   ReloadImageBitmapAndBuildSprites(ImageRec* p); /* 0x00497380 */
 extern int   LoadCSPSprite(SpriteRec* s, const char* name, int kind); /* 0x004978b0 */
 extern void  SetLayerAnimatingState(SpriteRec* s, int layer, int state); /* 0x00497ed0 */

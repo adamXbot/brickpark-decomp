@@ -45,7 +45,11 @@ extern void  KillSprite(Sprite* s);                                          /* 
 extern int   LLIDB_FindElement(const char* name, LLElem** out, unsigned int* idx); /* 0x0047b330 */
 extern int   LLIDB_UnLoadData(LLElem* e);                                    /* 0x0047d450 */
 extern int   LLIDB_GetCount(void);                                           /* 0x0047b2d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_GetElement(int i, LLElem** out);                          /* 0x0047b2e0 */
+#else
+extern int LLIDB_GetElement(int i, LLElem** out);                          /* 0x0047b2e0 */
+#endif
 extern int   LLIDB_FindElementFromDataPtr(void* data, LLElem** out, unsigned int* idx); /* 0x0047b410 */
 extern void  ResetBuildStats(void);                                          /* 0x00459880 */
 extern void  ClearOverlays(void);                                            /* 0x00462ce0 */
@@ -74,11 +78,19 @@ extern Sprite*    g_backdrop;                      /* 0x00810148 */
 extern void  ResetHitInfo(void);                                             /* 0x00485ef0 */
 extern void  PushRenderingStatusAndLockVideoSurface(void);                   /* 0x00463fc0 */
 extern void  DrawMapScreen(void);                                            /* 0x004566f0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  SetPointer(int shape);                                          /* 0x00463850 */
+#else
+extern int SetPointer(int shape);                                          /* 0x00463850 */
+#endif
 extern int   PrintSprite(Sprite* s, int x, int y, int mode, void* ctx);      /* 0x004853a0 */
 extern void  UpdateIconPage(void);                                           /* 0x0046ee00  picks the icon page from the mode/edit object (first named here) */
 extern void  RenderIcons(void);                                              /* 0x0046eee0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  CheckFocussedIcon(void);                                        /* 0x0046f4c0 */
+#else
+extern int CheckFocussedIcon(void);                                        /* 0x0046f4c0 */
+#endif
 extern void  UpdateFocussedIconPtr(void);                                    /* 0x004700a0 */
 extern void  PopRenderingStatus(void);                                       /* 0x004641f0 */
 extern int   RenderingComplete(void);                                        /* 0x00466500 */
@@ -90,15 +102,27 @@ extern unsigned long GetTicks(void);                                         /* 
 extern int   abs(int);
 
 extern Elem* ElemID(const char* name);                                       /* 0x0047b3f0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  InitSoundSystem(void);                                          /* 0x004964f0 */
+#else
+extern int InitSoundSystem(void);                                          /* 0x004964f0 */
+#endif
 extern void  SetMusicGrooveLevel(int level);                                 /* 0x00495b90 */
 extern void  SuspendMusicThread(void);                                       /* 0x00492c60  SuspendThread on the music thread (first named here) */
 extern void  ResumeMusicThread(void);                                        /* 0x00492c80  ResumeThread (first named here) */
+#ifndef LEGOLAND_PORTABLE
 extern void  SetupControllers(void);                                         /* 0x00451e70 */
+#else
+extern int SetupControllers(void);                                         /* 0x00451e70 */
+#endif
 extern void  LLIDB_ClearOnLevel(void);                                       /* 0x0047b4c0 */
 extern void  ResetController(void);                                          /* 0x004589a0  gameframe.c (scope P) */
 extern int   ProcessSystemEvents(void);                                      /* 0x00480050 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayMovie(const char* name, int a, int b);                      /* 0x004771f0 */
+#else
+extern int PlayMovie(const char* name, int a, int b);                      /* 0x004771f0 */
+#endif
 extern void  ShowTitleScreen(void);                                           /* 0x004588c0  gameframe.c (scope P) */
 extern void  SetWaitSpriteRect(int a, int b);                                /* 0x00466360 */
 extern void  progress_tick(void);                                            /* 0x004663f0 */
@@ -118,7 +142,11 @@ extern void  UnLoad_Interface_ControlIcons(void);                            /* 
 extern void  Load_Interface_ThemeIcons(void);                                /* 0x004745c0 */
 extern void  UnLoad_Interface_ThemeIcons(void);                              /* 0x00474670 */
 extern void  FreeTileSpace(unsigned short base, unsigned short n);           /* 0x0045aa90 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LoadMapTiles(void);                                             /* 0x0045aad0 */
+#else
+extern int LoadMapTiles(void);                                             /* 0x0045aad0 */
+#endif
 extern void  InitMan(void);                                                  /* 0x00440350 */
 extern void  UnInitMan(void);                                                /* 0x004405a0 */
 extern void  CreateObjectClasses(void);                                      /* 0x00480d80 */
@@ -126,11 +154,19 @@ extern void  EnterFrontEnd(void);                                            /* 
 extern int   GameFrame(void);                                                /* 0x00458c00  gameframe.c (scope P) */
 extern void  InitAdvisorMovies(void);                                        /* 0x00444090  AD_Blink/AD_LR/AD_Phone.avi (first named here) */
 extern void  KillAdvisorMovies(void);                                        /* 0x00444150  (first named here) */
+#ifndef LEGOLAND_PORTABLE
 extern void  PauseCurrentTrack(void);                                        /* 0x00498920  (screens3.c calls it ResetFrontEnd) */
+#else
+extern int PauseCurrentTrack(void);                                        /* 0x00498920  (screens3.c calls it ResetFrontEnd) */
+#endif
 extern void  KillControllers(void);                                          /* 0x00451f40  frees g_controller (first named here) */
 extern void  FreeBlokeCounters(void);                                        /* 0x00480e60 */
 extern void  KillHelp(void);                                                 /* 0x0046d100 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSoundSystem(void);                                          /* 0x00496520 */
+#else
+extern int KillSoundSystem(void);                                          /* 0x00496520 */
+#endif
 extern void  KillInputSystem(void);                                          /* 0x00473ae0 */
 __declspec(dllimport) int   __stdcall PeekMessageA(MSG* m, void* hwnd, unsigned int lo, unsigned int hi, unsigned int flags); /* [0x4ab2bc] */
 __declspec(dllimport) void  __stdcall Sleep(unsigned long ms);                                   /* [0x4ab114] */

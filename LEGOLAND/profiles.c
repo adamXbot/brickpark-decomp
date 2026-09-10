@@ -177,7 +177,11 @@ extern Icon* g_np_close_icon;    /* 0x007986dc */
 extern char (*g_active_input_cb)(Icon*, int);   /* 0x006687c0 */
 
 /* ---- map teardown --------------------------------------------------------- */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_UnLoadData(void* elem);      /* 0x0047d450 */
+#else
+extern int LLIDB_UnLoadData(void* elem);      /* 0x0047d450 */
+#endif
 extern void  ClearOverlays(void);               /* 0x00462ce0 */
 extern void  ClearMapCells(void);                  /* 0x00463680 */
 extern void  sub_4828f0(void);                  /* 0x004828f0 */

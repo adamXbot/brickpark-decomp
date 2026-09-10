@@ -1649,7 +1649,11 @@ extern Sprite* LoadSprite(const char* name, int mode);              /* 0x00497ab
 extern void    KillSprite(Sprite* s);                               /* 0x00497bd0 */
 extern void    GetTileDimensions(int* out_w, int* out_h);           /* 0x00460540 */
 extern int     GetNearestColour(int r, int g, int b);               /* 0x0044e6c0 */
+#ifndef LEGOLAND_PORTABLE
 extern void    RenderBlock(int x, int y, int w, int h, int colour);  /* 0x004890c0 */
+#else
+extern int RenderBlock(int x, int y, int w, int h, int colour);  /* 0x004890c0 */
+#endif
 extern int     PrintScaledSprite(Sprite* s, int x, int y, int w, int h); /* 0x00485940 */
 extern void    StoreClipping(void);                                 /* 0x0048a660 */
 extern void    RestoreClipping(void);                               /* 0x0048a690 */

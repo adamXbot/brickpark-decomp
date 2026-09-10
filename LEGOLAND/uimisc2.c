@@ -202,7 +202,11 @@ extern ProfileNode* g_profile_list;    /* 0x00798890 */
 /* ---- callees ------------------------------------------------------------ */
 
 extern void SetIconSprite(Icon*, Sprite*);                     /* 0x0046d680 */
+#ifndef LEGOLAND_PORTABLE
 extern void PlayInstanceOfSample(void*, int, int, void*);      /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void*, int, int, void*);      /* 0x00496d20 */
+#endif
 extern void UpdateReportPageIcons(void);                       /* 0x00490aa0 */
 extern void KillSprite(Sprite*);                               /* 0x00497bd0 */
 extern void RemoveIconGroup(int group);                        /* 0x0046d520 */
@@ -215,9 +219,21 @@ extern __declspec(dllimport) unsigned long __stdcall GetTickCount(void); /* IAT 
 /* The media module's duck / play / restore trio (fpui5.c's names).  NOTE:
  * mapscreen.c and mapscreen2.c call 0x00498920 ResetFrontEnd; it is the same
  * function and the name divergence is left alone. */
+#ifndef LEGOLAND_PORTABLE
 extern void PauseCurrentTrack(void);                           /* 0x00498920 */
+#else
+extern int PauseCurrentTrack(void);                           /* 0x00498920 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void PlayNarrationFile(const char* path);               /* 0x00498630 */
+#else
+extern int PlayNarrationFile(const char* path);               /* 0x00498630 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void ResumeCurrentTrack(void);                          /* 0x00498b00 */
+#else
+extern int ResumeCurrentTrack(void);                          /* 0x00498b00 */
+#endif
 /* 0x0047f870 / 0x0047f850 are both a bare `ret` in the shipped build (the
  * debug logger compiled out); the argument pushes are still emitted. */
 extern void DebugPrintf(const char* fmt, ...);                 /* 0x0047f870 */
@@ -253,10 +269,18 @@ extern void sub_489ee0(void);                                  /* 0x00489ee0 */
 extern void UpdateMenu(void);                                  /* 0x004758c0 */
 extern void ClearWaitSprite(void);                             /* 0x004663c0 */
 extern void ShowInfoPanel(int kind);                           /* 0x00490600 */
+#ifndef LEGOLAND_PORTABLE
 extern void SetInfoPanelText(const char* a, const char* b);    /* 0x004911c0 */
+#else
+extern int SetInfoPanelText(const char* a, const char* b);    /* 0x004911c0 */
+#endif
 extern void SetMapReady(int);                                   /* 0x00458bb0 */
 extern void ThawGameClock(void);                               /* 0x004993c0 */
+#ifndef LEGOLAND_PORTABLE
 extern void UpdateSoundVols(void);                             /* 0x00495a90 */
+#else
+extern int UpdateSoundVols(void);                             /* 0x00495a90 */
+#endif
 extern void NewPrintCent(const char* text, int font, WinRect rc, char white); /* 0x00491d60 */
 /* 0x00490fa0: screens2.c calls this one PrintCursor (it draws the blinking
  * name-entry cursor); it is NewPrintCent's twin and is the SMALL-font report

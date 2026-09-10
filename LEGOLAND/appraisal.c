@@ -142,8 +142,16 @@ extern void  SetIconSprite(Icon* p, Sprite* s);            /* 0x0046d680 */
 extern void  RemoveIconGroup(unsigned short group);        /* 0x0046d520 */
 extern int   UnreferenceSprite(Sprite* s);                        /* 0x00497bd0 */
 extern char* GetString(int id);                            /* 0x00498f50 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  PauseCurrentTrack(void);                      /* 0x00498920 */
+#else
+extern int PauseCurrentTrack(void);                      /* 0x00498920 */
+#endif
 
 /* ========================================================================== */
 /* The five attraction counters.                                              */

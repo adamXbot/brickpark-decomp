@@ -636,7 +636,11 @@ typedef struct ObjClassRec {
 extern ObjClassRec* g_objclass_head;                  /* 0x00669240 ObjectClassList */
 
 extern void UnLoadObjectLibrary(ObjClassRec* d);      /* 0x004810f0 */
+#ifndef LEGOLAND_PORTABLE
 extern void LLSStop(void* lls);                       /* 0x0047d4c0 */
+#else
+extern int LLSStop(void* lls);                       /* 0x0047d4c0 */
+#endif
 extern int  KillSprite(LLSSprite* s);                 /* 0x00497bd0 */
 extern int  LLIDB_UnLoadData(void* elem);             /* 0x0047d450 */
 extern void free(void*);                              /* 0x0049e4d0 (CRT) */

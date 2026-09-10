@@ -106,7 +106,11 @@ extern void  SetEditCursorFootPrint(Rect* rect);             /* 0x0045f440 */
 extern void  BasicObjectDCalcCursor(void* elem, void* pos);  /* 0x00480bb0 */
 extern void  AddBasicObject(RideElem* elem, Pos* pos);       /* 0x0045efe0 */
 extern void* HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#endif
 extern void  ValidateCursor(Cursor* c, ObjDef* cls);         /* 0x0045f810 */
 extern int   CursorIsValid(Cursor* c);                       /* 0x0045f4b0 */
 extern void  ResetCursorFootprint(Cursor* c);                /* 0x0045f460 */
@@ -446,7 +450,11 @@ typedef struct LLElem {
 } LLElem;
 
 extern int   LLIDB_GetCount(void);                          /* 0x0047b2d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_GetElement(int i, LLElem** out);         /* 0x0047b2e0 */
+#else
+extern int LLIDB_GetElement(int i, LLElem** out);         /* 0x0047b2e0 */
+#endif
 extern void* LoadSprite(const char* name, int mode);        /* 0x00497ab0 */
 extern void  KillSprite(void* sprite);                      /* 0x00497bd0 */
 extern void  HeapFree_w(void* p);                           /* 0x0049e4d0 */

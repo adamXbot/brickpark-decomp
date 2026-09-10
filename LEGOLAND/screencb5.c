@@ -547,7 +547,11 @@ typedef struct JcMonkeyTree {
 
 extern JcMonkeyTree* g_jc_trees;                                /* 0x00629c2c */
 
+#ifndef LEGOLAND_PORTABLE
 extern void JungleCruise_ProbeRiver(int x, int y, BPosW* owner);/* 0x00436fb0 */
+#else
+extern int JungleCruise_ProbeRiver(int x, int y, BPosW* owner);/* 0x00436fb0 */
+#endif
 extern void JungleCruise_AddValue(BPosW id, int delta);         /* 0x00436130 */
 extern void AddBasicObject(void* obj, Pos* pos);                /* 0x0045efe0 */
 

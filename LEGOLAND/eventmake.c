@@ -62,7 +62,11 @@ extern ScriptEvent* NewScriptEvent(int kind, int mode);                        /
 extern void  SetScriptEventText(ScriptEvent* e, const char* text, int copy);   /* 0x00468b40 */
 extern void* HeapAlloc_w(unsigned int size);                                   /* 0x0049e4ff (CRT malloc) */
 extern void  HeapFree_w(void* p);                                              /* 0x0049e4d0 (CRT free) */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddHelpMessage(const char* fmt, ...);                             /* 0x00468bb0 */
+#else
+extern int AddHelpMessage(const char* fmt, ...);                             /* 0x00468bb0 */
+#endif
 extern void  ShowScriptStepText(ScriptStep* s, int mode);                      /* 0x0046b6b0 */
 extern void  ResetScriptTimer(void);                                           /* 0x00468d00 */
 extern unsigned int strlen(const char* s);

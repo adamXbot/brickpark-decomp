@@ -102,7 +102,11 @@ extern int           g_lf_commit_a;         /* 0x004cbde0 */
 extern int           g_lf_commit_b;         /* 0x004c2a90 */
 
 /* ---- engine ------------------------------------------------------------ */
+#ifndef LEGOLAND_PORTABLE
 extern void ScreenToMapRef(int screen, Pos* out, int mode);      /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int screen, Pos* out, int mode);      /* 0x0045be90 */
+#endif
 extern void ResetCursorFootprint(EditCursorRec* c);              /* 0x0045f460 */
 extern void SetCursorError(EditCursorRec* c, int code);          /* 0x0045f480 */
 extern int  CursorIsValid(EditCursorRec* c);                     /* 0x0045f4b0 */

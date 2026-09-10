@@ -1044,8 +1044,13 @@ void LFAnim_Release(LFAnimRefs* r)
 
 extern void  LFPiece_DrawJoin(LFPiece* p);                       /* 0x0040cca0 */
 extern void* g_lf_sprites[];                                     /* 0x004c2abc */
+#ifndef LEGOLAND_PORTABLE
 extern void  PrintSprite(void* spr, int x, int y, int mode,
                          int flag);                              /* 0x004853a0 */
+#else
+extern int   PrintSprite(void* spr, int x, int y, int mode,
+                         int flag);                              /* 0x004853a0 */
+#endif
 
 /* Repaint the two sub-pieces that bracket a compound piece, but only the
  * ones whose orientation faces the way the caller is drawing: with mode set

@@ -157,7 +157,11 @@ extern int         LLIDB_FindElement(const char* name, void** out, unsigned int*
 extern int         LLIDB_UnLoadData(void* elem);                            /* 0x0047d450 */
 extern void        KillSprite(SpriteRec* s);                                /* 0x00497bd0 */
 extern TextEntry*  FindCachedText(const char* text, int font, int format, int ink, int paper); /* 0x00455d40 */
+#ifndef LEGOLAND_PORTABLE
 extern void        RenderBlock(int x, int y, int w, int h, int colour);     /* 0x004890c0 */
+#else
+extern int RenderBlock(int x, int y, int w, int h, int colour);     /* 0x004890c0 */
+#endif
 
 void DrawCachedTextSprite(SpriteRec* s);
 

@@ -111,7 +111,11 @@ extern char g_close_children_bar_lls[]; /* 0x004bb4bc */
 extern void*   HeapAlloc_w(unsigned int size);                /* 0x0049e4ff */
 extern void    HeapFree_w(void* p);                           /* 0x0049e4d0 */
 extern Sprite* LoadSprite(const char* name, int mode);        /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void    ReferenceSprite(Sprite* s);                    /* 0x00497bb0 */
+#else
+extern int ReferenceSprite(Sprite* s);                    /* 0x00497bb0 */
+#endif
 extern void    KillSprite(Sprite* s);                         /* 0x00497bd0 */
 extern char*   GetString(int id);                             /* 0x00498f50 */
 extern int     GetGameTimer(void);                            /* 0x00499430 */
