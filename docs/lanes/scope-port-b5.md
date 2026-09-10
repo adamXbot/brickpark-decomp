@@ -496,7 +496,84 @@ when it next runs.
 
 ## 10. The VC6 gate
 
-Per touched file, after the integrator's quiet window.
+Seven files touched. Every one PASSes `audit.py` with no REJECT, FAIL or
+COMPILE FAILED, and every one is 0 MISMATCH under `relocs.py`. The only lines
+REMOVED anywhere in `LEGOLAND/` are the nine `LL_UNPORTED_ASM();` traps, the
+`rc = 0;` beside popup.c's, and the one `mov g_sp_rows_left, edx` that moved
+across `row:` in softblit.c — `git diff 595aae91 -- LEGOLAND/ | grep '^-'` is
+twelve lines and that is all of them.
+
+```
+audit.py, the bodies this lane ported
+  softblit.c     [OK] 0x00465240 SoftBlitAnim         415i/1544B  mismatch=0
+  tri3d.c        [OK] 0x004877b0 DrawFlatTri          481i/1416B  mismatch=0
+                 [OK] 0x00486590 DrawGouraudTri       598i/1760B  mismatch=0
+                 [OK] 0x00487d40 DrawFlatTexTri       773i/2347B  mismatch=0
+                 [OK] 0x00486c70 DrawGouraudTexTri    891i/2871B  mismatch=0
+  bigrender.c    [OK] 0x00464a90 ZBufferHelper        303i/1099B  mismatch=0
+  blitmisc.c     [OK] 0x004659a0 BltAdvisor            57i/ 152B  mismatch=0
+                 [OK] 0x004632b0 ShowCapacityOverlay   98i/ 311B  mismatch=0
+  popup.c        [OK] 0x00489190 RenderTransSprite    188i/ 502B  mismatch=0
+  coastermath.c  [OK] 0x00426ab0 FastSqrt              21i/  86B  mismatch=0
+                 [OK] 0x00426980 FastRSqrt             21i/  86B  mismatch=0
+  bnvpath.c      [OK] 0x00458930 sub_458930             3i/  12B  mismatch=0
+
+audit.py, per file
+  softblit.c    PASS  3 bodies, 3 [OK]
+  tri3d.c       PASS 21 bodies, 21 [OK]
+  bigrender.c   PASS  5 bodies, 4 [OK] + 1 [WIP] (RenderCursor 0x0045ff00,
+                      pre-existing, untouched)
+  blitmisc.c    PASS  7 bodies, 7 [OK]
+  popup.c       PASS  3 bodies, 2 [OK] + 1 [WIP] (DrawPopUpInfo 0x004724a0,
+                      pre-existing, untouched)
+  coastermath.c PASS 11 bodies, 11 [OK]
+  bnvpath.c     PASS  6 bodies, 6 [OK]
+
+relocs.py | grep MISMATCH     empty for all seven
+  softblit.c 217 relocations 0 mismatches   tri3d.c 211/0
+  bigrender.c 210/0   blitmisc.c 87/0   popup.c 40/0
+  coastermath.c 17/0  bnvpath.c 42/0
+
+progress.py --check            665/675 exports exact (98.5%);
+                               3281 exact functions total; 42 WIP
+duplicate marker addresses     none
+marker SET, 595aae91 -> HEAD   3281 before, 3281 after, nothing lost,
+                               nothing gained (`comm -23` empty both ways)
+```
+
+`--check` reported `docs/LEGOLANDPROGRESS.HTML` stale, as expected: the C
+bodies moved a lot of line numbers. Regenerated and committed — 3323 rows
+before and after, no address added or removed, no status changed, and every
+differing row differs in nothing but its `#L` anchor.
+
+### Builds, from CLEAN directories
+
+* native `cmake -S portable -B portable/build -G Ninja` + `ninja` +
+  `legoland_tests` + `ctest`: **8/8**;
+* wasm `emcmake cmake ... -DLL_ILP32=ON -DCMAKE_BUILD_TYPE=Release` + `ninja` +
+  `legoland_headless legoland_tests legoland_pathtest legoland_browser` +
+  `ctest`: **13/13**.
+
+Tests added: `anim_recolour` 25 checks, `tri_raster` 33 checks, `zbuf_blit` 12
+checks — 70 checks, 0 failed, on both toolchains.
+
+### The headless spine is unchanged
+
+```
+LL_HOST_TRACE=1 LL_CD_DIR=$PWD/gamedata/disc LL_DATA_DIR=$PWD/gamedata/main \
+  perl -e 'alarm 150; exec @ARGV' node portable/build-wasm/legoland_headless.js
+  HOST first present: 640x480 pitch 1280
+  NODE present16 #1 640x480 pitch 1280: 301157/307200 non-black,
+       first row: 8e1b 7e1c 7e1c 761c 761c 761c 761c 75dc 6ddc 65dc ...
+```
+
+**301157/307200 non-black, the same figure PORT-B3 recorded**, no TRAP
+anywhere, and it then sits in `RunGame`'s music wait loop until the alarm —
+PORT-B3's documented next blocker (`DirectSoundCreate` returning
+`DSERR_NODRIVER`, so `InitMusicSystem` never sets `g_music_disabled`), which
+this lane did not touch. None of the twelve bodies is on the title-screen path,
+so no change there was expected; what the run establishes is that nothing
+regressed.
 
 ## 11. Builds and the census
 
