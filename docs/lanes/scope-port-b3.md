@@ -281,7 +281,52 @@ Two things worth recording from building it:
   640x480 backgrounds. Preferring a transparent frame is what keeps the
   "advance without writing" half of the grammar in the check.
 
-## 4. Evidence: how far the game runs
+## 4. The VC6 gate
+
+Run after the integrator's quiet window (2026-09-11 06:00), per touched file.
+Only `LEGOLAND/rlepaint.c` and `LEGOLAND/rlepaint2.c` were touched, and in
+both the only lines REMOVED are the ten `LL_UNPORTED_ASM();` traps — the
+`#ifndef LEGOLAND_PORTABLE` arms and every `// FUNCTION:` marker are
+byte-identical to `3ca919cc`.
+
+```
+$PY tools/audit.py LEGOLAND/rlepaint.c
+  [OK  ] 0x00466d80 RLEPaintHitClipLR  ours=325i/1011B  orig=325i/1011B  mismatch=0
+  [OK  ] 0x00467180 RLEPaintHitClipL   ours=202i/611B   orig=202i/611B   mismatch=0
+  [OK  ] 0x004673f0 RLEPaintHitClipR   ours=197i/588B   orig=197i/588B   mismatch=0
+  [OK  ] 0x00467640 RLEPaintHit        ours=122i/358B   orig=122i/358B   mismatch=0
+  [OK  ] 0x004677b0 RLEPaintClipLR     ours=271i/833B   orig=271i/833B   mismatch=0
+  [OK  ] 0x00467b00 RLEPaintClipL      ours=180i/526B   orig=180i/526B   mismatch=0
+  [OK  ] 0x00467d10 RLEPaintClipR      ours=167i/489B   orig=167i/489B   mismatch=0
+  [OK  ] 0x00467f00 RLEPaintFast       ours=114i/311B   orig=114i/311B   mismatch=0
+  PASS: 0 function(s) failed the extent gate
+
+$PY tools/audit.py LEGOLAND/rlepaint2.c
+  [OK  ] 0x00468040 SoftBlitRLEFrameRecolour  ours=303i/965B  orig=303i/965B  mismatch=0
+  [OK  ] 0x00468410 SoftBlitRLEFrame          ours=312i/992B  orig=312i/992B  mismatch=0
+  PASS: 0 function(s) failed the extent gate
+
+$PY tools/relocs.py LEGOLAND/rlepaint.c   -> 20 relocations, 0 mismatches
+$PY tools/relocs.py LEGOLAND/rlepaint2.c  -> 20 relocations, 0 mismatches
+  (`| grep MISMATCH` empty for both)
+
+$PY tools/progress.py --check
+  665/675 exports exact (98.5%); 3281 exact functions total; 42 WIP
+```
+
+`--check` reported `docs/LEGOLANDPROGRESS.HTML` stale, as expected: the C
+bodies moved eight rows' line numbers. Regenerated and committed — 3323 rows
+before and after, eight rows differing in nothing but their `#L` anchor, all
+in rlepaint.c/rlepaint2.c, and the totals unchanged.
+
+Builds, both from CLEAN directories:
+
+* native `cmake -S portable -B portable/build -G Ninja` + `ninja` + `ctest`:
+  4/4;
+* wasm `emcmake cmake ... -DLL_ILP32=ON` + `ninja` + the four extra targets +
+  `ctest`: **9/9**, `rle_paint` included, real sprite included.
+
+## 5. Evidence: how far the game runs
 
 ### The census
 
