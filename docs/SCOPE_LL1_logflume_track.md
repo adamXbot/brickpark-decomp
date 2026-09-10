@@ -1,6 +1,8 @@
 # Scope LL1 — logflume track / entrance helpers (inventory group 1) (2026-09-07)
 
-> **Status: IN PROGRESS (claimed 2026-09-07).** Branch `scope/LL1`. Notes: `docs/lanes/scope-ll1.md`. Object prefix
+> **Status: DONE — 22 of 22 exact, merged into `main`.** `logflume8.c` carries no
+> WIP markers; branch `scope/LL1` has been deleted. The original
+> cut follows. Branch `scope/LL1`. Notes: `docs/lanes/scope-ll1.md`. Object prefix
 > `/tmp/sll1_`. Cut from inventory group 1 live members
 > (`tools/inventory.py`, 2026-09-07 refresh). Naming: `LL*` replaces letter
 > scopes after AK.

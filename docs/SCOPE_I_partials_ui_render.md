@@ -1,5 +1,16 @@
 # Scope I — partials: UI, system, sim, render (2026-09-05)
 
+> **STATUS 2026-09-11 — this brief is a HISTORICAL RECORD, not a work list.**
+> Of the 15 addresses it names, **3 are now exact on `main`** and **12 remain
+> WIP**: the two `renderview.c` bodies, `RenderCursor`, `PaintTileLayer`,
+> `LoadScriptEvent`, `ScrollIconPanel`, `CheckWorkerOnMouseStatus`,
+> `RemoveNewObjectMarker`, `DrawPopUpInfo`, `GetObjectUID`, `InitExitCheckBox`
+> and `UpdateSampleSource`.
+> The table below still shows each body as it stood when the scope was cut, so
+> do not pick work from it. **`docs/HANDOFF.md` §6B is the live list** of every
+> open partial with its current residual; the notes above each marker in the
+> source are the authority on what has been ruled out.
+
 **Read `docs/PARALLEL_CONTRACT.md` first, including its "Extra rules for
 PARTIAL scopes".** Branch: `scope/I`. Notes: `docs/lanes/scope-i.md`. Object
 prefix: `/tmp/si_`.

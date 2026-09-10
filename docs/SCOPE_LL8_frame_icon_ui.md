@@ -1,6 +1,8 @@
 # Scope LL8 — gameframe / icon-UI leftovers (inventory group 12+13+14) (2026-09-07)
 
-> **Status: IN PROGRESS (claimed 2026-09-08).** Branch `scope/LL8`. Notes: `docs/lanes/scope-ll8.md`. Object prefix
+> **Status: DONE — 13 of 13 exact, merged into `main`.** `gameframe2.c` carries no
+> WIP markers (`AddScriptString` 0x004689f0 closed); branch `scope/LL8` has been deleted. The original
+> cut follows. Branch `scope/LL8`. Notes: `docs/lanes/scope-ll8.md`. Object prefix
 > `/tmp/sll8_`. Cut from inventory group 12+13+14 live members
 > (`tools/inventory.py`, 2026-09-07 refresh). Naming: `LL*` replaces letter
 > scopes after AK.

@@ -1,5 +1,13 @@
 # Scope Q — the main loop, the map-screen frame, level state and cursor segments (2026-09-05)
 
+> **STATUS 2026-09-11 — this brief is a HISTORICAL RECORD, not a work list.**
+> Of the 33 addresses it names, **30 are now exact on `main`** and **3 remain
+> WIP**: `TallyBuildFootprints` 0x00459970 and the two `cursorseg.c` bodies.
+> The table below still shows each body as it stood when the scope was cut, so
+> do not pick work from it. **`docs/HANDOFF.md` §6B is the live list** of every
+> open partial with its current residual; the notes above each marker in the
+> source are the authority on what has been ruled out.
+
 > **Status: DONE — 12 of 17 exact, 4 WIP with residuals named, the dead 291-instruction overlay decoded and not attempted; merged into `main` 2026-09-05 (integrator session).** Branch `scope/Q`. Notes: `docs/lanes/scope-q.md`.
 > Object prefix `/tmp/sq_`. Any agent. Cut from group 17 of the whole-binary
 > inventory (`docs/lanes/scope-n.md`, Appendix A) minus `0x00460f50`, which

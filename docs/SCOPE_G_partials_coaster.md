@@ -1,5 +1,14 @@
 # Scope G — partials: coaster, school car, joust (2026-09-05)
 
+> **STATUS 2026-09-11 — this brief is a HISTORICAL RECORD, not a work list.**
+> Of the 19 addresses it names, **15 are now exact on `main`** and **4 remain
+> WIP**: `StepSchoolCar` 0x00402780, `TempleSlide_Update` 0x00417430,
+> `Coaster3D_SeamPair` 0x00428cb0 and 0x0042a2f0 (coaster3d.c).
+> The table below still shows each body as it stood when the scope was cut, so
+> do not pick work from it. **`docs/HANDOFF.md` §6B is the live list** of every
+> open partial with its current residual; the notes above each marker in the
+> source are the authority on what has been ruled out.
+
 **Read `docs/PARALLEL_CONTRACT.md` first, including its "Extra rules for
 PARTIAL scopes".** Branch: `scope/G`. Notes: `docs/lanes/scope-g.md`. Object
 prefix: `/tmp/sg_`.

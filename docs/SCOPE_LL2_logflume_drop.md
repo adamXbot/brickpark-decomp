@@ -1,6 +1,8 @@
 # Scope LL2 — logflume drop / track tick cluster (inventory group 2) (2026-09-07)
 
-> **Status: IN PROGRESS (claimed 2026-09-07).** Branch `scope/LL2`. Notes: `docs/lanes/scope-ll2.md`. Object prefix
+> **Status: DONE — 6 of 6 exact, merged into `main`.** `logflume9.c` carries no
+> WIP markers; branch `scope/LL2` has been deleted. The original
+> cut follows. Branch `scope/LL2`. Notes: `docs/lanes/scope-ll2.md`. Object prefix
 > `/tmp/sll2_`. Cut from inventory group 2 live members
 > (`tools/inventory.py`, 2026-09-07 refresh). Naming: `LL*` replaces letter
 > scopes after AK.

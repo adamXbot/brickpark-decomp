@@ -1,6 +1,9 @@
 # Scope V — the script-event tick handlers, part 1, and the goal checks (2026-09-06)
 
-> **Status: OPEN, unclaimed.** Branch `scope/V`. Notes: `docs/lanes/scope-v.md`.
+> **Status: DONE — 62 of 62 exact, merged into `main`.** `eventgoal.c` (16)
+> and `eventtick.c` (46) carry no WIP markers; branch `scope/V` has been
+> deleted and its evidence is in `docs/lanes/scope-v.md`. The original cut
+> follows, kept for the mechanics it records. Branch `scope/V`. Notes: `docs/lanes/scope-v.md`.
 > Object prefix `/tmp/sv_`. Any agent. Cut from inventory group 18. Read
 > `docs/SCOPE_R_level_keywords_1.md`'s "What this tier is" for the pipeline
 > (keyword handler → `AddEvent_<KW>` → `EventTick_<KW>`).
