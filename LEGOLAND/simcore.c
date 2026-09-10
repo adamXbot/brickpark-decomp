@@ -1010,6 +1010,49 @@ static __inline Cell* RouteCellAt(Pos* p)
  * folded into the y store [403]; and a `static __inline PosEq(&cur->pos,
  * &g_route_to)` goal test in three else spellings [9/9/410 -- the inline
  * costs an instruction].  Nothing beats 3.  FLOOR RE-ENDORSED.
+ *
+ * 2026-09-10, scope LL21.  Still 3, committed body unchanged -- but PASS
+ * w11a's rule 1 is now FALSIFIED in its strong form, and the replacement rule
+ * says exactly what is missing.
+ *  - *** THERE IS A THIRD REGIME. ***  w11a concluded that the else block's x
+ *    can only be the goal test's own web or a fresh load, "a register-to-
+ *    register copy is neither; there is no third regime for VC6 to land in".
+ *    A scope-V CANCELLED PAIR is that third regime.  Written on the plain
+ *    field spelling that w11a measured at 138 (207 as re-measured here):
+ *        struct { int ox, oy; } t;   ...
+ *        t.oy = (int)cur;            -- or best, &g_route_to, &g_open_head
+ *        t.ox = cur->pos.x;
+ *        t.ox += t.oy;  t.ox -= t.oy;
+ *        to.x = t.ox;   to.y = cur->pos.y - 1;
+ *    the body comes out with indices 0..37 AND 39..480 exact -- the whole
+ *    138/207 cascade disappears, INCLUDING the `mov edx,[4bb5a4h]` at 31 and
+ *    the `cmp` at 32 that are two of this body's three mismatches.  The pair
+ *    costs nothing: the anchor is dead and is DCE'd, and the add/sub cancel at
+ *    instruction selection.  Sixty-one anchor x placement combinations were
+ *    measured; any pointer or link-time address constant reaches it, and it is
+ *    robust (chained pairs, unsigned or char* members, a redundant `*1` or
+ *    `|0`, an extra copy member, and feeding the carrier to RouteInBounds all
+ *    reproduce it exactly).
+ *  - WHAT IT STILL DOES NOT DO is emit the copy.  VC6 COALESCES the carrier's
+ *    web with the goal test's, so `to.x` is stored straight out of eax and the
+ *    body is 481 instructions: the original's `mov ecx,eax` at index 38 is the
+ *    single missing instruction, and eax/ecx are then swapped for the two
+ *    RouteInBounds arguments.  So the rule should read: a cancelled pair DOES
+ *    give the else block's x a web of its own, but a web whose source dies at
+ *    its definition is coalesced away, and the copy still needs the
+ *    interference or the phi this site does not have.  Making y the anchor (to
+ *    bump it into eax) does not work either -- the anchor is then a real load,
+ *    costs its own instruction, and lands exactly where the copy should be.
+ *  - Two mechanical facts measured on the way, worth reusing elsewhere:
+ *    (a) the fold is ORDER-SENSITIVE -- `+=` then `-=` folds, `-=` then `+=`
+ *    does NOT when the anchor is a link-time address constant (it emits
+ *    `sub eax,K` / `lea ecx,[eax+K]`, i.e. the copy plus a displacement);
+ *    (b) ANY statement between the cancel and the carrier's use un-folds the
+ *    pair or collapses the body back to the 207 regime -- writing `to.y`
+ *    first, re-introducing the struct copy, or declaring a y temp ahead of it
+ *    are all 207..212.
+ *  FLOOR RE-ENDORSED at 479 of 482 instructions, 1336/1336 bytes, three
+ *  register-allocation instructions at indices 31/32/38.
  */
 // WIP-FUNCTION: LEGOLAND 0x00477bd0  (99.4%, 3 register-allocation instructions at idx 31/32/38 -- see above)
 void RequestRoute(Pos from, Pos to)

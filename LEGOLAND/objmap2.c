@@ -1746,7 +1746,47 @@ static __inline void PeopleCheck(Cursor* cur, Rect* r, WinRect* bound, Pos* o)
  * last number is the new fact: offset-blind does not drop below strict, so no
  * part of this residual is a frame-offset or operand-order error hiding in an
  * `[esp?]` bucket -- indices 42-46 really are one permutation of one multiset,
- * as PASS 4 concluded. */
+ * as PASS 4 concluded.
+ *
+ * 2026-09-10, scope LL21.  UNCHANGED at 5.  Both scope-Codex-F levers were
+ * measured here and BOTH are negatives; record them so nobody re-runs them.
+ *  - The ALIAS-POINTER lever (an alias defeats VC6's canonicalisation of a
+ *    commutative operator whose two operands are constant offsets off ONE
+ *    pointer) is COMPLETELY INERT on this body, at zero instruction cost:
+ *    a second `Rect* r2 = r;` used for any single one of the four rect fields
+ *    (bottom, left, right), a `Pos* o2 = o;` for the second origin.y read, a
+ *    second `Map* m2 = g_map;` for the second height read (declared at the
+ *    store or hoisted above the zero stores) and a `*(unsigned short*)
+ *    ((char*)g_map + 22)` cast are ALL byte-identical to this body.  That is
+ *    the expected result once the mechanism is stated properly: the four foot
+ *    sums add `r->F` to `o->Y`, i.e. operands off TWO pointers already, so
+ *    there is no single-base canonicalisation for an alias to defeat.  (The
+ *    alias is not free where it does bite: aliasing BOTH x-axis reads is 18
+ *    and both y-axis reads is 14.)  The PASS-3 finding that all 16 addend
+ *    flips are byte-identical therefore stands and is NOT the same phenomenon
+ *    as the Codex-F fmul reversal.
+ *  - The CANCELLED-PAIR ANCHOR lever is worse than inert here, and for a
+ *    structural reason: `bound` is address-taken, so a cancelled pair cannot
+ *    be written on its members (they are real memory), and a pair written on
+ *    a separate flat struct to carry the second height read CSEs the two
+ *    height loads back into one -- the body loses four instructions (201i)
+ *    and 46-66 mismatches follow.  Every anchor was tried (g_map, &g_map,
+ *    cur, r, root, &bound), on the first height read, the second, and both;
+ *    also with the struct at inner block scope.  Best 46, worst 121.  The
+ *    /FAcs listing says why: the pair does cancel (no add/sub is emitted and
+ *    no frame slot appears) but the carrier's web displaces `r` from edi to
+ *    ebx and the `_r$` spill disappears with it.
+ *  - Also re-measured and worse: pinning the second height read with a
+ *    volatile-qualified POINTER (`*(volatile unsigned short*)&g_map->height`,
+ *    which needs no frame slot, unlike the `volatile int h` PASS 3 tried)
+ *    crossed with `h` passed as a sixth PeopleCheck argument, `py = o->y`
+ *    named or not, and the `bound->right = h` store at each of five positions
+ *    among the sums: 40 bodies, best 16, and the baseline shape (store before
+ *    the sums) is the only one that stays at 5.  So the "not a single-use
+ *    temporary" hypothesis PASS 3 left open is now CLOSED negatively: pinning
+ *    the LOAD early does not let the STORE move late; the two travel together
+ *    whatever pins the load.
+ *  FLOOR RE-ENDORSED at 205/205 instructions, 617/617 bytes, 5 strict. */
 // WIP-FUNCTION: LEGOLAND 0x0045f810  (97.6%, bound.right store scheduled before the top sum: 5 insns at idx 42-46)
 void ValidateCursor(Cursor* cur, ObjDef* def)
 {
