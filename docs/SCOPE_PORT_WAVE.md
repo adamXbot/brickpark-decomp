@@ -25,6 +25,22 @@
 > **PORT-B5 — Status: MERGED (2026-09-12) — 9 more asm bodies ported (SoftBlitAnim with the `row:` label fix, tri3d.c x4, ZBufferHelper, BltAdvisor, ShowCapacityOverlay, RenderTransSprite); the 3 ST(0) helpers proved unreachable in the portable build; `LL_FISTP` no longer lowers to a libm call (every fistp site was a latent wasm trap); census asm stubs 15 -> 6; tests anim_recolour/tri_raster/zbuf_blit (70 checks); findings: tri3d/texture texel formula transposed in the headers, DrawGouraudTexTri masks crossed, ZBufferHelper 2-byte step in a 4-byte buffer, sub_458930 is (int)<float> rounding to nearest at 110 sites. Notes `docs/lanes/scope-port-b5.md`**
 > **PORT-M4 — Status: MERGED (2026-09-12) — externs without a readable address comment 81 -> 2 (52 lacked one, 29 had one the scanner could not read: continuation lines, function-pointer types); 7 live globals had existed TWICE as zeroed placeholders (g_present, g_active_input_cb, g_lt_action_handlers, ...); 30 files, audit rows unchanged, relocs 0 MISMATCH, 3281/42; WindowProc -> LegoLandWindowProc. With the integrator's libm/WINMM classification fixes the page reaches PLAYER DETAILS with zero GAME traps (six AVIFIL32 host stubs remain). Four caller/definition name disagreements recorded, not resolved. Notes `docs/lanes/scope-port-m4.md`**
 > **PORT-A5 — Status: MERGED (2026-09-12) — LL_TRAP_CONTINUE=1 / name_trap.py --continue (every blocker in one run); CreateThread runs MusicThread inline with a setjmp escape and unsignalled events poll as WAIT_TIMEOUT (the front end is reached WITHOUT -nomusic); _findclose(-1) and the CRT -1-handle family; THE INPUT BUG: the 164-byte GameInput record (and PopUpUI, Profile) was emitted as nine separate objects — STRUCT_EXTENTS in gen_link.py, ctest probe_input. Notes `docs/lanes/scope-port-a5.md`**
+> **PORT-B6 — Status: MERGED (2026-09-12) — AVIFIL32/MSACM32/WINSPOOL shims: generated host traps 96 -> 0, the page runs the front end trap-free at 33 fps; press latch, live-surface registry and keyCode fallback fixed; window.llFrameHash/llNonBlack/llSnapshot/llTrace/llStats hooks. Integrator added B6's two split-record rows (BlitCtx/HitInfo 0x004bdd00, CurProfile 0x0080ffa0) to gen_link's STRUCT_EXTENTS: A CLICK ON SLOT 1 NOW OPENS THE NAME EDITOR (hash 0x9d9b7c50 -> 0xdd2ac534). Notes `docs/lanes/scope-port-b6.md`**
+> **generated host traps 96 -> 0**, and `legoland_headless` runs the front end
+> with no `LL_TRAP_CONTINUE`. Three host input defects fixed and measured in a
+> tab: dinput.c's **press latch** (a click whose down and up landed in one drain
+> collapsed to "up" — `buttons=000` on every poll), ddraw.c's **live-surface
+> registry** (`ll_host_surface_pixels` dereferenced a gdi32 cookie from
+> `CreateCompatibleDC(0)`, killing the module in `HTBubbleHelp`), and
+> ll_canvas.js's **`dikOf`** (keydown with `code == ""` — every virtual/IME/
+> automation keystroke was dropped). Page tooling: `llFrameHash/llSnapshot/
+> llStats/llTrace` + a collapsible host-call panel. Screens reached: PLAYER
+> DETAILS `0x9d9b7c50`, its bubble help, the NEW PROFILE popup `0x5ab7ca10` from
+> one real click. Gates wasm ctest 14/14, native 8/8. **OPEN, PORT-A:** two more
+> split records, both proved — the 12-byte hit record at 0x004bdd00 is THREE
+> objects (so NO front-end icon can ever be focussed) and the 270-byte
+> `CurProfile` at 0x0080ffa0 is EIGHT (so the name editor never runs); both rows
+> twice-cited in the notes. Notes `docs/lanes/scope-port-b6.md`.
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
