@@ -2,7 +2,7 @@
 
 > **PORT-A — Status: OPEN, unclaimed**
 > **PORT-B — Status: OPEN, unclaimed**
-> **PORT-C — Status: IN PROGRESS (claimed 2026-09-11 by PORT-C)**
+> **PORT-C — Status: MERGED at 5 tests / 193 checks green natively (2026-09-11, d19d3fd7) — res_archive, llidb_icm and loadpos are ILP32-only and run once PORT-A's wasm32 closure links; 8 findings in `docs/lanes/scope-port-c.md` (resfile.py drops alias members; RES_EnsureMounted needs GetVolumeInformationA to report CDFS/LEGOLAND; LEGOLAND.ICM case)**
 > Branches `scope/PORT-A`, `scope/PORT-B`,
 > `scope/PORT-C` from `origin/main` `6de9cab0`+scaffold. Notes:
 > `docs/lanes/scope-port-a.md` / `-b.md` / `-c.md`. No VC6 object prefix: these
