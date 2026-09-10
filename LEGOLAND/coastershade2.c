@@ -118,36 +118,37 @@ void TrackCursor_RetreatGeometry(RoutePos* cursor)
  * hand-written fill (`xchg`, `add ebx,1`, `jns/jmp`), but the destination
  * is g_raster_bits and the pixel comes from g_shade_tab[tag][grad[0]].
  * g_zb_base is loaded into a local and never read (the dead store). */
-// WIP-FUNCTION: LEGOLAND 0x0041f8d0  (106/106i, 309/307B, 88 mismatch; 0x58 vs 0x60 frame)
+// FUNCTION: LEGOLAND 0x0041f8d0
 void Span_FillFlat(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 {
     SpanInterp ed[4];
-    int        dead;
-    short*     row;
-    int        pitch;
-    int        color;
+    struct { short* row; int dead; int pitch; } r;
+    short      color;
     int        y;
     int        ylast;
 
     y = key[0].y;
     edge[key[n - 1].idx].y1++;
-    color = (int)g_shade_tab[tag][grad[0]];
-    pitch = g_zb_pitch;
+    r.row = g_raster_bits;
     ylast = edge[key[n - 1].idx].y1;
+    r.dead = (int)g_zb_base;
+    r.pitch = g_zb_pitch;
     g_zb_polys++;
+    color = (short)g_shade_tab[tag][grad[0]];
     key[n].y = edge[key[n - 1].idx].y1;
-    row = g_raster_bits + pitch * *(int volatile*)&y;
-    *(int volatile*)&dead = (int)g_zb_base;
+    r.row += r.pitch * y;
     do {
         SpanEdge* e = &edge[key->idx];
 
         key++;
         if (e->dir) {
+            ed[2].x = e->a[0];
             ed[3].x = e->d[0];
-            ed[2].x = e->a[0] - e->d[0];
+            ed[2].x -= ed[3].x;
         } else {
+            ed[0].x = e->a[0];
             ed[1].x = e->d[0];
-            ed[0].x = e->a[0] - e->d[0];
+            ed[0].x -= ed[1].x;
         }
         while (y < key->y) {
             y++;
@@ -166,9 +167,9 @@ void Span_FillFlat(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
             wide:
                 sar  eax, 16
                 sar  ebx, 16
-                mov  edi, row
+                mov  edi, r.row
                 xchg ebx, eax
-                mov  dx, word ptr color
+                mov  dx, color
                 sub  ebx, eax
                 lea  edi, [edi + eax*2]
             fill:
@@ -177,7 +178,7 @@ void Span_FillFlat(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
                 jle  fill
             done:
             }
-            row += pitch;
+            r.row += r.pitch;
         }
     } while (y < ylast);
 }
@@ -185,40 +186,43 @@ void Span_FillFlat(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 /* Flat shade + Z, table slot 0x004b564c. Same sentinel and 0x14 interpolants
  * as Span_FillFlat; the left edge also carries z, and each pixel is written
  * only when its interpolated z is not behind the z-buffer. */
-// WIP-FUNCTION: LEGOLAND 0x0041fba0  (136/136i, 398/399B, 62 mismatch; row homes in arg slots)
+// FUNCTION: LEGOLAND 0x0041fba0
 void Span_FillFlatZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 {
     SpanInterp ed[4];
-    short*     crow;
-    short*     zrow;
-    int        pitch;
-    int        color;
+    struct { short* crow; short* zrow; int pitch; } r;
+    short      color;
     int        y;
     int        ylast;
     int        dz;
 
     y = key[0].y;
     edge[key[n - 1].idx].y1++;
-    dz = grad[1];
     ylast = edge[key[n - 1].idx].y1;
-    pitch = g_zb_pitch;
+    r.pitch = g_zb_pitch;
+    r.zrow = g_zb_base;
+    r.crow = g_raster_bits;
+    dz = grad[1];
     g_zb_polys++;
-    color = (int)g_shade_tab[tag][grad[0]];
+    color = (short)g_shade_tab[tag][grad[0]];
     key[n].y = edge[key[n - 1].idx].y1;
-    crow = g_raster_bits + pitch * y;
-    zrow = g_zb_base + pitch * y;
+    r.crow += r.pitch * y;
+    r.zrow += r.pitch * y;
     do {
         SpanEdge* e = &edge[key->idx];
 
         key++;
         if (e->dir) {
+            ed[2].x = e->a[0];
             ed[3].x = e->d[0];
-            ed[2].x = e->a[0] - e->d[0];
+            ed[2].x -= ed[3].x;
         } else {
+            ed[0].x = e->a[0];
             ed[1].x = e->d[0];
+            ed[0].z = e->a[1];
             ed[1].z = e->d[1];
-            ed[0].x = e->a[0] - e->d[0];
-            ed[0].z = e->a[1] - e->d[1];
+            ed[0].x -= ed[1].x;
+            ed[0].z -= ed[1].z;
         }
         while (y < key->y) {
             y++;
@@ -240,14 +244,14 @@ void Span_FillFlatZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
             wide:
                 sar  eax, 16
                 sar  ebx, 16
-                mov  edi, crow
-                mov  esi, zrow
+                mov  edi, r.crow
+                mov  esi, r.zrow
                 xchg ebx, eax
                 sub  ebx, eax
                 lea  edi, [edi + eax*2]
                 lea  esi, [esi + eax*2]
             fill:
-                mov  ax, word ptr color
+                mov  ax, color
                 mov  ecx, edx
                 sar  ecx, 16
                 cmp  cx, word ptr [esi + ebx*2]
@@ -260,8 +264,8 @@ void Span_FillFlatZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
                 jle  fill
             done:
             }
-            crow += pitch;
-            zrow += pitch;
+            r.crow += r.pitch;
+            r.zrow += r.pitch;
         }
     } while (y < ylast);
 }
