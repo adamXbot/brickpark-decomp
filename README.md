@@ -18,13 +18,15 @@ decompilations.
 
 <a href="docs/LEGOLANDPROGRESS.HTML"><img src="docs/LEGOLANDPROGRESS.SVG" width="100%" alt="LEGOLAND decompilation progress"></a>
 
-The current source contains **3174 exact full-body function matches**: **665 of
-675 exported functions (98.5%)**, plus 2509 recovered internal functions.
-Another 81 functions are marked work in progress. The export figure
-overstates completion: measured in bytes of game code, **75.8% is matched
-exactly (92.8% including partials)** as of the 2026-09-09 checkpoint
+The current source contains **3273 exact full-body function matches**: **665 of
+675 exported functions (98.5%)**, plus 2608 recovered internal functions.
+Another 50 functions are marked work in progress; every function in the
+binary's game-code range now has a C body. The export figure overstates
+completion: measured in bytes of game code, **81.4% is matched exactly (94.4%
+including partials)** as of the 2026-09-10 checkpoint
 (`python3 tools/coverage.py`; see [docs/HANDOFF.md](docs/HANDOFF.md)). The
-searchable
+ceiling is about 94.5%: the rest is padding, `switch` tables and CRT data that
+no C body can claim. The searchable
 [decompilation report](docs/LEGOLANDPROGRESS.HTML)
 is generated directly from the committed reccmp annotations.
 
@@ -85,6 +87,7 @@ The original executable must match this target:
 - `LEGOLAND/` — matching C reconstruction of `legoland.exe`
 - `symbols/` — 675 function and 41 data exports, plus analysis symbol data
 - `tools/` — extraction, disassembly, matching, audit, and report tools
+- `portable/` — clang/CMake build of the same C with a host shim, towards a native and browser runtime (see [portable/README.md](portable/README.md))
 - `web/` — browser-based LEGOLAND Data Lab
 - `docs/` — format research, roadmap, and decompilation notes
 
