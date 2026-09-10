@@ -281,6 +281,112 @@ Two things worth recording from building it:
   640x480 backgrounds. Preferring a transparent frame is what keeps the
   "advance without writing" half of the grammar in the check.
 
+## 3b. The type-2 sibling: SoftBlitAnimPlain
+
+`LEGOLAND/softblit2.c` 0x00464480 is the ImageRec **type-2** painter — the
+LLS animation records the icon bar, the blokes and the front-end sprites use.
+It was the last trap on the plain sprite path, so it went in too.
+
+Its stream is NOT the type-3 one. `ebp` steps 32-bit control words, `ebx`
+holds the word being consumed and `g_zb_bits` counts the codes left in it,
+refilling from the next word when the count goes negative; the shift happens
+unconditionally and is thrown away on a refill. A run length is not a
+separate byte stream at all — it is spliced out of the LOW BYTE of the
+control word (`shr ebx,2 / movzx ecx,bl / shr ebx,6`), costs FOUR code slots,
+and if fewer than four are left the word is refilled and the length taken
+from the NEW word's low byte, discarding whatever remained of the old one.
+Pixels are 8-bit indices through `g_sp_pal16`. `ll_anim_open`,
+`ll_anim_code`, `ll_anim_count` and `ll_anim_hit` in `ll_portable.h` are that
+reader and the arm-and-test mouse pair.
+
+One contract difference from the type-3 family, found by the test: the type-3
+dispatcher biases the destination by `-src.left` and its painters then STEP
+the output over every clipped pixel. This one does neither — `lc_one` and
+`lc_step` advance only the index pointer — so the first VISIBLE source column
+lands on `dst.x`. Same result, opposite mechanics.
+
+Test: `portable/tests/test_anim_paint.c`, subcommand `anim_paint`, **10
+checks, 0 failed**, both toolchains. It carries its own encoder for the
+spliced-length packing, and the same op-list-versus-reference-image design as
+the type-3 test.
+
+### FINDING 1: a dead row-end branch in SoftBlitAnimPlain
+
+The transparent-single case of the paint pass is
+
+```
+0x004649aa  dec edx
+0x004649ab  add edi, 2      <- add writes ZF
+0x004649ae  je  <endrow>
+```
+
+so the `je` tests the flags of the **add**, not of the `dec`. The output
+pointer plus two is never zero, so that row-end branch is dead: a transparent
+single always falls back into the paint loop whatever the budget is. With the
+budget at zero the following codes still run, and because the run-versus-
+budget test is `ja` (UNSIGNED), a budget that has gone negative compares
+ABOVE any run length and the painter can write one pixel past the right clip.
+
+The recolouring sibling `SoftBlitAnim` (0x00465240) spells the same case
+`dec edx / je endrow / add edi,2` — branch first — which is what the plain
+one evidently meant. Reproduced in the C, not fixed, with the reason in a
+comment at the site.
+
+### FINDING 2: `softblit.c`'s `row:` label is one instruction too late
+
+**This one is a defect in the RECONSTRUCTION, not in the game**, and the byte
+gate cannot see it. `SoftBlitAnim`'s row loop in the original is
+
+```
+0x00465443  mov edx,[0x7febac]      ; g_sp_h
+0x0046544b  je  0x46582e            ; done
+0x00465451  mov [0x7fea10],edx      ; g_sp_rows_left = edx   <-- the loop head
+0x00465457  mov edx,[0x7fea50]      ; g_sp_left
+   ...
+0x00465828  jne 0x465451            ; the back edge targets the STORE
+```
+
+`LEGOLAND/softblit.c:740-741` puts `mov g_sp_rows_left, edx` ABOVE the `row:`
+label, so the assembled `jne row` would land on 0x465457 and the store would
+never run again: `g_sp_rows_left` would stay at `g_sp_h`, `nextrow` would
+recompute `g_sp_h - 1` every time, and the loop would never end for a sprite
+taller than one row.
+
+`tools/audit.py` and `tools/match.py` cannot catch it because `norm()`
+rewrites every direct branch target to `<t>` (match.py:170-189) — a `jne` to
+the wrong label normalises to the same text and the instruction is the same
+length, so the body still reports 415i/1544B mismatch=0. The cross-check that
+does catch it is the sibling: `SoftBlitAnimPlain`'s original back edge
+(`0x00464a5e jne 0x4646a1`) also targets its store, and `softblit2.c` places
+its `row:` label correctly, before it.
+
+Fix: move `row:` in `LEGOLAND/softblit.c` up one line, above
+`mov g_sp_rows_left, edx`. That is a matching-lane edit to the `__asm` text
+this lane must not touch, so it is reported and not made here.
+
+### Why SoftBlitAnim itself was NOT ported
+
+`softblit.c:1028` `SoftBlitAnim` (0x00465240, the recolouring type-2 painter)
+is still `LL_UNPORTED_ASM()`. It is the same family but not a copy of the
+plain one, and porting it means first deciding what to do about FINDING 2.
+Beyond the label, the real differences a port has to carry are:
+
+| | SoftBlitAnimPlain | SoftBlitAnim |
+| --- | --- | --- |
+| reader | `dec eax / jns` + `mov eax,0Fh` | `and g_zb_bits,0fh / jne` + `mov 10h` (equivalent) |
+| length splice | `movzx ecx,bl` | `shrd ecx,ebx,8 / shr ecx,18h` (equivalent) |
+| left-clip subtraction | `sub edx,ecx / jns` | `sub edx,ecx / ja` — **differs at edx == ecx** |
+| the run that just fits | `js endrow` | `jbe endrow` |
+| a zero budget at a fill | writes one stray pixel | `or ecx,ecx / je endrow`, writes none |
+| repeat run | doubled dword + `rep stosd` | software loop with the mask |
+| every store | plain | `and ax, word ptr [g_sp_recolour]` |
+| run hit test | `sbb ecx,-1` -> `dst >= mouse` | `seta` -> `dst > mouse` |
+| transparent single | the dead `je` of FINDING 1 | correct |
+
+Nothing else in the front-end path needs it: it is reached only from
+`bigrender.c:1062` `SoftPrint_XBltFast` for ImageRec type 2, the recolouring
+highlight of a placed object.
+
 ## 4. The VC6 gate
 
 Run after the integrator's quiet window (2026-09-11 06:00), per touched file.
@@ -306,9 +412,15 @@ $PY tools/audit.py LEGOLAND/rlepaint2.c
   [OK  ] 0x00468410 SoftBlitRLEFrame          ours=312i/992B  orig=312i/992B  mismatch=0
   PASS: 0 function(s) failed the extent gate
 
+$PY tools/audit.py LEGOLAND/softblit2.c
+  [OK  ] 0x00464480 SoftBlitAnimPlain  ours=455i/1539B  orig=455i/1539B  mismatch=0
+  [OK  ] 0x00466770 SoftBlitRLEPlain   ours=603i/1543B  orig=603i/1543B  mismatch=0
+  PASS: 0 function(s) failed the extent gate
+
 $PY tools/relocs.py LEGOLAND/rlepaint.c   -> 20 relocations, 0 mismatches
 $PY tools/relocs.py LEGOLAND/rlepaint2.c  -> 20 relocations, 0 mismatches
-  (`| grep MISMATCH` empty for both)
+$PY tools/relocs.py LEGOLAND/softblit2.c  -> 166 relocations, 0 mismatches
+  (`| grep MISMATCH` empty for all three)
 
 $PY tools/progress.py --check
   665/675 exports exact (98.5%); 3281 exact functions total; 42 WIP
@@ -330,26 +442,18 @@ Builds, both from CLEAN directories:
 
 ### The census
 
-`python3 portable/tools/linkreport.py portable/build`: **asm stubs 26 -> 16**.
-The sixteen left are `bigrender.c:939 ZBufferHelper`, `blitmisc.c` x2,
+`python3 portable/tools/linkreport.py portable/build`: **asm stubs 26 -> 15**.
+The fifteen left are `bigrender.c:939 ZBufferHelper`, `blitmisc.c` x2,
 `bnvpath.c:95 sub_458930`, `coaster13.c:737 TrackShade_FillPoly`,
 `coastermath.c` x2 (`FastSqrt`/`FastRSqrt`), `coastershade2.c` x2,
-`popup.c:432 RenderTransSprite`, `softblit.c:1028 SoftBlitAnim`,
-`softblit2.c:677 SoftBlitAnimPlain` and `tri3d.c`'s four triangle
-rasterisers. Everything else in the report is unchanged (game-fn 0, host 0,
+`popup.c:432 RenderTransSprite`, `softblit.c:1028 SoftBlitAnim` and
+`tri3d.c`'s four triangle rasterisers. Everything else in the report is unchanged (game-fn 0, host 0,
 alias 0, duplicates 0, prototype conflicts 0).
 
-**The two `SoftBlitAnim*` bodies were NOT attempted**, and they are the next
-ones the front end will want (ImageRec type 2). They are the same *family*
-but not the same decoder: the type-2 control stream is walked with
-`shr ebx,2` over a word cached in `ebx` with `g_zb_bits` counting the codes
-left and a refill from `[ebp]`, an 8-bit literal count is spliced out of the
-LOW BYTE (`movzx ecx,bl / shr ebx,6`, costing four codes), the pixels are
-8-bit indices through `g_sp_pal16` rather than u16 words, the repeat run
-builds a doubled dword for `rep stosd`, and the mouse hit test is armed
-through `g_sp_hit_armed` rather than computed per run. 341 lines of asm in
-`SoftBlitAnimPlain` alone. `softblit2.c`'s file header documents that stream
-completely and is the place to start.
+`softblit2.c:677 SoftBlitAnimPlain` is gone from that list -- it was ported
+too, see §3b -- so the count is now **26 -> 15**. `softblit.c:1028
+SoftBlitAnim`, its recolouring sibling, is deliberately still there; §3b says
+why and tabulates every difference a port of it has to carry.
 
 
 ### The headless spine (node)
