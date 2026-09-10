@@ -625,7 +625,6 @@ void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
  * frame — `#pragma optimize("g", off)` alone gives the same 81i/258B
  * body — so only the two-instruction cleanup/store template remains. */
 typedef struct SimpsonFrame {
-    float fa;
     int   i;
     float x;
     float step;
@@ -638,7 +637,7 @@ typedef struct SimpsonFrame {
 } SimpsonFrame;
 
 #pragma optimize("g", off)
-// WIP-FUNCTION: LEGOLAND 0x00420200  (98.8%, fn(a) add esp,4 / fstp fa swapped — FLOOR)
+// FUNCTION: LEGOLAND 0x00420200
 float IntegrateSimpson(float (*fn)(float), float a, float b, float tol)
 {
     volatile SimpsonFrame f;
@@ -648,8 +647,7 @@ float IntegrateSimpson(float (*fn)(float), float a, float b, float tol)
 #endif
     f.n = 1;
     f.h = b - a;
-    f.fa = fn(a);
-    f.s = f.fa + fn(b);
+    f.s = fn(a) + fn(b);
     f.odd = 0.0f;
     f.approx = f.s * f.h * g_half * g_three;
     do {
