@@ -327,6 +327,25 @@ or removes a symbol, it only changes how many objects the same bytes live in.
    thing to suspect for any "the game ignores X" report.**
 3. `probe_input` and `headless_spine` both need `gamedata/`, so CI (which has no
    assets) still runs neither; the asset-free `ctest` set is unchanged.
+4. **One line for PORT-B's `index.html`, which this lane may not edit.** The page
+   can set `LL_HOST_TRACE` from `?trace=1` and nothing else, so the
+   trap-continue mode — now a supported generator option rather than a patch to
+   a build artifact — is still unreachable from the browser, and the page
+   therefore still stops at `TRAP GAME ODFError` before the front end. In
+   `portable/src/browser/index.html:162`:
+
+   ```js
+   // line 94 already has: var tracing = /[?&]trace=1/.test(location.search);
+   var trapcont = /[?&]trapcontinue=1/.test(location.search);
+   ...
+   preRun: [function () { if (tracing) ENV.LL_HOST_TRACE = '1';
+                          if (trapcont) ENV.LL_TRAP_CONTINUE = '1'; }],
+   ```
+
+   Until that lands, the input
+   fix is verified by `probe_input` against the real game code and by PORT-B4's
+   measurement of the shim side, but NOT by a click in a tab — that is the one
+   claim this lane cannot make.
 
 ## 5. Reproducing
 
