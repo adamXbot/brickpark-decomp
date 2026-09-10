@@ -424,7 +424,22 @@ void* CoasterModel_LoadFile(const char* name, unsigned int* len)
  * left at [0, 1]. 0x00421ce0 is its CORNER counterpart, taking three points
  * and two shape constants. Both first named here. */
 extern void Curve_InitLine(RouteGeom* curve, const Vec3f* from, const Vec3f* to, const Vec3f* offset); /* 0x00421ab0 */
+/* castletrack2.c DEFINES 0x00421ce0 as
+ * `TrackCurve_InitArc(..., int r0, int r1)` and stores both with
+ * `*(int*)&curve->r0 = r0`, i.e. the parameter carries a float's BIT PATTERN
+ * through a GPR. `float` here is what this translation unit was compiled with
+ * and pushes the same four bytes, so the VC6 arm keeps it; on wasm32 f32 and
+ * i32 are different function types and the link's forwarder cannot bridge
+ * them, so the portable arm declares the definition's shape and passes the
+ * bits unchanged. A numeric (int) conversion would pass a different number. */
+#ifndef LEGOLAND_PORTABLE
 extern void Curve_InitCorner(const Vec3f* a, const Vec3f* b, const Vec3f* c, RouteGeom* curve, float k0, float k1); /* 0x00421ce0 */
+#else
+extern void Curve_InitCorner(const Vec3f* a, const Vec3f* b, const Vec3f* c, RouteGeom* curve, int k0, int k1); /* 0x00421ce0 */
+static int ll_curve_bits(float f) { int i; __builtin_memcpy(&i, &f, 4); return i; }
+#define Curve_InitCorner(_a, _b, _c, _g, _k0, _k1) \
+    Curve_InitCorner((_a), (_b), (_c), (_g), ll_curve_bits(_k0), ll_curve_bits(_k1))
+#endif
 extern void Castle_GetFirstCorner(const Pos16* square, Pos16* out);  /* 0x004239b0 */
 extern void Castle_GetSecondCorner(const Pos16* square, Pos16* out); /* 0x004239e0 */
 
