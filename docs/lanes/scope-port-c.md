@@ -218,6 +218,12 @@ confirmation of the layout.
    `ninja legoland_tests` builds them.
 5. `tests.cmake` returns early with a `STATUS` message when `gamedata/` is
    missing, so a checkout without assets still configures.
+6. **`portable/build-wasm/` is not actually gitignored.** `.gitignore` line 21
+   has `portable/build/` only, while the brief says both build dirs are ignored.
+   All three lanes will see an untracked `portable/build-wasm/` in
+   `git status`. PORT-C left `.gitignore` alone (it is nobody's file in the
+   ownership table) and did not commit the directory; one line —
+   `portable/build-wasm/` — fixes it for the whole wave.
 
 ## Next for this lane
 
