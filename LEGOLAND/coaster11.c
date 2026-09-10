@@ -592,7 +592,16 @@ void LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b)
  * esi/edi/ebp/ebx to x/y/x1/y1 with w in the dead arg3 slot; our
  * tail-call-to-loop conversion runs before allocation and ranks the
  * pointers first. Dead trailing statements restore the ints but lose the
- * loop. Retired. */
+ * loop. Retired.
+ * LL23 2026-09-10 re-verified against the binary and the floor HOLDS: the
+ * twin `JungleCruise_TraceRoute` (jcroute.c 0x00437260) audits at exactly
+ * the same 130i/339B and 105 mismatches, so this is one shared allocation
+ * floor reached from two independent reconstructions, not a spelling miss
+ * in either.  The original's prologue is `mov eax,[esp+0x18]; push ebx;
+ * push ebp; push esi; mov ecx,[eax]; push edi; cmp ecx,1; je` and only
+ * THEN loads ebx=y1, ebp=x1, esi=x, edi=y, with `w` written into x1's dead
+ * home at [esp+0x1c]: four int parameters ranked above every pointer.
+ * Not re-run. */
 // WIP-FUNCTION: LEGOLAND 0x0041c940  (FLOOR, 130i/339B byte-exact, 105 NG22)
 void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
 {
@@ -645,7 +654,18 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
  * Known-zero / dead-alias / g_route_eval from n-0x70 / SetTrainAt next /
  * if(n) / Fst / EvalRange commas CSE away or steal edx. Cannot exact with
  * the extra store; cannot lea without it on this body. q after add esp,4;
- * hist ecx/edx swap sticky. */ 
+ * hist ecx/edx swap sticky.
+ * LL23 2026-09-10, the Codex-F scope-V CANCELLED-PAIR anchor is INERT here.
+ * `struct { RouteNode* np; } t; t.np = &p->head; t.np += A; t.np -= A;
+ * n = t.np;` with A = p / rt / mass / power / &fr (values already in a
+ * register) folds completely in the front end -- 77i/259B and 65/77,
+ * bit-identical to the tip, so the web is NOT kept separate the way scope
+ * V's `t.x = bx` was.  With A a link-time address constant assigned to a
+ * second struct member first (&g_route_eval, &g_route_eval_at,
+ * g_span_eval_ops, &g_mass_hist[0], (int)p), the anchor costs a real
+ * `mov reg,imm32` -- 78i/262B, worse than the tip and past the extent.
+ * The lever needs an anchor the body already materialises for its own
+ * reasons; this body has none live at the `&p->head` site. */ 
 // WIP-FUNCTION: LEGOLAND 0x0041db90  (84%, lea ebx coupled to imm8 store)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
