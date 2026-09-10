@@ -221,11 +221,52 @@ typedef struct RingNormal { float e0; float e1; } RingNormal;
 
 typedef struct DrawObj DrawObj;
 
-/* An object's per-slot geometry hooks, an array of PAIRS at +0x4c. */
+/* An object's per-slot geometry hooks, an array of PAIRS at +0x4c.
+ *
+ * PORT-M5 -- WHAT THE SECOND PARAMETER REALLY IS, AND WHICH SLOTS EXIST.
+ * The pairs are `g_car_class_vt`'s eight-entry groups (schoolcar.c's
+ * CarClassTablesInit, 0x00422210), one group per curve kind, and the bodies
+ * registered in entries 0..5 -- TrackCurve_CubicOffsetPlus / CubicPosition /
+ * CubicOffsetMinus / CubicTangent and the Line and Arc families -- are all
+ *
+ *     void f(const Curve* curve, float t, Vec3f* out)
+ *
+ * (schoolcar8.c, coastertiny.c).  So the dword this file passes as `elem` is
+ * a FLOAT'S BIT PATTERN, the segment's curve parameter, not a pointer: the
+ * PORT-M2 section 3 class, and the same fact coaster10.c's
+ * TrackCurve_EvaluatePosition / _EvaluateUp already carry.  On x86 cdecl a
+ * dword push is a dword push either way, which is why the `void*` spelling
+ * matched; a wasm32 call_indirect whose type is not the target's traps, so
+ * the portable arm casts to the bodies' real type and moves the bits across
+ * unconverted.  This body is a WIP and its argument spelling is a codegen
+ * lever, so the matching arm is left exactly as it was.
+ *
+ * `slot` at the two call sites below is a RAIL index and is never 3.  Slot 3
+ * of each group is (entry 6, entry 7) = (TrackCurve_GatherParams /
+ * GetLimits / GetQuarterTurnSamples, TrackCurve_NormalAt / LineUpVector /
+ * CubicUpVector), and entry 6 is the COLLECTOR at vt+0x18 that schoolcar.c's
+ * DrawTrackEnd_Fetch has already called to produce this routine's `list` and
+ * `n`:
+ *     0x00428e7d  push 0x612178          ; the float array
+ *     0x00428e82  push esi               ; the object
+ *     0x00428e86  call dword ptr [eax+0x18]
+ *     0x00428e96  push eax               ; ... its return IS `n`
+ * -- `int f(obj, float* out)`, two arguments.  Slots 0/1/2 are the three
+ * rails (offset-plus, centre, offset-minus), which is the whole of what a
+ * mesh sweep needs.  PORT-M3 listed this as possibly "the recovery of one of
+ * the three is wrong about its parameters"; it is not -- the collectors are
+ * right, they are simply not position hooks, and nothing indexes them here. */
 typedef struct PosHooks {
     void (*get_pos)(DrawObj* o, void* elem, Vec3f* out);    /* +0x00 */
     void (*get_dir)(DrawObj* o, void* elem, Vec3f* out);    /* +0x04 */
 } PosHooks;
+
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M5: the pair's real type (see above).  Read through the slot rather
+ * than retyping PosHooks, so the matching declaration is untouched. */
+typedef void (*LLPosHook)(DrawObj*, float, Vec3f*);
+#define LL_POS_HOOK(slot_field) (*(LLPosHook*)(void*)&(slot_field))
+#endif
 
 struct DrawObj {
     unsigned char pad00[0x4c];
@@ -486,9 +527,17 @@ MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
             Mat4 mvp;
             out = g_track_verts + i * 6;
             elem.vp = list[i];
+#ifndef LEGOLAND_PORTABLE
             o->hooks[slot].get_dir(o, elem.p, &dir);
+#else
+            LL_POS_HOOK(o->hooks[slot].get_dir)(o, LL_ASFLT(elem.p), &dir);
+#endif
             MakeRotation(&dir, &rot);
+#ifndef LEGOLAND_PORTABLE
             o->hooks[slot].get_pos(o, elem.p, &pos);
+#else
+            LL_POS_HOOK(o->hooks[slot].get_pos)(o, LL_ASFLT(elem.p), &pos);
+#endif
             pos.x += origin->x;
             pos.y += origin->y;
             pos.z += origin->z;

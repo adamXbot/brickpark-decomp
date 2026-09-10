@@ -234,8 +234,19 @@ struct RouteSeat {
     Vec3f       pos;                          /* +0x00 */
     CoasterCar* car;                          /* +0x0c */
     int (*occupied)(RouteSeat*);              /* +0x10 */
+#ifndef LEGOLAND_PORTABLE
     void (*attach)(RouteSeat*, CoasterCar*);  /* +0x14 */
-    void (*detach)(RouteSeat*);               /* +0x18 */
+#else
+    /* PORT-M5: 0x004273d0 returns the car it seated; `RouteNode_SeatCar`
+     * below drops the value.  See coaster8.c's RouteSeat for the evidence --
+     * a discarded cdecl return is free on x86, but a wasm32 indirect call
+     * needs the body's own type. */
+    int (*attach)(RouteSeat*, CoasterCar*);   /* +0x14 */
+#endif
+    void (*detach)(RouteSeat*);               /* +0x18  0x004273f0, which is
+                                               * coaster9.c's
+                                               * RouteSeat_ReleaseCar and not
+                                               * 0x004273e0 -- PORT-M5 */
     void (*update)(RouteSeat*);               /* +0x1c */
 };                                            /* 0x20 */
 
@@ -255,7 +266,10 @@ typedef struct CoasterRoute {
 } CoasterRoute;
 
 /* coastertiny.c's 0x004273e0: clear the seat's car slot and hand it back. */
-extern CoasterCar* RouteSeat_TakeCar(RouteSeat* seat);          /* 0x004273e0 */
+/* 0x004273e0 is coastertiny.c's `RouteSeat_DetachCar`; this file had a second
+ * name for it (`RouteSeat_TakeCar`).  Same types, same address -- PORT-M5
+ * takes the defining file's spelling so gen_link.py has one name, not two. */
+extern CoasterCar* RouteSeat_DetachCar(RouteSeat* seat);        /* 0x004273e0 */
 
 /* Put `car` in this node's first empty seat.  The counterpart of
  * RouteNode_FindFreeSeat (0x0041e760, coaster8.c), which returns the seat
@@ -284,7 +298,7 @@ CoasterCar* RouteNode_UnseatCar(RouteNodeSeats* node)
     RouteSeat* seat = &node->seat[0];
     for (i = 0; i <= 1; i++, seat++) {
         if (seat->occupied(seat))
-            return RouteSeat_TakeCar(seat);
+            return RouteSeat_DetachCar(seat);
     }
     return 0;
 }

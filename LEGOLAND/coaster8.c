@@ -22,9 +22,19 @@
  *    at +0x10..+0x1c, and RouteSeat_InitPosition installs the same four every
  *    time -- so the "vtable" is not a class pointer but four inline slots:
  *      +0x10  0x004273c0  occupied?      (car != 0)
- *      +0x14  0x004273d0  attach car
- *      +0x18  0x004273f0  detach car
+ *      +0x14  0x004273d0  attach car     (returns the car)
+ *      +0x18  0x004273f0  RELEASE car    (coaster9.c's RouteSeat_ReleaseCar)
  *      +0x1c  0x00427410  the seat's per-tick update
+ *    PORT-M5: the +0x18 slot is NOT 0x004273e0 (`RouteSeat_DetachCar`,
+ *    coastertiny.c, which clears seat->car and returns it).  The original
+ *    stores the routine one slot along:
+ *      0x004274e1  mov dword ptr [eax+0x18], 0x4273f0
+ *    and 0x004273f0 is coaster9.c's RouteSeat_ReleaseCar -- it invokes the
+ *    CAR's own release method (`call dword ptr [eax+0x24]`) and deliberately
+ *    leaves seat->car set.  This file's extern carried the right ADDRESS
+ *    comment with the wrong NAME, so the byte gates were satisfied while the
+ *    portable build, which links by name, installed DetachCar and silently
+ *    stopped releasing cars.  The name is now the defining file's.
  *    RouteNode_FindFreeSeat walks the two seats calling slot +0x10 and hands
  *    back the first whose car is null.
  *
@@ -103,9 +113,23 @@ struct RouteSeat {
     Vec3f       pos;            /* +0x00 */
     CoasterCar* car;            /* +0x0c */
     int (*occupied)(RouteSeat*);              /* +0x10 */
+#ifndef LEGOLAND_PORTABLE
     void (*attach)(RouteSeat*, CoasterCar*);  /* +0x14 */
-    void (*detach)(RouteSeat*);               /* +0x18 */
-    void (*update)(RouteSeat*);               /* +0x1c */
+#else
+    /* PORT-M5: 0x004273d0 returns the car it seated (coastertiny.c's
+     * `CoasterCar* RouteSeat_AttachCar(RouteSeat*, CoasterCar*)`), and both
+     * call sites (unref1.c:273 and this file's store) drop it.  A discarded
+     * cdecl return costs the caller nothing on x86, which is why the `void`
+     * spelling matched; a wasm32 indirect call through a `-> void` type
+     * cannot reach an `-> i32` body, so the portable arm carries the body's
+     * real return.  PORT-M3 listed this as one of its four residual
+     * function-pointer warnings. */
+    int (*attach)(RouteSeat*, CoasterCar*);   /* +0x14 */
+#endif
+    void (*detach)(RouteSeat*);               /* +0x18  0x004273f0 ReleaseCar */
+    void (*update)(RouteSeat*);               /* +0x1c  the second argument is
+                                               * real (coaster9.c) -- nothing
+                                               * in the tree calls this slot */
 };                              /* 0x20 */
 
 /* schoolcar8.c's RouteNodeInit, spelled for the two accessors here. */
@@ -187,11 +211,10 @@ extern void  RouteSeat_AttachCar(RouteSeat* seat, CoasterCar* car); /* 0x004273d
 #else
 extern int RouteSeat_AttachCar(RouteSeat* seat, CoasterCar* car); /* 0x004273d0 */
 #endif
-#ifndef LEGOLAND_PORTABLE
-extern void  RouteSeat_DetachCar(RouteSeat* seat);              /* 0x004273f0 */
-#else
-extern int RouteSeat_DetachCar(RouteSeat* seat);              /* 0x004273f0 */
-#endif
+/* 0x004273f0, NOT 0x004273e0 -- see the file header.  coaster9.c defines it
+ * as `void RouteSeat_ReleaseCar(RouteSeat*)`, which is this slot's declared
+ * type exactly, so no portable arm is needed here any more. */
+extern void  RouteSeat_ReleaseCar(RouteSeat* seat);             /* 0x004273f0 */
 extern void  RouteSeat_Update(RouteSeat* seat);                 /* 0x00427410 */
 
 /* -------------------------------------------------------------------------
@@ -337,6 +360,6 @@ void RouteSeat_InitPosition(RouteSeat* seat, const Vec3f* pos)
     seat->car = 0;
     seat->occupied = RouteSeat_IsOccupied;
     seat->attach = RouteSeat_AttachCar;
-    seat->detach = RouteSeat_DetachCar;
+    seat->detach = RouteSeat_ReleaseCar;
     seat->update = RouteSeat_Update;
 }
