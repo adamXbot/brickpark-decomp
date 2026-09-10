@@ -8,6 +8,13 @@
 > `docs/lanes/scope-port-a.md` / `-b.md` / `-c.md`. No VC6 object prefix: these
 > lanes do not match; they compile with clang/emcc only.
 > **PORT-B: IN PROGRESS (claimed 2026-09-11 by PORT-B).**
+> **PORT-B2 — Status: MERGED (2026-09-11) — GDI text real (ll_font.c, DrawTextA measures), MessageBoxA answers IDCANCEL, SPI_GETMOUSE, node-safe shim (shimtest --frames 400 PASS under node), input mapping verified against input.c/input2.c; page shows frames, last MessageBox, TRAP banner** — the
+> follow-up to PORT-B: everything the first front-end frame and the first click
+> need once PORT-A2's loader fix lands. GDI text made visible (a real bitmap
+> font into the 16-bpp surface), `MessageBoxA` auto-answering so the modal loops
+> terminate, the JS library made node-safe for `legoland_tests`/`legoland_headless`,
+> the DirectInput shapes checked against `input.c`/`input2.c`, and the page
+> instrumented. Notes `docs/lanes/scope-port-b2.md`.
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
