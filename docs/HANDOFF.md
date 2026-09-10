@@ -566,6 +566,16 @@ All four carry the scope Codex-F levers (the cancelled-pair anchor, the alias
 pointer for reversed commutative operands) and the `/FAcs` frame-symbol route,
 none of which the earlier waves had.
 
+**WARNING — `scope/LL21`..`LL24` are based on `307c0dc9`, BEFORE the FGH wave
+(2026-09-11).** All four are local-only, unpushed, and actively being worked;
+between them they carry 6 genuine closes (`WW_AnyBlokeInRect` 0x00417e70 and
+`LoadAltTextures` 0x00442980 — both previously called floors — plus the four
+`Span_Fill*` bodies in `coastershade2.c`). But their base predates `850ef7fc`,
+so **merging any of them as they stand reverts all 40 bodies the FGH wave
+closed**, and the exact TOTAL would still rise because each branch adds its
+own closes. Only the §4 marker-set diff catches this. Merge current `main`
+into each branch and re-run that diff before landing any of them.
+
 **THE FGH WAVE LANDED (2026-09-10, main `9a82cc00`): 81.4% exact.** Five FGH
 branches (`cursor/fgh-100b..d`, `codex/fgh-integration`, `fgh-pickup`) sat 418
 commits behind and had never been assessed; they closed **40** of the bodies
