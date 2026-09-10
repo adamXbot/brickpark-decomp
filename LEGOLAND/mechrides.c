@@ -165,7 +165,12 @@ typedef struct Pos {
 /* ---- shared engine entry points ----------------------------------------- */
 extern void  DefaultCursor(void* cursor);                    /* 0x0045a390 */
 extern void  SetEditCursorFootPrint(void* src);              /* 0x0045f440 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* obj, Pos* pos);            /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);            /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 
 extern int      g_edit_changed;                              /* 0x008119b0 EditMode */
 extern RideDef* g_edit_object;                               /* 0x008119b8 */

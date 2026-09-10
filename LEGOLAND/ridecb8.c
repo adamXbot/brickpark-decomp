@@ -1197,9 +1197,19 @@ typedef struct SoundSource {
 
 extern FXEntry g_castlebbq_fx_list[1];  /* 0x004b66e8 "Dragon BBQ01.wav" */
 
+#ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(void* obj, Pos* pos);                  /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                  /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void PlayInstanceOfSample(void* sample, int a, int b,
                                  SoundSource* src);               /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* sample, int a, int b,
+                                 SoundSource* src);               /* 0x00496d20 */
+#endif
 extern void UnSourceAndFadeAllSamplesFromSource(SoundSource* src,
                                                 int fade);        /* 0x00496c80 */
 

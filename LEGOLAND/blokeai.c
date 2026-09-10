@@ -84,6 +84,9 @@
  * uninitialised (VC6 parks it in the dead parameter slot).
  * --------------------------------------------------------------------------- */
 #include "legoland.h"
+#ifdef LEGOLAND_PORTABLE
+#define MakeBloke MakeBloke_vc6_body
+#endif
 
 /* ------------------------------------------------------------------ types -- */
 
@@ -377,3 +380,12 @@ Bloke* NewBloke(void)
     }
     return b;
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* MakeBloke is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef MakeBloke
+Bloke* MakeBloke(int ll_a1) { (void)ll_a1; return MakeBloke_vc6_body(); }
+#endif

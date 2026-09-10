@@ -115,7 +115,12 @@ extern void ValidateCursor(EditCursorRec* c, RideDef* def);      /* 0x0045f810 *
 extern int  GetObjCost(RideDef* def);                            /* 0x00480da0 */
 extern int  GetBrickCount(void);                                 /* 0x004578e0 */
 extern int  CheckForPeople(const Rect* r);                       /* 0x00485260 */
+#ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(RideElem* elem, const Pos* p);        /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);        /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void StandardRemoveObject(void* a, BPosW sq, void* c);    /* 0x0045f220 */
 
 /* ---- log-flume (matched elsewhere) ------------------------------------ */

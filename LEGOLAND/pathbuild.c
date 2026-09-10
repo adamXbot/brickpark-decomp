@@ -105,7 +105,12 @@ extern void* g_path_tile_ptr;   /* 0x00832bf0  loaded path tile record; first wo
 /* ------------------------------------------------------------ prototypes -- */
 
 extern void AddPathTile(Pos* pos, unsigned short tile);      /* 0x0045d3b0 */
+#ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(void* obj, Pos* pos);             /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);             /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern unsigned short Get_MapFlags(int x, int y);            /* 0x00461760 */
 extern unsigned char  GetCurrentRFFlags(int x, int y);       /* 0x00461630 */
 extern BNVNameList* GetBinVFrame(BNVBin* bin, int frame);                  /* 0x0044dd70 */

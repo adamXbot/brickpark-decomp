@@ -646,7 +646,12 @@ extern ObjDef*       g_jc_fish_cls; /* 0x0081cb74  JUNGLE CRUISE MONKEY FISH */
 /* Every piece of a jungle cruise is worth something to the ride; the class's
  * cb_c0 reports the largest total in the park. */
 extern void  JungleCruise_AddValue(BPosW id, int delta);     /* 0x00436130 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* o, Pos* p);                /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void  SetMapTile(int x, int y, unsigned short tile);  /* 0x00461780 */
 extern void* HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
 

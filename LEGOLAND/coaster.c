@@ -295,7 +295,12 @@ struct TrackDesc {
 extern void  BuildJoint(TrackNode* n, const int* jp, void* slot);   /* 0x0041d1d0 */
 extern int   g_track_square_count;                                  /* 0x004d8268 */
 extern int   g_track_place_enabled;                                 /* 0x004b55f4 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* elem, void* pos);                 /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                 /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 /* A map square packed into two bytes and passed BY VALUE (VC6 forwards it as
  * one dword and masks the halves out again). */
 typedef struct MapPos { unsigned char x; unsigned char y; } MapPos;

@@ -230,7 +230,12 @@ extern void*  LoadSprite(const char* name, int flag);                /* 0x00497a
 extern void   KillSprite(void* spr);                                 /* 0x00497bd0 */
 extern void   DefaultCursor(void* cursor);                           /* 0x0045a390 */
 extern void   SetEditCursorFootPrint(void* src);                     /* 0x0045f440 */
+#ifndef LEGOLAND_PORTABLE
 extern void   AddBasicObject(void* obj, Pos* pos);                   /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                   /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void   StandardRemoveObject(void* obj, unsigned int tile, void* ctx); /* 0x0045f220 */
 extern void   RemoveAllBlokesFromRide(RideObject* cls, unsigned int tile);   /* 0x0048a2e0 */
 extern void   RenderItems_New(void);                                 /* 0x00442e90 */

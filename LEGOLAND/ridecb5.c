@@ -173,7 +173,12 @@ extern BsTileSet*  g_bs_water_tiles;    /* 0x0082adf4 */
 
 /* ---- externs ----------------------------------------------------------- */
 extern void* HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* obj, Pos* pos);            /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);            /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void  SetMapTile(int x, int y, unsigned short tile);  /* 0x00461780 */
 /* Re-stamps the river tile at (x, y) for a direction mask and hands back the
  * owning station's packed map square through `owner`. */

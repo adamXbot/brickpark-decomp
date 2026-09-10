@@ -104,7 +104,12 @@ extern Cursor   g_jc_deco_cursor;       /* 0x006283f8 */
 extern void  DefaultCursor(Cursor* c);                       /* 0x0045a390 */
 extern void  SetEditCursorFootPrint(Rect* rect);             /* 0x0045f440 */
 extern void  BasicObjectDCalcCursor(void* elem, void* pos);  /* 0x00480bb0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(RideElem* elem, Pos* pos);       /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);       /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void* HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
 #ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */

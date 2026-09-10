@@ -1311,7 +1311,12 @@ void DrivingSchool_Update(RideElem* elem, int screen, int mode)
  * takings figure of 5.
  * ========================================================================= */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* obj, Pos* pos);             /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);             /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void  NewRoadRecord(BPosW school, int x, int y,
                            int shape, int rot);               /* 0x004132a0 */
 extern RideElem* ElemID(const char* name);                    /* 0x0047b3f0 */

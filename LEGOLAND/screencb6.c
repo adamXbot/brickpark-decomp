@@ -23,7 +23,12 @@ extern void DefaultCursor(void* cursor); /* 0x0045a390 */
 extern void SetEditCursorFootPrint(Rect* rect); /* 0x0045f440 */
 extern Spr* LoadSprite(const char* name, int mode); /* 0x00497ab0 */
 extern void KillSprite(void* sprite); /* 0x00497bd0 */
+#ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(RideElem* elem, Pos* pos); /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx); /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void Set_UserFlags(int x, int y, int flags); /* 0x00461730 */
 extern void KillMoneySFX(void); /* 0x00453930 */
 extern void StandardRemoveObject(RideElem* elem, unsigned int square, void* cursor); /* 0x0045f220 */

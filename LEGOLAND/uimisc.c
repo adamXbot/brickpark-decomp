@@ -1,3 +1,6 @@
+#ifdef LEGOLAND_PORTABLE
+#define PU_NextInput PU_NextInput_vc6_body
+#endif
 /* LEGOLAND: small icon/help, script and report/free-play handlers. */
 typedef struct Pos { int x, y; } Pos;
 typedef struct ClipRect { int left, top, right, bottom; } ClipRect;
@@ -665,3 +668,12 @@ char ReportAcceptInput(Icon* p, int ev, short dx, short dy)
     }
     return 1;
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* PU_NextInput is called with 0 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef PU_NextInput
+char PU_NextInput(Icon* ll_p, int ll_ev, short ll_a, short ll_b) {  return PU_NextInput_vc6_body(ll_p, ll_ev); }
+#endif

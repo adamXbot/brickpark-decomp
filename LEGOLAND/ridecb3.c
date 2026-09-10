@@ -269,8 +269,13 @@ extern void   SetPersonDirection(Person3D* p, int dir);              /* 0x004400
 extern void   RemoveBlokeFromRide(RideObject* item, RiderNode* r);   /* 0x0048a100 */
 extern void   Ride_ClearFlagToNotLetAnyoneOn(void* square);          /* 0x00443000 */
 extern void   BuyItem(RideElem* elem, MapSquare* at, int which);     /* 0x004539e0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   PlayInstanceOfSample(void* def, int a, int b,
                                    RideSoundSource* src);            /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* def, int a, int b,
+                                   RideSoundSource* src);            /* 0x00496d20 */
+#endif
 extern void   HeapFree_w(void* p);                                   /* 0x0049e4d0 */
 extern int    rand(void);                                            /* 0x0049e4b2 (CRT) */
 extern int    sprintf(char* dst, const char* fmt, ...);              /* 0x0049e573 (CRT) */

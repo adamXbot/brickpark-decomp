@@ -529,7 +529,12 @@ void Explorers_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
 
 extern void  AddPathTileGFX(Pos* pos, unsigned short tile);     /* 0x0045d350 */
 extern void  RemoveRollerCoasterPath(Pos* pos);                 /* 0x0045dcd0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* elem, Pos* pos);              /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);              /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void* g_path_tile_ptr;   /* 0x00832bf0  loaded path tile record; first word = tile code */
 
 // FUNCTION: LEGOLAND 0x00439230

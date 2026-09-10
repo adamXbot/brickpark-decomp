@@ -5,6 +5,9 @@
  * names are ours.
  */
 #include "legoland.h"
+#ifdef LEGOLAND_PORTABLE
+#define DisplayAdvisorHelp DisplayAdvisorHelp_vc6_body
+#endif
 
 unsigned int strlen(const char*);
 char* strcpy(char*, const char*);
@@ -526,3 +529,12 @@ void DeleteIndicator(Indicator* p)
     }
     HeapFree_w(p);
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* DisplayAdvisorHelp is called with 0 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef DisplayAdvisorHelp
+int DisplayAdvisorHelp(const char* ll_text, int ll_arg, int ll_x) {  return DisplayAdvisorHelp_vc6_body(ll_text, ll_arg); }
+#endif

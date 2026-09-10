@@ -545,7 +545,12 @@ typedef struct RideSoundSource {
 extern BsTileSet* g_bs_water_tiles;    /* 0x0082adf4 */
 extern void*      g_bs_mermaid_sample; /* 0x004b52d4 the splash sample */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* obj, Pos* pos);                 /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                 /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void  SetMapTile(int x, int y, unsigned short tile);       /* 0x00461780 */
 #ifndef LEGOLAND_PORTABLE
 extern void  PlayInstanceOfSample(void* def, int a, int b, RideSoundSource* src); /* 0x00496d20 */

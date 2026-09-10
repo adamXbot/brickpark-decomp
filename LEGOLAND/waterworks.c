@@ -274,7 +274,12 @@ extern void   PlayInstanceOfSample(void* s, int a, int b, SoundSource* q); /* 0x
 extern int PlayInstanceOfSample(void* s, int a, int b, SoundSource* q); /* 0x00496d20 */
 #endif
 extern void   UnSourceAndFadeAllSamplesFromSource(SoundSource* s, int f); /* 0x00496c80 */
+#ifndef LEGOLAND_PORTABLE
 extern void   AddBasicObject(WWMapObj* obj, Pos* pos);               /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);               /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void   AddObjectToMap(WWMapObj* obj, BPos bp, unsigned int flags); /* 0x0045dd80 */
 extern void   RemoveSoundObject(WWMapObj* obj, BPosW sq, void* c);   /* 0x00452a30 */
 extern void   StandardRemoveObject(WWMapObj* obj, BPosW sq, void* c);/* 0x0045f220 */

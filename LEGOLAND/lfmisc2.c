@@ -77,7 +77,12 @@ extern void  HeapFree_w(void* p);                               /* 0x0049e4d0 */
 extern void  LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b);
                                                                 /* 0x00411fa0 */
 extern void  GetTileDimensions(int* width, int* height);        /* 0x00460540 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* obj, Pos* pos);               /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);               /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern int   PlayInstanceOfSample(void* sample, int a, int b,
                                   SoundSource* src);            /* 0x00496d20 */
 

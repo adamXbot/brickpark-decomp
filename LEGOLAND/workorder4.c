@@ -5,6 +5,9 @@
  * Struct field OFFSETS and global addresses are load-bearing; names are ours.
  * ------------------------------------------------------------------------- */
 #include "legoland.h"
+#ifdef LEGOLAND_PORTABLE
+#define MarkWorkersOnMap MarkWorkersOnMap_vc6_body
+#endif
 
 /* A plain 16-byte rectangle with no chain link (objrect.c's / workorder2.c's
  * Rect4; pathsq.c calls the same shape PathRect). */
@@ -313,3 +316,12 @@ int PTPShortcutSteps(PTPNode* a, PTPNode* b, PTPNode* c, PTPNode* d)
     }
     return 1;
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* MarkWorkersOnMap is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef MarkWorkersOnMap
+void MarkWorkersOnMap(int ll_a1) { (void)ll_a1; MarkWorkersOnMap_vc6_body(); }
+#endif

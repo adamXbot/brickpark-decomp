@@ -553,7 +553,12 @@ extern void JungleCruise_ProbeRiver(int x, int y, BPosW* owner);/* 0x00436fb0 */
 extern int JungleCruise_ProbeRiver(int x, int y, BPosW* owner);/* 0x00436fb0 */
 #endif
 extern void JungleCruise_AddValue(BPosW id, int delta);         /* 0x00436130 */
+#ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(void* obj, Pos* pos);                /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 
 // FUNCTION: LEGOLAND 0x00433d20
 void MonkeyTree_Add(void* o, Pos* pos)

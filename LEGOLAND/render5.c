@@ -23,6 +23,9 @@
  * to EGC.bmp stamped with the CRT's asctime(localtime()).
  */
 #include "legoland.h"
+#ifdef LEGOLAND_PORTABLE
+#define DrawPathTileOverlay DrawPathTileOverlay_vc6_body
+#endif
 
 #pragma intrinsic(strlen)
 extern unsigned int strlen(const char* s);
@@ -371,3 +374,12 @@ void PaintCursorTiles(Pos* p, TileBounds* clip)
         map.y = row.y;
     }
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* DrawPathTileOverlay is called with 0 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef DrawPathTileOverlay
+void DrawPathTileOverlay(Pos* ll_at, int ll_x, int ll_y, int ll_mode) {  DrawPathTileOverlay_vc6_body(ll_at, ll_x, ll_y); }
+#endif

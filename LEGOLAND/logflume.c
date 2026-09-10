@@ -1708,7 +1708,12 @@ extern void  LFTrack_UnlinkNeighbours(LFPiece* piece,
                                       LFPiece** nb);             /* 0x0040da10 */
 extern void  LFTrack_RedrawNeighbours(LFPiece* piece,
                                       LFPiece** nb);             /* 0x0040a2a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(RideElem* elem, const Pos* p);       /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);       /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void  StandardRemoveObject(void* a, BPosW sq, void* c);   /* 0x0045f220 */
 
 /* Placing one square of flume.  The piece record is allocated and stamped

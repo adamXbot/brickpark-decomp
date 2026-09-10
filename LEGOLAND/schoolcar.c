@@ -30,6 +30,12 @@
 
 #include <math.h>
 #include <string.h>
+#ifdef LEGOLAND_PORTABLE
+#define Coaster3D_EndFrame Coaster3D_EndFrame_vc6_body
+#endif
+#ifdef LEGOLAND_PORTABLE
+#define Castle_StartCoasterIfComplete Castle_StartCoasterIfComplete_vc6_body
+#endif
 
 #pragma intrinsic(sqrt, memset)
 
@@ -1507,3 +1513,21 @@ void Coaster_TickLoadingBay(CoasterRec* r)
         }
     }
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* Castle_StartCoasterIfComplete is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef Castle_StartCoasterIfComplete
+void Castle_StartCoasterIfComplete(int ll_a1) { (void)ll_a1; Castle_StartCoasterIfComplete_vc6_body(); }
+#endif
+
+#ifdef LEGOLAND_PORTABLE
+/* Coaster3D_EndFrame is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef Coaster3D_EndFrame
+void Coaster3D_EndFrame(int ll_a1) { (void)ll_a1; Coaster3D_EndFrame_vc6_body(); }
+#endif

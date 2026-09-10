@@ -1,3 +1,6 @@
+#ifdef LEGOLAND_PORTABLE
+#define Dino_InitSound Dino_InitSound_vc6_body
+#endif
 /* LEGOLAND -- the smallest SetCustomCallbacks handlers (scope codex-c).
  * Names follow screen.c's class arms and slots: +a4 create, +ac destroy,
  * +94 draw-selection. VC6 SP3 /O2 /Gy /Gd; local types preserve the ABI.
@@ -65,3 +68,12 @@ void Dino_InitSound(void)
     if (g_dino_sound_refs++ == 0)
         Load_FXList(g_dino_fx, 5);
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* Dino_InitSound is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef Dino_InitSound
+void Dino_InitSound(int ll_a1) { (void)ll_a1; Dino_InitSound_vc6_body(); }
+#endif

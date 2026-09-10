@@ -1,3 +1,6 @@
+#ifdef LEGOLAND_PORTABLE
+#define LoadAppraisalScreenSprites LoadAppraisalScreenSprites_vc6_body
+#endif
 /* LEGOLAND -- scope Y: the appraisal report screen's helper tier.
  *
  * The screen itself (0x004453a0, 8,085 instructions) is not in this scope;
@@ -628,3 +631,12 @@ void DrawAppraisalBar(AppraisalBox box, int value, int range, int mark)
     PrintSprite(g_rep_barmarker, (box.right - box.left - 2) * mark / range + box.left + 2,
                 box.top + 2, 0, 0);
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* LoadAppraisalScreenSprites is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef LoadAppraisalScreenSprites
+void LoadAppraisalScreenSprites(int ll_a1) { (void)ll_a1; LoadAppraisalScreenSprites_vc6_body(); }
+#endif

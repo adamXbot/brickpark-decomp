@@ -1,5 +1,14 @@
 /* LEGOLAND — small-leaf sweep (chunk 2). */
 #include "legoland.h"
+#ifdef LEGOLAND_PORTABLE
+#define PrintBackground PrintBackground_vc6_body
+#endif
+#ifdef LEGOLAND_PORTABLE
+#define ApplyDestrTileMap ApplyDestrTileMap_vc6_body
+#endif
+#ifdef LEGOLAND_PORTABLE
+#define ApplyConsTileMap ApplyConsTileMap_vc6_body
+#endif
 
 /* ---- globals touched (deduped) ---- */
 extern unsigned char g_dir_bit_table[];     /* 0x004b9550 */
@@ -166,3 +175,30 @@ void Unload_RAndDCheckBox(void)
 void RenderRAndDCheckBox(void)
 {
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* ApplyConsTileMap is called with 2 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef ApplyConsTileMap
+void ApplyConsTileMap(int ll_a1, int ll_a2) { (void)ll_a1; (void)ll_a2; ApplyConsTileMap_vc6_body(); }
+#endif
+
+#ifdef LEGOLAND_PORTABLE
+/* ApplyDestrTileMap is called with 2 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef ApplyDestrTileMap
+void ApplyDestrTileMap(int ll_a1, int ll_a2) { (void)ll_a1; (void)ll_a2; ApplyDestrTileMap_vc6_body(); }
+#endif
+
+#ifdef LEGOLAND_PORTABLE
+/* PrintBackground is called with 2 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef PrintBackground
+void PrintBackground(int ll_a1, int ll_a2) { (void)ll_a1; (void)ll_a2; PrintBackground_vc6_body(); }
+#endif
