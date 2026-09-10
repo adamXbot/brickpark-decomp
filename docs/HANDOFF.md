@@ -837,10 +837,33 @@ python3 tools/audit.py LEGOLAND/*.c | grep -E 'REJECT|FAIL|COMPILE FAILED'
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" \
   "${LEGOLAND_CL:-../alphateam/tools/wibo-msvc/cl}" \
   /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/x.obj LEGOLAND/<file>.c
-# relocation identity: zero MISMATCH lines (UNRESOLVED is fine)
+# relocation identity, per changed file: zero MISMATCH lines (UNRESOLVED is fine)
 python3 tools/relocs.py LEGOLAND/<file>.c
+# relocation identity, WHOLE TREE — run this every round, not just the changed
+# files (see the note below); ~30 min, safe alongside nothing else compiling
+python3 tools/relocs.py --all | grep MISMATCH        # must print nothing
 python3 tools/verify.py     # ALONE. nothing else compiling.
 ```
+
+**Run the whole-tree relocs sweep, not just the changed files.** `relocs.py`
+catches the one defect class the normalised gate is blind to: a wrong global
+or a wrong callee of the same size emits identical bytes, so `audit.py` and
+`verify.py` both pass while the code reads, writes or calls the wrong object.
+Because it is blind to it, such a body can sit exact and wrong for months in a
+file nobody is touching — on 2026-09-10 a whole-tree sweep found 19 of them
+across four files, and two (`input.c`'s swapped mouse-wheel handlers) were in
+a file no round had changed, so no per-file check would ever have run on it.
+
+**Do not gate on `relocs.py`'s exit status.** It returns a bitmask: bit 0 is
+"mismatches found", bit 1 is "unresolved or skipped". Unresolved entries are
+normal — literals and unannotated symbols, 1,694 of them tree-wide — so a
+perfectly clean sweep exits **2**, not 0. Grep for `MISMATCH`, or test
+`$(( $? & 1 ))`.
+
+A hit is always one of two things, and the disassembly says which: the C names
+the wrong object, or the `extern`'s trailing `/* 0x... */` comment is wrong.
+Fix whichever is wrong and re-run `audit.py` on the file — a correct fix keeps
+every `[OK]`, because the bytes never change.
 
 Then `git add` only the lane files (never `scratchpad/`), commit with the
 recovered mechanics in the message, and update the status block in
