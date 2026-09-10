@@ -1013,7 +1013,87 @@ void RLEPaintHit(void* dst, void* a, void* b, void* c, int h, int pitch,
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    /* 0x00467640 in C.  RLEPaintFast plus the mouse hit test, and with the
+     * DEFECTIVE top-skip: `jne L_467675` only skips the `add esi,2`, so a
+     * primary code 1 consumes its literal word and then FALLS THROUGH into
+     * escape processing (it reads a B length byte) instead of going back for
+     * the next code.  Code 0 continues correctly.  Kept: the shipped 16-bpp
+     * assets contain no primary 1, so the defect is dormant, but it is what
+     * the executable does.  `left`, `w` and `spare` are dead here. */
+    unsigned char*        row;
+    unsigned short*       dp;
+    const unsigned short* sp = (const unsigned short*)a;
+    const unsigned char*  lp = (const unsigned char*)b;
+    LLRleCtl              cs;
+    unsigned int          code;
+    unsigned int          n;
+    unsigned short        v;
+    int                   rows;
+    int                   skip;
+
+    (void)left; (void)w; (void)spare;
+    ll_rle_open(&cs, c);
+
+    skip = top;
+    if (skip != 0) {
+        for (;;) {
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code)) {
+                sp++;                              /* add esi,2 ...      */
+                if (!LL_RLE_LO(code))              /* ... then FALL INTO */
+                    continue;                      /* L_467675: code 0   */
+            } else if (!LL_RLE_LO(code)) {
+                continue;                          /* 2: one skip        */
+            }
+            n = *lp++;
+            if (n == 0) {
+                if (--skip > 0) continue;
+                break;
+            }
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) continue;
+            if (LL_RLE_LO(code)) sp++;
+            else sp += n;
+        }
+    }
+
+    row = (unsigned char*)dst;
+    dp = (unsigned short*)row;
+    rows = h;
+    for (;;) {
+        code = ll_rle_code(&cs);
+        if (!LL_RLE_HI(code)) {                    /* L_467764: 0/1      */
+            if ((const void*)mouse == (const void*)dp)
+                g_blit_hit |= 1;                   /* singleton match    */
+            *dp++ = *sp++;
+            continue;
+        }
+        dp++;
+        if (!LL_RLE_LO(code))
+            continue;
+        dp--;
+        n = *lp++;
+        if (n == 0) {                              /* L_467782: end row  */
+            row += pitch;
+            dp = (unsigned short*)row;
+            if (--rows == 0)
+                break;
+            continue;
+        }
+        code = ll_rle_code(&cs);
+        if (LL_RLE_HI(code)) {                     /* L_46775C: skip run */
+            dp += n;
+            continue;
+        }
+        if (ll_rle_hit_run(mouse, dp, n))          /* both opaque runs   */
+            g_blit_hit |= 1;
+        if (LL_RLE_LO(code)) {                     /* L_467748: repeat   */
+            v = *sp++;
+            do { *dp++ = v; } while (--n);
+        } else {                                   /* L_467734: literal  */
+            do { *dp++ = *sp++; } while (--n);
+        }
+    }
 #endif
 }
 
@@ -1869,7 +1949,76 @@ void RLEPaintFast(void* dst, void* a, void* b, void* c, int h, int pitch,
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    /* 0x00467f00 in C.  The simplest leaf: no clipping, no hit test.
+     *   edi = dp (the output pixel), esi = sp (the u16 pixel stream),
+     *   [esp+1ch] = lp (the u8 length stream), edx/ebx = the control reader,
+     *   [esp+14h] = row (the saved row base), [esp+24h] = rows.
+     * The top-skip loop handles BOTH literal codes (`jmp L_467F19` after
+     * `add esi,2`), unlike the five defective leaves. */
+    unsigned char*        row;
+    unsigned short*       dp;
+    const unsigned short* sp = (const unsigned short*)a;
+    const unsigned char*  lp = (const unsigned char*)b;
+    LLRleCtl              cs;
+    unsigned int          code;
+    unsigned int          n;
+    unsigned short        v;
+    int                   rows;
+    int                   skip;
+
+    ll_rle_open(&cs, c);
+
+    skip = top;
+    if (skip != 0) {                               /* test edi,edi / je */
+        for (;;) {
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code)) { sp++; continue; }        /* 0/1: one word */
+            if (!LL_RLE_LO(code)) continue;                  /* 2: one skip   */
+            n = *lp++;
+            if (n == 0) {                                    /* 3+0: end row  */
+                if (--skip > 0) continue;                    /* dec edi / jg  */
+                break;
+            }
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) continue;                   /* 2/3: skip run */
+            if (LL_RLE_LO(code)) sp++;                       /* 1: repeat     */
+            else sp += n;                                    /* 0: literal    */
+        }
+    }
+
+    row = (unsigned char*)dst;
+    dp = (unsigned short*)row;
+    rows = h;
+    for (;;) {
+        code = ll_rle_code(&cs);
+        if (!LL_RLE_HI(code)) {                    /* je L_468002: 0/1  */
+            *dp++ = *sp++;
+            continue;
+        }
+        dp++;                                      /* lea edi,[edi+2]   */
+        if (!LL_RLE_LO(code))                      /* 2: transparent    */
+            continue;
+        dp--;                                      /* sub edi,2         */
+        n = *lp++;
+        if (n == 0) {                              /* L_468013: end row */
+            row += pitch;
+            dp = (unsigned short*)row;
+            if (--rows == 0)
+                break;
+            continue;
+        }
+        code = ll_rle_code(&cs);
+        if (LL_RLE_HI(code)) {                     /* L_467FFD: skip run */
+            dp += n;
+            continue;
+        }
+        if (LL_RLE_LO(code)) {                     /* L_467FEC: repeat   */
+            v = *sp++;
+            do { *dp++ = v; } while (--n);
+        } else {                                   /* L_467FDB: literal  */
+            do { *dp++ = *sp++; } while (--n);
+        }
+    }
 #endif
 }
 
