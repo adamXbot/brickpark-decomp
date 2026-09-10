@@ -686,6 +686,36 @@ void TrackHP_Add(RideElem* elem, MapRef* node);      /* 0x00428300 */
 int  LoadRollerCoaster(void);                        /* 0x00426c20 */
 int  SaveRollerCoaster(void);                        /* 0x00426ce0 */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: one wasm type per callback slot.  These ObjDef slots are
+ * called with the instance pointer the class was registered with:
+ *   cb_ac +0xac, called as (elem) by sysmisc.c:664
+ *   cb_load +0xb8, called as (elem) by savegame.c:1365
+ *   cb_save +0xbc, called as (elem) by savegame.c:941
+ * and these bodies never read it -- free on x86 cdecl, where the caller
+ * pushes and the caller cleans up, but a wasm call_indirect whose type is
+ * not the target's traps.  The portable build registers an adapter of the
+ * slot's own type which drops the argument, so the slot holds one type.
+ * The matched bodies are untouched. */
+extern void Castle_Destroy(void);
+static void ll_cb_ac_Castle_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Castle_Destroy();
+}
+extern int LoadRollerCoaster(void);
+static int ll_cb_load_LoadRollerCoaster(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadRollerCoaster();
+}
+extern int SaveRollerCoaster(void);
+static int ll_cb_save_SaveRollerCoaster(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveRollerCoaster();
+}
+#endif
 /* See "VC6 CODEGEN NOTE" in the file header: the `volatile` parameters and
  * the empty `__asm` block are the two levers that reproduce this function's
  * unoptimised original codegen under /O2. They change no semantics. */
@@ -700,11 +730,23 @@ void CastleObj_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add = CtThunk_Add;
         def->cb_remove = CtThunk_Remove;
         def->cb_a4 = Castle_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_ac = Castle_Destroy;
+#else
+        def->cb_ac = ll_cb_ac_Castle_Destroy;   /* PORT-M3 */
+#endif
         def->cb_a8 = Castle_Activate;
         def->cb_b0 = Castle_Interact;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save = SaveRollerCoaster;
+#else
+        def->cb_save = ll_cb_save_SaveRollerCoaster;   /* PORT-M3 */
+#endif
+#ifndef LEGOLAND_PORTABLE
         def->cb_load = LoadRollerCoaster;
+#else
+        def->cb_load = ll_cb_load_LoadRollerCoaster;   /* PORT-M3 */
+#endif
         def->cb_c0 = Castle_Extra;
         g_ct_iface[0].elem = elem;
         g_ct_iface[0].tick = Castle_Tick;
