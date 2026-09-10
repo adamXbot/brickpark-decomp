@@ -48,6 +48,14 @@ scratchpad (`port-m3-*.py`), all reading data the build already produces:
    `gen-browser/globals.c`, which names every function the closure re-points
    each table word at.
 
+Two caveats on the call-site census, both small and both worth writing down.
+It cannot see an indirect call inside one of the 26 bodies that are still
+`LL_UNPORTED_ASM()` (12 files; rlepaint.c has eight and tri3d.c four) because
+those bodies have no code yet — the blitters and the x87 maths, none of which
+dispatches through a game table. And an indirect call made through a pointer the
+compiler can constant-fold does not appear as an indirect call at all; at -O0,
+which is what this census compiles, nothing folds.
+
 Cross-referencing the three gives, per slot: the type the call site uses and
 the set of real signatures of the bodies that reach it. **Every slot whose body
 set contains more than one wasm signature is unfixable from the call site
@@ -66,7 +74,7 @@ the slot. A row is a trap exactly when they differ.
 | 2 | title screen, every frame | `Icon +0x28` render | fpui.c:671/705/739, popupmisc.c:459 | `(i32) -> i32` | `(i32) -> i32` x15 | **consistent** |
 | 3 | first click on any icon | `Icon +0x2c` input | fpui.c:774/777, uimisc.c:607 | `(i32, i32, i32, i32) -> i32` | 64 bodies agree, **17 are `(i32, i32) -> i32`** | **TRAP — fixed, section 4** |
 | 4 | first click on the OK / back icon of a screen | `g_icon_handler1` 0x006687bc, `g_icon_handler2` 0x006687c0 | fpui.c:768/787 | `(i32, i32, i32, i32) -> i32` | 15 agree, **4 are `(i32, i32) -> i32`** (`FreePlayAcceptInput`, `InGamePrimaryIcon`, `ReportNextPageInput`, `AdvertGoBackInput`) | **TRAP — fixed with row 3** (same bodies) |
-| 5 | advisor movie on the front end | `AdvisorClip +0x20` stop / `+0x24` tick | advisor.c:300 | `(i32) -> void` | `(i32) -> void` (`Castle_Tick`, `Track_Tick`), `() -> void` (`AdvisorMovieTick`) | tick slot mixed; `stop` consistent. Open, section 5 |
+| 5 | advisor movie on the front end | `AdvisorClip +0x20` stop / `+0x24` tick | advisor.c:300 | `(i32) -> void` / `() -> void` | `stop` is only ever written 0 (advisor.c:186) and `tick` only ever `AdvisorMovieTick` `() -> void` | **consistent** (the first census pass conflated this `tick` field with `CtIface`'s, which holds `Castle_Tick` / `Track_Tick` `(i32) -> void` and is called through a matching cast) |
 | 6 | a sprite with a painter | `SpriteRec +0x08` image | sprite2.c:253 | `(i32) -> void` | `(i32) -> void` | **consistent** (cast `(SpriteDrawFn)`) |
 | 7 | first `.bmp`/level load | `g_level_db_sections` 0x004bb6f8 keyword handlers | levelkw.c:937/956 | `(i32, i32, i32) -> i32` | 68 agree, **22 are `(i32, i32) -> i32`** | **TRAP — open, section 5** |
 | 8 | every event tick in a level | `g_event_tick[70]` 0x004b9d44 | fpui3.c:657 | `(i32) -> i32` | `(i32) -> i32` x68 | **consistent** |
@@ -75,11 +83,11 @@ the slot. A row is a trap exactly when they differ.
 | 11 | a placed object, deselect | `ObjDef +0x94` | gameframe.c:958-1069, eventtick.c:511, mappath.c:478, fpui3.c:295, misc3.c:700 | `(i32, i32) -> void` | `(i32, i32) -> void` x20 | **consistent** |
 | 12 | removing an object | `ObjDef +0x9c` | objmap2.c:1895 | `(i32, i32, i32) -> void` | `(i32, i32, i32) -> void` x55 | **consistent** |
 | 13 | class resource init | `ObjDef +0xa4` | llidb_odf.c:281 | `(i32) -> void` | `(i32) -> void` x33 | **consistent** |
-| 14 | drawing a class' sprite descriptor | `ObjDef +0xa0` | renderview.c:1221 | `(i32, i32) -> i32` | 9 agree, **1 is `(i32,i32,i32,i32) -> void`** (`DrawBasicPath`) | **TRAP — open, section 5** |
-| 15 | a class' per-frame sim | `ObjDef +0xa8` | renderview.c:1130 | `(i32) -> void` | 18 agree, **2 are `() -> void`** (`BoatingSchool_Tick`, `JungleCruise_Tick`) | **TRAP — open, section 5** |
-| 16 | class teardown | `ObjDef +0xac` | sysmisc.c:664 | `(i32) -> void` | 7 agree, **20 are `() -> void`** | **TRAP — open, section 5** |
-| 17 | save a game | `ObjDef +0xbc` | savegame.c:941 | `(i32) -> i32` | 5 agree, **15 are `() -> i32`**, 8 alias | **TRAP — open, section 5** |
-| 18 | load a game | `ObjDef +0xb8` | savegame.c:1365 | `(i32) -> i32` | 5 agree, **10 are `() -> i32`**, 8 alias | **TRAP — open, section 5** |
+| 14 | drawing a class' sprite descriptor | `ObjDef +0xa0` | renderview.c:1221 | `(i32, i32) -> i32` | 9 agree, **1 is `(i32,i32,i32,i32) -> void`** (`DrawBasicPath`) | **TRAP — left open on purpose, section 5** |
+| 15 | a class' per-frame sim | `ObjDef +0xa8` | renderview.c:1130 | `(i32) -> void` | 18 agree, **2 are `() -> void`** (`BoatingSchool_Tick`, `JungleCruise_Tick`) | **TRAP — fixed, section 4b** |
+| 16 | class teardown | `ObjDef +0xac` | sysmisc.c:664 | `(i32) -> void` | 7 agree, **20 are `() -> void`** | **TRAP — fixed, section 4b** |
+| 17 | save a game | `ObjDef +0xbc` | savegame.c:941 | `(i32) -> i32` | 5 agree, **15 are `() -> i32`**, 8 alias | **TRAP — fixed, section 4b** |
+| 18 | load a game | `ObjDef +0xb8` | savegame.c:1365 | `(i32) -> i32` | 5 agree, **10 are `() -> i32`**, 8 alias | **TRAP — fixed, section 4b** |
 | 19 | appraisal / goal counting | `ObjDef +0xc0` | appraisal.c:172-212, eventtick2.c:232 | `(i32, i32) -> i32` | `(i32, i32) -> i32` x5 | **consistent** |
 | 20 | castle-class dispatch | `CtIface +0x04..+0x14` | castleobj.c:844-877, coaster.c:525 | 1-3 args, per slot | see section 5 | mostly consistent; the `update2` cast is wrong |
 | 21 | a track piece rebuild | `TrackDesc +0x20` build | coaster.c:330 | `(i32, i32) -> void` | `(i32, f32) -> void` (`TrackNode_SetBothHeights`), `(i32) -> void` (`TrackNode_LoadDescHeights`) | **TRAP — fixed, section 3** |
@@ -230,6 +238,70 @@ The `#define` sits ABOVE the `// FUNCTION:` marker, never between the marker
 and the signature, and the emitted bytes cannot move: VC6 compiles the
 `#ifndef` world, in which the file is character-for-character what it was.
 
+## 4b. The fixes in this lane (one wasm type per ObjDef slot)
+
+Four `ObjDef` slots have a live call site and a mixed body set. All four are
+written by game code — `screen.c`, `interfaces.c`, `ridesave.c` and
+`castleobj.c` are the only files that assign them — so the portable arm can
+register an **adapter of the slot's own type** that drops the argument the body
+never read, which is exactly what x86 cdecl did for free:
+
+```c
+#ifdef LEGOLAND_PORTABLE
+extern int SaveBoatingSchool(void);
+static int ll_cb_save_SaveBoatingSchool(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveBoatingSchool();
+}
+#endif
+...
+#ifndef LEGOLAND_PORTABLE
+        def->cb_save = SaveBoatingSchool;
+#else
+        def->cb_save = ll_cb_save_SaveBoatingSchool;   /* PORT-M3 */
+#endif
+```
+
+| slot | canonical | adapters | in |
+| --- | --- | --- | --- |
+| `+0xac` teardown | `(i32) -> void` | 21 | screen.c 20, castleobj.c 1 |
+| `+0xb8` load | `(i32) -> i32` | 17 | screen.c 6, interfaces.c 10, castleobj.c 1 |
+| `+0xbc` save | `(i32) -> i32` | 21 | screen.c 8, interfaces.c 10, ridesave.c 2, castleobj.c 1 |
+| `+0xa8` sim | `(i32) -> void` | 2 | screen.c (`BoatingSchool_Tick`, `JungleCruise_Tick`) |
+
+61 adapters, 62 store sites, in four files. Two details are worth recording:
+
+* **the adapter is safe to substitute** because nothing in the tree ever
+  compares a `cb_*` slot against a function address — checked by name over all
+  258 sources. The slot is written, read and called, never matched.
+* **screen.c's declarations had to move first.** It declares every callback
+  K&R-style (`extern void SaveBoatingSchool();`, 203 of them), which says
+  nothing about the parameters AND gets the return type wrong for the save /
+  load pair, so the adapter could not call them. 35 of those declarations got a
+  portable arm with the body's real prototype. The remaining 168 are
+  address-taken only and harmless; rewriting them would close census rows and
+  change no behaviour.
+
+**Three alias names fixed themselves by being declared properly.**
+`LoadPlaneRide`, `LoadSpiderRide` and `LoadSpinningBarrels` are stale names no
+game TU defines; `gen_link.py` bridges each with a forwarder whose signature it
+takes from the *registering file's declaration*, and interfaces.c declared them
+`int (void)` while the real bodies (`LoadZoomer`, `LoadSpider`, `LoadSBarrel`,
+ridesave.c) are `(i32) -> i32` — the canonical type. The generator therefore
+emitted
+
+```c
+unsigned int LoadPlaneRide(void) { return ((unsigned int (*)(void))&LoadZoomer)(); }
+```
+
+i.e. the casting forwarder PORT-M2 section 4 showed binaryen can turn into an
+invalid direct call. Those three are now declared with the real shape, so the
+generator emits a plain forwarder and the slot gets the right type with no
+adapter at all. `Joust_A0`, `TempleSlide_A0/A8/AC` and `Joust_AC` have the same
+shape and are listed in section 5 — they need ridesave.c's declarations to
+change, which this lane did not get to.
+
 ## 5. What still traps, with the recipe for each
 
 Everything in this section is a **mixed body set**: two or more real signatures
@@ -251,16 +323,12 @@ treatments are available and the choice is about where the table is filled:
 
 | slot | canonical | bodies needing an adapter | treatment | count |
 | --- | --- | --- | --- | --- |
-| `ObjDef +0xbc` save | `(i32) -> i32` | `Balloonz_Save`-style 15 × `() -> i32` | registration-site, screen.c + ridesave.c | 15 |
-| `ObjDef +0xb8` load | `(i32) -> i32` | 10 × `() -> i32` | same | 10 |
-| `ObjDef +0xac` teardown | `(i32) -> void` | 20 × `() -> void` | same | 20 |
-| `ObjDef +0xa8` sim | `(i32) -> void` | `BoatingSchool_Tick`, `JungleCruise_Tick` | same | 2 |
 | `ObjDef +0xa0` draw desc | `(i32, i32) -> i32` | `DrawBasicPath` `(i32,i32,i32,i32) -> void` | same; check which of the two is the real +0xa0 contract first — a four-argument painter in a two-argument slot smells like a second registration bug of the PORT-M2 1a kind | 1 |
-| `g_level_db_sections` keyword handlers | `(i32, i32, i32) -> i32` | 22 × `(i32, i32) -> i32` (`LevelKw_CAPACITYCAP`, `CLEAR`, `DEGRADE`, `ENDLEVEL`, `ENTRANCEFEE`, `EXTENDPARK`, `FEATURE`, `FLASHBUTTOFF`, `FLASHBUTTON`, `FMV`, `GLUE`, …) | definition-side forwarder in the levelkw*.c that defines each | 22 |
+| **CLOSED in 4b:** `+0xac`, `+0xb8`, `+0xbc`, `+0xa8` | — | — | registration-site adapters, 61 of them | 0 left |
+| **CLOSED in 5b:** `g_level_db_sections` keyword handlers | `(i32, i32, i32) -> i32` | the 22 two-argument `LevelKw_*` bodies, all in levelkw3.c | definition-side twins | 0 left |
 | `ObjDef +0x8c` tick/select | unknown — no call site | 27 × `() -> void` vs 2 × `(i32) -> void` | wait for the consumer | 29 |
 | `ObjDef +0xb0` custom draw | unknown — no call site | 14 × 6-arg vs 4 × 4-arg | wait for the consumer | 18 |
 | `cb_activate`, `cb_destroy`, `cb_draw` (the library-table names in interfaces.c) | per the 14-pointer library table | `cb_activate` 9 × `(i32) -> void` vs 2 × `() -> void`; `cb_destroy` 25 × `() -> void` vs 3 × `(i32) -> void` | registration-site | 5 |
-| `AdvisorClip +0x24` tick | `(i32) -> void`? advisor.c's own `tick` slot is `(void)` and the stored `Castle_Tick`/`Track_Tick` are `(i32)` | read advisor.c's call site again with the slot table in hand | 3 |
 
 Four more open items that are NOT arity mismatches:
 
@@ -294,10 +362,161 @@ Four more open items that are NOT arity mismatches:
   because a cast that names a *different* slot's typedef is how row 23 went
   wrong.
 
+## 5b. The level-file keyword table (fixed)
+
+`g_level_db_sections` (0x004bb6f8) is the level parser's keyword dispatch: 90
+entries, called as `table[i].handler(words, nwords - 1, extra)` by
+`ParseKeywordSections` (levelkw.c:937/956). 68 handlers are
+`(char**, int, int) -> int`; **22 are `(char**, int) -> int`**, and all 22 are
+defined in ONE file, levelkw3.c — `LevelKw_CAPACITYCAP`, `CAPACITYSCALE`,
+`CLEAR`, `DEGRADE`, `ENDLEVEL`, `ENTRANCEFEE`, `EXTENDPARK`, `FEATURE`,
+`FLASHBUTTOFF`, `FLASHBUTTON`, `FMV`, `GLUE`, `HAP_FACTOR`, `INTERVAL`,
+`MAXBLOKES`, `MAXCAPACITY_MAXVISITORS`, `MESSAGE`, `MINCAPACITY_MINVISITORS`,
+`PLACE`, `PURGE`, `REPORT`, `UNGLUE`.
+
+The table is filled from `.data` by the closure, so there is no registration
+site to stand on: each of the 22 gets the rename-pattern twin with the table's
+own three-argument shape (the third dword is `extra`, which these bodies never
+read). None of the 22 is called directly anywhere — every use is the table — so
+the twin is the only caller of the matched body.
+
+This one is worth flagging to the integrator as a **behaviour** risk as well as
+a type risk: these are the keywords a level file uses most (`MESSAGE`, `PLACE`,
+`CLEAR`, `FMV`, `INTERVAL`), so a level load would have trapped on the first one
+it met.
+
 ## 6. Gate results
 
-(filled in per batch)
+Every touched file: `audit.py` PASS with the same `[OK]` / `[WIP]` rows,
+0 REJECT / FAIL / COMPILE FAILED, `relocs.py` 0 MISMATCH.
+
+| file | `[OK]` | `[WIP]` | audit.py | relocs.py MISMATCH | section |
+| --- | --- | --- | --- | --- | --- |
+| castleobj.c | 39 | 0 | PASS | 0 | 4b |
+| coaster.c | 59 | 0 | PASS | 0 | 3b |
+| coaster10.c | 16 | 0 | PASS | 0 | 3a |
+| coaster12.c | 22 | 2 | PASS | 0 | 3b |
+| fpui5.c | 4 | 1 | PASS | 0 | 4 |
+| frontend2.c | 23 | 0 | PASS | 0 | 4 |
+| interfaces.c | 15 | 0 | PASS | 0 | 4b |
+| levelkw3.c | 22 | 0 | PASS | 0 | 5b |
+| mapscreen4.c | 5 | 0 | PASS | 0 | 4 |
+| ridesave.c | 27 | 0 | PASS | 0 | 4b |
+| screen.c | 3 | 0 | PASS | 0 | 4b |
+| tinystubs.c | 56 | 0 | PASS | 0 | 4 |
+| uimisc.c | 35 | 0 | PASS | 0 | 4 |
+| uimisc2.c | 14 | 0 | PASS | 0 | 4 |
+| uimisc3.c | 23 | 0 | PASS | 0 | 4 |
+| **15 files** | **363** | **3** | **PASS, 0 REJECT / FAIL / COMPILE FAILED** | **0** | |
+
+`progress.py --check`: **3281 exact / 42 WIP**, unchanged. `docs/LEGOLANDPROGRESS.HTML` was reported
+stale for the reason PORT-M1 predicted — the report records a line number per
+function and an inserted `#ifndef` moves them — so it is regenerated and
+committed; it reports 665/675 exports exact (98.5%), 3281 exact, 42 WIP, and
+the diff is the one table line whose source links moved.
+
+**A second, cheaper proof that the VC6 side cannot have moved**
+(`port-m3-vc6view.py` in the scratchpad): each file is reduced to what the
+preprocessor leaves with `LEGOLAND_PORTABLE` undefined — `#ifndef` arms kept,
+`#ifdef` arms and `#else` bodies dropped — and compared with the same reduction
+of the file at the lane's base revision. **All 15 files: IDENTICAL.** The byte
+gate confirms it the expensive way; this confirms it in a second, and it is the
+check to run first when a portable arm is suspected of leaking.
+
+For the record, `clang`'s own function-pointer warnings over all 258 sources
+(`-Wincompatible-function-pointer-types -Wcast-function-type`, which the
+portable build turns off with `-Wno-everything`) produce exactly four rows. None
+of them is one of this lane's traps, but all four are worth keeping in view:
+
+```
+coaster8.c:339  seat->attach = RouteSeat_AttachCar;   int (RouteSeat*, CoasterCar*) into void (*)(...)
+coaster8.c:340  seat->detach = RouteSeat_DetachCar;   int (RouteSeat*) into void (*)(...)
+coaster9.c:102    ((float (*)(float))g_fast_sqrt)(value)     cast from void (*)(void)
+coastertiny.c:212 ((float (*)(float))g_fast_rsqrt)(value)    cast from void (*)(void)
+```
+
+The first two are return-type-only, so the wasm types do differ (`-> i32` vs
+`-> void`); the **call sites** (coaster8.c:326 `seat->occupied(seat)`,
+unref1.c:269-299) agree with the bodies, not with the struct, so the slot
+declarations are the wrong side and it is a one-line portable arm for whoever
+owns coaster8.c next. The last two are section 5's x87 pair.
 
 ## 7. Census
 
-(filled in at the end)
+| | at lane start (`09f14a5b`) | after |
+| --- | --- | --- |
+| `linkreport.py` prototype conflicts | 420 | **411** |
+| wasm-ld `function signature mismatch` (distinct symbols) | 1 (`printf`, generator-side) | 1, unchanged |
+| indirect call sites, game-side | 185 | 185 |
+| slots/tables with ONE wasm type | 17 of 30 | **26 of 30** — rows 3, 4, 7, 15, 16, 17, 18, 21 and 23 closed; 14, 25, 28 and 30 left open with a recipe |
+| (slot, body) pairs type-checked at compile time | 0 | **454** (`portable/tests/test_callback_types.c`) |
+| `ctest` | 8/8 | 8/8 |
+| `legoland_headless` under node | stops in `RLEPaintHit` (rlepaint.c:1016) | the same, same trace |
+
+The prototype-conflict census barely moves, and that is expected: it counts
+*declaration* disagreements, and this lane's fixes are mostly adapters and
+definition-side twins, neither of which is a declaration. The nine rows that did
+close are screen.c's 35 K&R declarations collapsing onto the bodies' real
+prototypes (the census emits one row per distinct wrong signature, not per
+file).
+
+## 8. The type-check test
+
+`portable/tests/test_callback_types.c` is a NEW file;
+`portable/cmake/tests.cmake` belongs to PORT-C and was not touched, so the
+integrator or PORT-C should add
+
+```cmake
+# compile-only: the check IS the compile
+add_library(legoland_cbtypes OBJECT "${LL_TESTS_DIR}/test_callback_types.c")
+target_compile_options(legoland_cbtypes PRIVATE
+                       -Werror=incompatible-function-pointer-types)
+```
+
+to wire it into `ninja`. Until then it is run by hand:
+
+```
+emcc -c -Wall -Werror=incompatible-function-pointer-types \
+     portable/tests/test_callback_types.c -o /tmp/cbtypes.o
+```
+
+It gives every slot the function-pointer type its **call site** uses and
+declares every body registered into that slot with the signature its
+**definition** really has, both printed from the same wasm-signature -> C
+mapping (`i32 -> void*`, `f32 -> float`), so an initialiser compiles only when
+the two are the same wasm type — exactly the condition for the `call_indirect`
+not to trap. 454 (slot, body) pairs over 14 slots and tables, the 90-entry
+keyword table and the curve method table included.
+
+Verified to FAIL on a real mismatch (the negative control): changing one
+declaration from `(void*, float, void*)` to `(void*, void*, void*)` gives
+
+```
+error: incompatible function pointer types initializing 'const ll_fn_g_car_class_vt'
+(aka 'void (*const)(void *, float, void *)') with an expression of type
+'void (void *, void *, void *)'
+```
+
+Each group ends with a comment naming the bodies it could NOT check and why:
+either they reach the slot through one of this lane's adapters (file-static, so
+it cannot be named from outside) or they are stale names no game TU defines,
+where the forwarder's type comes from the registering file's declaration rather
+than from a body.
+
+## 9. Regenerating the census
+
+The lane's tooling is five scratchpad scripts, none committed (scratch by
+convention), each 30-60 lines over data the build already produces:
+
+| script | what it does |
+| --- | --- |
+| `port-m3-sigs.py` | `linkreport.wasm_object_sigs` over `build-wasm/.../LEGOLAND/*.o` -> `{name: real wasm signature}` plus every referencing signature, as JSON |
+| `port-m3-indirect.py` | `-O0 -g` LLVM IR of all 258 sources -> every indirect call site with its lowered type, the `getelementptr` slot the pointer came from, and the source line |
+| `port-m3-stores.py` / `port-m3-datatables.py` | who stores what into which slot (from the sources) and what the closure puts in each `.data` table (from `gen-browser/globals.c`) |
+| `port-m3-vc6view.py` | the `LEGOLAND_PORTABLE`-undefined reduction of a file against the same reduction at the lane's base |
+| `port-m3-gentest.py` | writes `portable/tests/test_callback_types.c` from the census |
+
+The one sentence to carry forward: **a slot is safe iff the set of real
+signatures of the bodies that reach it has exactly one element, and that element
+is the call site's type.** Everything in this lane is that sentence applied
+thirty times.
