@@ -454,7 +454,21 @@ int GetTrackSegmentPiece(Pos* tile, float* h0, Pos* p1, float* h1,
  * open = tail via jout then head via jin. nxt is loaded after sx and
  * assigned back before the sentinel test; open loads the tile pointer
  * before the tail==ring guard. Tail-match stays pending until after
- * head so both latches invert and fail2 survives. */
+ * head so both latches invert and fail2 survives.
+ * LL23 2026-09-10: the body is really 84 instructions, not 87 -- audit's
+ * 87i/232B counts three bytes of COMDAT padding, because the missing
+ * block is the four-instruction fail2 (`pop edi; pop esi; xor eax,eax;
+ * ret`) minus the extra `jmp` our inverted head latch emits.  In the
+ * original fail1 (0x424090) serves the closed-ring empty test, the closed
+ * loop's fall-through AND the head-empty test (a BACKWARD branch), while
+ * the head loop's exhaustion falls through into its own copy at 0x4240f1
+ * -- the LEVERS rule "two return K sites merge at the FIRST; the
+ * fall-through copy of a shared tail survives".  New negative: writing
+ * that literally, with `goto fail1` from the head-empty test jumping INTO
+ * the `state == 2` block to a label on its trailing `return 0`, is
+ * bit-identical to the tip (84i/229B, 53/87).  VC6 canonicalises the two
+ * identical returns before layout, so the source cannot separate them;
+ * our head latch stays `je loop / jmp fail1`. */
 // WIP-FUNCTION: LEGOLAND 0x00424050  (head fail2 / call-site order)
 int GetTrackSegment(Pos* tile, float* h0, Pos* p1, float* h1, int* link)
 {
@@ -546,7 +560,18 @@ int TrackPiece_FindIndex(TrackNode* node)
 
 /* Append one span-group to the software-rasteriser's edge table.
  * Count-before-cursor is the push-ecx / mov ecx,[cursor] prologue.
- * Residual is ebx vs esi, the edx saved copy, and the keys-1 IV. */
+ * Residual is ebx vs esi, the edx saved copy, and the keys-1 IV.
+ * LL23 2026-09-10, two more families ruled out.  The Codex-F scope-V
+ * CANCELLED PAIR cannot split `saved` from `cur`: anchored on a link-time
+ * address constant through a second struct member it costs the anchor's
+ * `mov reg,imm32` (63i/187B); anchored on `n` it folds and is inert
+ * (61i/174B, 24/61, below the tip); a `volatile` reload of cur is 64i and
+ * ESCAPES; `saved` first with `cur = saved` is 62i.  The keys cursor is
+ * inert to spelling: `int ky = keys->y` before the increment (61i but
+ * 179B, 17/61), a `char*` step with `*(short*)((char*)keys - 8)`, a
+ * volatile read of keys[-1].y, `(keys - 1)->y`, and folding the subscript
+ * into the SpanEdge address all reproduce the tip's `lea edx,[eax-8]`
+ * biased cursor byte for byte.  Tip stays 26/61 index-for-index. */
 // WIP-FUNCTION: LEGOLAND 0x00423200  (61i/175B, ebx/edx/keys IV)
 void Raster_AddSpanRecord(int ne, int y, SortKey* keys, SpanEdge* edges)
 {

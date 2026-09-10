@@ -239,6 +239,39 @@ extern void  BsWater_SetTile(int x, int y, int mask, void* owner); /* 0x0041c4c0
  * placed by VC6's scheduler at a position no C statement order reaches (the
  * same class as ridecb9.c's JungleCruise_Add zero split and popup.c's
  * RequestRoute argument order).
+ *
+ * 2026-09-10, scope LL21.  UNCHANGED at 8, but the scope-Codex-F cancelled-
+ * pair ANCHOR lever produced ONE result worth recording, because it overturns
+ * a premise of the note above.
+ *  - *** THE NATURAL STORE ORDER IS REACHABLE AFTER ALL. ***  With
+ *    `q[4] = 0; next = head; head = st;` -- the order the disassembly
+ *    actually has, and which every earlier pass measured at 146/147 X because
+ *    the head load takes eax -- carrying the head through a cancelled pair
+ *    ANCHORED ON `o` (`t.anchor = (int)o; t.h = (int)g_bs_stations;
+ *    t.h += t.anchor; t.h -= t.anchor; st->next = (BsStation*)t.h;`) collapses
+ *    it from 97 aligned mismatches to SIX, at 218 instructions.  Everything
+ *    outside the store block, including the whole water-laying tail, stays
+ *    exact.  So the committed body's artificial `next = head` BEFORE `q[4]`
+ *    is a workaround for a register rank, not evidence about the source.
+ *  - It still is not better: in that shape `o` lands in ecx and the head in
+ *    eax, where the original has `o` in edx and the head in ecx -- both
+ *    exactly ONE step along VC6's eax->ecx->edx scratch rotation.  Every
+ *    documented rotation-advance was tried on top of it and none moves it:
+ *    free volatile reads at pos->x, pos->y, g_bs_dock_a.left and on the head
+ *    load itself (7/9/8/7), a volatile read of `o` (41), a second cancelled
+ *    pair (64), an alias `void* o2 = o` (6), a named `BsStation* hd` (6),
+ *    unsigned and pointer-typed members (6), and the cancel written on the
+ *    anchor member instead (97).  The head cannot get ecx in that order for a
+ *    mechanical reason: eax holds the function-wide zero and its last use is
+ *    the q[4] store, so eax is free by the time the head loads.  Only a zero
+ *    store AFTER the head load keeps eax busy -- which is precisely what the
+ *    committed spelling does.
+ *  - On the committed order the lever is inert or harmful: cancelled pairs on
+ *    `o` (nine anchors, at the call and between q[0] and q[1]) and on the head
+ *    (eight anchors) give 5 when the anchor is a literal (it folds in the
+ *    front end, so the body is unchanged) and 7..117 otherwise.
+ *  Residual and marker unchanged; the 8 remains three instructions of
+ *  scheduler slack in the argument load/push placement.
  * ========================================================================= */
 // WIP-FUNCTION: LEGOLAND 0x0041a040  (218/218 insns, 683/683 bytes, 8 mismatches at idx 39..50: the `o` argument load/push threaded between the zero-stores)
 void BoatingSchool_Add(void* o, Pos* pos)

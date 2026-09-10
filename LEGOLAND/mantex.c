@@ -213,28 +213,51 @@ void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
 
 /* Load altman/altwoman name lists and map visitor.txt rows onto the outfit
  * tables for one sex. ctx is unused (caller still passes the anim context).
- * The alt file layout matches LookupTextureName's two-section pack: title,
- * count, names..., empty, title B, count B, names B... `text2` is the
- * section-A title the loop compares against (its own home at +0x30); `text`
- * is only the allocation, freed at the end.
+ * The alt file layout matches LookupTextureName's two-section pack.
  *
- * FLOOR: 229i/752B size-exact, 6 strict mism, one class. countA and countB are
- * deliberately left UNASSIGNED on the fail paths: the original's
- * `mov ebx,[esp+0x24]` / `mov ebp,[esp+0x14]` are uninitialised reads whose
- * phantom homes VC6 shares with `text` and `file`; any `else countA = ...`
- * folds to `xor ebx,ebx` (-2B). The residual is the home permutation of the
- * four 2-ref pointers (listB/text2/listA/titleB), which VC6 orders by first
- * load in the loop; the original's order is listB, text2, listA, titleB.
- * See docs/lanes/scope-ac.md. */
-// WIP-FUNCTION: LEGOLAND 0x00442980  (229i/752B; 6 mism: listB/text2/listA/titleB homes)
+ * Closed 2026-09-10 (scope LL22) from 78 mismatches / -4B.  Four
+ * reconstruction errors, all of them frame- or schedule-visible:
+ *  1. THE THREE BUFFERS ARE THREE SEPARATE ARRAYS, NOT ONE STRUCT.  A
+ *     `struct { path; line; name; pad; } buf` reproduces the same 0x3c0
+ *     frame and the same buffer addresses, but VC6 packs ONE aggregate and
+ *     THREE aggregates in a different order, and that rotates the whole
+ *     scalar-home sequence by one: with the struct, listA/listB/text2 come
+ *     out at 0x2c/0x30/0x34 instead of the original's 0x30/0x34/0x2c, and
+ *     the five sscanf ints rotate with them (the position->slot map is
+ *     [0x48,0x40,0x4c,0x3c,0x44] for a struct and the original's
+ *     [0x40,0x4c,0x3c,0x44,0x48] for three arrays).  Declaration order of
+ *     the three arrays is INERT -- all six orders are byte-identical -- and
+ *     so is the sscanf argument order: VC6 maps address-taken locals by
+ *     ARGUMENT POSITION, not by identity, so all 120 permutations of
+ *     `&a..&e` emit the same five addresses.  `name` is 0x80, not 0x60
+ *     plus padding, which is what makes 0x50+0x380 land exactly on 0x3c0.
+ *  2. `countA` IS UNINITIALISED WHEN THE FILE IS MISSING, exactly like
+ *     `countB`.  There is no `else` arm: the original's
+ *     `mov ebx,[esp+24h]` is a read of countA's own never-stored home,
+ *     which VC6 overlapped onto `text` (as it overlaps countB onto
+ *     `file`).  Writing `countA = (int)text;` is what produced the old
+ *     `xor ebx,ebx`, and a volatile read of `text` reproduces the load but
+ *     puts text in the wrong slot.  Both counts are ORIGINAL BUGS.
+ *  3. The first NameCompare takes `text2`, the second copy of the pointer
+ *     made inside `if (text)`; `text` itself is only the HeapFree_w
+ *     argument and countA's slot donor.  text2 is READ UNINITIALISED when
+ *     the alt file is missing -- a third original bug.
+ *  4. `tolower(*p++)` -- the increment must be INSIDE the call argument.
+ *     With `tolower(*p); p++;` VC6 sinks the `inc esi` below the call and
+ *     the whole rest of the body rotates registers with it: that one
+ *     change alone took the body from 55 mismatches to 11.
+ * Also load-bearing: `q = path;` before `p = line;` (source order decides
+ * the two `lea`s), and `q += 4; listA = q;` rather than `listA = q + 4;`
+ * (the latter costs a `mov edx,eax` because VC6 computes into eax and the
+ * scan loop wants the cursor in edx).
+ */
+// FUNCTION: LEGOLAND 0x00442980
 void LoadAltTextures(const char* alt, const char* base, const char* dir,
                      int sex, void* ctx)
 {
-    struct {
-        char path[0x100];
-        char line[0x200];
-        char name[0x80];
-    } buf;
+    char   path[0x100];
+    char   line[0x200];
+    char   name[0x80];
     char*  text;
     char*  text2;
     char*  listA;
@@ -248,16 +271,7 @@ void LoadAltTextures(const char* alt, const char* base, const char* dir,
     int*   palB;
     void*  file;
     int    index;
-    /* The five sscanf ints. Separate scalars home by argument position
-     * (e,b,d,a,c ascending, names inert); the original's ascending order is
-     * arg3, arg1, arg4, arg5, arg2, which only an aggregate reproduces. */
-    struct {
-        int i2;
-        int i0;
-        int i3;
-        int i4;
-        int i1;
-    } num;
+    int    a, b, c, d, e;
     char*  p;
     char*  q;
     int    n;
@@ -283,7 +297,10 @@ void LoadAltTextures(const char* alt, const char* base, const char* dir,
             listB = q + 4;
         }
     }
-    sprintf(buf.path, kAltTexPathFmt, dir, base);
+    /* ORIGINAL BUGS: countA, countB, text2, listA, listB and titleB are all
+       read uninitialised when the alt file is missing or empty; the original
+       reads their frame homes anyway.  Reproduced, not fixed. */
+    sprintf(path, kAltTexPathFmt, dir, base);
     if (!sex) {
         g_outfitA_n0 = countA;
         g_outfitA_tab0 = (void**)HeapAlloc_w(countA * 4);
@@ -303,14 +320,14 @@ void LoadAltTextures(const char* alt, const char* base, const char* dir,
         palB = (int*)&g_outfitB_pal1;
         palA = (int*)&g_outfitA_pal1;
     }
-    file = RES_OpenFile(buf.path);
+    file = RES_OpenFile(path);
     if (file) {
-        ReadAltLine(file, buf.line, 0x200);
-        ReadAltLine(file, buf.line, 0x200);
-        if (ReadAltLine(file, buf.line, 0x200)) {
+        ReadAltLine(file, line, 0x200);
+        ReadAltLine(file, line, 0x200);
+        if (ReadAltLine(file, line, 0x200)) {
             do {
-                q = buf.path;
-                p = buf.line;
+                q = path;
+                p = line;
                 for (;;) {
                     ch = (char)tolower(*p++);
                     if (ch == '.')
@@ -320,24 +337,23 @@ void LoadAltTextures(const char* alt, const char* base, const char* dir,
                     if (!ch)
                         break;
                 }
-                sscanf(p, kAltTexLineFmt, buf.name, &num.i0, &num.i1, &num.i2,
-                       &num.i3, &num.i4);
-                if (NameCompare(text2, buf.path) == 0)
+                sscanf(p, kAltTexLineFmt, name, &a, &b, &c, &d, &e);
+                if (NameCompare(text2, path) == 0)
                     *palA = index;
-                else if (NameCompare(titleB, buf.path) == 0)
+                else if (NameCompare(titleB, path) == 0)
                     *palB = index;
                 if (countA) {
-                    n = FindAltNameIndex(listA, buf.path);
+                    n = FindAltNameIndex(listA, path);
                     if (n != -1)
                         tabA[n] = (void*)index;
                 }
                 if (countB) {
-                    n = FindAltNameIndex(listB, buf.path);
+                    n = FindAltNameIndex(listB, path);
                     if (n != -1)
                         tabB[n] = (void*)index;
                 }
                 index++;
-            } while (ReadAltLine(file, buf.line, 0x200));
+            } while (ReadAltLine(file, line, 0x200));
         }
     }
     RES_CloseFile(file);

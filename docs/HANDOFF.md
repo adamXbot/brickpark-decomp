@@ -89,11 +89,12 @@ toolchain was rebuilt from `adamXbot/alphateam`'s
 `portable/README.md`), merged from `feat/browser-game-repo-setup-6bcb9e` with
 the census refreshed against main. Every game source compiles with clang and a
 whole-archive link closes against a generated closure (`ninja -C
-portable/build legoland_linkcheck`). All source changes sit under
+portable/build legoland_linkcheck` — confirmed on this Mac 2026-09-11 with
+Homebrew cmake 4.4 / ninja 1.13 / emsdk 6.0.9 installed). All source changes sit under
 `#ifdef LEGOLAND_PORTABLE`, invisible to the VC6 gate: every inline-asm site
 has a C fallback or an `LL_UNPORTED_ASM()` trap, exceptlog.c's and winmain.c's
 SEH compile to plain blocks, and castleobj.c's `Track_Update` is renamed for
-the portable build only (it collides with coaster.c's). The merge changed no
+the portable build only (it collides with coaster.c's). The merge (re-done on top of the LL21–LL24 merges) changed no
 VC6 bytes: `audit.py` PASS on all 38 touched files, relocs 0 MISMATCH, exact
 and WIP marker sets identical before and after.
 
@@ -125,12 +126,12 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **81.4% exact, 94.4% with partials** (2026-09-10) |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3273 |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **81.8% exact, 94.4% with partials** (2026-09-11, after LL21–LL24 and the portable merge) |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3279 |
 | `verify.py` | `python3 tools/verify.py` (ALONE) | 3273/3273 at 100% (2026-09-10, after the FGH wave) |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F owned part of this list and are both closed; use `tools/inventory.py` for game-code targets. |
-| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 50 — all listed in §6B |
+| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 44 — §6B lists the 50 as of 2026-09-10; LL21–LL24 since closed WW_AnyBlokeInRect, LoadAltTextures and the four coastershade2.c span fillers |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-09) | **ZERO — 0 live, 0 dead.** Every function in the game-code range has a body in C; see the frontier milestone below and §6C. |
 | **the ceiling** | `tools/inventory.py` residue line | 35,370 bytes (5.5%) is padding, `switch` tables in `.text` and CRT data that no C body can ever claim, so **~94.5% exact is the theoretical maximum**, not 100%. |
 
@@ -598,6 +599,16 @@ appears in two of them):
 All four carry the scope Codex-F levers (the cancelled-pair anchor, the alias
 pointer for reversed commutative operands) and the `/FAcs` frame-symbol route,
 none of which the earlier waves had.
+
+**WARNING — `scope/LL21`..`LL24` are based on `307c0dc9`, BEFORE the FGH wave
+(2026-09-11).** All four are local-only, unpushed, and actively being worked;
+between them they carry 6 genuine closes (`WW_AnyBlokeInRect` 0x00417e70 and
+`LoadAltTextures` 0x00442980 — both previously called floors — plus the four
+`Span_Fill*` bodies in `coastershade2.c`). But their base predates `850ef7fc`,
+so **merging any of them as they stand reverts all 40 bodies the FGH wave
+closed**, and the exact TOTAL would still rise because each branch adds its
+own closes. Only the §4 marker-set diff catches this. Merge current `main`
+into each branch and re-run that diff before landing any of them.
 
 **THE FGH WAVE LANDED (2026-09-10, main `9a82cc00`): 81.4% exact.** Five FGH
 branches (`cursor/fgh-100b..d`, `codex/fgh-integration`, `fgh-pickup`) sat 418

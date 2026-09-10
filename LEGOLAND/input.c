@@ -198,6 +198,41 @@ void ScanMouse(void)
  *    "0 after an early test" hit is the `xor r,r / mov r16,[..]` idiom.
  * Best attempt and the experiment log live in scratchpad/wipfix.c (ucfm) and
  * scratchpad/ucfm2/ (batch1-11.py, best.c).
+ *
+ * 2026-09-10 (scope LL22).  UNCHANGED AT 13, but the residual is now bounded
+ * from both sides and the "two effects" reading is retired: it is ONE
+ * allocator decision, and the two halves are strictly COUPLED.
+ *  - A positional side-by-side (audit's own norm2, index for index) shows
+ *    exactly 13 of 109 positions differ and every one of them lies in the
+ *    window 64..77 -- the two low clamps.  Indices 0..63 and 78..108 are
+ *    identical, so nothing else in this body is in question.
+ *  - THE COUPLING, measured as a positive control: drop the volatile cast on
+ *    the second accel_t1 read and indices 63..77 become EXACT -- the 0 is in
+ *    edx, the x-low clamp is `mov eax,[ecx+8] / xor edx,edx / cmp eax,edx /
+ *    jge / mov [ecx+8],edx` and the y-low clamp is the memory form
+ *    `cmp [ecx+0ch],edx`, both byte-for-byte.  The price is the accel_t1 CSE
+ *    temp, which can only live in ebp (ecx is `c`, and the `abs` cdq pairs
+ *    clobber eax/edx), so the prologue gains `push ebp`/`pop ebp` and the
+ *    whole entry, delta write-back and button tail re-plan: 53 of 109
+ *    positions differ.  So we can reach (ebp open, 0 in edx) or (ebp closed,
+ *    0 immediate) but never the original's (ebp closed, 0 in edx).
+ *  - The x-low clamp's extra `mov eax,[ecx+8]` and the y-low clamp's memory
+ *    compare are NOT two separate divergences to chase: they are simply what
+ *    VC6 emits once the 0 is a register candidate (the load is scheduled to
+ *    pair with the `xor edx,edx` that DEFINES the constant; the y clamp needs
+ *    no definition, so it takes the memory form).  Fix the candidate and all
+ *    three lines follow -- as the control above proves.
+ *  - Ruled out this lane, all byte-identical to the committed body: every
+ *    declaration order of dx/dy/accel (all six, plus the one-line form);
+ *    dx/dy as the two members of one flattened aggregate; a per-site
+ *    `*(volatile int*)&c->x` read at the x-low clamp; `lo` carriers declared
+ *    before and after the other locals.  Reproducing the no-volatile
+ *    111-instruction ebp form exactly (so NOT a third state): an explicit
+ *    `t1 = c->accel_t1` local used twice, and a `cc = c` alias pointer for
+ *    the second read (the Codex-F alias lever does defeat the CSE, but VC6
+ *    then makes the same ebp choice as the plain double read).
+ * VERDICT: at its floor on this toolchain.  Reopen only with a mechanism for
+ * making a constant a register candidate while ebp stays closed under FPO.
  */
 // WIP-FUNCTION: LEGOLAND 0x00473b00  (109/109 insns, 102/109 = 93.6%; the two low clamps hold 0 in edx in the original -- see note)
 void UpdateControllerFromMouseData(Controller* c)

@@ -96,6 +96,62 @@ pushes. Claude sessions end every commit message with
 `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`; Codex agents use
 their own attribution.
 
+## Scope-brief status header (required)
+
+Every `docs/SCOPE_*.md` starts with a status block on the line after the H1,
+and **whoever merges the scope updates it in the same commit as the merge**.
+A brief that outlives its accuracy is worse than no brief: on 2026-09-11 a
+sweep of all 68 found nine stale, four of which still advertised finished work
+as open (`SCOPE_V` said "OPEN, unclaimed" for a scope that is 62 of 62 exact),
+and one table overstated its lane by three bodies. An agent picking work from
+one of those re-derives a function that is already exact.
+
+```markdown
+# Scope <NAME> — <what it covers> (<date cut>)
+
+> **Status: <one of the five below>** Branch `<branch>`. Notes:
+> `docs/lanes/<scope>.md`. Object prefix `/tmp/<prefix>_`.
+```
+
+The five permitted states, and what each asserts:
+
+| status | means | who sets it |
+| --- | --- | --- |
+| `OPEN, unclaimed` | cut, nobody working it | whoever cuts the brief |
+| `IN PROGRESS (claimed <date> by <who>)` | an agent holds it | the agent, first commit |
+| `DONE — N of N exact, merged into main <date>` | every body exact | the integrator, at merge |
+| `MERGED at N of M — <what is left>` | landed with honest WIPs | the integrator, at merge |
+| `HISTORICAL RECORD — see HANDOFF §6B` | its table is a snapshot, not a work list | the integrator, once superseded |
+
+Rules that make the header trustworthy:
+
+- **State the count, and check it against the markers, not against your
+  memory of the lane.** `git show main:LEGOLAND/<file>.c | grep -c
+  '^// FUNCTION: LEGOLAND'` is the only authority. A brief claiming 6 of 8 on
+  a file holding 3 exact is how a wave gets overstated.
+- **A brief that still lists closed bodies in a table gets the HISTORICAL
+  RECORD state**, not a rewritten table. The tables carry the residual
+  evidence and eliminations; destroying them to tidy a status line loses more
+  than it gains. Name in the header how many are now exact and which remain.
+- **`docs/HANDOFF.md` §6B is the single live list** of open partials. Briefs
+  point at it; they never compete with it.
+- When the branch is deleted, say so in the header and name the lane doc that
+  holds the evidence.
+
+## Rebase before you push a partial scope
+
+A partial-scope branch edits files that other lanes are also closing bodies
+in, so a branch cut days ago can silently revert work that landed since.
+**Before pushing, merge current `main` into your branch and re-run the
+marker-set diff in `docs/HANDOFF.md` §4** — the set of exact addresses on
+`main` must remain a subset of the set on your branch.
+
+This is not hypothetical. On 2026-09-11 all four of `scope/LL21`..`LL24` were
+still based on `307c0dc9`, one commit before the FGH wave landed 40 closes, so
+merging any of them as-cut would have reverted all 40 — and the exact TOTAL
+would still have risen, because each branch also carries genuine new closes.
+Only the set diff catches it.
+
 ## Rules that are not in the code
 
 - **Marker discipline.** `// WIP-FUNCTION: LEGOLAND 0x<VA>  (<pct>, <precise residual>)`

@@ -620,15 +620,45 @@ int WW_HasEntrance(void)
  *    inside the loop is byte-identical to this body, which confirms the two
  *    register-resident rect values are VC6's own invariant hoists and not
  *    source locals.
- *  Residual and marker unchanged. */
-// WIP-FUNCTION: LEGOLAND 0x00417e70  (31/31 instructions, 68/68 bytes, register-blind distance 0; 12 strict mismatches, ALL one EAX<->ECX swap between the list cursor and the tile temp)
+ *  Residual and marker unchanged.
+ *
+ * 2026-09-10 (scope LL21).  CLOSED, exact, by the scope-Codex-F cancelled-pair
+ * ANCHOR lever (docs/DECOMP.md, SCOPE Codex-F).  The four passes above were
+ * right that nothing can lengthen the tile temp's live range; what was missing
+ * was that a scope-V cancelled pair hands its ANCHOR an allocator priority
+ * bump, and here the anchor is exactly the value that needs one -- the list
+ * cursor.  `v.anchor = (int)b;` then `v.t = <tile>; v.t += v.anchor;
+ * v.t -= v.anchor;` on two members of ONE struct gives the tile its own web
+ * and ranks `b` above it, so `b` wins EAX and the tile takes ECX.  The add/sub
+ * pair cancels at instruction selection: 31 instructions, 68 bytes, zero
+ * mismatches, no frame slot (the struct's address is never taken, so VC6
+ * flattens it and the members stay in registers).
+ * MEASURED, and this is the load-bearing part: BOTH axes must be carriers.
+ * The x tile alone (anchor before or after the load) and the y tile alone are
+ * each still 12 X -- the untreated axis's temp keeps its old rank and drags
+ * EAX back.  Inert once both axes carry: member count (2 reusing one carrier
+ * == 3 with one per axis), member names, add-then-sub vs sub-then-add,
+ * assigning the anchor once per iteration vs once per cancel, and hoisting the
+ * anchor's first assignment above the loop.  A non-cursor anchor does NOT work
+ * and is not merely inert: `(int)&g_people_head` is 12 X (bumps nothing, as
+ * Codex-F predicted) and `(int)r` is 15 X (bumps the rect pointer instead).
+ * Anchoring the cursor as the CARRIER (`v.t = (int)b` with the tile as anchor)
+ * is also 12 X -- the direction of the pair is the lever, not its presence. */
+// FUNCTION: LEGOLAND 0x00417e70
 int WW_AnyBlokeInRect(Bloke* b, WinRect* r)
 {
+    struct { int t, anchor; } v;
+
     while (b) {
-        int x = b->world.x >> 8;
-        if (x >= r->left && x <= r->right) {
-            int y = b->world.y >> 8;
-            if (y >= r->top && y <= r->bottom)
+        v.anchor = (int)b;
+        v.t = b->world.x >> 8;
+        v.t += v.anchor;
+        v.t -= v.anchor;
+        if (v.t >= r->left && v.t <= r->right) {
+            v.t = b->world.y >> 8;
+            v.t += v.anchor;
+            v.t -= v.anchor;
+            if (v.t >= r->top && v.t <= r->bottom)
                 return 1;
         }
         b = b->next;

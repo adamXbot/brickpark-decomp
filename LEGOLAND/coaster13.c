@@ -557,6 +557,33 @@ typedef struct ShadeSetup {
     int*   last;                /* [ebp-0x08] = &keys[n-1].idx */
 } ShadeSetup;                   /* 0x1c; y is the bare [ebp-4] */
 
+/* LL23 2026-09-10.  The three levers that closed all four coastershade2.c
+ * span fillers this wave do NOT move this body, and the reason is that its
+ * residual is a different class.  The frame is already right (0x70, every
+ * ShadeSetup home and the tag/grad/nkeys/keys argument-slot reuse match
+ * index for index through insn 91), so the "aggregate blocks reuse of a
+ * dead parameter home" lever has nothing left to do; there is no `color`
+ * local for the `short` partial-write lever; and the store/store/RMW
+ * interpolant form that closed Span_FillFlat is a REGRESSION here --
+ * grouped RMW is 265i and ESCAPES, paired RMW 262i and ESCAPES, RMW on the
+ * dir arm alone 255i, against the tip's 254i (100/254 vs 107/254).
+ * The real residual is two register-colouring facts inside the loop that
+ * the span fillers do not have because their whole loop body is one __asm
+ * block:
+ *   1. the nshade window -- LL7's documented 66%/69% attractor pair.  The
+ *      span-filler shape (`s.crow += s.pitch * y; s.zrow += s.pitch * y;`
+ *      then a plain `nshade = g_shade_count`) does put the load between
+ *      the two row stores, but in eax with the stores reordered: 84/254.
+ *      Between-stores, after-stores and volatile variants are all 84-85.
+ *   2. `ed[0].x`/`ed[2].x` are FORWARDED out of the if/else into the
+ *      `while` head (ours keeps them in ecx/esi), where the original
+ *      reloads `[ebp-0x70]`/`[ebp-0x48]` from memory and does `inc dword
+ *      ptr [ebp-4]` for y++.  `(*(int volatile*)&y)++` gives the memory
+ *      increment but 259i; volatile reloads of the two interpolants give
+ *      256i/87; both together 255i/81; a plain `y++` 252i/82.  The whole
+ *      block is only in memory in the original because nothing between the
+ *      if/else and the loop head can hold it -- a live-range fact, not a
+ *      spelling one. */
 // WIP-FUNCTION: LEGOLAND 0x00428860  (254/254i, 765/771B, 176/254=69.3%, 0x70; crow store exact, nshade-eax after zrow)
 void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge* edges)
 {
