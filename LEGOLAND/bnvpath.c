@@ -86,13 +86,47 @@ extern int NameCompare(const char* left, const char* right); /* 0x004aab90 */
 extern BNVNameList* GetBinVFrame(BNVBin* bin, int frame); /* 0x0044dd70 */
 extern BNVVertex* GetVertex(BNVNameNode* object, int index); /* 0x0044ddf0 */
 
+/* 0x00458930 -- the ST(0) FLOAT-TO-INT HELPER, not a BNV routine at all.
+ *
+ * Established by scope PORT-B5 (an .text scan for `e8`/`e9` relative branches
+ * to this address): it has **110 direct call sites and one tail `jmp`**,
+ * spread right across the image -- 0x00401a17, the 0x00419xxx person/vector
+ * block, 0x00422exx, tri3d.c's 0x004861xx / 0x004863xx / 0x0048650x, and
+ * 0x0049bxxx.  Every one of them sits immediately after an x87 computation and
+ * reads the result out of eax, e.g. at BuildChannelTables 0x00486135:
+ *
+ *     fild  dword ptr [esp+0xc]  /  fmul [0x4ab550]  /  fld st(0)
+ *     fmul  dword ptr [0x4ab444] /  call 0x458930    /  mov di, ax
+ *
+ * So this is the compiler's `(int)<float>` lowering: a `__ftol`-shaped helper
+ * that takes the value in ST(0), `fistp`s it into the fixed scratch dword at
+ * 0x00667c3c and returns it in eax.  It differs from the stock VC6 `_ftol` in
+ * one way that matters -- it does NOT save-and-reload the control word to set
+ * truncation, so with the game's own nearest/masked CW it ROUNDS TO NEAREST.
+ *
+ * WHY THE PORTABLE ARM IS UNREACHABLE.  Nothing in the tree names it: the
+ * callers are all source-level casts, which clang lowers to a native
+ * conversion instruction rather than to a call, so no portable caller exists
+ * and none can be written -- an ST(0) argument has no C signature.  The trap
+ * below is therefore dead code in the portable build, and the census keeps
+ * reporting it because there genuinely is no C body, not because one is owed.
+ *
+ * WHAT IS OWED, and it is a MATCHING question, not a porting one: a source
+ * cast that lowers to this helper rounds, while C requires truncation, so any
+ * site whose C spells `(int)f` is already describing the wrong arithmetic and
+ * the portable build silently differs from the original by up to one unit.
+ * `LL_FISTP` in ll_portable.h is the round-to-nearest spelling the ported arms
+ * use where the asm was explicit; the 110 implicit sites have not been
+ * audited.  Recorded in docs/lanes/scope-port-b5.md. */
 // FUNCTION: LEGOLAND 0x00458930
 int sub_458930(void)
 {
 #ifndef LEGOLAND_PORTABLE
     __asm fistp dword ptr [g_bnv_fist_scratch]
 #else
-    LL_UNPORTED_ASM(); /* takes ST(0): no portable caller */
+    /* Unreachable: see the note above -- 110 matching-build call sites, none
+     * of them nameable from C. */
+    LL_UNPORTED_ASM();
 #endif
     return g_bnv_fist_scratch;
 }
