@@ -133,6 +133,15 @@ void ResetCursorFootprint(Cursor* c) { c->valid = 1; c->error = 0; }
 /* Former sub_498cf0: the narration playback state is 3 while playing. */
 // FUNCTION: LEGOLAND 0x00498cf0
 int IsNarrationPlaying(void) { return g_speech_state == 3; }
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define InGamePrimaryIcon InGamePrimaryIcon_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00474820
 char InGamePrimaryIcon(Icon* icon, int flags)
 {
@@ -140,6 +149,15 @@ char InGamePrimaryIcon(Icon* icon, int flags)
     if (flags & 2) ClosePrimaryPopUp();
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef InGamePrimaryIcon
+char InGamePrimaryIcon(Icon* icon, int flags, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return InGamePrimaryIcon_vc6_body(icon, flags);
+}
+#endif
 // FUNCTION: LEGOLAND 0x0046df60
 int RenderFullScreenIcon(Icon* icon)
 {
