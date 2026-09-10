@@ -1,6 +1,9 @@
 # Scope PORT-A / PORT-B / PORT-C — the port wave: first running code (2026-09-11)
 
-> **Status: OPEN, unclaimed** (all three). Branches `scope/PORT-A`, `scope/PORT-B`,
+> **PORT-A — Status: OPEN, unclaimed**
+> **PORT-B — Status: OPEN, unclaimed**
+> **PORT-C — Status: IN PROGRESS (claimed 2026-09-11 by PORT-C)**
+> Branches `scope/PORT-A`, `scope/PORT-B`,
 > `scope/PORT-C` from `origin/main` `6de9cab0`+scaffold. Notes:
 > `docs/lanes/scope-port-a.md` / `-b.md` / `-c.md`. No VC6 object prefix: these
 > lanes do not match; they compile with clang/emcc only.
