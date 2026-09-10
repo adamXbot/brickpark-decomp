@@ -91,8 +91,8 @@ typedef struct Screen {
 extern Screen* g_screen;   /* 0x004bcbf4 */
 
 /* Icon-bar wheel scroll (0x0046db40 / 0x0046dac0). */
-extern void IconBarWheelDown(void);
-extern void IconBarWheelUp(void);
+extern void IconBarWheelDown(void);                           /* 0x0046dac0 */
+extern void IconBarWheelUp(void);                             /* 0x0046db40 */
 
 // FUNCTION: LEGOLAND 0x00473930
 void ScanKeyboard(void)
@@ -132,10 +132,13 @@ void ScanMouse(void)
     }
     notch = g_wheel_granularity;
     wheel = g_mouse_state.lZ;
+    /* The two handlers are named for the wheel direction but do the opposite
+     * scroll (gameframe2.c: Down calls ScrollUpInput, Up calls ScrollDownInput),
+     * and the original pairs them this way round.  Reproduced as-is. */
     if (wheel <= -notch)
-        IconBarWheelDown();
-    else if (wheel >= notch)
         IconBarWheelUp();
+    else if (wheel >= notch)
+        IconBarWheelDown();
 }
 
 /* 109 of the original's 109 instructions in order; 7 differ (280 vs 272 bytes):
