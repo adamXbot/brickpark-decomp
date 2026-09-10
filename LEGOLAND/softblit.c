@@ -600,6 +600,23 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
  * A source-level `goto` into a sibling arm creates the shared block before
  * the allocator runs; compiler cross-jumping merges it after the homes are
  * assigned.  Both polarities of the if (`== 0` / `!= 0`) are exact. */
+/* THE `row:` LABEL (fixed 2026-09-12, scope PORT-B5; found by PORT-B3).  The
+ * original's row loop is
+ *     0x00465443  mov edx,[0x7febac]     ; g_sp_h
+ *     0x0046544b  je  0x46582e           ; done
+ *     0x00465451  mov [0x7fea10],edx     ; g_sp_rows_left = edx  <- LOOP HEAD
+ *     0x00465457  mov edx,[0x7fea50]     ; g_sp_left
+ *     ...
+ *     0x00465828  jne 0x465451           ; the back edge targets the STORE
+ * and this file used to put `row:` BELOW that store, so `jne row` assembled
+ * to 0x465457 and the store ran once: g_sp_rows_left would stay at g_sp_h,
+ * `nextrow` would recompute g_sp_h - 1 for ever and the loop would never end
+ * for a sprite taller than one row.  Neither audit.py nor match.py can see
+ * it -- norm() rewrites every direct branch target to `<t>`, and the two
+ * encodings are the same length -- so the body reported 415i/1544B
+ * mismatch=0 either way; what settles it is the sibling, softblit2.c's
+ * SoftBlitAnimPlain, whose own back edge (0x00464a5e jne 0x4646a1) also
+ * targets its store and whose `row:` label was always in the right place. */
 // FUNCTION: LEGOLAND 0x00465240
 void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
 {
@@ -737,8 +754,8 @@ void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
             mov     edx, g_sp_h
             and     edx, edx
             je      done
-            mov     g_sp_rows_left, edx
         row:
+            mov     g_sp_rows_left, edx
             mov     edx, g_sp_left
             and     edx, edx
             je      row_full
@@ -1025,7 +1042,289 @@ void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
             popad
         }
 #else
-    LL_UNPORTED_ASM();
+    {
+    /* The pixel loop of 0x00465240 in C -- the RECOLOURING type-2 painter,
+     * softblit2.c's SoftBlitAnimPlain (0x00464480) with a recolour mask and
+     * eight behavioural differences.  Register map as there:
+     *   edi = dp    the output pixel (16 bpp), g_zb_row = its row base
+     *   esi = ip    the 8-BIT INDEX bytes (the local called `ctrl`)
+     *   ebp/g_zb_bits = the 32-bit CONTROL stream (the local called `data`)
+     *   edx         = the top counter, then the row counter, then the left
+     *                 skip, then the pixel budget, in that order
+     *   ecx         = the current run length
+     * The reader idioms differ textually from the plain painter's and are
+     * provably the same function, so ll_anim_code / ll_anim_count serve both:
+     *   one code   `shr ebx,2 / and g_zb_bits,0fh / jne / mov 10h / dec`
+     *              vs the plain `dec eax / jns / mov eax,0Fh` -- both refill
+     *              when the count is 0 and leave 15 behind;
+     *   a length   `cmp g_zb_bits,4 / jae / mov 10h` then `sub g_zb_bits,4`
+     *              vs `sub eax,4 / jns / mov eax,0ch` -- same condition, and
+     *              `shrd ecx,ebx,8 / shr ecx,18h` is `movzx ecx,bl`.
+     * What genuinely differs from the plain painter (all REPRODUCED):
+     *   1. every store is `and ax, word ptr g_sp_recolour` (the LOW WORD of
+     *      the mask only);
+     *   2. the left-clip subtraction is `sub edx,ecx / ja`, not `jns`, so a
+     *      run that ends exactly on the left edge leaves the skip pass here
+     *      and continues it there;
+     *   3. a skip run that exactly fills the row leaves via `jbe endrow`,
+     *      not `js endrow`;
+     *   4. a repeat run that finds a zero budget writes NOTHING
+     *      (`or ecx,ecx / je endrow`); the plain one writes one stray pixel;
+     *   5. the repeat run is a software loop, not a doubled-dword `rep stosd`
+     *      (it cannot be: every word is masked);
+     *   6. the run hit test is `seta` -- strictly `dp > mouse` -- where the
+     *      plain painter's `sbb ecx,-1` gives `dp >= mouse`;
+     *   7. the transparent single is `dec edx / je endrow / add edi,2`, the
+     *      correct order; the plain painter's `add` sits between the `dec`
+     *      and the `je` and kills that row-end branch (PORT-B3 FINDING 1);
+     *   8. the hit flag is OR'ed as a DWORD (`or g_blit_hit,eax`), where the
+     *      plain painter ORs the low byte.  The value is 0 or 1 either way.
+     * See docs/lanes/scope-port-b5.md. */
+    LLAnimCtl             cs;
+    unsigned char*        rowp;
+    unsigned short*       dp;
+    const unsigned char*  ip;
+    const unsigned short* pal;
+    unsigned int          code;
+    unsigned int          cnt;
+    unsigned int          drawn;
+    unsigned int          mask;
+    unsigned short        v;
+    int                   budget;
+    int                   rows_left;
+    int                   skip;
+
+    rowp = (unsigned char*)g_ddsd.lpSurface + dst->x * 2
+         + dst->y * g_ddsd.lPitch;
+    g_zb_row = rowp;
+    g_sp_left = src->left;
+    g_sp_w = src->right - src->left;
+    g_sp_top = src->top;
+    g_sp_h = src->bottom - src->top;
+    dp = (unsigned short*)rowp;
+    ip = (const unsigned char*)ctrl;
+    pal = (const unsigned short*)g_sp_pal16;
+    mask = (unsigned int)g_sp_recolour & 0xffffu;   /* `and ax, word ptr` */
+    ll_anim_open(&cs, data);
+    g_zb_bits = 0;
+
+    /* ---- skip: consume src->top whole rows ----------------------------- */
+    skip = g_sp_top;
+    if (skip != 0) {
+        for (;;) {
+            code = ll_anim_code(&cs);
+            if (!(code & 2)) { ip++; continue; }      /* skip_one          */
+            if (!(code & 1)) continue;                /* transparent       */
+            cnt = ll_anim_count(&cs);
+            if (cnt == 0) {                           /* skip_eol          */
+                if (--skip != 0) continue;
+                break;
+            }
+            code = ll_anim_code(&cs);
+            if (code & 2) continue;                   /* skip run          */
+            if (code & 1) ip++;                       /* repeat run        */
+            else ip += cnt;                           /* copy run          */
+        }
+    }
+
+    /* ---- rows --------------------------------------------------------- */
+    rows_left = g_sp_h;
+    if (rows_left == 0)
+        goto anim_done;
+
+anim_row:
+    /* The loop head, and the store the original's back edge (0x00465828
+     * `jne 0x465451`) targets -- see the `row:` label in the asm arm. */
+    g_sp_rows_left = rows_left;
+    skip = g_sp_left;
+    if (skip == 0) {                                  /* row_full          */
+        budget = g_sp_w;
+        goto anim_paint;
+    }
+    /* ---- lclip: skip src->left pixels of this row ----------------------- */
+    for (;;) {
+        code = ll_anim_code(&cs);
+        if (!(code & 2)) {                            /* lclip_one         */
+            ip++;
+            goto anim_lclip_step;
+        }
+        if (!(code & 1))                              /* lclip_step        */
+            goto anim_lclip_step;
+        cnt = ll_anim_count(&cs);
+        if (cnt == 0)
+            goto anim_nextrow;
+        code = ll_anim_code(&cs);
+        if (code & 2) {                               /* a skip run        */
+            /* `sub edx,ecx / ja lclip`: UNSIGNED strictly-greater, so a run
+             * that lands exactly on the left edge falls out here. */
+            if ((unsigned int)skip > cnt) { skip -= (int)cnt; continue; }
+            skip = (int)(cnt - (unsigned int)skip);   /* neg edx           */
+            dp += skip;
+            /* `mov ecx,g_sp_w / sub ecx,edx / jbe endrow` -- unsigned, so a
+             * run that exactly fills the row ends it. */
+            if ((unsigned int)g_sp_w <= (unsigned int)skip)
+                goto anim_endrow;
+            budget = g_sp_w - skip;
+            goto anim_paint;
+        }
+        if (code & 1) {                               /* lclip4: repeat run*/
+            ip++;
+            if ((unsigned int)skip > cnt) { skip -= (int)cnt; continue; }
+            cnt = cnt - (unsigned int)skip;
+            budget = g_sp_w;
+            if (budget == 0)
+                goto anim_endrow;
+            g_sp_hit_armed = (unsigned char)
+                ((const unsigned char*)dp
+                 <= (const unsigned char*)g_sp_mouse_pixel);
+            if (cnt != 0) {
+                ip--;                                 /* fill_back         */
+                goto anim_p4;
+            }
+            goto anim_paint;
+        }
+        /* lclip5: a copy run */
+        ip += cnt;
+        if ((unsigned int)skip > cnt) { skip -= (int)cnt; continue; }
+        ip -= (cnt - (unsigned int)skip);             /* lea esi,[esi+edx] */
+        cnt = cnt - (unsigned int)skip;
+        budget = g_sp_w;
+        if (budget == 0)
+            goto anim_endrow;
+        g_sp_hit_armed = (unsigned char)
+            ((const unsigned char*)dp
+             <= (const unsigned char*)g_sp_mouse_pixel);
+        if (cnt != 0)
+            goto anim_copy_run;
+        goto anim_paint;
+    anim_lclip_step:
+        if (--skip != 0) continue;
+        budget = g_sp_w;
+        goto anim_paint;
+    }
+
+    /* ---- paint: the visible span, `budget` pixels wide ------------------ */
+anim_paint:
+    for (;;) {
+        code = ll_anim_code(&cs);
+        if (!(code & 2)) {                            /* one_pixel         */
+            cnt = 1;
+            g_sp_hit_armed = (unsigned char)
+                ((const unsigned char*)dp
+                 == (const unsigned char*)g_sp_mouse_pixel);
+            goto anim_copy_run;
+        }
+        if (!(code & 1)) {                            /* one_clear         */
+            /* `dec edx / je endrow / add edi,2` -- the correct order; the
+             * plain painter's dead `je` (PORT-B3 FINDING 1) is this branch
+             * actually working. */
+            if (--budget == 0)
+                goto anim_endrow;
+            dp++;
+            continue;
+        }
+        cnt = ll_anim_count(&cs);
+        if (cnt == 0)
+            goto anim_nextrow;
+        code = ll_anim_code(&cs);
+        g_sp_hit_armed = (unsigned char)
+            ((const unsigned char*)dp
+             <= (const unsigned char*)g_sp_mouse_pixel);
+        if (code & 2) {                               /* a skip run        */
+            budget -= (int)cnt;
+            if (budget < 0)
+                goto anim_endrow;
+            dp += cnt;
+            continue;
+        }
+    anim_p4:
+        if (!(code & 1))
+            goto anim_copy_run;
+        /* the repeat run.  `cmp edx,ecx / ja fill_long` is UNSIGNED. */
+        v = (unsigned short)pal[*ip];
+        ip++;
+        if ((unsigned int)budget > cnt) {              /* fill_long        */
+            budget -= (int)cnt;
+            if (cnt == 0)                              /* or ecx,ecx / je  */
+                continue;
+            v = (unsigned short)(v & mask);
+            do { *dp++ = v; } while (--cnt);
+            g_blit_hit |= (int)(((const unsigned char*)dp
+                                 > (const unsigned char*)g_sp_mouse_pixel)
+                                & (unsigned int)g_sp_hit_armed);
+            continue;
+        }
+        /* fill_short: the run fills the rest of the budget.  A zero budget
+         * writes NOTHING here -- the plain painter writes one stray word. */
+        cnt = (unsigned int)budget;
+        if (cnt == 0)
+            goto anim_endrow;
+        v = (unsigned short)(v & mask);
+        do { *dp++ = v; } while (--cnt);
+        g_blit_hit |= (int)(((const unsigned char*)dp
+                             > (const unsigned char*)g_sp_mouse_pixel)
+                            & (unsigned int)g_sp_hit_armed);
+        goto anim_endrow;
+
+    anim_copy_run:
+        if ((unsigned int)budget > cnt) {              /* copy_long        */
+            budget -= (int)cnt;
+            do {
+                *dp++ = (unsigned short)(pal[*ip] & mask);
+                ip++;
+            } while (--cnt);
+            g_blit_hit |= (int)(((const unsigned char*)dp
+                                 > (const unsigned char*)g_sp_mouse_pixel)
+                                & (unsigned int)g_sp_hit_armed);
+            continue;
+        }
+        /* copy_short: `xchg ecx,edx / sub edx,ecx` makes the drawn count the
+         * budget and leaves the clipped index bytes to be stepped over. */
+        drawn = (unsigned int)budget;
+        budget = (int)(cnt - drawn);
+        if (drawn != 0) {
+            cnt = drawn;
+            do {
+                *dp++ = (unsigned short)(pal[*ip] & mask);
+                ip++;
+            } while (--cnt);
+            g_blit_hit |= (int)(((const unsigned char*)dp
+                                 > (const unsigned char*)g_sp_mouse_pixel)
+                                & (unsigned int)g_sp_hit_armed);
+        }
+        ip += budget;                                  /* copy_short_end   */
+        goto anim_endrow;
+    }
+
+    /* ---- endrow: run the stream on to the end-of-row marker ------------- */
+anim_endrow:
+    for (;;) {
+        code = ll_anim_code(&cs);
+        if (!(code & 2)) { ip++; continue; }
+        if (!(code & 1)) continue;
+        cnt = ll_anim_count(&cs);
+        if (cnt == 0)
+            goto anim_nextrow;
+        code = ll_anim_code(&cs);
+        if (code & 2) continue;
+        if (code & 1) ip++;
+        else ip += cnt;
+    }
+
+anim_nextrow:
+    rowp += g_sp_rowlen;
+    g_zb_row = rowp;
+    dp = (unsigned short*)rowp;
+    rows_left = g_sp_rows_left - 1;
+    if (rows_left != 0)
+        goto anim_row;
+
+anim_done:
+    /* The asm keeps g_zb_bits live in the global across every code read;
+     * nothing else runs while this loop does, so the observable effect is
+     * the value it leaves behind. */
+    g_zb_bits = cs.bits;
+    }
 #endif
     }
 }
