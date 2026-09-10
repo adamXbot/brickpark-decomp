@@ -371,9 +371,11 @@ Observed:
 - the page reports `mode 640x480 16bpp, g_screen_depth would be 2 (2 = RGB565)`
   — the classification the game performs comes out right;
 - a 640×480 RGB565 gradient renders on the canvas and animates;
-- **8,670 frames presented in ~100 s (~87 fps)** with the page responsive
-  throughout — the ASYNCIFY yield does what §1 says it does. (The shimtest has no
-  28 ms frame floor; the real game's `FlipPrimary` caps it at ~35 fps.)
+- **39,480 frames presented over an ~8 minute run (~82 fps sustained)** with the
+  page responsive throughout, no ASYNCIFY stack overflow and no memory growth
+  problem — the yield does what §1 says it does, and it keeps doing it. (The
+  shimtest has no 28 ms frame floor; the real game's `FlipPrimary` caps it at
+  ~35 fps.)
 - `timeGetTime` advances monotonically and in step with wall clock;
 - pointer motion over the canvas moves the drawn cursor (relative deltas through
   `DIMOUSESTATE`) and a key event lights its bar (`g_key_state[DIK_SPACE] &
