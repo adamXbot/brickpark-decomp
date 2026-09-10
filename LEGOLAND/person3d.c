@@ -919,7 +919,9 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  * offset hiding inside the frame residual.
  *
  * ===========================================================================
- * FINAL ASSESSMENT (w10p3d) -- THIS FUNCTION IS AT ITS FLOOR.  Five rounds have
+ * FINAL ASSESSMENT (w10p3d) -- THIS FUNCTION IS AT ITS FLOOR.  (Verdict stands;
+ * its 'no source spelling can change a weight' reasoning is CORRECTED by ROUND
+ * LL24 below, which names the mechanism instead.)  Five rounds have
  * taken it 988 -> 981 -> 687 -> 386 -> 377, every step by a reconstruction
  * error read off the disassembly.  This round found none, and the reason is
  * structural rather than a lack of effort: the body is already
@@ -959,6 +961,82 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  * run) is 24 extra instructions, which would destroy the exact 1023.  The
  * honest state is 63.3% with a body that is correct in every respect a
  * decompilation can express.  Retire it, like the other seven.
+ *
+ * ===========================================================================
+ * ROUND LL24 -- THE FRAME MECHANISM IS NOW NAMED.  Score unchanged at 377; no
+ * source change earned a commit.  What changed is the explanation, and one of
+ * w10p3d's rules above is CORRECTED.  Full table in docs/lanes/scope-ll24.md.
+ *  - METHOD: /FAcs prints VC6's own frame symbol table (`_name$ = -N`) AND the
+ *    two bodies are index-for-index aligned at all 1023 positions, so pinning
+ *    the listing's symbolic operand at index i against the original's [ebp-N]
+ *    at index i gives an EXACT name -> original-offset map, not an inferred
+ *    one (/tmp/sll24_attrib.py).  Every future frame residual should start
+ *    here.  ORIGINAL offsets: light -0xc, mt -0x54, box -0xd8, sc -0x150,
+ *    v -0x1a4, a -0xf0/b -0x78/c -0x6c, fr -0x1b4, nfaces -0x1b0, tris -0x1ac,
+ *    ngour -0x1a8, nrm -0xe4, zscale/parity -0xe0, mpp -0xdc, cnt -0x5c,
+ *    face -0x60, ydep/dx2 -0x58, ox/q -0x30, lo2/dy2 -0x28, zb/dx1 -0x24,
+ *    hi/oy -0x18, fz/crs2 -0x14, k65536/vptr/crs1 -0x1c, fy/tp -0x10,
+ *    fx -0x2c, nverts/dy1/yy -0x20, t/i +8.  BOTH tps live at -0x10.
+ *  - NEW LEVER, GENERALISING (d): *** NO `__asm` REFERENCE OF ANY KIND RANKS A
+ *    FRAME OBJECT -- not just `lea`. ***  24 `__asm { mov eax, sc[k*4] }`
+ *    direct MEMORY operands and 24 `__asm { lea eax, sc[k*4] }` at the same
+ *    site give the SAME frame as each other and as the baseline, while 24
+ *    C-level reads of sc at that site move sc up past box.  So sc (27 emitted
+ *    refs, 24 of them FMULA's lea) ranks as a 3-reference object and light
+ *    (17 emitted, 6 of them SHADE's `imul dword ptr light[k]`) as a
+ *    5-reference object.  Only C-level references rank.
+ *  - *** CORRECTS (e)/(f): FRAME WEIGHT IS MOVABLE ON THE REAL FILE. ***  The
+ *    previous round measured only ADDED references to box/sc, which are
+ *    saturated.  CUTTING v's C references moves v down monotonically, and at
+ *    the low end it reproduces the ORIGINAL'S ARRAY ORDER EXACTLY (diagnostic
+ *    probes, semantics-breaking, never committed; /tmp/sll24_refprobe*.py):
+ *        v ~70 C refs (baseline)     -> light, mt, v, box, sc
+ *        v ~40 (UV + one parity arm + z stores cut)
+ *                                    -> light, mt, box, v, sc
+ *        v ~12 (also dx/dy and the four call arg lists cut)
+ *                                    -> light, mt, box, sc, v   <-- ORIGINAL
+ *    So the 365-instruction frame residual is NOT an unexplained tie-break:
+ *    our v simply carries far more C-level weight than the original's.
+ *  - AND IT IS STILL UNREACHABLE AT 1023 INSTRUCTIONS.  No single construct
+ *    carries the weight: cutting UV alone (12 refs), the !parity arm alone
+ *    (12), the z stores alone (6), the dx/dy block alone (16) or the four call
+ *    argument lists alone (12) each leaves the array order UNCHANGED.  About
+ *    50 of v's ~70 C references must go, and every one of them emits an
+ *    instruction the original also emits -- the projection block at 583..660
+ *    is compiler-scheduled (stores forwarded straight into the `sub` quartet
+ *    at 653..656), not inline asm, so those references cannot be moved into
+ *    `__asm` where they would weigh nothing.  The only zero-instruction
+ *    candidates are the sixteen dx/dy reads (VC6 already forwards them from
+ *    registers): that takes v from ~70 to ~54, nowhere near ~12.  And sc would
+ *    need >70 C references to outrank v, with only 24 elements to read.
+ *  - NEW RECONSTRUCTION FINDING: *** THE ORIGINAL HAS TWO `lo` VARIABLES. ***
+ *    The ours->orig slot bijection is one-to-one for every object except our
+ *    `lo` (-0x34, 7 refs), which maps to TWO original slots: -0x24 x4 (334/
+ *    342/345/366, the sc scan and ox) and -0x28 x3 (448/455/482, the g_xverts
+ *    z scan).  VC6 never splits one local across two homes, so the original
+ *    declares a separate low-water local for the z scan.  MEASURED, and why it
+ *    is not committed: a new `zlo` (with or without a matching `zhi`) keeps the
+ *    stream identical at 1023i/3511B but permutes the frame 16 WORSE (393);
+ *    spelling the z scan with the existing lo2/hi2 is byte-identical (VC6 just
+ *    swaps which name owns which slot).  Same class, also costed at >= 377:
+ *    the original gives `cnt` its own slot (-0x5c) and pools BOTH tps with fy
+ *    (-0x10), where we pool cnt with loop 1's tp and loop 2's tp with fr, and
+ *    it leaves fr alone at the very bottom with its 2 references.
+ *  - (a) EXTENDED: declaration order is inert for SCALARS too -- reversing the
+ *    whole 34-line scalar declaration list leaves every `_name$` equate at the
+ *    same offset and the body byte-identical (earlier rounds had only permuted
+ *    the four-array block).
+ *  - (g) EXTENDED: an EXTRA block nesting level is inert -- moving
+ *    `Vertex2D v[3]` into a nested block opened after the a/b/c corner copies
+ *    is byte-identical.  A second block does not buy a second step.
+ *  - MASM RESERVED-WORD SWEEP RE-RUN AND CLEAN.  Operand identifiers in asm:
+ *    t i v a b c fx fy fz zb sc box light vptr yy ydep zscale k65536 crs1 crs2
+ *    dx1 dy1 dx2 dy2 mpp nverts nrm fr g_xverts -- none collides with cr0-cr4,
+ *    dr0-dr7, tr3-tr7, st, a segment name or a register name; and of the 1023
+ *    emitted code lines none carries a control/debug/segment operand or
+ *    encodes 0f 20/21/22/23.  CAUTION for future edits: `cx` and `cz` ARE MASM
+ *    register names and are safe here only because they never enter an `__asm`
+ *    operand.
  *
  * NOT ASSEMBLY.  Checked, per the standing question: the ebp frame and the
  * unconditional ebx/esi/edi save come from the `__asm` macros above, the pushes
