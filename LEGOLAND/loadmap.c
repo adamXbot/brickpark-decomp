@@ -57,7 +57,11 @@ extern void  Set_UserFlags(int x, int y, unsigned short value);/* 0x461730 —
    3rd param is 16-bit: the original pushes ecx straight after
    "movzx cx, byte ptr [...]", which only happens for a WORD formal.
    Confirmed against the matched definition in sweep2.c. */
+#ifndef LEGOLAND_PORTABLE
 extern void  Format(char* dest, const char* fmt, ...);       /* 0x49e573 */
+#else
+extern int Format(char* dest, const char* fmt, ...);       /* 0x49e573 */
+#endif
 extern void* HeapAlloc_w(unsigned int size);    /* 0x49e4ff */
 extern void  HeapFree_w(void* p);               /* 0x49e4d0 */
 extern void  progress_tick(void);               /* 0x4663f0 */

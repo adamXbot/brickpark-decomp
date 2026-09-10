@@ -245,7 +245,11 @@ typedef struct PieceDraw {
 
 /* ---- CRT / engine ------------------------------------------------------ */
 extern SpriteRec* LoadSprite(const char* name, int mode);        /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void       KillSprite(SpriteRec* s);                      /* 0x00497bd0 */
+#else
+extern int KillSprite(SpriteRec* s);                      /* 0x00497bd0 */
+#endif
 
 /* ---- the shared log-flume piece helpers -------------------------------- */
 extern void  LFPiece_TickCommon(RideDef* def, Footprint* fp);    /* 0x0040d3b0 */

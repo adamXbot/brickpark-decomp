@@ -730,7 +730,11 @@ void Catapult_Fire(RideTile* tile, RiderNode* r)
  * bound a tail-jmp function and would score it red.
  * ========================================================================== */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                          /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                          /* 0x00497bd0 */
+#endif
 extern void  KillMoneySFX(void);                                /* 0x00453930 */
 extern void* g_legoshop1_matte;   /* 0x0081cb18  "Lego Shop 1 Matte.LLS" */
 

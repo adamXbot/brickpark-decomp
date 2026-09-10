@@ -582,7 +582,11 @@ void Copters_Remove(void* obj, CellPos tile, void* ctx)
  * that does, and it leaks whatever rider nodes were still on it.
  * ========================================================================== */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                       /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                       /* 0x00497bd0 */
+#endif
 extern void  FreeBinV(void* bnv);                            /* 0x0044dd60 */
 extern void  Kill_FXList(void* list, int count);             /* 0x00496e30 */
 extern void  FreeWalkPath(void* path);                       /* 0x00412290 */

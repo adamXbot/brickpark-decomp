@@ -227,7 +227,11 @@ typedef struct RenderList {
 
 /* ---- engine entry points ------------------------------------------------ */
 extern void*  LoadSprite(const char* name, int flag);                /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   KillSprite(void* spr);                                 /* 0x00497bd0 */
+#else
+extern int KillSprite(void* spr);                                 /* 0x00497bd0 */
+#endif
 extern void   DefaultCursor(void* cursor);                           /* 0x0045a390 */
 extern void   SetEditCursorFootPrint(void* src);                     /* 0x0045f440 */
 #ifndef LEGOLAND_PORTABLE

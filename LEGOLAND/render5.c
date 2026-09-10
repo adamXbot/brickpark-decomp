@@ -119,8 +119,17 @@ extern void DrawCursorTileAt(Pos* at, int x, int y, int mode);       /* 0x004610
  * coordinate here, so it is declared Pos (the divergence is deliberate). */
 extern Pos  PlayfieldToMap(int x, int y);                            /* 0x0045a970 */
 extern void GetTileBounds(Pos* tile, TileBounds* out);               /* 0x0045acc0 */
+#ifndef LEGOLAND_PORTABLE
 extern long  time(long* t);                                          /* 0x0049fbc6 */
 extern void* localtime(const long* t);                               /* 0x0049fa66 */
+#else
+/* VC6's time_t is a 32-bit long; emscripten's is 64-bit, so the host's `time`
+ * returns i64 and writes eight bytes through its argument.  Declaring the
+ * original's shape here would both mismatch the libc signature (a trapping
+ * wasm-ld stub) and overwrite four bytes of stack past the local. */
+extern long long  time(long long* t);                                /* 0x0049fbc6 */
+extern void*      localtime(const long long* t);                     /* 0x0049fa66 */
+#endif
 extern char* asctime(const void* tm);                                /* 0x0049f990 */
 
 /* =========================================================================
@@ -261,7 +270,11 @@ void ExpireCachedText(int all)
 // FUNCTION: LEGOLAND 0x00451e20
 int SaveCertificateBitmap(void)
 {
+#ifndef LEGOLAND_PORTABLE
     long  t;
+#else
+    long long t;   /* the host's time_t; see the declarations above */
+#endif
     char* stamp;
 
     time(&t);

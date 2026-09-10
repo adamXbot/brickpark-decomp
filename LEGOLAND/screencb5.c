@@ -414,7 +414,11 @@ extern void Kill_FXList(FXEntry* list, int count);              /* 0x00496e30 */
 extern void LoadMoneySFX(void);                                 /* 0x00453900 */
 extern void KillMoneySFX(void);                                 /* 0x00453930 */
 extern Spr* LoadSprite(const char* name, int mode);             /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(Spr* s);                                 /* 0x00497bd0 */
+#else
+extern int KillSprite(Spr* s);                                 /* 0x00497bd0 */
+#endif
 
 /* The entrance's one-entry FX table: {"turnstyles.wav", sample}. */
 extern FXEntry g_entrance_fx[];                                 /* 0x004b6668 */

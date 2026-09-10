@@ -406,7 +406,11 @@ typedef struct NewObjStrip {
 extern NewObjStrip g_newobj;        /* 0x007fded4 */
 extern int         g_popup_state;   /* 0x007fdfa0  PopUpInfo +0xe0 */
 
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(Sprite* s);                               /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite* s);                               /* 0x00497bd0 */
+#endif
 
 /* =========================================================================
  * 0x00471ca0 -- drop a class's entry from the new-objects strip.

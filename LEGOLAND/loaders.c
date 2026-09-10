@@ -32,7 +32,11 @@ char* strcat(char*, const char*);
 extern int  rand(void);                                        /* 0x0049e4b2 */
 extern void _splitpath(const char* path, char* drive, char* dir,
                        char* fname, char* ext);                /* 0x0049ec85 */
+#ifndef LEGOLAND_PORTABLE
 extern void Format(char* dest, const char* fmt, ...);          /* 0x0049e573 (sprintf) */
+#else
+extern int Format(char* dest, const char* fmt, ...);          /* 0x0049e573 (sprintf) */
+#endif
 extern int  NameCompare(const char* a, const char* b);         /* 0x004aab90 (_stricmp) */
 
 /* ---- Win32 ----------------------------------------------------------------

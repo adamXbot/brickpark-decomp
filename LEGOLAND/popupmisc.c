@@ -186,7 +186,11 @@ extern char g_msg_newobj_fail[];         /* 0x004bacb4 "Failied to open New Obj 
 
 /* ---- callees ------------------------------------------------------------ */
 extern SpriteRec* LoadSprite(const char* name, int mode);         /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void       KillSprite(SpriteRec* s);                       /* 0x00497bd0 */
+#else
+extern int KillSprite(SpriteRec* s);                       /* 0x00497bd0 */
+#endif
 extern int        GetTicks(void);                                 /* 0x00499450 */
 extern int        PrintSprite(SpriteRec* s, int x, int y, int mode, BlitCtx* ctx); /* 0x004853a0 */
 extern void       StoreClipping(void);                            /* 0x0048a660 */

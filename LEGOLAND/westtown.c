@@ -248,7 +248,11 @@ struct RiderNode {
 typedef struct Offset { int ox; int oy; } Offset;
 
 extern void*  LoadSprite(const char* name, int flag);           /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   KillSprite(void* sprite);                         /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                         /* 0x00497bd0 */
+#endif
 extern void   LoadMoneySFX(void);                               /* 0x00453900 */
 extern void   KillMoneySFX(void);                               /* 0x00453930 */
 extern void   DefaultCursor(void* cursor);                      /* 0x0045a390 */

@@ -159,7 +159,11 @@ typedef struct Icon {
 } Icon;
 
 extern void* LoadSprite(const char* name, int mode);                   /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* s);                                       /* 0x00497bd0 */
+#else
+extern int KillSprite(void* s);                                       /* 0x00497bd0 */
+#endif
 extern Icon* InsertIcon(short x, short y, int group, void* sprite);     /* 0x0046d6c0 */
 extern char* GetString(int id);                                         /* 0x00498f50 */
 extern char  NewProfileCloseInput(Icon* icon, int msg);                 /* 0x004920a0 */

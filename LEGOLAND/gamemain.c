@@ -41,7 +41,11 @@ extern void**     g_array_B;                       /* 0x00801a70  the level's lo
 extern int        g_perim_aux;                     /* 0x00801a74  count of g_array_B */
 
 extern void  HeapFree_w(void* p);                                            /* 0x0049e4d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(Sprite* s);                                          /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite* s);                                          /* 0x00497bd0 */
+#endif
 extern int   LLIDB_FindElement(const char* name, LLElem** out, unsigned int* idx); /* 0x0047b330 */
 extern int   LLIDB_UnLoadData(LLElem* e);                                    /* 0x0047d450 */
 extern int   LLIDB_GetCount(void);                                           /* 0x0047b2d0 */

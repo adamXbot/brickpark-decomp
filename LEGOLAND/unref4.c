@@ -461,7 +461,11 @@ extern void  LLIDB_GetElement(int i, LLElem** out);         /* 0x0047b2e0 */
 extern int LLIDB_GetElement(int i, LLElem** out);         /* 0x0047b2e0 */
 #endif
 extern void* LoadSprite(const char* name, int mode);        /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                      /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                      /* 0x00497bd0 */
+#endif
 extern void  HeapFree_w(void* p);                           /* 0x0049e4d0 */
 extern int   NameCompare(const char* a, const char* b);     /* 0x004aab90 (_stricmp) */
 

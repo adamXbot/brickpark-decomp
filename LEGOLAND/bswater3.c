@@ -101,7 +101,11 @@ typedef struct Pos { int x; int y; } Pos;
 typedef struct BPos { unsigned char x; unsigned char y; } BPos;
 typedef union  BPosW { unsigned short w; BPos b; } BPosW;
 
+#ifndef LEGOLAND_PORTABLE
 extern int  HeapFree_w(void* p);                                /* 0x0049e4d0 */
+#else
+extern void HeapFree_w(void* p);                                /* 0x0049e4d0 */
+#endif
 
 /* =========================================================================
  * THE SPACE TOWER'S RECORD AND ITS FOUR CARS

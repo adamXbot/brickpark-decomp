@@ -383,7 +383,11 @@ void MonkeyTree_CalcCursor(MapObj* o, int sx, int sy)
  * but the shared tools/match.py cannot bound a tail-jump function.
  * ========================================================================= */
 
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(void* sprite);                        /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                        /* 0x00497bd0 */
+#endif
 extern void KillMoneySFX(void);                              /* 0x00453930 */
 
 /* The cafe's own sprite layers and the sixteen chair sprites. */

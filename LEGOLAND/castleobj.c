@@ -508,7 +508,11 @@ extern int      g_8003e8;                 /* 0x008003e8 */
 /* ---- core helpers -------------------------------------------------------- */
 extern void  SetEditCursorFootPrint(void* footprint);           /* 0x0045f440 */
 extern void  DefaultCursor(void* cursor);                       /* 0x0045a390 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                          /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                          /* 0x00497bd0 */
+#endif
 extern int   LLIDB_FindElement(const char* name, void** out,
                                unsigned int* outidx);           /* 0x0047b330 */
 #ifndef LEGOLAND_PORTABLE

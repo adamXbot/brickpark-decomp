@@ -13,7 +13,11 @@ extern int g_power_station_sound_refs;                     /* 0x00667118 */
 extern int g_dino_sound_refs;                              /* 0x0066711c */
 extern unsigned char g_power_station_fx[];                 /* 0x004b8750 */
 extern unsigned char g_dino_fx[];                          /* 0x004b8768 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(void* sprite);                       /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                       /* 0x00497bd0 */
+#endif
 extern void BasicObjectDCalcCursor(void* elem, void* pos);   /* 0x00480bb0 */
 extern void Kill_FXList(void* list, int count);              /* 0x00496e30 */
 extern void Load_FXList(void* list, int count);              /* 0x00496dd0 */

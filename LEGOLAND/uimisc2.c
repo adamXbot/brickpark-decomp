@@ -208,7 +208,11 @@ extern void PlayInstanceOfSample(void*, int, int, void*);      /* 0x00496d20 */
 extern int PlayInstanceOfSample(void*, int, int, void*);      /* 0x00496d20 */
 #endif
 extern void UpdateReportPageIcons(void);                       /* 0x00490aa0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(Sprite*);                               /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite*);                               /* 0x00497bd0 */
+#endif
 extern void RemoveIconGroup(int group);                        /* 0x0046d520 */
 extern void GetIconBounds(Icon*, ClipRect*);                   /* 0x0046de50 */
 /* 0x004907a0: loads the level's help/report text for `key`, non-zero when

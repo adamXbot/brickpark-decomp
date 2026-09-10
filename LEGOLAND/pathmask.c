@@ -113,7 +113,11 @@ extern int  DBPrintf(const char* format, ...);           /* 0x00453a20 */
 extern void DBPrintf(const char* format, ...);           /* 0x00453a20 */
 #endif
 extern void HeapFree_w(void* p);                         /* 0x0049e4d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(void* sprite);                    /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                    /* 0x00497bd0 */
+#endif
 
 
 /* =========================================================================

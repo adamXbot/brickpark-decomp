@@ -626,7 +626,11 @@ typedef struct FXEntry {
 extern void  Load_FXList(FXEntry* list, int count);          /* 0x00496dd0 */
 extern void  Kill_FXList(FXEntry* list, int count);          /* 0x00496e30 */
 extern void* LoadSprite(const char* name, int flag);         /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                       /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                       /* 0x00497bd0 */
+#endif
 extern void* LoadBinV(const char* name);                     /* 0x0044dc90 */
 extern void  FreeBinV(void* bnv);                            /* 0x0044dd60 */
 extern void  HideLayer(Spr* sprite, int layer);              /* 0x00497de0 */

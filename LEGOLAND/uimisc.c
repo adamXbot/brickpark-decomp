@@ -131,7 +131,11 @@ extern Sprite* g_backdrop; /* 0x00810148 */
 extern int g_cur_screen; /* 0x0080ff84 */
 extern void* g_icon_handler1; /* 0x006687bc */
 extern void* g_icon_handler2; /* 0x006687c0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(Sprite*); /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite*); /* 0x00497bd0 */
+#endif
 extern void RemoveIconGroup(int); /* 0x0046d520 */
 extern void KillSaveScreenSprites(void); /* 0x0048dbc0 */
 extern void KillTitleScreenSprites(void); /* 0x0048faa0 */

@@ -333,7 +333,11 @@ int Balloonz_Load(RideElem* elem)
  * ========================================================================= */
 
 extern void  Kill_FXList(void* list, int count);              /* 0x00496e30 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                        /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                        /* 0x00497bd0 */
+#endif
 extern int   LLIDB_FindElement(const char* name, void** out,
                                unsigned int* idx);            /* 0x0047b330 */
 #ifndef LEGOLAND_PORTABLE

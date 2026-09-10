@@ -276,7 +276,11 @@ extern char g_lls_script_end[];        /* 0x004bb1d8 */
 extern void*      HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
 extern void       HeapFree_w(void* p);                            /* 0x0049e4d0 */
 extern SpriteRec* LoadSprite(const char* name, int mode);         /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void       KillSprite(SpriteRec* s);                       /* 0x00497bd0 */
+#else
+extern int KillSprite(SpriteRec* s);                       /* 0x00497bd0 */
+#endif
 extern char*      GetString(int id);                              /* 0x00498f50 */
 extern int        GetTicks(void);                                 /* 0x00499450 */
 extern int        GetBlink(void);                                 /* 0x00499480 */

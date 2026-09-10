@@ -22,7 +22,11 @@ extern void Kill_FXList(void* list, int count); /* 0x00496e30 */
 extern void DefaultCursor(void* cursor); /* 0x0045a390 */
 extern void SetEditCursorFootPrint(Rect* rect); /* 0x0045f440 */
 extern Spr* LoadSprite(const char* name, int mode); /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(void* sprite); /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite); /* 0x00497bd0 */
+#endif
 #ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(RideElem* elem, Pos* pos); /* 0x0045efe0 */
 #else

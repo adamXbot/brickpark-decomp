@@ -232,7 +232,11 @@ extern void  SetIconSprite(Icon* p, Sprite* s);              /* 0x0046d680 */
 extern char* GetString(int id);                              /* 0x00498f50 */
 extern int   RenderFreePlayIcons(Icon* p);                   /* 0x0046e300 (fpui.c) */
 extern char  FreePlayIconInput(Icon* p, int ev, short dx, short dy); /* 0x0048b000 (not exported) */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(Sprite* s);                          /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite* s);                          /* 0x00497bd0 */
+#endif
 /* 0x0047c7f0 (not exported): the free-play icon sprite of a class element,
  * with its text, sort key and parent element through the out pointers;
  * 0 when the class has none. Name is ours. */
@@ -1076,7 +1080,11 @@ extern Sprite*  g_ci_link_bottom;      /* 0x00668e90 Link_Bottom.lls */
 extern int      GetObjCost(ObjDef* d);                /* 0x00480da0 */
 extern int      GetBrickCount(void);                  /* 0x004578e0 */
 extern int      GetBlink(void);                       /* 0x00499480 */
+#ifndef LEGOLAND_PORTABLE
 extern void     Format(char* dest, const char* fmt, ...); /* 0x0049e573 */
+#else
+extern int Format(char* dest, const char* fmt, ...); /* 0x0049e573 */
+#endif
 extern void     PrintCachedText(const char* text, int x, int y, int w, int h,
                                 int f1, int f2, int ink, int paper); /* 0x00455e50 */
 extern int strcmp(const char* a, const char* b);

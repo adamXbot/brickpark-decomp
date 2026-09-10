@@ -119,7 +119,11 @@ extern void    ReferenceSprite(Sprite* s);                    /* 0x00497bb0 */
 #else
 extern int ReferenceSprite(Sprite* s);                    /* 0x00497bb0 */
 #endif
+#ifndef LEGOLAND_PORTABLE
 extern void    KillSprite(Sprite* s);                         /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite* s);                         /* 0x00497bd0 */
+#endif
 extern char*   GetString(int id);                             /* 0x00498f50 */
 extern int     GetGameTimer(void);                            /* 0x00499430 */
 extern void    LinkIcon(Icon* p);                             /* 0x0046d440 */

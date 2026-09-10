@@ -49,7 +49,11 @@ extern int   InitScreen(void);                                      /* 0x0046387
 extern int   InitInputSystem(void);                                 /* 0x00473870 */
 extern void  KillInputSystem(void);                                 /* 0x00473ae0 */
 extern Sprite* LoadSprite(const char* name, int mode);              /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(Sprite* s);                                 /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite* s);                                 /* 0x00497bd0 */
+#endif
 #ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_LoadICM(void);                                   /* 0x0047aff0 */
 #else

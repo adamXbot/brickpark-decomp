@@ -161,7 +161,11 @@ extern int     g_exit_popup_up;       /* 0x007cb320 */
 
 /* ---- callees ------------------------------------------------------------ */
 extern Sprite* LoadSprite(const char* name, int mode);                 /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void    KillSprite(Sprite* s);                                   /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite* s);                                   /* 0x00497bd0 */
+#endif
 extern Icon*   InsertIcon(short x, short y, unsigned short group, Sprite* s); /* 0x0046d6c0 */
 extern Icon*   LoadSpriteIcon(const char* name, int mode, int x, int y, int group); /* 0x0046d7b0 */
 extern void    SetIconSprite(Icon* p, Sprite* s);                       /* 0x0046d680 */

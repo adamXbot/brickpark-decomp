@@ -1798,7 +1798,11 @@ extern void*  g_rest1_mask_3;       /* 0x0081cd90 RestMaskLevel3.lls */
 
 extern void UnLoadRin(void* rin);                                /* 0x00441cf0 */
 extern void UnloadPos(void* anim);                               /* 0x0043f7d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(void* sprite);                            /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                            /* 0x00497bd0 */
+#endif
 
 /* 0x0042d1f0 -- EARTH SLIDE RIDE +0xac.  Note it RE-PUBLISHES the ObjDef on
  * the way OUT (the +0xa4 already did), which is harmless but is the
