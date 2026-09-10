@@ -117,7 +117,22 @@ void TrackCursor_RetreatGeometry(RoutePos* cursor)
  * schoolcar6.c's ZBuffer_FillPoly: same 0x14 interpolant array, same
  * hand-written fill (`xchg`, `add ebx,1`, `jns/jmp`), but the destination
  * is g_raster_bits and the pixel comes from g_shade_tab[tag][grad[0]].
- * g_zb_base is loaded into a local and never read (the dead store). */
+ * g_zb_base is loaded into a local and never read (the dead store).
+ *
+ * FRAME HOMES (LL23, from the closed ZBuffer_FillPoly): the row pointer,
+ * the dead store and the pitch must be ONE aggregate local.  An aggregate
+ * blocks reuse of a dead PARAMETER's home, so the three take real frame
+ * slots at -0x10/-0xc/-8 and the frame is 0x60, not 0x58; `ylast` keeps
+ * -4 and `color`/`y` land in the n / key argument slots, which is the
+ * original layout.  `color` must be a `short`: VC6 then emits the
+ * original's partial write (`mov ax, word ptr [tab+idx*2]` followed by a
+ * DWORD store of eax, upper half left as grad[0]'s), where an `int`
+ * costs an extra `xor`.  The interpolant pair is written store, store,
+ * read-modify-write through the address-taken ed[]: that hoists e->a[0]
+ * above the e->dir branch and store-to-load forwarding folds the RMW back
+ * into one subtract, so both arms share the loads and duplicate the sub.
+ * With all three the old free `volatile` reads of `y` and `dead` are no
+ * longer wanted -- each costs an instruction. */
 // FUNCTION: LEGOLAND 0x0041f8d0
 void Span_FillFlat(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 {
@@ -185,7 +200,14 @@ void Span_FillFlat(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 
 /* Flat shade + Z, table slot 0x004b564c. Same sentinel and 0x14 interpolants
  * as Span_FillFlat; the left edge also carries z, and each pixel is written
- * only when its interpolated z is not behind the z-buffer. */
+ * only when its interpolated z is not behind the z-buffer.
+ * Same three levers as Span_FillFlat (see its FRAME HOMES note): the
+ * {crow, zrow, pitch} aggregate for the 0x64 frame, `short color` for the
+ * partial write, and the store/store/RMW interpolant pair.  Both row
+ * pointers must be seeded from their globals BEFORE the pitch*y add and
+ * advanced with `+=`; folding them into one `cb + pitch * y` statement
+ * (with or without named base locals) spills a base to the key slot and
+ * costs one to three instructions. */
 // FUNCTION: LEGOLAND 0x0041fba0
 void Span_FillFlatZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 {
@@ -272,25 +294,30 @@ void Span_FillFlatZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 
 /* Gouraud shade, no Z, table slot 0x004b5658 (g_span_fillers[0]). Shade is
  * 16.16, clamped through g_shade_clamp_mid and looked up in the tag's ramp.
- * A negative dshade is negated and the inner loop uses sbb instead of adc. */
-// WIP-FUNCTION: LEGOLAND 0x0041fd80  (162/162i, 507/505B, 106 mismatch; row home in arg slot)
+ * A negative dshade is negated and the inner loop uses sbb instead of adc.
+ * Same levers as Span_FillFlat, plus the one this body needs on its own:
+ * **`flip = 0` must be written AFTER `ylast`.**  Frame homes are handed
+ * out in order of FIRST STORE, so with `flip = 0` first, flip takes the
+ * real slot at -8, ylast is pushed to -0xc and the frame grows to 0x68;
+ * storing ylast first leaves flip to the dead `n` argument slot at
+ * +0x10 and the frame is the original's 0x64.  VC6 still schedules the
+ * `mov dword ptr [ebp+0x10], 0` back up to the top of the body. */
+// FUNCTION: LEGOLAND 0x0041fd80
 void Span_FillShade(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 {
     SpanInterp ed[4];
-    int        dead;
-    short*     row;
-    int        pitch;
+    struct { short* row; int dead; int pitch; } r;
     int        y;
     int        ylast;
     int        flip;
 
     y = key[0].y;
-    flip = 0;
     edge[key[n - 1].idx].y1++;
-    row = g_raster_bits;
+    r.row = g_raster_bits;
     ylast = edge[key[n - 1].idx].y1;
-    *(int volatile*)&dead = (int)g_zb_base;
-    pitch = g_zb_pitch;
+    flip = 0;
+    r.dead = (int)g_zb_base;
+    r.pitch = g_zb_pitch;
     g_span_ramp = g_shade_tab[tag];
     g_zb_polys++;
     key[n].y = edge[key[n - 1].idx].y1;
@@ -300,21 +327,25 @@ void Span_FillShade(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
     }
     g_span_dshade_hi = grad[1] >> 16;
     g_span_dshade_lo = grad[1] << 16;
-    row = row + pitch * y;
+    r.row += r.pitch * y;
     do {
         SpanEdge* e = &edge[key->idx];
 
         key++;
         if (e->dir) {
+            ed[2].x = e->a[0];
             ed[3].x = e->d[0];
+            ed[2].r4 = e->a[1];
             ed[3].r4 = e->d[1];
-            ed[2].x = e->a[0] - e->d[0];
-            ed[2].r4 = e->a[1] - e->d[1];
+            ed[2].x -= ed[3].x;
+            ed[2].r4 -= ed[3].r4;
         } else {
+            ed[0].x = e->a[0];
             ed[1].x = e->d[0];
+            ed[0].r4 = e->a[1];
             ed[1].r4 = e->d[1];
-            ed[0].x = e->a[0] - e->d[0];
-            ed[0].r4 = e->a[1] - e->d[1];
+            ed[0].x -= ed[1].x;
+            ed[0].r4 -= ed[1].r4;
         }
         while (y < key->y) {
             y++;
@@ -336,7 +367,7 @@ void Span_FillShade(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
             wide:
                 sar  eax, 16
                 sar  ebx, 16
-                mov  edi, row
+                mov  edi, r.row
                 xchg ebx, eax
                 sub  ebx, eax
                 lea  edi, [edi + eax*2]
@@ -375,32 +406,35 @@ void Span_FillShade(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
                 jle  negfill
             done:
             }
-            row += pitch;
+            r.row += r.pitch;
         }
     } while (y < ylast);
 }
 
 /* Gouraud shade + Z, table slot 0x004b565c (g_span_fillers[1]). Left edge
  * carries x, shade and z; dshade_lo packs the shade fraction with the
- * z-step so one add advances both. The inner loop steals EBP for the ramp. */
-// WIP-FUNCTION: LEGOLAND 0x0041ff80  (202/202i, 633/633B, 62 mismatch; row homes vs original frame)
+ * z-step so one add advances both. The inner loop steals EBP for the ramp.
+ * Levers: the {crow, zrow, pitch} aggregate, `flip = 0` after `ylast`, and
+ * the store/store/RMW interpolant triple (x, r4 in the dir arm; x, r4, z
+ * in the else arm) -- the original's [ebp-0x60] scratch reload in the else
+ * arm is exactly the RMW's store-then-reload of ed[0].r4.  crow before
+ * zrow in the seed (zrow first costs 2). */
+// FUNCTION: LEGOLAND 0x0041ff80
 void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
 {
     SpanInterp ed[4];
-    short*     crow;
-    short*     zrow;
-    int        pitch;
+    struct { short* crow; short* zrow; int pitch; } r;
     int        y;
     int        ylast;
     int        flip;
 
     y = key[0].y;
-    flip = 0;
     edge[key[n - 1].idx].y1++;
-    crow = g_raster_bits;
-    zrow = g_zb_base;
+    r.crow = g_raster_bits;
+    r.zrow = g_zb_base;
     ylast = edge[key[n - 1].idx].y1;
-    pitch = g_zb_pitch;
+    flip = 0;
+    r.pitch = g_zb_pitch;
     g_span_ramp = g_shade_tab[tag];
     g_zb_polys++;
     key[n].y = edge[key[n - 1].idx].y1;
@@ -411,24 +445,29 @@ void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
     g_span_dshade_hi = grad[1] >> 16;
     g_span_dshade_lo = (grad[1] & 0xffffff00) << 16;
     g_span_dshade_lo |= (grad[2] >> 8) & 0xffffff;
-    crow = crow + pitch * y;
-    zrow = zrow + pitch * y;
+    r.crow += r.pitch * y;
+    r.zrow += r.pitch * y;
     do {
         SpanEdge* e = &edge[key->idx];
 
         key++;
         if (e->dir) {
+            ed[2].x = e->a[0];
             ed[3].x = e->d[0];
+            ed[2].r4 = e->a[1];
             ed[3].r4 = e->d[1];
-            ed[2].x = e->a[0] - e->d[0];
-            ed[2].r4 = e->a[1] - e->d[1];
+            ed[2].x -= ed[3].x;
+            ed[2].r4 -= ed[3].r4;
         } else {
+            ed[0].x = e->a[0];
             ed[1].x = e->d[0];
+            ed[0].r4 = e->a[1];
             ed[1].r4 = e->d[1];
+            ed[0].z = e->a[2];
             ed[1].z = e->d[2];
-            ed[0].x = e->a[0] - e->d[0];
-            ed[0].r4 = e->a[1] - e->d[1];
-            ed[0].z = e->a[2] - e->d[2];
+            ed[0].x -= ed[1].x;
+            ed[0].r4 -= ed[1].r4;
+            ed[0].z -= ed[1].z;
         }
         while (y < key->y) {
             y++;
@@ -453,8 +492,8 @@ void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
             wide:
                 sar  eax, 16
                 sar  ebx, 16
-                mov  edi, crow
-                mov  esi, zrow
+                mov  edi, r.crow
+                mov  esi, r.zrow
                 xchg ebx, eax
                 sub  ebx, eax
                 lea  edi, [edi + eax*2]
@@ -513,8 +552,8 @@ void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
                 pop  ebp
             done:
             }
-            crow += pitch;
-            zrow += pitch;
+            r.crow += r.pitch;
+            r.zrow += r.pitch;
         }
     } while (y < ylast);
 }
@@ -527,7 +566,22 @@ void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
  * integer push of x, and the global-first fmul forms. The assign-expression
  * `x = a + (h = half*h)` is the `fst` / `fadd a` chain. Residual vs original
  * is only `call fn(a)` / `add esp,4` / `fstp fa` instead of `fstp` then
- * `add esp,4` — Og-off always cleans before the float store. */
+ * `add esp,4` — Og-off always cleans before the float store.
+ * LL23 re-probe (2026-09-10), all still 79/81 or worse, AT ITS FLOOR:
+ * the full `#pragma optimize` letter matrix ("y"/"gy"/"gp"/"ga"/"gw"/
+ * "gs"/"a"/"w"/"" off, with and without the `__asm {}`) — "y" off alone
+ * gives an EBP frame but 85i, "a"/"w" off 82i, "gt" off 85i, and
+ * "g"/"gy"/"gp"/"ga"/"gw"/"gs"/"" off are all the same 81i/258B body;
+ * store forms `f.s = (f.fa = fn(a)) + fn(b)` (82i), the comma statement,
+ * a `volatile float*` dest (84i), a block temp (83i), `*(float*)&`,
+ * a NON-volatile frame struct, `f.s = f.fa; f.s = f.s + fn(b)` (83i),
+ * `fn(b) + f.fa`, `f.s = fn(b); f.s += f.fa` (82i), a duplicated store,
+ * `if (1)` / `do {} while (0)` wrappers (84i), a block-local function
+ * pointer (83i), an argument temp (83i), and `fa` as a separate volatile
+ * or non-volatile local declared before or after a 9-field frame struct
+ * (all 79/81, homes correct).  The empty `__asm {}` is now INERT for the
+ * frame — `#pragma optimize("g", off)` alone gives the same 81i/258B
+ * body — so only the two-instruction cleanup/store template remains. */
 typedef struct SimpsonFrame {
     float fa;
     int   i;
@@ -542,7 +596,7 @@ typedef struct SimpsonFrame {
 } SimpsonFrame;
 
 #pragma optimize("g", off)
-// WIP-FUNCTION: LEGOLAND 0x00420200  (81/81i, 258/258B, 2 mismatch; fn(a) add esp,4 / fstp fa swapped)
+// WIP-FUNCTION: LEGOLAND 0x00420200  (98.8%, fn(a) add esp,4 / fstp fa swapped — FLOOR)
 float IntegrateSimpson(float (*fn)(float), float a, float b, float tol)
 {
     volatile SimpsonFrame f;
