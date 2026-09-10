@@ -1,9 +1,11 @@
 # Scope Codex-F — coaster draw passes, rider updates, route callees (2026-09-05)
 
-> **Status: IN PROGRESS (claimed 2026-09-07 by integrator).** Branch
+> **Status: MERGED 2026-09-09 — 26 of 26 exact.** Branch
 > `codex/scope-f`. The Codex series' sixth scope (after CODEX_A–E). Unrelated
 > to `SCOPE_F_partials_rides.md`, the generic-series scope F (FGH, elsewhere).
-> Say "Codex-F" when referring to this one.
+> Say "Codex-F" when referring to this one. `coaster10.c` (16), `ridemachine2.c` (5)
+> and `uistubs2.c` (5) are all exact on `main`; the branch has been deleted
+> and its evidence is in `docs/lanes/codex-f.md`.
 
 **Read `docs/PARALLEL_CONTRACT.md` first; it carries everything not written
 here.** Notes: `docs/lanes/codex-f.md`. Object prefix: `/tmp/cf_`.
