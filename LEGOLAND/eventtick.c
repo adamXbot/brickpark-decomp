@@ -170,7 +170,11 @@ extern int        g_scroll_y;            /* 0x00667cb8 */
 extern void     (*g_report_setters[25])(int a, int b); /* 0x004b7e38  REPORT: per-index setter (first named here) */
 
 /* ---- callees ------------------------------------------------------------- */
+#ifndef LEGOLAND_PORTABLE
 extern int   DBPrintf(const char* fmt, ...);                             /* 0x00453a20 */
+#else
+extern void DBPrintf(const char* fmt, ...);                             /* 0x00453a20 */
+#endif
 extern int   LLIDB_FindElement(const char* name, LLElem** out, unsigned int* idx); /* 0x0047b330 */
 extern void  MarkElemAvailable(LLElem* e, int popup, int b);             /* 0x00469900 */
 extern int   GetBrickCount(void);                                        /* 0x004578e0 */

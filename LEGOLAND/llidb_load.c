@@ -5,7 +5,11 @@ int   sprintf(char*, const char*, ...);
 void* malloc(unsigned int);
 void* RES_OpenFile(const char*);
 int   RES_ReadFile(void* file, void* buf, int len);   /* returns bytes read */
+#ifndef LEGOLAND_PORTABLE
 void  RES_CloseFile(void* file);
+#else
+extern int RES_CloseFile(void* file);
+#endif
 int   LLIDB_FindElement(char* name, LLElem** out_elem, unsigned int* out_idx);
 void* LLIDB_LoadData(LLElem* elem);
 

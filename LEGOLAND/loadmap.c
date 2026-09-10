@@ -36,7 +36,11 @@ extern void* LLIDB_LoadData(void* elem);        /* 0x47d3a0 */
 extern void* ElemID(const char* name);          /* 0x47b3f0 */
 extern void* RES_OpenFile(const char* name);    /* 0x489b60 */
 extern int   RES_ReadFile(void* file, void* buf, int len); /* 0x489cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* file);         /* 0x489de0 */
+#else
+extern int RES_CloseFile(void* file);         /* 0x489de0 */
+#endif
 extern int   RES_GetFilePointer(void* file);    /* 0x489db0 */
 extern void  RES_SetFilePointer(void* file, int pos); /* 0x489d70 */
 extern void  ResetBuildStats(void);             /* 0x459880 */

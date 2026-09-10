@@ -14,7 +14,11 @@ void* memset(void*, int, unsigned int);
 int   stricmp(const char*, const char*);
 void* RES_OpenFile(const char*);
 int   RES_ReadFile(void* file, void* buf, int len);
+#ifndef LEGOLAND_PORTABLE
 void  RES_CloseFile(void* file);
+#else
+extern int RES_CloseFile(void* file);
+#endif
 int   LLIDB_FindElement(char* name, LLElem** out_elem, unsigned int* out_idx);
 void* LLIDB_LoadData(LLElem* elem);
 void* LoadSprite(const char* name, int flag);

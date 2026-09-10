@@ -49,7 +49,11 @@ extern char    g_fp_icon_name[];  /* 0x007fdba0  the icon file name read from th
 extern int   sprintf(char* buf, const char* fmt, ...);                      /* 0x0049e573 (CRT) */
 extern void* RES_OpenFile(const char* path);                                /* 0x00489b60 */
 extern int   RES_ReadFile(void* f, void* buf, int len);                     /* 0x00489cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* f);                                        /* 0x00489de0 */
+#else
+extern int RES_CloseFile(void* f);                                        /* 0x00489de0 */
+#endif
 extern void* HeapAlloc_w(unsigned int size);                                /* 0x0049e4ff (CRT malloc) */
 extern void  HeapFree_w(void* p);                                           /* 0x0049e4d0 (CRT free) */
 extern FPElem* ElemID(const char* name);                                    /* 0x0047b3f0 */

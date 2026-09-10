@@ -26,7 +26,11 @@ extern int   sprintf(char* buf, const char* fmt, ...); /* 0x0049e573 */
 extern void* RES_OpenFile(const char* path);          /* 0x00489b60 */
 extern int   RES_GetFileSize(void* f);                /* 0x00489ce0 */
 extern int   RES_ReadFile(void* f, void* buf, int n); /* 0x00489cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* f);                  /* 0x00489de0 */
+#else
+extern int RES_CloseFile(void* f);                  /* 0x00489de0 */
+#endif
 
 /* ".\\3ddata\\new\\%s\\%s" — every path in this file is built with it. */
 extern const char kPath3dData[];      /* 0x004b7b10 */

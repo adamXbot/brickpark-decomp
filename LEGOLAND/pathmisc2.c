@@ -50,7 +50,11 @@ extern int* g_path_tile_base;                           /* 0x00832bf0 */
 extern void* g_env_class;                               /* 0x007fd624 */
 extern void HeapFree_w(void* p);                         /* 0x0049e4d0 */
 extern void* CRT_calloc(unsigned count, unsigned size);  /* 0x004a020e */
+#ifndef LEGOLAND_PORTABLE
 extern int DBPrintf(const char* format, ...);            /* 0x00453a20 */
+#else
+extern void DBPrintf(const char* format, ...);            /* 0x00453a20 */
+#endif
 extern int OverNewTile(Walker* walker, int x, int y);     /* 0x00483650 */
 extern PathSquare* FindPathSquare(Pos* pos);             /* 0x00481790 */
 extern void RefreshEntranceTile(int force);              /* 0x00482b20 */

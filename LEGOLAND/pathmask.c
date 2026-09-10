@@ -107,7 +107,11 @@ extern int  IsPathCell(Cell* cell);                      /* 0x0045ce10 */
  * draws routed through the five-argument PrintSprite so a blit mode gets
  * through.  Declared here the way the disassembly pushes it: four arguments. */
 extern void DrawCursorPathTile(Pos* at, int x, int y, int mode); /* 0x00460f50 */
+#ifndef LEGOLAND_PORTABLE
 extern int  DBPrintf(const char* format, ...);           /* 0x00453a20 */
+#else
+extern void DBPrintf(const char* format, ...);           /* 0x00453a20 */
+#endif
 extern void HeapFree_w(void* p);                         /* 0x0049e4d0 */
 extern void KillSprite(void* sprite);                    /* 0x00497bd0 */
 

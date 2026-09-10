@@ -1404,7 +1404,11 @@ Pos LFPiece_ScreenPos(LFPiece* p)
  * log-flume class placed it. */
 extern void LFPiece_QueryRect(LFPiece* p, Footprint** out_fp,
                               BPos* out_sq);                     /* 0x0040d090 */
+#ifndef LEGOLAND_PORTABLE
 extern void DBPrintf(const char* fmt);                           /* 0x00453a20 */
+#else
+extern void DBPrintf(const char* fmt, ...);                           /* 0x00453a20 */
+#endif
 extern char g_lf_norect_msg[];                                   /* 0x004b4a24 */
 
 /* Which placed piece covers map point (x,y)?  Walks every run and every

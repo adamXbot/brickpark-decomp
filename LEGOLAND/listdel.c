@@ -99,7 +99,11 @@ void DeleteProfileList(void)
 
 /* Both from LEGOLAND/res.c's layer; the opener returns a malloc'd RFile. */
 extern void* RES_OpenFile(const char* path);   /* 0x00489b60 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* f);           /* 0x00489de0 */
+#else
+extern int RES_CloseFile(void* f);           /* 0x00489de0 */
+#endif
 
 /* Open-and-immediately-close is the whole implementation: there is no cheaper
  * "is it in the master directory" query, because RES_OpenFile is what walks the

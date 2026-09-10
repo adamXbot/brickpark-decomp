@@ -101,7 +101,11 @@ extern Cell*   GetFirstRenderObject(void);                  /* 0x0045a850 */
 extern Cell*   GetNextRenderObject(Cell* c);                /* 0x0045a8b0 */
 extern void    RefreshEntranceTile(int force);              /* 0x00482b20 */
 extern int     TileJoinsPathNetwork(Pos* pos);              /* 0x00482b60 */
+#ifndef LEGOLAND_PORTABLE
 extern int     DBPrintf(const char* fmt, ...);              /* 0x00453a20 */
+#else
+extern void DBPrintf(const char* fmt, ...);              /* 0x00453a20 */
+#endif
 extern int     GetNearestColour(int r, int g, int b);       /* 0x0044e6c0 */
 extern int     RenderBlock(int x, int y, int w, int h, int colour); /* 0x004890c0 */
 

@@ -172,7 +172,11 @@ extern const char kModeR[];            /* 0x004bf2b8 "r" */
 extern const char kStabPath[];         /* 0x004bfef4 ".\\strings\\stab.str" */
 
 /* ---- callees ------------------------------------------------------------ */
+#ifndef LEGOLAND_PORTABLE
 extern int   DBPrintf(const char* fmt, ...);            /* 0x00453a20 */
+#else
+extern void DBPrintf(const char* fmt, ...);            /* 0x00453a20 */
+#endif
 extern int   GetTicks(void);                            /* 0x00499450 (jmp [GetTickCount]) */
 extern void  UpdateSampleSource(Sample* s);             /* 0x004966a0 (internal, sysmisc.c) */
 extern int   FreePlayableSample(Sample* s);             /* 0x00492b20 (audio3.c) */

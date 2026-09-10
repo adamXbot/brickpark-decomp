@@ -31,7 +31,11 @@ extern int   FlipPrimary(void);                                     /* 0x004661d
 extern int   CheckHostSystemGPU(void);                              /* 0x004637c0 */
 extern int   RES_EnsureMounted(int volume);                         /* 0x004515e0 */
 extern void* RES_OpenVolume(const char* name);                      /* 0x00489750 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseVolume(void* vol);                            /* 0x00489dc0 */
+#else
+extern int RES_CloseVolume(void* vol);                            /* 0x00489dc0 */
+#endif
 extern void  LoadStrings(void);                                     /* 0x00498d00  (first named here: paired with DeleteStrings) */
 extern void  DeleteStrings(void);                                   /* 0x00498ff0 */
 extern char* GetString(int id);                                     /* 0x00498f50 */
