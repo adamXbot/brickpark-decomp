@@ -314,8 +314,8 @@ float Route_StepToPieceEnd(CoasterRoute* rt, float dt)
  * The buffer is three globals -- 0x004b5b24 the 16-bit target's base,
  * 0x004b5b28 its pitch in pixels, 0x004b5b20 a third that this routine
  * copies into a local and never reads (an original DEAD STORE, reproduced
- * with a volatile store through a cast; it is the recorded instrument for
- * exactly this). 0x0060f900 counts the polygons filled. The value written is
+ * as a plain store into a member of the frame aggregate -- see the DEAD
+ * STORE lever below). 0x0060f900 counts the polygons filled. The value written is
  * a local that is only ever ZERO, so the pass clears the polygon's coverage
  * rather than painting a colour.
  *
@@ -346,38 +346,55 @@ float Route_StepToPieceEnd(CoasterRoute* rt, float dt)
  * four separate arrays come out ldp/rdp/lp/rp, and declaration order is
  * inert across all eleven permutations measured.
  *
- * TWO MORE LEVERS:
- *  * `row = g_zb_base + pitch * y` needs a FREE volatile read of `y`. The
- *    original reloads `y` from its home there (it is in memory for the whole
- *    function), which frees EDI for the buffer base across the whole set-up;
- *    without the barrier VC6 keeps `y` in ebx from its first load, loads the
- *    base late, and the body comes out one instruction and one byte short.
- *    Worth 86 -> 46 and it is what makes the instruction count exact.
- *  * The dead store must be a volatile store through a cast. A plain local
- *    store is deleted outright even in a function containing `__asm`; a
- *    `volatile int` local reproduces it but is byte-identical to the cast.
+ * THREE MORE LEVERS, all three carried over from scope LL9's closing of
+ * the shaded twin (unref1.c ZBuffer_FillShadedPoly, 0x0041fa10):
+ *  * FRAME HOMES. The dead copy, the row pointer and `pitch` are ONE
+ *    aggregate, `struct { int dead; short* row; int pitch; } r`, and the
+ *    `__asm` block names `r.row`. VC6 gives a multi-member aggregate a
+ *    true frame home, deepest first in declaration order, AHEAD of every
+ *    spilled scalar; so `r` lands at -0x10/-0xc/-8 and the two remaining
+ *    spills, `ylast` and `y`, fall back to the dead `n` and `key` argument
+ *    slots exactly as the original has them. That is the tie-break the old
+ *    residual called unreachable: as five plain scalars VC6 hands `ylast`
+ *    the -0xc home and `row` the argument slot. Measured on the way:
+ *    `{row, pitch}` alone puts `r` BELOW the dead scalar (-0x10/-0xc, dead
+ *    at -8); a 4-byte `dead` in any aggregate shape (`short[2]`,
+ *    `char[4]`, a struct of two shorts, a one-member struct or array) is
+ *    scalarised and sorted after `r` all the same; `{dead, row}` with a
+ *    scalar `pitch` fixes those two homes but swaps `pitch` and `ylast`
+ *    and rotates n/y into EDI (78/101).
+ *  * THE DEAD STORE is a PLAIN member store, `r.dead = g_zb_4b5b20;`. VC6
+ *    does not delete a store into a memory-resident aggregate, so no
+ *    volatile is needed -- and none must be used: a volatile cast on the
+ *    member (`*(int volatile*)&r.dead`), on `&r`, or a `volatile int`
+ *    member makes the whole aggregate address-exposed, the frame grows to
+ *    0x64, `pitch*2` is hoisted into the `n` slot and the body drops to
+ *    60/104. A volatile READ of the global with a plain member store is
+ *    99/101 (the load moves). As a separate scalar, the store needs the
+ *    volatile cast (a plain scalar store is deleted outright even beside
+ *    `__asm`), which is why the old body carried one.
+ *  * THE PER-KEY EDGE SWITCH. The original hoists `e->x` above the
+ *    `e->side` branch ahead of `e->step`. Written `ed[k].x = e->x -
+ *    e->step;` VC6 forms the CSE temporary for `e->step` first and hoists
+ *    that instead. Each arm is stores then a read-modify-write through the
+ *    address-taken `ed`: `ed[k].x = e->x; ed[k+1].x = e->step; ed[k].x -=
+ *    ed[k+1].x;` -- store-to-load forwarding folds the RMW back to the one
+ *    register subtract, so the count does not move, only the order.
+ * With row and pitch as members the old free volatile read of `y` in
+ * `row = base + pitch * y` is no longer wanted: written `r.row = g_zb_base;
+ * r.pitch = g_zb_pitch;` up front and `r.row += r.pitch * y;` after the
+ * `key[n].y` store, VC6 loads the base into EDI right after the `inc`,
+ * keeps `pitch` in EBX and reloads `y` from its home for the multiply
+ * itself; with the volatile read kept it is one instruction LONG (90/102:
+ * the pitch load a slot early and the `y` reload duplicated into the
+ * outer latch). The set-up order above is the one that matches: `pitch`
+ * before `row` (99), the dead store before `ylast` (98) or after the
+ * counter (99) each move a load in the head.
  *
- * WIP RESIDUAL: 101/101 instructions, 292/292 bytes, strict 46 /
- * register-blind 43, the whole `__asm` region exact, and the residual is
- * TWO frame homes exchanged --
- * `row` takes the dead `n` argument slot and `ylast` a frame slot where the
- * original has it the other way round -- plus the scratch-register rotation
- * that follows from it and one scheduling window at indices 9..12 (the
- * `fillv = 0` store lands after the `y` store instead of between the load
- * and the store). Measured and inert on the swap: all 135 legal orderings of
- * the three set-up statements that own those homes, eleven declaration
- * orders, `short` and `unsigned` types for `ylast`, `volatile` on `row` and
- * on the `row += pitch` store, a free volatile read of `ylast` in the outer
- * latch, four separate `int[5]` arrays instead of one `ed[4]`, `row` as
- * `unsigned short*`, and a named local for the `pitch * y` product. The two
- * locals the original leaves in the argument slots are exactly the two the
- * `__asm` block does NOT name, but VC6 will not be made to follow that.
- * Six free `volatile` reads (the pitch global, the key index at three
- * sites, the inner guard's `key->y`, the counter store) move nothing at
- * all, so by the recorded triage this is a global web RANK, not a local
- * rotation -- and the head's remaining window (the `fillv = 0` store
- * landing after the `y` store instead of between its load and store) goes
- * with it.
+ * CLOSED at 101/101 instructions and 292/292 bytes, strict 0, from the
+ * recorded 46: the old residual (row/ylast homes exchanged plus the
+ * register rotation and the head's scheduling window) was the frame-home
+ * rule above, not a global rank.
  * ======================================================================== */
 typedef struct ZKey {
     int y;                      /* +0x00 */
@@ -408,13 +425,14 @@ extern int    g_zb_pitch;                                       /* 0x004b5b28 */
 extern int    g_zb_4b5b20;                                      /* 0x004b5b20 */
 extern int    g_zb_polys;                                       /* 0x0060f900 */
 
-// WIP-FUNCTION: LEGOLAND 0x00423350  (101/101 insns, 292/292 B, the hand-written __asm span loop exact; `row` and `ylast` hold each other's frame homes -- the dead-argument-slot tie-break is not reachable from C here)
+// FUNCTION: LEGOLAND 0x00423350
 void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
 {
     ZInterp      ed[4];
-    int          dead;
-    short*       row;
-    int          pitch;
+    /* ONE aggregate: the dead copy, the row pointer and the pitch. See the
+     * FRAME HOMES lever above -- this is what puts the three at
+     * -0x10/-0xc/-8 and leaves `ylast` and `y` to the argument slots. */
+    struct { int dead; short* row; int pitch; } r;
     int          fillv;
     int          y;
     int          ylast;
@@ -422,24 +440,28 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
     fillv = 0;
     y = key[0].y;
     edge[key[n - 1].idx].ylast++;
-    pitch = g_zb_pitch;
+    r.row = g_zb_base;
+    r.pitch = g_zb_pitch;
     ylast = edge[key[n - 1].idx].ylast;
+    r.dead = g_zb_4b5b20;                       /* the original's dead store */
     g_zb_polys++;
     key[n].y = edge[key[n - 1].idx].ylast;
-    /* The volatile read is FREE -- the original reloads `y` here anyway --
-     * and it is what frees EDI for the buffer base across the set-up. */
-    row = g_zb_base + pitch * *(int volatile*)&y;
-    *(int volatile*)&dead = g_zb_4b5b20;        /* the original's dead store */
+    r.row += r.pitch * y;
     do {
         ZEdge* e = &edge[key->idx];
 
         key++;
+        /* Stores, then a read-modify-write through the address-taken `ed`:
+         * this is what hoists `e->x` above the branch ahead of `e->step`
+         * (store-to-load forwarding folds the RMW back to one subtract). */
         if (e->side) {
+            ed[2].x = e->x;
             ed[3].x = e->step;
-            ed[2].x = e->x - e->step;
+            ed[2].x -= ed[3].x;
         } else {
+            ed[0].x = e->x;
             ed[1].x = e->step;
-            ed[0].x = e->x - e->step;
+            ed[0].x -= ed[1].x;
         }
         while (y < key->y) {
             y++;
@@ -458,7 +480,7 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
             wide:
                 sar  eax, 16
                 sar  ebx, 16
-                mov  edi, row
+                mov  edi, r.row
                 xchg ebx, eax
                 mov  dx, word ptr fillv
                 sub  ebx, eax                   /* left - right, <= 0 */
@@ -469,7 +491,7 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
                 jle  fill
             done:
             }
-            row += pitch;
+            r.row += r.pitch;
         }
     } while (y < ylast);
 }

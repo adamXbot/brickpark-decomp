@@ -1,0 +1,1248 @@
+{
+  "source_commit": "d5ea002a",
+  "base_commit": "6a95613e",
+  "summary": {
+    "functions": 419,
+    "exact_markers": 408,
+    "normalized_exact": 408,
+    "assigned_exact_gate": 40,
+    "assigned_open": 8,
+    "existing_normalized_regressions": 0
+  },
+  "original_sha256": "c50865b60bfcb26c0a7329a75fb772b10ae234af324f669901906e5abb0e2bd9",
+  "flags": [
+    "/W3",
+    "/O2",
+    "/Gy",
+    "/Gd"
+  ],
+  "functions": [
+    {
+      "file": "anim2.c",
+      "name": "BoatingSchool_DrawBoats",
+      "address": "0x418fe0",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 212,
+      "original_instructions": 212,
+      "bytes": 744,
+      "original_bytes": 744,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 4,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 33,
+        "matched": 29,
+        "unresolved": 4
+      }
+    },
+    {
+      "file": "anim2.c",
+      "name": "AnimApplyPart",
+      "address": "0x442040",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 331,
+      "original_instructions": 331,
+      "bytes": 1174,
+      "original_bytes": 1174,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 14,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 18,
+        "unresolved": 14,
+        "matched": 4
+      }
+    },
+    {
+      "file": "bswater.c",
+      "name": "BsWater_SetTile",
+      "address": "0x41c4c0",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 109,
+      "original_instructions": 109,
+      "bytes": 350,
+      "original_bytes": 350,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 11,
+        "matched": 11
+      }
+    },
+    {
+      "file": "bswater3.c",
+      "name": "BsBoat_Animate",
+      "address": "0x4198a0",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 334,
+      "original_instructions": 334,
+      "bytes": 1133,
+      "original_bytes": 1133,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 22,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 54,
+        "matched": 17,
+        "unresolved": 37
+      }
+    },
+    {
+      "file": "coaster3d.c",
+      "name": "Coaster3D_SetupView",
+      "address": "0x425e20",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 129,
+      "original_instructions": 129,
+      "bytes": 466,
+      "original_bytes": 466,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 2,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 36,
+        "matched": 34,
+        "unresolved": 2
+      }
+    },
+    {
+      "file": "coaster3d.c",
+      "name": "Raster_SubmitPoly",
+      "address": "0x42a2f0",
+      "assigned": true,
+      "wip": true,
+      "normalized_exact": false,
+      "mismatch": 142,
+      "instructions": 252,
+      "original_instructions": 252,
+      "bytes": 742,
+      "original_bytes": 743,
+      "reasons": [
+        "742 vs 743 bytes"
+      ],
+      "exact_gate": false
+    },
+    {
+      "file": "coaster4.c",
+      "name": "InitTrackDrawModes",
+      "address": "0x428750",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 60,
+      "original_instructions": 60,
+      "bytes": 228,
+      "original_bytes": 228,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 5,
+        "matched": 5
+      }
+    },
+    {
+      "file": "coaster6.c",
+      "name": "CoasterCar_BuildRider",
+      "address": "0x421660",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 191,
+      "original_instructions": 191,
+      "bytes": 549,
+      "original_bytes": 549,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 21,
+        "matched": 21
+      }
+    },
+    {
+      "file": "goldrush.c",
+      "name": "StepSchoolCar",
+      "address": "0x402780",
+      "assigned": true,
+      "wip": true,
+      "normalized_exact": false,
+      "mismatch": 83,
+      "instructions": 351,
+      "original_instructions": 351,
+      "bytes": 1147,
+      "original_bytes": 1147,
+      "reasons": [],
+      "exact_gate": false
+    },
+    {
+      "file": "goldrush3.c",
+      "name": "GoldRush_KneelAtPan",
+      "address": "0x4070b0",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 58,
+      "original_instructions": 58,
+      "bytes": 177,
+      "original_bytes": 177,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 1,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 8,
+        "matched": 6,
+        "unresolved": 2
+      }
+    },
+    {
+      "file": "jcroute.c",
+      "name": "JungleCruise_TraceRoute",
+      "address": "0x437260",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 130,
+      "original_instructions": 130,
+      "bytes": 339,
+      "original_bytes": 339,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 8,
+        "matched": 8
+      }
+    },
+    {
+      "file": "joust.c",
+      "name": "TempleSlide_Update",
+      "address": "0x417430",
+      "assigned": true,
+      "wip": true,
+      "normalized_exact": false,
+      "mismatch": 18,
+      "instructions": 347,
+      "original_instructions": 347,
+      "bytes": 1122,
+      "original_bytes": 1122,
+      "reasons": [],
+      "exact_gate": false
+    },
+    {
+      "file": "joust2.c",
+      "name": "Joust_Update",
+      "address": "0x407c30",
+      "assigned": true,
+      "wip": true,
+      "normalized_exact": false,
+      "mismatch": 1,
+      "instructions": 703,
+      "original_instructions": 703,
+      "bytes": 2262,
+      "original_bytes": 2258,
+      "reasons": [
+        "2262 vs 2258 bytes"
+      ],
+      "exact_gate": false
+    },
+    {
+      "file": "junglecruise.c",
+      "name": "JungleCruise_UpdateRiverTile",
+      "address": "0x436dc0",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 116,
+      "original_instructions": 116,
+      "bytes": 367,
+      "original_bytes": 367,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 12,
+        "matched": 12
+      }
+    },
+    {
+      "file": "junglecruise.c",
+      "name": "JungleCruise_UpdateRiverAnim",
+      "address": "0x432d00",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 422,
+      "original_instructions": 422,
+      "bytes": 1466,
+      "original_bytes": 1466,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 16,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 57,
+        "matched": 41,
+        "unresolved": 16
+      }
+    },
+    {
+      "file": "lfentrance.c",
+      "name": "LFEntrance_Add",
+      "address": "0x40a600",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 256,
+      "original_instructions": 256,
+      "bytes": 812,
+      "original_bytes": 812,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 36,
+        "matched": 36
+      }
+    },
+    {
+      "file": "lfentrance.c",
+      "name": "LFEntrance_Activate",
+      "address": "0x40bf70",
+      "assigned": true,
+      "wip": true,
+      "normalized_exact": false,
+      "mismatch": 10,
+      "instructions": 222,
+      "original_instructions": 222,
+      "bytes": 672,
+      "original_bytes": 673,
+      "reasons": [
+        "672 vs 673 bytes"
+      ],
+      "exact_gate": false
+    },
+    {
+      "file": "logflume.c",
+      "name": "LFEntrance_Remove",
+      "address": "0x40abf0",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 102,
+      "original_instructions": 102,
+      "bytes": 343,
+      "original_bytes": 343,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 19,
+        "unresolved": 1,
+        "matched": 18
+      }
+    },
+    {
+      "file": "logflume2.c",
+      "name": "LFDrop_Place",
+      "address": "0x410180",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 111,
+      "original_instructions": 111,
+      "bytes": 341,
+      "original_bytes": 341,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 14,
+        "matched": 14
+      }
+    },
+    {
+      "file": "logflume3.c",
+      "name": "LFTunnel_Place",
+      "address": "0x40f050",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 217,
+      "original_instructions": 217,
+      "bytes": 680,
+      "original_bytes": 680,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 32,
+        "matched": 32
+      }
+    },
+    {
+      "file": "logflume3.c",
+      "name": "LFCorner_Place",
+      "address": "0x40dc00",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 574,
+      "original_instructions": 574,
+      "bytes": 1825,
+      "original_bytes": 1825,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 79,
+        "matched": 78,
+        "unresolved": 1
+      }
+    },
+    {
+      "file": "logflume4.c",
+      "name": "LFTrack_DrawAlt",
+      "address": "0x40ca60",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 144,
+      "original_instructions": 144,
+      "bytes": 401,
+      "original_bytes": 401,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 3,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 28,
+        "matched": 25,
+        "unresolved": 3
+      }
+    },
+    {
+      "file": "mechrides.c",
+      "name": "SpaceTower_Activate",
+      "address": "0x43bac0",
+      "assigned": true,
+      "wip": true,
+      "normalized_exact": false,
+      "mismatch": 10,
+      "instructions": 222,
+      "original_instructions": 222,
+      "bytes": 698,
+      "original_bytes": 698,
+      "reasons": [],
+      "exact_gate": false
+    },
+    {
+      "file": "mechrides.c",
+      "name": "SafariRide_Activate",
+      "address": "0x415220",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 402,
+      "original_instructions": 402,
+      "bytes": 1292,
+      "original_bytes": 1292,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 2,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 58,
+        "matched": 54,
+        "unresolved": 4
+      }
+    },
+    {
+      "file": "mechrides.c",
+      "name": "SpinningBarrels_Activate",
+      "address": "0x43c950",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 362,
+      "original_instructions": 362,
+      "bytes": 1148,
+      "original_bytes": 1148,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 2,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 48,
+        "matched": 44,
+        "unresolved": 4
+      }
+    },
+    {
+      "file": "mechrides.c",
+      "name": "SpiderRide_Activate",
+      "address": "0x416330",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 376,
+      "original_instructions": 376,
+      "bytes": 1228,
+      "original_bytes": 1228,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 2,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 57,
+        "matched": 53,
+        "unresolved": 4
+      }
+    },
+    {
+      "file": "mechrides.c",
+      "name": "PlaneRide_Activate",
+      "address": "0x43e410",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 387,
+      "original_instructions": 387,
+      "bytes": 1253,
+      "original_bytes": 1253,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 2,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 57,
+        "matched": 53,
+        "unresolved": 4
+      }
+    },
+    {
+      "file": "ridecb2.c",
+      "name": "JungleCruise_Tick",
+      "address": "0x435750",
+      "assigned": true,
+      "wip": true,
+      "normalized_exact": false,
+      "mismatch": 11,
+      "instructions": 354,
+      "original_instructions": 354,
+      "bytes": 1111,
+      "original_bytes": 1114,
+      "reasons": [
+        "1111 vs 1114 bytes"
+      ],
+      "exact_gate": false
+    },
+    {
+      "file": "ridecb3.c",
+      "name": "Carousel_Tick",
+      "address": "0x42c820",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 378,
+      "original_instructions": 378,
+      "bytes": 1225,
+      "original_bytes": 1225,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 2,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 52,
+        "matched": 48,
+        "unresolved": 4
+      }
+    },
+    {
+      "file": "ridecb3.c",
+      "name": "Balloonz_Tick",
+      "address": "0x42aa90",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 637,
+      "original_instructions": 637,
+      "bytes": 1993,
+      "original_bytes": 1993,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 6,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 42,
+        "unresolved": 7,
+        "matched": 35
+      }
+    },
+    {
+      "file": "ridecb5.c",
+      "name": "Road_FindDiagonals",
+      "address": "0x413450",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 64,
+      "original_instructions": 64,
+      "bytes": 157,
+      "original_bytes": 157,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 4,
+        "matched": 4
+      }
+    },
+    {
+      "file": "ridecb5.c",
+      "name": "BoatingSchool_Tick",
+      "address": "0x41a720",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 358,
+      "original_instructions": 358,
+      "bytes": 1164,
+      "original_bytes": 1164,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 45,
+        "matched": 44,
+        "unresolved": 1
+      }
+    },
+    {
+      "file": "ridecb9.c",
+      "name": "JungleCruise_Add",
+      "address": "0x434f90",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 141,
+      "original_instructions": 141,
+      "bytes": 438,
+      "original_bytes": 438,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 25,
+        "matched": 25
+      }
+    },
+    {
+      "file": "ridemisc3.c",
+      "name": "Pump_SnapToRoad",
+      "address": "0x411dc0",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 33,
+      "original_instructions": 33,
+      "bytes": 85,
+      "original_bytes": 85,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 2,
+        "matched": 2
+      }
+    },
+    {
+      "file": "roads.c",
+      "name": "JcBoat_Animate",
+      "address": "0x433840",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 330,
+      "original_instructions": 330,
+      "bytes": 1108,
+      "original_bytes": 1108,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 22,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 54,
+        "matched": 17,
+        "unresolved": 37
+      }
+    },
+    {
+      "file": "schoolcar2.c",
+      "name": "SchoolCarManoeuvreC",
+      "address": "0x401080",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 207,
+      "original_instructions": 207,
+      "bytes": 669,
+      "original_bytes": 669,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 13,
+        "matched": 13
+      }
+    },
+    {
+      "file": "schoolcar2.c",
+      "name": "SchoolCarManoeuvreA",
+      "address": "0x401320",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 207,
+      "original_instructions": 207,
+      "bytes": 669,
+      "original_bytes": 669,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 13,
+        "matched": 13
+      }
+    },
+    {
+      "file": "schoolcar3.c",
+      "name": "Coaster3D_BuildTrackMesh",
+      "address": "0x428cb0",
+      "assigned": true,
+      "wip": true,
+      "normalized_exact": false,
+      "mismatch": 6,
+      "instructions": 151,
+      "original_instructions": 151,
+      "bytes": 442,
+      "original_bytes": 441,
+      "reasons": [
+        "442 vs 441 bytes"
+      ],
+      "exact_gate": false
+    },
+    {
+      "file": "schoolcar3.c",
+      "name": "Coaster3D_DrawMesh",
+      "address": "0x4234e0",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 173,
+      "original_instructions": 173,
+      "bytes": 514,
+      "original_bytes": 514,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 1,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 7,
+        "matched": 6,
+        "unresolved": 1
+      }
+    },
+    {
+      "file": "schoolcar3.c",
+      "name": "Coaster3D_InitTrackTopology",
+      "address": "0x428f00",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 174,
+      "original_instructions": 174,
+      "bytes": 582,
+      "original_bytes": 582,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 4,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 33,
+        "matched": 29,
+        "unresolved": 4
+      }
+    },
+    {
+      "file": "schoolcar4.c",
+      "name": "SchoolCarBlockedAhead",
+      "address": "0x402490",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 63,
+      "original_instructions": 63,
+      "bytes": 180,
+      "original_bytes": 180,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 2,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 5,
+        "matched": 1,
+        "unresolved": 4
+      }
+    },
+    {
+      "file": "schoolcar4.c",
+      "name": "TrackCurve_GatherParams",
+      "address": "0x422000",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 70,
+      "original_instructions": 70,
+      "bytes": 211,
+      "original_bytes": 211,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 11,
+        "matched": 11
+      }
+    },
+    {
+      "file": "schoolcar5.c",
+      "name": "Route_StepFree",
+      "address": "0x41e000",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 76,
+      "original_instructions": 76,
+      "bytes": 218,
+      "original_bytes": 218,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 1,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 7,
+        "unresolved": 3,
+        "matched": 4
+      }
+    },
+    {
+      "file": "schoolcar5.c",
+      "name": "TrackCurve_Refine",
+      "address": "0x421e90",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 110,
+      "original_instructions": 110,
+      "bytes": 356,
+      "original_bytes": 356,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 4,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 11,
+        "unresolved": 4,
+        "matched": 7
+      }
+    },
+    {
+      "file": "schoolcar6.c",
+      "name": "Route_StepToPieceEnd",
+      "address": "0x41df00",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 84,
+      "original_instructions": 84,
+      "bytes": 250,
+      "original_bytes": 250,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 4,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 10,
+        "unresolved": 4,
+        "matched": 6
+      }
+    },
+    {
+      "file": "schoolcar6.c",
+      "name": "Shade_BuildRamp",
+      "address": "0x422e40",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 129,
+      "original_instructions": 129,
+      "bytes": 401,
+      "original_bytes": 401,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 6,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 18,
+        "matched": 1,
+        "unresolved": 17
+      }
+    },
+    {
+      "file": "screencb.c",
+      "name": "BsWater_DrawSelection",
+      "address": "0x41bfb0",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 129,
+      "original_instructions": 129,
+      "bytes": 374,
+      "original_bytes": 374,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 16,
+        "matched": 16
+      }
+    },
+    {
+      "file": "screencb.c",
+      "name": "JcWater_DrawSelection",
+      "address": "0x436470",
+      "assigned": true,
+      "wip": false,
+      "normalized_exact": true,
+      "mismatch": 0,
+      "instructions": 129,
+      "original_instructions": 129,
+      "bytes": 374,
+      "original_bytes": 374,
+      "reasons": [],
+      "branches": [],
+      "literals": {
+        "checked": 0,
+        "issues": []
+      },
+      "exact_gate": true,
+      "relocations": {
+        "relocations": 16,
+        "matched": 15,
+        "unresolved": 1
+      }
+    }
+  ],
+  "source_sha256": {
+    "anim2.c": "ffc4bbdfc32bbf2a9bbc810bebf020921deacc38753ad1ad6535302e20ff0a38",
+    "bswater.c": "bd965971d259ce552535501f68e6b4cc6d0afd8d73e8f366ceadbe0d20dc00c7",
+    "bswater3.c": "5310fafa7e17eb8354b4eded96a2ec6df786492a652e7bc49b6d824d8ab64369",
+    "coaster3d.c": "e34de2f7fb47524f2240fdf8b520a402b81f3e05384e00e914e6dc9b0a142025",
+    "coaster4.c": "d0669750737f1843d9c61fda192fd5b2f49a2a823d148fad7c07e1c78d3a7a9c",
+    "coaster6.c": "952087018b3036bd5ceda4abc7d283e88200de989345316f3beead851f3a03ec",
+    "goldrush.c": "2df62ffff66855619f6f8a2126c4e772fddcc38089b1ad615bfd950288fd086d",
+    "goldrush3.c": "02e873f26d803df27814dc62d86f41d9ce44c31d9138acc1906d7d2c641aea7a",
+    "jcroute.c": "2ab1d6ec696b000553ba546abfa0e7e104caec862694c19e109d079c3cb5b1ed",
+    "joust.c": "9d2037cdf7dc8a28190a5bb51c7e0406d8b4ceea48688af08432d50f80ff9a32",
+    "joust2.c": "a6eba1e630b651ff079be183fcdc77186d777e33a0390abb3e0f8d0abc5a4472",
+    "junglecruise.c": "be78d6c118db664c032b015a75c7e3c3ac48cef7a3315ba1789a0bb4b9d1ca28",
+    "lfentrance.c": "e2f4abdb9a02f0bd92118f81743c8007884038d5c96586de2dca685c9f94818a",
+    "logflume.c": "75d80401d480547d3ce8a5d61aec5fd79315527f027d48d647328edb1c057291",
+    "logflume2.c": "6bbbc0817c100146a8e3c32dd7d09aad7cb14cd4159a3a3220385ff34d4c9971",
+    "logflume3.c": "4b86bda221999c6c2ac907f0f4e8e0b9ef4de83c7323c93f04cdbec28553f356",
+    "logflume4.c": "2e5eacef0770ce5f9b9372b5b9ca1070c7ae90603ecacbde8e12aa1acabca569",
+    "mechrides.c": "e6f043c011629ecb0bcae91e6e02387626bcf903416bfac4d3fefded74bef296",
+    "ridecb2.c": "4ef32bc5c1acbb56ad42873c3e9d37a2bcf14cf095438adf5e60b5ccc5a84918",
+    "ridecb3.c": "55d005b8360e7274a01363843b26107417c69fb4a53fc38aa7672a56a6d14a31",
+    "ridecb5.c": "11b4f7dfa2f3636aadab38e86b189b2232839bb4c8639b69ba542961d22ddc38",
+    "ridecb9.c": "3daf5c83ab11e5669c291a9b7a7bb4c26b5c4ff4259d61aa4b741ac1a962d178",
+    "ridemisc3.c": "383edd117787c4d3385590bab12f95a2cb181b72aa0f1f9c0d02daaefc5406a3",
+    "roads.c": "4f8bc646ccf45025a0d7a718c1191706c9dbf482eab6165a55a545cf4d6086d3",
+    "schoolcar2.c": "7743d6e7a7ee461495df260f2f299aa8f33918f93225901b620bae586d492b49",
+    "schoolcar3.c": "7bcc95061ce3b55946102100fcfc656c75e29074423e3c35aa70302b463a8277",
+    "schoolcar4.c": "e01bb43bd7e1f711cc5325c07bc50565187f7c6fdafc13ef6dd669347757dd33",
+    "schoolcar5.c": "9e4223f946fcb3791f215003473c19483d71711f84cc4f834809ed987e27eaf4",
+    "schoolcar6.c": "c84612716afd88db4addbc67d7596182f7d5b215c02184f79e39d10e4704c3ee",
+    "screencb.c": "8d691e9b3a357cbc45bcb07200c9516519ea708e9852492848350b6794218237"
+  },
+  "literal_references_checked": 122,
+  "preexisting_base_findings": [
+    {
+      "file": "logflume.c",
+      "name": "LFCorner4_Interact",
+      "normalized_exact": true,
+      "branches": [
+        {
+          "index": 14,
+          "kind": "branch_destination"
+        }
+      ],
+      "relocations": {
+        "relocations": 11,
+        "matched": 11
+      }
+    },
+    {
+      "file": "logflume.c",
+      "name": "LFTrack_Update",
+      "normalized_exact": true,
+      "branches": [],
+      "relocations": {
+        "relocations": 51,
+        "matched": 49,
+        "mismatches": 2
+      }
+    },
+    {
+      "file": "logflume2.c",
+      "name": "LFPiece_TickCommon",
+      "normalized_exact": true,
+      "branches": [],
+      "relocations": {
+        "relocations": 13,
+        "matched": 9,
+        "mismatches": 4
+      }
+    },
+    {
+      "file": "mechrides.c",
+      "name": "PlaneRide_Create",
+      "normalized_exact": true,
+      "branches": [],
+      "relocations": {
+        "relocations": 42,
+        "unresolved": 4,
+        "matched": 35,
+        "mismatches": 3
+      }
+    },
+    {
+      "file": "mechrides.c",
+      "name": "Copters_Activate",
+      "normalized_exact": true,
+      "branches": [
+        {
+          "index": 43,
+          "kind": "jump_table",
+          "reason": "different table targets"
+        },
+        {
+          "index": 72,
+          "kind": "jump_table",
+          "reason": "different table targets"
+        },
+        {
+          "index": 144,
+          "kind": "jump_table",
+          "reason": "different table targets"
+        }
+      ],
+      "relocations": {
+        "relocations": 38,
+        "matched": 27,
+        "unresolved": 3,
+        "mismatches": 8
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "function": "SchoolCarBlockedAhead",
+  "cases": 2160,
+  "seed": "0xf6a2026",
+  "source_sha256": "e01bb43bd7e1f711cc5325c07bc50565187f7c6fdafc13ef6dd669347757dd33",
+  "original_sha256": "c50865b60bfcb26c0a7329a75fb772b10ae234af324f669901906e5abb0e2bd9",
+  "failures": [],
+  "controls": [
+    {
+      "name": "first_hit_instead_of_last",
+      "detected": true,
+      "case_index": 12
+    },
+    {
+      "name": "exclusive_inner_boundary",
+      "detected": true,
+      "case_index": 40
+    }
+  ],
+  "passed": true
+}

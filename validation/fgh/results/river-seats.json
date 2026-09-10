@@ -1,0 +1,65 @@
+{
+  "function": "JungleCruise_UpdateRiverAnim",
+  "test_level": "seat-switch blocks",
+  "cases": 864,
+  "source_sha256": "be78d6c118db664c032b015a75c7e3c3ac48cef7a3315ba1789a0bb4b9d1ca28",
+  "original_sha256": "c50865b60bfcb26c0a7329a75fb772b10ae234af324f669901906e5abb0e2bd9",
+  "failures": [],
+  "branch_issues": [],
+  "literals": {
+    "checked": 16,
+    "issues": []
+  },
+  "historical_control": {
+    "normalized_exact": true,
+    "failing_cases": 288,
+    "branch_issues": [
+      {
+        "index": 216,
+        "kind": "branch_destination"
+      },
+      {
+        "index": 329,
+        "kind": "branch_destination"
+      }
+    ],
+    "directions": [
+      0,
+      1
+    ],
+    "seats": [
+      1
+    ]
+  },
+  "passed": true,
+  "literal_control": {
+    "normalized_exact": true,
+    "branch_issues": [],
+    "literals": {
+      "checked": 12,
+      "issues": [
+        {
+          "index": 204,
+          "symbol": "__real@4@4003b200000000000000",
+          "reason": "literal contents differ"
+        },
+        {
+          "index": 218,
+          "symbol": "__real@4@4003b200000000000000",
+          "reason": "literal contents differ"
+        },
+        {
+          "index": 317,
+          "symbol": "__real@4@4003b200000000000000",
+          "reason": "literal contents differ"
+        },
+        {
+          "index": 331,
+          "symbol": "__real@4@4003b200000000000000",
+          "reason": "literal contents differ"
+        }
+      ]
+    },
+    "failing_cases": 810
+  }
+}
