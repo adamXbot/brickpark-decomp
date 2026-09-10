@@ -188,6 +188,137 @@ extern void GoldRush_Remove(void);      /* 0x004076e0 */
 extern int  LoadGoldWash(void);         /* 0x00407870 (ridesave.c) */
 extern int  SaveGoldWash(void);         /* 0x00407800 (ridesave.c) */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: one wasm type per callback slot.  These ObjDef slots are
+ * called with the instance pointer the class was registered with:
+ *   cb_load +0xb8, called as (elem) by savegame.c:1365
+ *   cb_save +0xbc, called as (elem) by savegame.c:941
+ * and these bodies never read it -- free on x86 cdecl, where the caller
+ * pushes and the caller cleans up, but a wasm call_indirect whose type is
+ * not the target's traps.  The portable build registers an adapter of the
+ * slot's own type which drops the argument, so the slot holds one type.
+ * The matched bodies are untouched. */
+extern int LoadCatapult(void);
+static int ll_cb_load_LoadCatapult(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadCatapult();
+}
+extern int LoadCopters(void);
+static int ll_cb_load_LoadCopters(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadCopters();
+}
+extern int LoadElephantFountain(void);
+static int ll_cb_load_LoadElephantFountain(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadElephantFountain();
+}
+extern int LoadGoldWash(void);
+static int ll_cb_load_LoadGoldWash(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadGoldWash();
+}
+extern int LoadJailCells(void);
+static int ll_cb_load_LoadJailCells(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadJailCells();
+}
+extern int LoadLogFlume(void);
+static int ll_cb_load_LoadLogFlume(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadLogFlume();
+}
+extern int LoadSpaceTower(void);
+static int ll_cb_load_LoadSpaceTower(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadSpaceTower();
+}
+extern int LoadWaterBlock(void);
+static int ll_cb_load_LoadWaterBlock(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadWaterBlock();
+}
+extern int SaveCatapult(void);
+static int ll_cb_save_SaveCatapult(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveCatapult();
+}
+extern int SaveCopters(void);
+static int ll_cb_save_SaveCopters(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveCopters();
+}
+extern int SaveElephantFountain(void);
+static int ll_cb_save_SaveElephantFountain(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveElephantFountain();
+}
+extern int SaveGoldWash(void);
+static int ll_cb_save_SaveGoldWash(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveGoldWash();
+}
+extern int SaveJailCells(void);
+static int ll_cb_save_SaveJailCells(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveJailCells();
+}
+extern int SaveLogFlume(void);
+static int ll_cb_save_SaveLogFlume(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveLogFlume();
+}
+extern int SavePlaneRide(void);
+static int ll_cb_save_SavePlaneRide(void* ll_elem)
+{
+    (void)ll_elem;
+    return SavePlaneRide();
+}
+extern int SaveSafariRide(void);
+static int ll_cb_save_SaveSafariRide(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveSafariRide();
+}
+extern int SaveSpaceTower(void);
+static int ll_cb_save_SaveSpaceTower(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveSpaceTower();
+}
+extern int SaveSpiderRide(void);
+static int ll_cb_save_SaveSpiderRide(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveSpiderRide();
+}
+extern int SaveSpinningBarrels(void);
+static int ll_cb_save_SaveSpinningBarrels(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveSpinningBarrels();
+}
+extern int SaveWaterBlock(void);
+static int ll_cb_save_SaveWaterBlock(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveWaterBlock();
+}
+#endif
 // FUNCTION: LEGOLAND 0x004078f0
 void GoldRush_GetInterfaces(RideElem* elem, RideDef* def)
 {
@@ -199,8 +330,16 @@ void GoldRush_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_interact = GoldRush_Interact;
         def->cb_add      = GoldRush_Add;
         def->cb_remove   = GoldRush_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_load     = LoadGoldWash;
+#else
+        def->cb_load     = ll_cb_load_LoadGoldWash;   /* PORT-M3 */
+#endif
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveGoldWash;
+#else
+        def->cb_save     = ll_cb_save_SaveGoldWash;   /* PORT-M3 */
+#endif
     }
 }
 
@@ -230,8 +369,16 @@ void Catapult_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_remove   = Catapult_Remove;
         def->cb_add      = Catapult_Add;
         def->cb_draw     = Catapult_Draw;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveCatapult;
+#else
+        def->cb_save     = ll_cb_save_SaveCatapult;   /* PORT-M3 */
+#endif
+#ifndef LEGOLAND_PORTABLE
         def->cb_load     = LoadCatapult;
+#else
+        def->cb_load     = ll_cb_load_LoadCatapult;   /* PORT-M3 */
+#endif
     }
 }
 
@@ -261,8 +408,16 @@ void Copters_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_draw     = Copters_Draw;
         def->cb_interact = Copters_Interact;
         def->cb_destroy  = Copters_Destroy;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveCopters;
+#else
+        def->cb_save     = ll_cb_save_SaveCopters;   /* PORT-M3 */
+#endif
+#ifndef LEGOLAND_PORTABLE
         def->cb_load     = LoadCopters;
+#else
+        def->cb_load     = ll_cb_load_LoadCopters;   /* PORT-M3 */
+#endif
     }
 }
 
@@ -292,7 +447,11 @@ void SafariRide_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_remove   = SafariRide_Remove;
         def->cb_add      = SafariRide_Add;
         def->cb_draw     = SafariRide_Draw;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveSafariRide;
+#else
+        def->cb_save     = ll_cb_save_SaveSafariRide;   /* PORT-M3 */
+#endif
         def->cb_load     = LoadSafariRide;
     }
 }
@@ -323,7 +482,11 @@ void SpiderRide_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_remove   = SpiderRide_Remove;
         def->cb_add      = SpiderRide_Add;
         def->cb_draw     = SpiderRide_Draw;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveSpiderRide;
+#else
+        def->cb_save     = ll_cb_save_SaveSpiderRide;   /* PORT-M3 */
+#endif
         def->cb_load     = LoadSpiderRide;
     }
 }
@@ -354,8 +517,16 @@ void SpaceTower_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_remove   = SpaceTower_Remove;
         def->cb_add      = SpaceTower_Add;
         def->cb_destroy  = SpaceTower_Destroy;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveSpaceTower;
+#else
+        def->cb_save     = ll_cb_save_SaveSpaceTower;   /* PORT-M3 */
+#endif
+#ifndef LEGOLAND_PORTABLE
         def->cb_load     = LoadSpaceTower;
+#else
+        def->cb_load     = ll_cb_load_LoadSpaceTower;   /* PORT-M3 */
+#endif
     }
 }
 
@@ -385,7 +556,11 @@ void SpinningBarrels_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add      = SpinningBarrels_Add;
         def->cb_destroy  = SpinningBarrels_Destroy;
         def->cb_draw     = SpinningBarrels_Draw;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveSpinningBarrels;
+#else
+        def->cb_save     = ll_cb_save_SaveSpinningBarrels;   /* PORT-M3 */
+#endif
         def->cb_load     = LoadSpinningBarrels;
     }
 }
@@ -417,7 +592,11 @@ void PlaneRide_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add      = PlaneRide_Add;
         def->cb_draw     = PlaneRide_Draw;
         def->cb_load     = LoadPlaneRide;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SavePlaneRide;
+#else
+        def->cb_save     = ll_cb_save_SavePlaneRide;   /* PORT-M3 */
+#endif
     }
 }
 
@@ -529,8 +708,16 @@ void WaterWorks_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_draw     = WaterBlock_Draw;
         def->cb_interact = WaterBlock_Interact;
         def->cb_90       = WaterBlock_Update;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveWaterBlock;
+#else
+        def->cb_save     = ll_cb_save_SaveWaterBlock;   /* PORT-M3 */
+#endif
+#ifndef LEGOLAND_PORTABLE
         def->cb_load     = LoadWaterBlock;
+#else
+        def->cb_load     = ll_cb_load_LoadWaterBlock;   /* PORT-M3 */
+#endif
     } else if (NameCompare("WATER WORKS SHOWER", elem->name) == 0) {
         def->cb_create   = Shower_Create;
         def->cb_add      = Shower_Add;
@@ -548,8 +735,16 @@ void WaterWorks_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_interact = ElephantFountain_Interact;
         def->cb_activate = ElephantFountain_Activate;
         def->cb_90       = ElephantFountain_Update;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveElephantFountain;
+#else
+        def->cb_save     = ll_cb_save_SaveElephantFountain;   /* PORT-M3 */
+#endif
+#ifndef LEGOLAND_PORTABLE
         def->cb_load     = LoadElephantFountain;
+#else
+        def->cb_load     = ll_cb_load_LoadElephantFountain;   /* PORT-M3 */
+#endif
     } else if (NameCompare("WATER WORKS CROCODILE FOUNTAIN", elem->name) == 0) {
         def->cb_90       = CrocodileFountain_Update;
         def->cb_add      = CrocodileFountain_Add;
@@ -661,8 +856,16 @@ void WesternTown_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add      = JailCell_Add;
         def->cb_remove   = JailCell_Remove;
         def->cb_interact = JailCell_Interact;
+#ifndef LEGOLAND_PORTABLE
         def->cb_load     = LoadJailCells;
+#else
+        def->cb_load     = ll_cb_load_LoadJailCells;   /* PORT-M3 */
+#endif
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveJailCells;
+#else
+        def->cb_save     = ll_cb_save_SaveJailCells;   /* PORT-M3 */
+#endif
     } else if (NameCompare("BANK", elem->name) == 0) {
         def->cb_create   = Bank_Create;
         def->cb_destroy  = Bank_Destroy;
@@ -845,8 +1048,16 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_activate = LFEntrance_Activate;
         def->cb_interact = LFEntrance_Interact;
         def->cb_destroy  = LFEntrance_Destroy;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveLogFlume;
+#else
+        def->cb_save     = ll_cb_save_SaveLogFlume;   /* PORT-M3 */
+#endif
+#ifndef LEGOLAND_PORTABLE
         def->cb_load     = LoadLogFlume;
+#else
+        def->cb_load     = ll_cb_load_LoadLogFlume;   /* PORT-M3 */
+#endif
         def->cb_c0       = LFEntrance_Extra;
     } else if (NameCompare("LOG FLUME TRACK", elem->name) == 0) {
         g_logflume_track_def = elem->data;

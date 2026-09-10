@@ -92,19 +92,56 @@ extern void Joust_A0(void);      /* 0x00408c50 */
 int SaveJoust(void);
 int LoadJoust(RideElem* elem);
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: one wasm type per callback slot.  These ObjDef slots are
+ * called with the instance pointer the class was registered with:
+ *   cb_ac +0xac, called as (elem) by sysmisc.c:664
+ *   cb_save +0xbc, called as (elem) by savegame.c:941
+ * and these bodies never read it -- free on x86 cdecl, where the caller
+ * pushes and the caller cleans up, but a wasm call_indirect whose type is
+ * not the target's traps.  The portable build registers an adapter of the
+ * slot's own type which drops the argument, so the slot holds one type.
+ * The matched bodies are untouched. */
+extern void Joust_AC(void);
+static void ll_cb_ac_Joust_AC(void* ll_elem)
+{
+    (void)ll_elem;
+    Joust_AC();
+}
+extern int SaveJoust(void);
+static int ll_cb_save_SaveJoust(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveJoust();
+}
+extern int SaveTempleSlide(void);
+static int ll_cb_save_SaveTempleSlide(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveTempleSlide();
+}
+#endif
 // FUNCTION: LEGOLAND 0x00408db0
 void Joust_GetInterfaces(RideElem* elem, RideDef* def)
 {
     if (NameCompare("JOUST", elem->name) == 0) {
         def->cb_a4 = Joust_A4;
+#ifndef LEGOLAND_PORTABLE
         def->cb_ac = Joust_AC;
+#else
+        def->cb_ac = ll_cb_ac_Joust_AC;   /* PORT-M3 */
+#endif
         def->cb_8c = Joust_8C;
         def->cb_a8 = Joust_Update;
         def->cb_b0 = Joust_B0;
         def->cb_remove = Joust_Remove;
         def->cb_add = Joust_Add;
         def->cb_a0 = Joust_A0;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save = SaveJoust;
+#else
+        def->cb_save = ll_cb_save_SaveJoust;   /* PORT-M3 */
+#endif
         def->cb_load = LoadJoust;
     }
 }
@@ -252,7 +289,11 @@ void TempleSlide_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_remove = TempleSlide_Remove;
         def->cb_add = TempleSlide_Add;
         def->cb_a0 = TempleSlide_A0;
+#ifndef LEGOLAND_PORTABLE
         def->cb_save = SaveTempleSlide;
+#else
+        def->cb_save = ll_cb_save_SaveTempleSlide;   /* PORT-M3 */
+#endif
         def->cb_load = LoadTempleSlide;
     }
 }

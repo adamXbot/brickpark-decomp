@@ -284,7 +284,19 @@ struct TrackDesc {
     int   jp0[2];           /* +0x0c  head-end joint parameters {0x0f, 0} */
     int   jp1[2];           /* +0x14  tail-end joint parameters {0x0f, 0} */
     void (*draw)(TrackNode*);            /* +0x1c */
+#ifndef LEGOLAND_PORTABLE
     void (*build)(TrackNode*, int);      /* +0x20 */
+#else
+    /* PORT-M3: the four descriptor tables in .data put
+     * TrackNode_SetBothHeights (TrackNode*, FLOAT) in this word for the flat
+     * piece and TrackNode_LoadDescHeights for the three height pieces; the
+     * dword the callers pass is a joint height (coaster5.c hands over
+     * jout.f04, which SetBothHeights stores into two float fields). The
+     * portable arm gives the slot the bodies' type -- coaster12.c widens
+     * LoadDescHeights to match -- so the wasm call_indirect type is the
+     * target's. */
+    void (*build)(TrackNode*, float);    /* +0x20 */
+#endif
     void* query;                         /* +0x24 */
     void* place;                         /* +0x28 */
     void (*remove)(TrackNode*);          /* +0x2c */
@@ -327,7 +339,11 @@ void TrackNode_Draw(TrackNode* n)
 // FUNCTION: LEGOLAND 0x0041cfd0
 void TrackNode_Build(TrackNode* n, int mode)
 {
+#ifndef LEGOLAND_PORTABLE
     n->desc->build(n, mode);
+#else
+    n->desc->build(n, LL_ASFLT(mode));   /* PORT-M3: see the slot's type */
+#endif
 }
 
 /* Wire the HEAD end of `n` into `slot`, using the class's head joint

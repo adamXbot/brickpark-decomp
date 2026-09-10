@@ -199,7 +199,13 @@ __declspec(dllimport) int           __stdcall DrawTextA(void* dc, const char* s,
 __declspec(dllimport) int           __stdcall DeleteObject(void* obj);                   /* [0x4ab09c] */
 
 /* Defined below (the delete popup's OK handler, installed by InitSaveDeletePopUp). */
+#ifndef LEGOLAND_PORTABLE
 char SaveDeleteOkInput(Icon* icon, int msg);                            /* 0x0048e450 */
+#else
+/* PORT-M3: the portable build exports this body with the input slot's own
+ * four-argument shape (see the definition below). */
+char SaveDeleteOkInput(Icon* icon, int msg, int ll_dx, int ll_dy);      /* 0x0048e450 */
+#endif
 
 /* =========================================================================
  *  Marked-tile counters (pathmisc.c owns the table)
@@ -417,6 +423,15 @@ void ResetSavePopupIcons(void)
 
 /* The delete popup's OK icon: on a click with a save slot selected, close
  * the popup, delete that slot's files and rebuild the screen. */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define SaveDeleteOkInput SaveDeleteOkInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0048e450
 char SaveDeleteOkInput(Icon* icon, int msg)
 {
@@ -429,6 +444,15 @@ char SaveDeleteOkInput(Icon* icon, int msg)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef SaveDeleteOkInput
+char SaveDeleteOkInput(Icon* icon, int msg, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return SaveDeleteOkInput_vc6_body(icon, msg);
+}
+#endif
 
 /* =========================================================================
  *  Option screen

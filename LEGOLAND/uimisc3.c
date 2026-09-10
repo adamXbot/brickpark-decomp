@@ -405,6 +405,15 @@ extern void SetHelpFaceState5(void);                               /* 0x0046d390
  * `add esp,0x14`.
  */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define AdvertBillundInput AdvertBillundInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00490090
 char AdvertBillundInput(Icon* p, int ev)
 {
@@ -415,7 +424,25 @@ char AdvertBillundInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef AdvertBillundInput
+char AdvertBillundInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return AdvertBillundInput_vc6_body(p, ev);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define AdvertWindsorInput AdvertWindsorInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004900d0
 char AdvertWindsorInput(Icon* p, int ev)
 {
@@ -426,7 +453,25 @@ char AdvertWindsorInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef AdvertWindsorInput
+char AdvertWindsorInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return AdvertWindsorInput_vc6_body(p, ev);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define AdvertCaliforniaInput AdvertCaliforniaInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00490110
 char AdvertCaliforniaInput(Icon* p, int ev)
 {
@@ -437,8 +482,26 @@ char AdvertCaliforniaInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef AdvertCaliforniaInput
+char AdvertCaliforniaInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return AdvertCaliforniaInput_vc6_body(p, ev);
+}
+#endif
 
 /* Go Back: click, tear the screen down and pop the saved front-end state. */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define AdvertGoBackInput AdvertGoBackInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00490050
 char AdvertGoBackInput(Icon* p, int ev)
 {
@@ -450,11 +513,29 @@ char AdvertGoBackInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef AdvertGoBackInput
+char AdvertGoBackInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return AdvertGoBackInput_vc6_body(p, ev);
+}
+#endif
 
 /* =========================================================================
  *  The certificate screen's two buttons (mapscreen4.c's InitScreen8)
  * ========================================================================= */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define CertGoBackInput CertGoBackInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004902c0
 char CertGoBackInput(Icon* p, int ev)
 {
@@ -466,10 +547,28 @@ char CertGoBackInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef CertGoBackInput
+char CertGoBackInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return CertGoBackInput_vc6_body(p, ev);
+}
+#endif
 
 /* Arm the bitmap save, but only from rest: mapscreen2.c's PrintScreenMode8
  * counts g_cert_saving down into SaveCertificateBitmap and then counts
  * g_cert_result back towards zero while the result is displayed. */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define CertPrintInput CertPrintInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00490300
 char CertPrintInput(Icon* p, int ev)
 {
@@ -480,6 +579,15 @@ char CertPrintInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef CertPrintInput
+char CertPrintInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return CertPrintInput_vc6_body(p, ev);
+}
+#endif
 
 /* =========================================================================
  *  The object list's children bar (iconui.c's ListChildrenBar pair)
@@ -496,6 +604,15 @@ char CertPrintInput(Icon* p, int ev)
  * Scope decides the SCHEDULE here, not just the frame slot.
  */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define ChildrenBarInput ChildrenBarInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00475c50
 char ChildrenBarInput(Icon* p, int ev)
 {
@@ -509,7 +626,25 @@ char ChildrenBarInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef ChildrenBarInput
+char ChildrenBarInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return ChildrenBarInput_vc6_body(p, ev);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define CloseChildrenBarInput CloseChildrenBarInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00475c90
 char CloseChildrenBarInput(Icon* p, int ev)
 {
@@ -523,6 +658,15 @@ char CloseChildrenBarInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef CloseChildrenBarInput
+char CloseChildrenBarInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return CloseChildrenBarInput_vc6_body(p, ev);
+}
+#endif
 
 /* =========================================================================
  *  Help expiry (iconui.c's ProcessInGameHelp asks both)

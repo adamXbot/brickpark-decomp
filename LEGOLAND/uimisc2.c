@@ -299,6 +299,15 @@ extern void PrintCursor(const char* text, int font, WinRect rc, char white);  /*
  * forwards to ReportAcceptInput when its icon is greyed (flag 0x400); the
  * Previous handler has no such arm, so its `ev` is only ever tested and VC6
  * reads it as a byte. */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define ReportPrevPageInput ReportPrevPageInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00490b90
 char ReportPrevPageInput(Icon* p, int ev)
 {
@@ -310,6 +319,15 @@ char ReportPrevPageInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef ReportPrevPageInput
+char ReportPrevPageInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return ReportPrevPageInput_vc6_body(p, ev);
+}
+#endif
 
 /* =========================================================================
  *  Script events

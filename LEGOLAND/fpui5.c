@@ -297,6 +297,15 @@ extern void ResetInfoStruct(void);                               /* 0x00471510 *
  *    the two-instruction epilogue rather than jumping over the else arm),
  *    while the guard-fail edge and the else arm share the trailing one.
  * ========================================================================= */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define PU_Delete2Input PU_Delete2Input_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004734d0
 char PU_Delete2Input(Icon* p, int ev)
 {
@@ -317,6 +326,15 @@ char PU_Delete2Input(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef PU_Delete2Input
+char PU_Delete2Input(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return PU_Delete2Input_vc6_body(p, ev);
+}
+#endif
 
 /* ---- the object list (fpui.c owns the record) --------------------------- */
 typedef struct ObjNode {

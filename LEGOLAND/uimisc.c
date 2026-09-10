@@ -258,6 +258,15 @@ void EndLevel(int result)
     else if (result == 2) RunLevelEndSequence(g_level_end_sequence2);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define IndicatorInput IndicatorInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0046fbc0
 char IndicatorInput(Icon* p, int ev)
 {
@@ -268,6 +277,15 @@ char IndicatorInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef IndicatorInput
+char IndicatorInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return IndicatorInput_vc6_body(p, ev);
+}
+#endif
 
 // FUNCTION: LEGOLAND 0x004730f0
 char PU_CloseInput(Icon* p, int ev, short dx, short dy)
@@ -324,6 +342,15 @@ char PU_DeleteInput(Icon* p, int ev, short dx, short dy)
     return 1;
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define PU_PrevInput PU_PrevInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004733b0
 char PU_PrevInput(Icon* p, int ev)
 {
@@ -332,6 +359,15 @@ char PU_PrevInput(Icon* p, int ev)
     if ((ev & 2) && g_new_obj_index > 0) --g_new_obj_index;
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef PU_PrevInput
+char PU_PrevInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return PU_PrevInput_vc6_body(p, ev);
+}
+#endif
 
 // FUNCTION: LEGOLAND 0x0046de50
 void GetIconBounds(Icon* p, ClipRect* r)
@@ -579,6 +615,15 @@ void KillCurrentScreen(void)
     }
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define ReportNextPageInput ReportNextPageInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00490b20
 char ReportNextPageInput(Icon* p, int ev)
 {
@@ -592,6 +637,15 @@ char ReportNextPageInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef ReportNextPageInput
+char ReportNextPageInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return ReportNextPageInput_vc6_body(p, ev);
+}
+#endif
 
 /* Replay selected class icons while suppressing their individual click sounds.
  * Original assumes every qualifying icon resolves to a non-null table row. */
@@ -611,6 +665,15 @@ void RestoreFreePlaySelections(void)
     g_fp_bulk_update = 0;
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define FreePlayAcceptInput FreePlayAcceptInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0048ac60
 char FreePlayAcceptInput(Icon* p, int ev)
 {
@@ -632,6 +695,15 @@ char FreePlayAcceptInput(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef FreePlayAcceptInput
+char FreePlayAcceptInput(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return FreePlayAcceptInput_vc6_body(p, ev);
+}
+#endif
 
 // FUNCTION: LEGOLAND 0x00490aa0
 void UpdateReportPageIcons(void)

@@ -69,6 +69,17 @@ extern void SetSimTuningA(int i, int v);                                     /* 
 extern void SetSimTuningB(int i, int v);                                     /* 0x00462e70 */
 extern void FlashButton(int bits, int on);                                   /* 0x00476070 */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_PLACE LevelKw_PLACE_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a5a0
 int LevelKw_PLACE(char** argv, int argc)
 {
@@ -91,7 +102,26 @@ int LevelKw_PLACE(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_PLACE
+int LevelKw_PLACE(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_PLACE_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_CLEAR LevelKw_CLEAR_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a650
 int LevelKw_CLEAR(char** argv, int argc)
 {
@@ -105,7 +135,26 @@ int LevelKw_CLEAR(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_CLEAR
+int LevelKw_CLEAR(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_CLEAR_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_UNGLUE LevelKw_UNGLUE_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a6a0
 int LevelKw_UNGLUE(char** argv, int argc)
 {
@@ -119,7 +168,26 @@ int LevelKw_UNGLUE(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_UNGLUE
+int LevelKw_UNGLUE(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_UNGLUE_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_GLUE LevelKw_GLUE_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a6f0
 int LevelKw_GLUE(char** argv, int argc)
 {
@@ -140,7 +208,26 @@ int LevelKw_GLUE(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_GLUE
+int LevelKw_GLUE(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_GLUE_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_EXTENDPARK LevelKw_EXTENDPARK_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a7b0
 int LevelKw_EXTENDPARK(char** argv, int argc)
 {
@@ -154,7 +241,26 @@ int LevelKw_EXTENDPARK(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_EXTENDPARK
+int LevelKw_EXTENDPARK(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_EXTENDPARK_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_FMV LevelKw_FMV_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a800
 int LevelKw_FMV(char** argv, int argc)
 {
@@ -168,7 +274,26 @@ int LevelKw_FMV(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_FMV
+int LevelKw_FMV(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_FMV_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_INTERVAL LevelKw_INTERVAL_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a860
 int LevelKw_INTERVAL(char** argv, int argc)
 {
@@ -179,7 +304,26 @@ int LevelKw_INTERVAL(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_INTERVAL
+int LevelKw_INTERVAL(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_INTERVAL_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_MESSAGE LevelKw_MESSAGE_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a8a0
 int LevelKw_MESSAGE(char** argv, int argc)
 {
@@ -190,7 +334,26 @@ int LevelKw_MESSAGE(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_MESSAGE
+int LevelKw_MESSAGE(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_MESSAGE_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_FEATURE LevelKw_FEATURE_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a8e0
 int LevelKw_FEATURE(char** argv, int argc)
 {
@@ -210,9 +373,28 @@ int LevelKw_FEATURE(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_FEATURE
+int LevelKw_FEATURE(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_FEATURE_vc6_body(argv, argc);
+}
+#endif
 
 /* REPORT <name> off | REPORT <name> <a> <b>.  "HAPPY_VIS" is looked up under
  * its misspelt table entry "Happpy_Vis" (an original quirk, reproduced). */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_REPORT LevelKw_REPORT_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047a960
 int LevelKw_REPORT(char** argv, int argc)
 {
@@ -250,7 +432,26 @@ int LevelKw_REPORT(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_REPORT
+int LevelKw_REPORT(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_REPORT_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_HAP_FACTOR LevelKw_HAP_FACTOR_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047aa90
 int LevelKw_HAP_FACTOR(char** argv, int argc)
 {
@@ -267,7 +468,26 @@ int LevelKw_HAP_FACTOR(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_HAP_FACTOR
+int LevelKw_HAP_FACTOR(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_HAP_FACTOR_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_CAPACITYSCALE LevelKw_CAPACITYSCALE_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047ab00
 int LevelKw_CAPACITYSCALE(char** argv, int argc)
 {
@@ -287,7 +507,26 @@ int LevelKw_CAPACITYSCALE(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_CAPACITYSCALE
+int LevelKw_CAPACITYSCALE(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_CAPACITYSCALE_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_CAPACITYCAP LevelKw_CAPACITYCAP_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047ab80
 int LevelKw_CAPACITYCAP(char** argv, int argc)
 {
@@ -307,7 +546,26 @@ int LevelKw_CAPACITYCAP(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_CAPACITYCAP
+int LevelKw_CAPACITYCAP(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_CAPACITYCAP_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_DEGRADE LevelKw_DEGRADE_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047ac00
 int LevelKw_DEGRADE(char** argv, int argc)
 {
@@ -325,7 +583,26 @@ int LevelKw_DEGRADE(char** argv, int argc)
         AddEvent_Degrade(def, v, n);
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_DEGRADE
+int LevelKw_DEGRADE(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_DEGRADE_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_MAXBLOKES LevelKw_MAXBLOKES_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047ac80
 int LevelKw_MAXBLOKES(char** argv, int argc)
 {
@@ -338,7 +615,26 @@ int LevelKw_MAXBLOKES(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_MAXBLOKES
+int LevelKw_MAXBLOKES(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_MAXBLOKES_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_MAXCAPACITY_MAXVISITORS LevelKw_MAXCAPACITY_MAXVISITORS_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047ace0
 int LevelKw_MAXCAPACITY_MAXVISITORS(char** argv, int argc)
 {
@@ -355,7 +651,26 @@ int LevelKw_MAXCAPACITY_MAXVISITORS(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_MAXCAPACITY_MAXVISITORS
+int LevelKw_MAXCAPACITY_MAXVISITORS(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_MAXCAPACITY_MAXVISITORS_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_MINCAPACITY_MINVISITORS LevelKw_MINCAPACITY_MINVISITORS_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047ad40
 int LevelKw_MINCAPACITY_MINVISITORS(char** argv, int argc)
 {
@@ -372,7 +687,26 @@ int LevelKw_MINCAPACITY_MINVISITORS(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_MINCAPACITY_MINVISITORS
+int LevelKw_MINCAPACITY_MINVISITORS(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_MINCAPACITY_MINVISITORS_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_ENTRANCEFEE LevelKw_ENTRANCEFEE_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047ada0
 int LevelKw_ENTRANCEFEE(char** argv, int argc)
 {
@@ -389,9 +723,28 @@ int LevelKw_ENTRANCEFEE(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_ENTRANCEFEE
+int LevelKw_ENTRANCEFEE(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_ENTRANCEFEE_vc6_body(argv, argc);
+}
+#endif
 
 /* FLASHBUTTON <name|bit>...: each word is a button name (bit index) or a
  * literal mask; the words are OR-ed. */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_FLASHBUTTON LevelKw_FLASHBUTTON_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047ae00
 int LevelKw_FLASHBUTTON(char** argv, int argc)
 {
@@ -415,8 +768,27 @@ int LevelKw_FLASHBUTTON(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_FLASHBUTTON
+int LevelKw_FLASHBUTTON(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_FLASHBUTTON_vc6_body(argv, argc);
+}
+#endif
 
 /* FLASHBUTTOFF with no words turns every button off (-1). */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_FLASHBUTTOFF LevelKw_FLASHBUTTOFF_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047aea0
 int LevelKw_FLASHBUTTOFF(char** argv, int argc)
 {
@@ -442,7 +814,26 @@ int LevelKw_FLASHBUTTOFF(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_FLASHBUTTOFF
+int LevelKw_FLASHBUTTOFF(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_FLASHBUTTOFF_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_PURGE LevelKw_PURGE_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047af50
 int LevelKw_PURGE(char** argv, int argc)
 {
@@ -453,7 +844,26 @@ int LevelKw_PURGE(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_PURGE
+int LevelKw_PURGE(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_PURGE_vc6_body(argv, argc);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the level-file keyword table (g_level_db_sections,
+ * 0x004bb6f8) is called as handler(args, argc, extra) by levelkw.c's
+ * ParseKeywordSections, and 68 of its 90 handlers have that shape. This
+ * one ignores the third dword, which x86 cdecl tolerates and a wasm
+ * call_indirect does not: the table is filled from .data by the closure,
+ * so the only place to stand is the definition. The matched body is
+ * renamed for the portable build only and a twin of the table's shape is
+ * exported over it. */
+#define LevelKw_ENDLEVEL LevelKw_ENDLEVEL_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0047af80
 int LevelKw_ENDLEVEL(char** argv, int argc)
 {
@@ -464,3 +874,11 @@ int LevelKw_ENDLEVEL(char** argv, int argc)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef LevelKw_ENDLEVEL
+int LevelKw_ENDLEVEL(char** argv, int argc, int ll_x0)
+{
+    (void)ll_x0;
+    return LevelKw_ENDLEVEL_vc6_body(argv, argc);
+}
+#endif

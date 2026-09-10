@@ -232,6 +232,15 @@ void InitScreen8(void)
  *  Report screen (front-end screen 7) — the hint button
  * ========================================================================= */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the Icon +0x2c input slot is called with four arguments
+ * (fpui.c CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and so
+ * are g_icon_handler1/2; this body reads only the first two, which x86
+ * cdecl tolerates and a wasm call_indirect does not. The matched body is
+ * renamed for the portable build only and a twin of the slot's shape is
+ * exported over it. VC6 compiles the #ifndef world unchanged. */
+#define ReportHintInput ReportHintInput_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00490be0
 char ReportHintInput(Icon* icon, int ev)
 {
@@ -251,6 +260,15 @@ char ReportHintInput(Icon* icon, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef ReportHintInput
+char ReportHintInput(Icon* icon, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return ReportHintInput_vc6_body(icon, ev);
+}
+#endif
 
 /* =========================================================================
  *  Map input — BeginMapClick / ScrollFromKeys (bighelp.c's ReadGameButtons)
