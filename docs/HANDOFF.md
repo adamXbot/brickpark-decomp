@@ -117,6 +117,29 @@ Quick check without CMake: compile the file with
 
 ---
 
+**Port wave integrated (2026-09-11, all three lanes on main).** The browser
+page `portable/build-wasm/legoland.html` links and runs the game's own WinMain
+under ASYNCIFY: version block, mutex, DirectDrawCreate, window, the CD check
+(kernel32.c emulates a CDFS "LEGOLAND" drive at `$LL_CD_DIR`, which the page
+points at the preloaded `/gamedata/volumes`), then `RES_OpenVolume` fails
+because the volume-name table `g_volume_names` points into unnamed `.rdata`
+that `gen_link.py --ilp32` does not re-point (`"D:\.res"`). That is the next
+blocker and is PORT-A2's. Integrator fixes folded into the merge: the two
+`ll_host.h` halves joined (KERNEL32 `Sleep` yields through PORT-B's
+`ll_host_yield` via `ll_host_sleep_hook`, set by the page); message-pump
+signatures aligned with `windows.h`; `RES_LowSeek`/`RES_LowRead` forwarded to
+`SetFilePointer`/`ReadFile`; browser preload flags as `SHELL:` groups (CMake
+de-duplicated the repeated `--preload-file`); `closure_filter.py` matches
+PORT-A's signature-matched stub shape and uses the emcc nm; link-time `-O2`
+(unoptimised ASYNCIFY of `RunAppraisalScreen` exceeds wasm's local limit);
+emcc's `iprintf` family added to the CRT set; `?trace=1` on the page turns on
+the host call trace. Tests under node: `save_framing`, `tile_geometry`,
+`res_archive` pass; `llidb_icm` 46/47 (one FindElement NULL-vs-"" divergence
+for PORT-C to rule on); `loadpos` traps in `ShowWindow` because
+`legoland_tests` does not link `legoland_hostwin`. Build both trees from
+CLEAN directories — a stale object in `CMakeFiles/` (PORT-C's retired
+stopgap) made the generator think the CRT thunks were defined.
+
 ## 1. Where the project stands
 
 Goal: human-written C that, compiled with the VC6 SP3 toolchain the game shipped

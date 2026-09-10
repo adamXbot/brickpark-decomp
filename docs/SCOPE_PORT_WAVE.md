@@ -1,6 +1,6 @@
 # Scope PORT-A / PORT-B / PORT-C — the port wave: first running code (2026-09-11)
 
-> **PORT-A — Status: OPEN, unclaimed**
+> **PORT-A — Status: MERGED (2026-09-11) — wasm32 link closes (gen_link plans globals.c, signature-matched forwarders/stubs), ll_host.h, kernel32.c (56 KERNEL32-family imports real), `legoland_headless` runs the spine to DirectDrawCreate under node; census host 149 -> 95, game-fn 12 -> 0 (CRT thunks forwarded). OPEN follow-up (PORT-A2): pointers to UNNAMED .rdata are not re-pointed under --ilp32, so `g_volume_names` yields "D:\\.res" and the loader fails — the first thing the browser page hits after the CD check. Notes `docs/lanes/scope-port-a.md`**
 > **PORT-B — Status: MERGED (2026-09-11) — DDRAW/USER32/GDI32/DINPUT/WINMM/DSOUND shim complete, 0 traps left in those six DLLs, ASYNCIFY main loop decided; `legoland_shimtest` runs at ~82 fps in the browser; `legoland_browser` itself waits on PORT-A's wasm32 closure. GDI text, AVI, sound, MIDI, printing are documented non-trapping stubs. Notes `docs/lanes/scope-port-b.md`**
 > **PORT-C — Status: MERGED at 5 tests / 193 checks green natively (2026-09-11, d19d3fd7) — res_archive, llidb_icm and loadpos are ILP32-only and run once PORT-A's wasm32 closure links; 8 findings in `docs/lanes/scope-port-c.md` (resfile.py drops alias members; RES_EnsureMounted needs GetVolumeInformationA to report CDFS/LEGOLAND; LEGOLAND.ICM case)**
 > Branches `scope/PORT-A`, `scope/PORT-B`,
