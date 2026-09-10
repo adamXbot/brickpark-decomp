@@ -832,7 +832,27 @@ extern int        IsBuildableClass(ObjDef* def);                         /* 0x00
 extern void       ClearCellForPath(Pos* pos);                            /* 0x004779d0 */
 extern int        WorkOrderBuildObject(void* inst, Pos* pos);            /* 0x0049ab30 */
 extern void       PlayAppropriateBuildEffect(ObjDef* d, Pos* pos);       /* 0x00462d10 */
+#ifndef LEGOLAND_PORTABLE
 extern void       PopUpInfoSetUp(HitInfo key, int x, int y);             /* 0x00471950 */
+#else
+/* The record-by-value spelling is the caller-side copy the original emits
+ * (`sub esp,0xc` plus three stores, not three pushes), and the stack image is
+ * identical to the five scalars fpui2.c's definition reads. On wasm32 a
+ * by-value struct travels as a POINTER to a copy, so the 12-byte record makes
+ * this a 3-parameter function while the definition is 4 parameters, and the
+ * link resolves the call to a trapping stub. Hand over the five dwords the
+ * callee actually reads: type, obj, the ref dword (the packed {u8 x, u8 y}
+ * map cell) and the point. */
+extern void       PopUpInfoSetUp(int type, void* obj, int ref, Pos pos); /* 0x00471950 */
+static void ll_popup_info_setup(const HitInfo* key, int x, int y)
+{
+    Pos p;
+    p.x = x;
+    p.y = y;
+    PopUpInfoSetUp(key->type, key->obj, key->cell.i, p);
+}
+#define PopUpInfoSetUp(_key, _x, _y) ll_popup_info_setup(&(_key), (_x), (_y))
+#endif
 extern int        sub_457970(int x, int y);                              /* 0x00457970  footprint clearance test (group 15) */
 extern void       sub_475f40(void);                                      /* 0x00475f40 */
 extern void       sub_473640(int error);                                 /* 0x00473640 */

@@ -1153,7 +1153,16 @@ extern void  BlokeSetFrame(Bloke* b, int frame);             /* 0x00440870 */
 extern void  BlokeWalkAnim(Bloke* b);                        /* 0x00440910 */
 /* Declared with FIVE int parameters rather than two by-value Pos: identical
  * ABI, and it keeps the caller from building the two aggregates. */
+#ifndef LEGOLAND_PORTABLE
 extern int   CalcMoveLine(int fx, int fy, int tx, int ty, void* path); /* 0x00480740 */
+#else
+/* Identical ABI on x86 only: on wasm32 a by-value struct travels as a pointer
+ * to a copy, so the flattened declaration is a different function type from
+ * bnvmove.c's definition and the link traps. Every call here already goes
+ * through the scope-local `MoveLineFn` cast to the by-value shape, so the
+ * definition's prototype makes those casts identities. */
+extern int   CalcMoveLine(Pos from, Pos to, void* path);              /* 0x00480740 */
+#endif
 extern int   NewDirForAction(Bloke* b, unsigned char dir);   /* 0x004833d0 */
 extern void  RemoveBlokeFromRide(ObjDef* cls, RideInst* r);  /* 0x0048a100 */
 extern void* PlayInstanceOfSample(void* s, int a, int b, BlokeSoundSource* q); /* 0x00496d20 */

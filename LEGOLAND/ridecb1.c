@@ -369,7 +369,25 @@ extern RestRec* Restaurant1_FindRec(MapSquare* sq);                  /* 0x0042ef
 /* Aim a customer at waypoint `phase` of its seat: a table of 6-dword entries
  * at 0x004b66f4 indexed (seat * 5 + phase), giving a tile delta, a sub-tile
  * offset, a "turn to face" flag and the occlusion band to take. */
+#ifndef LEGOLAND_PORTABLE
 extern void Restaurant1_WalkToSeatSpot(Bloke*, int, int, int);        /* 0x0042f0f0 */
+#else
+/* ridemisc2.c defines the middle argument as a by-value `Pos` tile. The two
+ * flattened ints above push the same dwords on x86, but on wasm32 a by-value
+ * struct is passed as a POINTER to a copy, so the two prototypes are different
+ * function types and the link resolves the five calls below to a trapping
+ * stub. Build the tile at the call. */
+extern void Restaurant1_WalkToSeatSpot(Bloke* b, Pos tile, int phase); /* 0x0042f0f0 */
+static void ll_rest1_walk_to_seat_xy(Bloke* b, int x, int y, int phase)
+{
+    Pos tile;
+    tile.x = x;
+    tile.y = y;
+    Restaurant1_WalkToSeatSpot(b, tile, phase);
+}
+#define Restaurant1_WalkToSeatSpot(_b, _x, _y, _p) \
+    ll_rest1_walk_to_seat_xy((_b), (_x), (_y), (_p))
+#endif
 
 /* ---- RESTAURANT 1 globals (all filled by its cb_a4, 0x0042f030) --------- */
 extern RenderObj* g_rest1_layers;      /* 0x0081cd2c  obj->[0x64] layer holder */

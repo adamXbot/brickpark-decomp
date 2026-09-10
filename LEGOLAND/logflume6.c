@@ -726,7 +726,17 @@ extern void AdjustBlokePosition(Pos* p);                         /* 0x00442d60 *
  * `SetPersonPosition(p, int x, int y)`.  This caller needs the POINT BY
  * VALUE -- see the note below; the ABI is identical (two pushes either way)
  * and the two spellings schedule differently.  Do not "align" it. */
+#ifndef LEGOLAND_PORTABLE
 extern void SetPersonPosition(Person3D* p, Pos pos);             /* 0x00440190 */
+#else
+/* The by-value spelling is an x86 scheduling lever: two pushes either way.
+ * On wasm32 a by-value struct is passed as a POINTER to a copy, so this is a
+ * different function type from sweep1.c's `(Person*, int, int)` definition
+ * and the link resolves the one call below to a trapping stub. Unpack the
+ * point at the call; the bits the callee stores are the same two dwords. */
+extern void SetPersonPosition(Person3D* p, int x, int y);         /* 0x00440190 */
+#define SetPersonPosition(_p, _pos) SetPersonPosition((_p), (_pos).x, (_pos).y)
+#endif
 extern void SetPersonDirection(Person3D* p, int dir);            /* 0x004400b0 */
 extern void IP_RenderBlokeIn3DNow(Bloke* b);                     /* 0x00440010 */
 extern void LLSSetFrame(LLS* lls, int frame);                    /* 0x0047d5a0 */
