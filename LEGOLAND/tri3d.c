@@ -321,6 +321,34 @@ void InitRasterZBuffer(void);                                      /* 0x00485f60
 int  BuildRecipTable(void);                                        /* 0x00486540 */
 extern void ZBufferHelper(char* lls, WinRect* src, Pos* dst, void* zbuf); /* 0x00464a90 */
 
+#ifdef LEGOLAND_PORTABLE
+/* The texture descriptor AS THE TWO TEXTURED RASTERISERS READ IT.  Only the
+ * portable arms need a named type for it; the asm addresses the fields by
+ * offset off g_texture, and the matching build must not see a new declaration.
+ *
+ * FINDING (scope PORT-B5): the texel address is
+ *     texels[((v >> 16) << ushift) + (u >> 16)]
+ * -- v scaled by the ROW shift at +0x00 and u the fast axis -- in both
+ * `DrawFlatTexTri` (`movzx edx, word ptr [ebp-0x26]` is the V accumulator's
+ * high word, and it is what `shl edx, cl` shifts) and `DrawGouraudTexTri`.
+ * The TEXTURE ADDRESSING paragraph at the top of this file has u and v the
+ * other way round; unref7.c's `SampleTexturePixel` (0x00488730) settles it the
+ * same way the asm here does, `(cv << shift) + cu`.  The C below follows the
+ * asm; the header paragraph is the thing that is wrong.
+ *
+ * Note also that +0x10/+0x14 are live for DrawGouraudTexTri only -- it masks
+ * both halves and therefore tiles, while DrawFlatTexTri does not mask at all
+ * and will read outside the texture if a coordinate leaves [0,1). */
+typedef struct LLTexDesc {
+    int             ushift;   /* +0x00  log2 of the u extent = the row shift */
+    int             vshift;   /* +0x04  log2 of the v extent */
+    unsigned char*  texels;   /* +0x08  one byte per texel */
+    Shade**         ramps;    /* +0x0c  a 64-level ramp per texel VALUE */
+    int             umask;    /* +0x10  DrawGouraudTexTri only */
+    int             vmask;    /* +0x14  DrawGouraudTexTri only */
+} LLTexDesc;
+#endif
+
 /* ---- functions ---------------------------------------------------------- */
 
 /* 0x00485fc0 -- (re)initialise the software renderer for a pixel format.
@@ -1189,7 +1217,226 @@ void DrawFlatTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    {
+    /* 0x004877b0 in C.  The frame slots of the header's map become locals with
+     * the same names; the labels are the asm's own, so the two read side by
+     * side.  Arithmetic that is load-bearing:
+     *   `imul ecx / shrd eax,edx,0x10`  -> LL_FMUL16: a SIGNED 32x32->64
+     *       product shifted right 16, i.e. a 16.16 multiply;
+     *   `mul ecx`                       -> an UNSIGNED 32x32 product of which
+     *       only the low 32 bits are kept, so a negative per-scanline delta
+     *       times a positive count still lands right;
+     *   `shr ecx,0x10`                  -> a LOGICAL shift of the span width,
+     *   `sar edi,0x10`                  -> an ARITHMETIC shift of an edge x.
+     * The Z test is `cmp / jb`, so a pixel is drawn on UNSIGNED >= and equal
+     * keys overwrite. */
+    Shade*                ramp = g_flat_colour;
+    const unsigned short* tab  = ramp->table;
+    Vertex2D*             va;
+    Vertex2D*             vb;
+    Vertex2D*             vc;
+    Vertex2D*             t;
+    int                   flat;
+    int                   y0, y1, y2, y, yend;
+    int                   x1, x2, z1, z2;
+    int                   recipA, recipB;
+    int                   dxA, dxB, dzA, dzB;
+    int                   xA, xB, zA, zB;
+    char*                 rowbase;                  /* [ebp-0x0c] */
+    char*                 row;                      /* [ebp-0x4c] */
+    int                   n, m, lo, hi, xpos;
+    int                   dzdx, spanrecip, zspan;
+    unsigned short*       px;
+    unsigned short*       endpx;
+    int*                  zp;
+
+    /* `shl dword ptr [edx+0x14], 6` writes the shifted shade back into the
+     * CALLER's vertex a, BEFORE the sort.  Only this filler does that. */
+    a->shade <<= 6;
+    flat = tab[(unsigned short)((unsigned int)a->shade >> 16)];
+
+    /* The three compare-and-`xchg` steps sort the ARGUMENT SLOTS, not the
+     * caller's records. */
+    va = a; vb = b; vc = c;
+    if (va->y > vb->y) { t = va; va = vb; vb = t; }
+    if (vb->y > vc->y) { t = vb; vb = vc; vc = t; }
+    if (va->y > vb->y) { t = va; va = vb; vb = t; }
+
+    y2 = vc->y >> 16;
+    y0 = va->y >> 16;
+    y1 = vb->y >> 16;
+    rowbase = g_surface + g_pitch * y0;
+    x1 = vb->x;
+    x2 = vc->x;
+    z1 = vb->z;
+    z2 = vc->z;
+    y = y0;
+    if (y0 == y1)
+        goto flat_L13;
+
+    /* ---- the upper half: edge A = a->b, edge B = a->c ------------------- */
+    recipA = g_recip[y1 - y0];
+    recipB = g_recip[y2 - y0];
+    dxA = LL_FMUL16(x1 - va->x, recipA);
+    dxB = LL_FMUL16(x2 - va->x, recipB);
+    dzA = LL_FMUL16(z1 - va->z, recipA);
+    dzB = LL_FMUL16(z2 - va->z, recipB);
+    xA = va->x;
+    xB = va->x;
+    zA = va->z;
+    zB = va->z;
+    yend = y1;
+
+    n = g_clip_y0 - y;                               /* the vertical clip   */
+    if (n > 0) {
+        m = yend - y;
+        if (m > 0) {
+            if (n >= m) n = m;
+            y += n;
+            xA += (int)((unsigned int)dxA * (unsigned int)n);
+            xB += (int)((unsigned int)dxB * (unsigned int)n);
+            zA += (int)((unsigned int)dzA * (unsigned int)n);
+            zB += (int)((unsigned int)dzB * (unsigned int)n);
+            rowbase += (int)((unsigned int)g_pitch * (unsigned int)n);
+        }
+    }
+    if (y >= yend)
+        goto flat_L12;
+
+    while (y <= g_clip_y1) {                         /* L5                  */
+        row = rowbase;
+        rowbase += g_pitch;
+        if (xA > xB) {                               /* edge A is the right */
+            spanrecip = g_recip[((unsigned int)(xA - xB) >> 16) + 1];
+            zspan = zB;
+            dzdx = LL_FMUL16(zA - zB, spanrecip);
+            lo = xB >> 16;
+            hi = xA >> 16;
+        } else {                                     /* L6                  */
+            spanrecip = g_recip[((unsigned int)(xB - xA) >> 16) + 1];
+            zspan = zA;
+            dzdx = LL_FMUL16(zB - zA, spanrecip);
+            lo = xA >> 16;
+            hi = xB >> 16;
+        }
+        xpos = lo;
+        n = lo - g_clip_x0;
+        if (n < 0) {                                 /* the left clip       */
+            xpos = g_clip_x0;
+            zspan += (int)((unsigned int)dzdx * (unsigned int)(-n));
+        }
+        px = (unsigned short*)(row + xpos * 2);
+        endpx = (unsigned short*)(row + g_clip_x1 * 2);
+        while (xpos < hi && px <= endpx) {           /* L9                  */
+            zp = (int*)((char*)g_zbuf + (y << 9) + xpos * 4);
+            if ((unsigned int)zspan >= (unsigned int)*zp) {
+                *zp = zspan;
+                *(unsigned char*)&g_raster_hit |=
+                    (unsigned char)((char*)px == g_mouse_pixel);
+                *px = (unsigned short)flat;
+            }
+            xpos++;
+            zspan += dzdx;
+            px++;
+        }
+        xA += dxA;
+        xB += dxB;
+        zA += dzA;
+        zB += dzB;
+        y++;
+        if (y >= yend)
+            break;
+    }
+
+flat_L12:
+    /* Edge A is re-aimed at b->c; its accumulators are NOT reloaded -- they
+     * arrive at vertex b carrying whatever error the stepping built up. */
+    recipA = g_recip[y2 - y1];
+    dxA = LL_FMUL16(x2 - x1, recipA);
+    dzA = LL_FMUL16(z2 - z1, recipA);
+    goto flat_L14;
+
+flat_L13:
+    /* The flat top: edge A = a->c, edge B = b->c. */
+    recipB = g_recip[y2 - y0];
+    recipA = g_recip[y2 - y1];
+    dxA = LL_FMUL16(x2 - va->x, recipB);
+    dxB = LL_FMUL16(x2 - x1, recipA);
+    dzA = LL_FMUL16(z2 - va->z, recipB);
+    dzB = LL_FMUL16(z2 - z1, recipA);
+    xA = va->x;
+    xB = x1;
+    zA = va->z;
+    zB = z1;
+
+flat_L14:
+    if (y > g_clip_y1)
+        return;
+    yend = y2;
+    if (y >= yend)
+        return;
+    n = g_clip_y0 - y;
+    if (n > 0) {
+        m = yend - y;
+        if (m > 0) {
+            if (n >= m) n = m;
+            y += n;
+            xA += (int)((unsigned int)dxA * (unsigned int)n);
+            xB += (int)((unsigned int)dxB * (unsigned int)n);
+            zA += (int)((unsigned int)dzA * (unsigned int)n);
+            zB += (int)((unsigned int)dzB * (unsigned int)n);
+            rowbase += (int)((unsigned int)g_pitch * (unsigned int)n);
+        }
+    }
+    if (y >= yend)
+        return;
+
+    while (y <= g_clip_y1) {                         /* L17                 */
+        row = rowbase;
+        rowbase += g_pitch;
+        if (xA > xB) {
+            spanrecip = g_recip[((unsigned int)(xA - xB) >> 16) + 1];
+            zspan = zB;
+            dzdx = LL_FMUL16(zA - zB, spanrecip);
+            lo = xB >> 16;
+            hi = xA >> 16;
+        } else {                                     /* L18                 */
+            spanrecip = g_recip[((unsigned int)(xB - xA) >> 16) + 1];
+            zspan = zA;
+            dzdx = LL_FMUL16(zB - zA, spanrecip);
+            lo = xA >> 16;
+            hi = xB >> 16;
+        }
+        xpos = lo;
+        n = lo - g_clip_x0;
+        if (n < 0) {
+            xpos = g_clip_x0;
+            zspan += (int)((unsigned int)dzdx * (unsigned int)(-n));
+        }
+        px = (unsigned short*)(row + xpos * 2);
+        endpx = (unsigned short*)(row + g_clip_x1 * 2);
+        while (xpos < hi && px <= endpx) {           /* L21                 */
+            zp = (int*)((char*)g_zbuf + (y << 9) + xpos * 4);
+            if ((unsigned int)zspan >= (unsigned int)*zp) {
+                *zp = zspan;
+                *(unsigned char*)&g_raster_hit |=
+                    (unsigned char)((char*)px == g_mouse_pixel);
+                *px = (unsigned short)flat;
+            }
+            xpos++;
+            zspan += dzdx;
+            px++;
+        }
+        xA += dxA;
+        xB += dxB;
+        zA += dzA;
+        zB += dzB;
+        y++;
+        if (y >= yend)
+            break;
+    }
+    (void)vb;
+    }
 #endif
 }
 
@@ -1830,7 +2077,249 @@ void DrawGouraudTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    {
+    /* 0x00486590 in C: DrawFlatTri's skeleton with the shade carried down both
+     * edges and across the span exactly like z.  Differences from the flat
+     * filler, all in the asm:
+     *   - the three shades are COPIED OUT and shifted in the frame slots
+     *     (`shl dword ptr [ebp-0x14], 6`), so the caller's vertices survive;
+     *     DrawFlatTri shifts vertex a in place.
+     *   - the ramp is re-read from g_flat_colour at EVERY pixel and indexed
+     *     with `movzx edx, word ptr [ebp-0x22]`, the high word of the span
+     *     shade accumulator -- no clamp, so a shade of 1.0 indexes entry 64
+     *     of a 64-level ramp.
+     *   - the left clip advances the shade accumulator as well as z. */
+    Vertex2D*             va;
+    Vertex2D*             vb;
+    Vertex2D*             vc;
+    Vertex2D*             t;
+    int                   y0, y1, y2, y, yend;
+    int                   x1, x2, z0, z1, z2, s0, s1, s2;
+    int                   recipA, recipB;
+    int                   dxA, dxB, dzA, dzB, dsA, dsB;
+    int                   xA, xB, zA, zB, sA, sB;
+    char*                 rowbase;                  /* [ebp-0x18] */
+    char*                 row;                      /* [ebp-0x6c] */
+    int                   n, m, lo, hi, xpos;
+    int                   dzdx, dsdx, spanrecip, zspan, sspan;
+    unsigned short*       px;
+    unsigned short*       endpx;
+    int*                  zp;
+    const unsigned short* tab;
+
+    va = a; vb = b; vc = c;
+    if (va->y > vb->y) { t = va; va = vb; vb = t; }
+    if (vb->y > vc->y) { t = vb; vb = vc; vc = t; }
+    if (va->y > vb->y) { t = va; va = vb; vb = t; }
+
+    y2 = vc->y >> 16;
+    y0 = va->y >> 16;
+    y1 = vb->y >> 16;
+    rowbase = g_surface + g_pitch * y0;
+    x1 = vb->x;
+    x2 = vc->x;
+    z0 = va->z;
+    z1 = vb->z;
+    z2 = vc->z;
+    s0 = va->shade << 6;
+    s1 = vb->shade << 6;
+    s2 = vc->shade << 6;
+    y = y0;
+    if (y0 == y1)
+        goto gt_L13;
+
+    /* ---- the upper half: edge A = a->b, edge B = a->c ------------------- */
+    recipA = g_recip[y1 - y0];
+    recipB = g_recip[y2 - y0];
+    dxA = LL_FMUL16(x1 - va->x, recipA);
+    dxB = LL_FMUL16(x2 - va->x, recipB);
+    dsA = LL_FMUL16(s1 - s0, recipA);
+    dsB = LL_FMUL16(s2 - s0, recipB);
+    dzA = LL_FMUL16(z1 - z0, recipA);
+    dzB = LL_FMUL16(z2 - z0, recipB);
+    xA = va->x;
+    xB = va->x;
+    sA = s0;
+    sB = s0;
+    zA = z0;
+    zB = z0;
+    yend = y1;
+
+    n = g_clip_y0 - y;
+    if (n > 0) {
+        m = yend - y;
+        if (m > 0) {
+            if (n >= m) n = m;
+            y += n;
+            xA += (int)((unsigned int)dxA * (unsigned int)n);
+            xB += (int)((unsigned int)dxB * (unsigned int)n);
+            sA += (int)((unsigned int)dsA * (unsigned int)n);
+            sB += (int)((unsigned int)dsB * (unsigned int)n);
+            zA += (int)((unsigned int)dzA * (unsigned int)n);
+            zB += (int)((unsigned int)dzB * (unsigned int)n);
+            rowbase += (int)((unsigned int)g_pitch * (unsigned int)n);
+        }
+    }
+    if (y >= yend)
+        goto gt_L12;
+
+    while (y <= g_clip_y1) {                         /* L5                  */
+        row = rowbase;
+        rowbase += g_pitch;
+        if (xA > xB) {
+            spanrecip = g_recip[((unsigned int)(xA - xB) >> 16) + 1];
+            sspan = sB;
+            dsdx = LL_FMUL16(sA - sB, spanrecip);
+            zspan = zB;
+            dzdx = LL_FMUL16(zA - zB, spanrecip);
+            lo = xB >> 16;
+            hi = xA >> 16;
+        } else {                                     /* L6                  */
+            spanrecip = g_recip[((unsigned int)(xB - xA) >> 16) + 1];
+            sspan = sA;
+            dsdx = LL_FMUL16(sB - sA, spanrecip);
+            zspan = zA;
+            dzdx = LL_FMUL16(zB - zA, spanrecip);
+            lo = xA >> 16;
+            hi = xB >> 16;
+        }
+        xpos = lo;
+        n = lo - g_clip_x0;
+        if (n < 0) {
+            xpos = g_clip_x0;
+            sspan += (int)((unsigned int)dsdx * (unsigned int)(-n));
+            zspan += (int)((unsigned int)dzdx * (unsigned int)(-n));
+        }
+        px = (unsigned short*)(row + xpos * 2);
+        endpx = (unsigned short*)(row + g_clip_x1 * 2);
+        while (xpos < hi && px <= endpx) {           /* L9                  */
+            zp = (int*)((char*)g_zbuf + (y << 9) + xpos * 4);
+            if ((unsigned int)zspan >= (unsigned int)*zp) {
+                *zp = zspan;
+                tab = g_flat_colour->table;
+                *(unsigned char*)&g_raster_hit |=
+                    (unsigned char)((char*)px == g_mouse_pixel);
+                *px = tab[(unsigned short)((unsigned int)sspan >> 16)];
+            }
+            xpos++;
+            sspan += dsdx;
+            zspan += dzdx;
+            px++;
+        }
+        xA += dxA;
+        xB += dxB;
+        sA += dsA;
+        sB += dsB;
+        zA += dzA;
+        zB += dzB;
+        y++;
+        if (y >= yend)
+            break;
+    }
+
+gt_L12:
+    /* Edge A re-aimed at b->c; its accumulators are NOT reloaded. */
+    recipA = g_recip[y2 - y1];
+    dxA = LL_FMUL16(x2 - x1, recipA);
+    dsA = LL_FMUL16(s2 - s1, recipA);
+    dzA = LL_FMUL16(z2 - z1, recipA);
+    goto gt_L14;
+
+gt_L13:
+    /* The flat top: edge A = a->c, edge B = b->c. */
+    recipB = g_recip[y2 - y0];
+    recipA = g_recip[y2 - y1];
+    dxA = LL_FMUL16(x2 - va->x, recipB);
+    dxB = LL_FMUL16(x2 - x1, recipA);
+    dsA = LL_FMUL16(s2 - s0, recipB);
+    dsB = LL_FMUL16(s2 - s1, recipA);
+    dzA = LL_FMUL16(z2 - z0, recipB);
+    dzB = LL_FMUL16(z2 - z1, recipA);
+    xA = va->x;
+    xB = x1;
+    sA = s0;
+    sB = s1;
+    zA = z0;
+    zB = z1;
+
+gt_L14:
+    if (y > g_clip_y1)
+        return;
+    yend = y2;
+    if (y >= yend)
+        return;
+    n = g_clip_y0 - y;
+    if (n > 0) {
+        m = yend - y;
+        if (m > 0) {
+            if (n >= m) n = m;
+            y += n;
+            xA += (int)((unsigned int)dxA * (unsigned int)n);
+            xB += (int)((unsigned int)dxB * (unsigned int)n);
+            sA += (int)((unsigned int)dsA * (unsigned int)n);
+            sB += (int)((unsigned int)dsB * (unsigned int)n);
+            zA += (int)((unsigned int)dzA * (unsigned int)n);
+            zB += (int)((unsigned int)dzB * (unsigned int)n);
+            rowbase += (int)((unsigned int)g_pitch * (unsigned int)n);
+        }
+    }
+    if (y >= yend)
+        return;
+
+    while (y <= g_clip_y1) {                         /* L17                 */
+        row = rowbase;
+        rowbase += g_pitch;
+        if (xA > xB) {
+            spanrecip = g_recip[((unsigned int)(xA - xB) >> 16) + 1];
+            sspan = sB;
+            dsdx = LL_FMUL16(sA - sB, spanrecip);
+            zspan = zB;
+            dzdx = LL_FMUL16(zA - zB, spanrecip);
+            lo = xB >> 16;
+            hi = xA >> 16;
+        } else {                                     /* L18                 */
+            spanrecip = g_recip[((unsigned int)(xB - xA) >> 16) + 1];
+            sspan = sA;
+            dsdx = LL_FMUL16(sB - sA, spanrecip);
+            zspan = zA;
+            dzdx = LL_FMUL16(zB - zA, spanrecip);
+            lo = xA >> 16;
+            hi = xB >> 16;
+        }
+        xpos = lo;
+        n = lo - g_clip_x0;
+        if (n < 0) {
+            xpos = g_clip_x0;
+            sspan += (int)((unsigned int)dsdx * (unsigned int)(-n));
+            zspan += (int)((unsigned int)dzdx * (unsigned int)(-n));
+        }
+        px = (unsigned short*)(row + xpos * 2);
+        endpx = (unsigned short*)(row + g_clip_x1 * 2);
+        while (xpos < hi && px <= endpx) {           /* L21                 */
+            zp = (int*)((char*)g_zbuf + (y << 9) + xpos * 4);
+            if ((unsigned int)zspan >= (unsigned int)*zp) {
+                *zp = zspan;
+                tab = g_flat_colour->table;
+                *(unsigned char*)&g_raster_hit |=
+                    (unsigned char)((char*)px == g_mouse_pixel);
+                *px = tab[(unsigned short)((unsigned int)sspan >> 16)];
+            }
+            xpos++;
+            sspan += dsdx;
+            zspan += dzdx;
+            px++;
+        }
+        xA += dxA;
+        xB += dxB;
+        sA += dsA;
+        sB += dsB;
+        zA += dzA;
+        zB += dzB;
+        y++;
+        if (y >= yend)
+            break;
+    }
+    }
 #endif
 }
 
@@ -2646,7 +3135,283 @@ void DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    {
+    /* 0x00487d40 in C: the Gouraud skeleton with u and v carried instead of
+     * the shade, and ONE shade level for the whole triangle -- vertex a's,
+     * `shl eax,6` into a frame slot, so the caller's vertex survives (only
+     * DrawFlatTri writes its shade back).
+     *
+     * The u/v conversion is the asm's, once per vertex at entry:
+     *     fld [v+0xc] / fmul 65536.0f / fistp   then   (& 0xffff) << shift
+     * -- a ROUND-TO-NEAREST `fistp`, then the integer part dropped (so u == 1.0
+     * wraps to 0) and the normalised coordinate turned into a 16.16 TEXEL
+     * coordinate.  Vertex2D declares u/v as `int`, and the asm loads them as
+     * floats, hence LL_ASFLT.
+     *
+     * Per pixel the texel address is texels[((v>>16) << ushift) + (u>>16)]
+     * with NO masking -- see the LLTexDesc comment above for the finding about
+     * the header's transposed formula -- and the pixel is
+     * ramps[texel]->table[(unsigned short)(flat_shade >> 16)]. */
+    Vertex2D*             va;
+    Vertex2D*             vb;
+    Vertex2D*             vc;
+    Vertex2D*             t;
+    int                   shade;
+    int                   y0, y1, y2, y, yend;
+    int                   x0, x1, x2, z0, z1, z2;
+    int                   u0, u1, u2, v0, v1, v2;
+    int                   recipA, recipB;
+    int                   dxA, dxB, dzA, dzB, duA, duB, dvA, dvB;
+    int                   xA, xB, zA, zB, uA, uB, vA, vB;
+    char*                 rowbase;                  /* [ebp-0x34] */
+    char*                 row;                      /* [ebp-0x8c] */
+    int                   n, m, lo, hi, xpos;
+    int                   dzdx, dudx, dvdx, spanrecip, zspan, uspan, vspan;
+    unsigned short*       px;
+    unsigned short*       endpx;
+    int*                  zp;
+    LLTexDesc*            tex;
+
+    /* vertex a's shade, taken BEFORE the sort, shifted into a local. */
+    shade = a->shade << 6;
+
+    va = a; vb = b; vc = c;
+    if (va->y > vb->y) { t = va; va = vb; vb = t; }
+    if (vb->y > vc->y) { t = vb; vb = vc; vc = t; }
+    if (va->y > vb->y) { t = va; va = vb; vb = t; }
+
+    y2 = vc->y >> 16;
+    y0 = va->y >> 16;
+    y1 = vb->y >> 16;
+    rowbase = g_surface + g_pitch * y0;
+    x0 = va->x;
+    x1 = vb->x;
+    x2 = vc->x;
+    z0 = va->z;
+    z1 = vb->z;
+    z2 = vc->z;
+
+    u0 = LL_FISTP(LL_ASFLT(va->u) * 65536.0f);
+    u1 = LL_FISTP(LL_ASFLT(vb->u) * 65536.0f);
+    u2 = LL_FISTP(LL_ASFLT(vc->u) * 65536.0f);
+    v0 = LL_FISTP(LL_ASFLT(va->v) * 65536.0f);
+    v1 = LL_FISTP(LL_ASFLT(vb->v) * 65536.0f);
+    v2 = LL_FISTP(LL_ASFLT(vc->v) * 65536.0f);
+    tex = (LLTexDesc*)g_texture;
+    u0 = (u0 & 0xffff) << tex->ushift;
+    v0 = (v0 & 0xffff) << tex->vshift;
+    u1 = (u1 & 0xffff) << tex->ushift;
+    v1 = (v1 & 0xffff) << tex->vshift;
+    u2 = (u2 & 0xffff) << tex->ushift;
+    v2 = (v2 & 0xffff) << tex->vshift;
+
+    y = y0;
+    if (y0 == y1)
+        goto ft_L13;
+
+    /* ---- the upper half: edge A = a->b, edge B = a->c ------------------- */
+    recipA = g_recip[y1 - y0];
+    recipB = g_recip[y2 - y0];
+    dxA = LL_FMUL16(x1 - x0, recipA);
+    dxB = LL_FMUL16(x2 - x0, recipB);
+    duA = LL_FMUL16(u1 - u0, recipA);
+    duB = LL_FMUL16(u2 - u0, recipB);
+    dvA = LL_FMUL16(v1 - v0, recipA);
+    dvB = LL_FMUL16(v2 - v0, recipB);
+    dzA = LL_FMUL16(z1 - z0, recipA);
+    dzB = LL_FMUL16(z2 - z0, recipB);
+    xA = x0; xB = x0;
+    uA = u0; uB = u0;
+    vA = v0; vB = v0;
+    zA = z0; zB = z0;
+    yend = y1;
+
+    n = g_clip_y0 - y;
+    if (n > 0) {
+        m = yend - y;
+        if (m > 0) {
+            if (n >= m) n = m;
+            y += n;
+            xA += (int)((unsigned int)dxA * (unsigned int)n);
+            xB += (int)((unsigned int)dxB * (unsigned int)n);
+            uA += (int)((unsigned int)duA * (unsigned int)n);
+            uB += (int)((unsigned int)duB * (unsigned int)n);
+            vA += (int)((unsigned int)dvA * (unsigned int)n);
+            vB += (int)((unsigned int)dvB * (unsigned int)n);
+            zA += (int)((unsigned int)dzA * (unsigned int)n);
+            zB += (int)((unsigned int)dzB * (unsigned int)n);
+            rowbase += (int)((unsigned int)g_pitch * (unsigned int)n);
+        }
+    }
+    if (y >= yend)
+        goto ft_L12;
+
+    while (y <= g_clip_y1) {                         /* L5                  */
+        row = rowbase;
+        rowbase += g_pitch;
+        if (xA > xB) {
+            spanrecip = g_recip[((unsigned int)(xA - xB) >> 16) + 1];
+            uspan = uB; dudx = LL_FMUL16(uA - uB, spanrecip);
+            vspan = vB; dvdx = LL_FMUL16(vA - vB, spanrecip);
+            zspan = zB; dzdx = LL_FMUL16(zA - zB, spanrecip);
+            lo = xB >> 16;
+            hi = xA >> 16;
+        } else {                                     /* L6                  */
+            spanrecip = g_recip[((unsigned int)(xB - xA) >> 16) + 1];
+            uspan = uA; dudx = LL_FMUL16(uB - uA, spanrecip);
+            vspan = vA; dvdx = LL_FMUL16(vB - vA, spanrecip);
+            zspan = zA; dzdx = LL_FMUL16(zB - zA, spanrecip);
+            lo = xA >> 16;
+            hi = xB >> 16;
+        }
+        xpos = lo;
+        n = lo - g_clip_x0;
+        if (n < 0) {
+            xpos = g_clip_x0;
+            uspan += (int)((unsigned int)dudx * (unsigned int)(-n));
+            vspan += (int)((unsigned int)dvdx * (unsigned int)(-n));
+            zspan += (int)((unsigned int)dzdx * (unsigned int)(-n));
+        }
+        px = (unsigned short*)(row + xpos * 2);
+        endpx = (unsigned short*)(row + g_clip_x1 * 2);
+        while (xpos < hi && px <= endpx) {           /* L9                  */
+            zp = (int*)((char*)g_zbuf + (y << 9) + xpos * 4);
+            if ((unsigned int)zspan >= (unsigned int)*zp) {
+                unsigned char* tp;
+                *zp = zspan;
+                tex = (LLTexDesc*)g_texture;
+                tp = tex->texels
+                   + (((unsigned int)vspan >> 16) << tex->ushift)
+                   + ((unsigned int)uspan >> 16);
+                *(unsigned char*)&g_raster_hit |=
+                    (unsigned char)((char*)px == g_mouse_pixel);
+                *px = tex->ramps[*tp]->table[
+                          (unsigned short)((unsigned int)shade >> 16)];
+            }
+            xpos++;
+            uspan += dudx;
+            vspan += dvdx;
+            zspan += dzdx;
+            px++;
+        }
+        xA += dxA; xB += dxB;
+        uA += duA; uB += duB;
+        vA += dvA; vB += dvB;
+        zA += dzA; zB += dzB;
+        y++;
+        if (y >= yend)
+            break;
+    }
+
+ft_L12:
+    /* Edge A re-aimed at b->c; its accumulators are NOT reloaded. */
+    recipA = g_recip[y2 - y1];
+    dxA = LL_FMUL16(x2 - x1, recipA);
+    duA = LL_FMUL16(u2 - u1, recipA);
+    dvA = LL_FMUL16(v2 - v1, recipA);
+    dzA = LL_FMUL16(z2 - z1, recipA);
+    goto ft_L14;
+
+ft_L13:
+    /* The flat top: edge A = a->c, edge B = b->c. */
+    recipB = g_recip[y2 - y0];
+    recipA = g_recip[y2 - y1];
+    dxA = LL_FMUL16(x2 - x0, recipB);
+    dxB = LL_FMUL16(x2 - x1, recipA);
+    duA = LL_FMUL16(u2 - u0, recipB);
+    duB = LL_FMUL16(u2 - u1, recipA);
+    dvA = LL_FMUL16(v2 - v0, recipB);
+    dvB = LL_FMUL16(v2 - v1, recipA);
+    dzA = LL_FMUL16(z2 - z0, recipB);
+    dzB = LL_FMUL16(z2 - z1, recipA);
+    xA = x0; xB = x1;
+    uA = u0; uB = u1;
+    vA = v0; vB = v1;
+    zA = z0; zB = z1;
+
+ft_L14:
+    if (y > g_clip_y1)
+        return;
+    yend = y2;
+    if (y >= yend)
+        return;
+    n = g_clip_y0 - y;
+    if (n > 0) {
+        m = yend - y;
+        if (m > 0) {
+            if (n >= m) n = m;
+            y += n;
+            xA += (int)((unsigned int)dxA * (unsigned int)n);
+            xB += (int)((unsigned int)dxB * (unsigned int)n);
+            uA += (int)((unsigned int)duA * (unsigned int)n);
+            uB += (int)((unsigned int)duB * (unsigned int)n);
+            vA += (int)((unsigned int)dvA * (unsigned int)n);
+            vB += (int)((unsigned int)dvB * (unsigned int)n);
+            zA += (int)((unsigned int)dzA * (unsigned int)n);
+            zB += (int)((unsigned int)dzB * (unsigned int)n);
+            rowbase += (int)((unsigned int)g_pitch * (unsigned int)n);
+        }
+    }
+    if (y >= yend)
+        return;
+
+    while (y <= g_clip_y1) {                         /* L17                 */
+        row = rowbase;
+        rowbase += g_pitch;
+        if (xA > xB) {
+            spanrecip = g_recip[((unsigned int)(xA - xB) >> 16) + 1];
+            uspan = uB; dudx = LL_FMUL16(uA - uB, spanrecip);
+            vspan = vB; dvdx = LL_FMUL16(vA - vB, spanrecip);
+            zspan = zB; dzdx = LL_FMUL16(zA - zB, spanrecip);
+            lo = xB >> 16;
+            hi = xA >> 16;
+        } else {                                     /* L18                 */
+            spanrecip = g_recip[((unsigned int)(xB - xA) >> 16) + 1];
+            uspan = uA; dudx = LL_FMUL16(uB - uA, spanrecip);
+            vspan = vA; dvdx = LL_FMUL16(vB - vA, spanrecip);
+            zspan = zA; dzdx = LL_FMUL16(zB - zA, spanrecip);
+            lo = xA >> 16;
+            hi = xB >> 16;
+        }
+        xpos = lo;
+        n = lo - g_clip_x0;
+        if (n < 0) {
+            xpos = g_clip_x0;
+            uspan += (int)((unsigned int)dudx * (unsigned int)(-n));
+            vspan += (int)((unsigned int)dvdx * (unsigned int)(-n));
+            zspan += (int)((unsigned int)dzdx * (unsigned int)(-n));
+        }
+        px = (unsigned short*)(row + xpos * 2);
+        endpx = (unsigned short*)(row + g_clip_x1 * 2);
+        while (xpos < hi && px <= endpx) {           /* L21                 */
+            zp = (int*)((char*)g_zbuf + (y << 9) + xpos * 4);
+            if ((unsigned int)zspan >= (unsigned int)*zp) {
+                unsigned char* tp;
+                *zp = zspan;
+                tex = (LLTexDesc*)g_texture;
+                tp = tex->texels
+                   + (((unsigned int)vspan >> 16) << tex->ushift)
+                   + ((unsigned int)uspan >> 16);
+                *(unsigned char*)&g_raster_hit |=
+                    (unsigned char)((char*)px == g_mouse_pixel);
+                *px = tex->ramps[*tp]->table[
+                          (unsigned short)((unsigned int)shade >> 16)];
+            }
+            xpos++;
+            uspan += dudx;
+            vspan += dvdx;
+            zspan += dzdx;
+            px++;
+        }
+        xA += dxA; xB += dxB;
+        uA += duA; uB += duB;
+        vA += dvA; vB += dvB;
+        zA += dzA; zB += dzB;
+        y++;
+        if (y >= yend)
+            break;
+    }
+    }
 #endif
 }
 
@@ -3580,7 +4345,313 @@ void DrawGouraudTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    {
+    /* 0x00486c70 in C: the widest of the four -- x, u, v, shade and z down both
+     * edges and across every span, four interpolants in the left clip and four
+     * per-pixel steps.  Two things only this one does:
+     *   - it MASKS both texture halves, so it tiles;
+     *   - all three shades are Gouraud-interpolated (DrawFlatTexTri uses
+     *     vertex a's alone).
+     *
+     * FINDING (scope PORT-B5): the two masks are CROSSED.  The asm is
+     *     movzx edx, word ptr [ebp-0x22]   ; the V accumulator's high word
+     *     and   edx, dword ptr [ebx+0x10]  ; ... masked with UMASK (w - 1)
+     *     shl   edx, cl                    ; ... shifted by ushift = log2 w
+     *     add   edx, dword ptr [ebx+8]
+     *     movzx ecx, word ptr [ebp-0x2a]   ; the U accumulator's high word
+     *     and   ecx, dword ptr [ebx+0x14]  ; ... masked with VMASK (h - 1)
+     * and texture.c's BuildTextureRecord (0x004437d0) lays the texels out
+     * row-major, `texels[w*y + x]`, with +0x10 = w - 1 and +0x14 = h - 1.  So
+     * the ROW index is masked by the WIDTH mask and the COLUMN index by the
+     * HEIGHT mask.  On a square texture -- which every texture the game builds
+     * appears to be, the switch in BuildTextureRecord only accepting powers of
+     * two up to 256 for each -- the two masks are equal and the defect is
+     * invisible; on a non-square one it wraps both axes wrongly.  REPRODUCED,
+     * not fixed. */
+    Vertex2D*             va;
+    Vertex2D*             vb;
+    Vertex2D*             vc;
+    Vertex2D*             t;
+    int                   y0, y1, y2, y, yend;
+    int                   x0, x1, x2, z0, z1, z2;
+    int                   u0, u1, u2, v0, v1, v2, s0, s1, s2;
+    int                   recipA, recipB;
+    int                   dxA, dxB, dzA, dzB, duA, duB, dvA, dvB, dsA, dsB;
+    int                   xA, xB, zA, zB, uA, uB, vA, vB, sA, sB;
+    char*                 rowbase;                  /* [ebp-0x3c] */
+    char*                 row;                      /* [ebp-0xac] */
+    int                   n, m, lo, hi, xpos;
+    int                   dzdx, dudx, dvdx, dsdx, spanrecip;
+    int                   zspan, uspan, vspan, sspan;
+    unsigned short*       px;
+    unsigned short*       endpx;
+    int*                  zp;
+    LLTexDesc*            tex;
+
+    va = a; vb = b; vc = c;
+    if (va->y > vb->y) { t = va; va = vb; vb = t; }
+    if (vb->y > vc->y) { t = vb; vb = vc; vc = t; }
+    if (va->y > vb->y) { t = va; va = vb; vb = t; }
+
+    y2 = vc->y >> 16;
+    y0 = va->y >> 16;
+    y1 = vb->y >> 16;
+    rowbase = g_surface + g_pitch * y0;
+    x0 = va->x; x1 = vb->x; x2 = vc->x;
+    z0 = va->z; z1 = vb->z; z2 = vc->z;
+
+    u0 = LL_FISTP(LL_ASFLT(va->u) * 65536.0f);
+    u1 = LL_FISTP(LL_ASFLT(vb->u) * 65536.0f);
+    u2 = LL_FISTP(LL_ASFLT(vc->u) * 65536.0f);
+    v0 = LL_FISTP(LL_ASFLT(va->v) * 65536.0f);
+    v1 = LL_FISTP(LL_ASFLT(vb->v) * 65536.0f);
+    v2 = LL_FISTP(LL_ASFLT(vc->v) * 65536.0f);
+    s0 = va->shade;
+    s1 = vb->shade;
+    s2 = vc->shade;
+    tex = (LLTexDesc*)g_texture;
+    u0 = (u0 & 0xffff) << tex->ushift;
+    v0 = (v0 & 0xffff) << tex->vshift;
+    s0 <<= 6;
+    u1 = (u1 & 0xffff) << tex->ushift;
+    v1 = (v1 & 0xffff) << tex->vshift;
+    s1 <<= 6;
+    u2 = (u2 & 0xffff) << tex->ushift;
+    v2 = (v2 & 0xffff) << tex->vshift;
+    s2 <<= 6;
+
+    y = y0;
+    if (y0 == y1)
+        goto gtt_L13;
+
+    /* ---- the upper half: edge A = a->b, edge B = a->c ------------------- */
+    recipA = g_recip[y1 - y0];
+    recipB = g_recip[y2 - y0];
+    dxA = LL_FMUL16(x1 - x0, recipA);
+    dxB = LL_FMUL16(x2 - x0, recipB);
+    duA = LL_FMUL16(u1 - u0, recipA);
+    duB = LL_FMUL16(u2 - u0, recipB);
+    dvA = LL_FMUL16(v1 - v0, recipA);
+    dvB = LL_FMUL16(v2 - v0, recipB);
+    dsA = LL_FMUL16(s1 - s0, recipA);
+    dsB = LL_FMUL16(s2 - s0, recipB);
+    dzA = LL_FMUL16(z1 - z0, recipA);
+    dzB = LL_FMUL16(z2 - z0, recipB);
+    xA = x0; xB = x0;
+    uA = u0; uB = u0;
+    vA = v0; vB = v0;
+    sA = s0; sB = s0;
+    zA = z0; zB = z0;
+    yend = y1;
+
+    n = g_clip_y0 - y;
+    if (n > 0) {
+        m = yend - y;
+        if (m > 0) {
+            if (n >= m) n = m;
+            y += n;
+            xA += (int)((unsigned int)dxA * (unsigned int)n);
+            xB += (int)((unsigned int)dxB * (unsigned int)n);
+            sA += (int)((unsigned int)dsA * (unsigned int)n);
+            sB += (int)((unsigned int)dsB * (unsigned int)n);
+            uA += (int)((unsigned int)duA * (unsigned int)n);
+            uB += (int)((unsigned int)duB * (unsigned int)n);
+            vA += (int)((unsigned int)dvA * (unsigned int)n);
+            vB += (int)((unsigned int)dvB * (unsigned int)n);
+            zA += (int)((unsigned int)dzA * (unsigned int)n);
+            zB += (int)((unsigned int)dzB * (unsigned int)n);
+            rowbase += (int)((unsigned int)g_pitch * (unsigned int)n);
+        }
+    }
+    if (y >= yend)
+        goto gtt_L12;
+
+    while (y <= g_clip_y1) {                         /* L5                  */
+        row = rowbase;
+        rowbase += g_pitch;
+        if (xA > xB) {
+            spanrecip = g_recip[((unsigned int)(xA - xB) >> 16) + 1];
+            uspan = uB; dudx = LL_FMUL16(uA - uB, spanrecip);
+            vspan = vB; dvdx = LL_FMUL16(vA - vB, spanrecip);
+            sspan = sB; dsdx = LL_FMUL16(sA - sB, spanrecip);
+            zspan = zB; dzdx = LL_FMUL16(zA - zB, spanrecip);
+            lo = xB >> 16;
+            hi = xA >> 16;
+        } else {                                     /* L6                  */
+            spanrecip = g_recip[((unsigned int)(xB - xA) >> 16) + 1];
+            uspan = uA; dudx = LL_FMUL16(uB - uA, spanrecip);
+            vspan = vA; dvdx = LL_FMUL16(vB - vA, spanrecip);
+            sspan = sA; dsdx = LL_FMUL16(sB - sA, spanrecip);
+            zspan = zA; dzdx = LL_FMUL16(zB - zA, spanrecip);
+            lo = xA >> 16;
+            hi = xB >> 16;
+        }
+        xpos = lo;
+        n = lo - g_clip_x0;
+        if (n < 0) {
+            xpos = g_clip_x0;
+            sspan += (int)((unsigned int)dsdx * (unsigned int)(-n));
+            uspan += (int)((unsigned int)dudx * (unsigned int)(-n));
+            vspan += (int)((unsigned int)dvdx * (unsigned int)(-n));
+            zspan += (int)((unsigned int)dzdx * (unsigned int)(-n));
+        }
+        px = (unsigned short*)(row + xpos * 2);
+        endpx = (unsigned short*)(row + g_clip_x1 * 2);
+        while (xpos < hi && px <= endpx) {           /* L9                  */
+            zp = (int*)((char*)g_zbuf + (y << 9) + xpos * 4);
+            if ((unsigned int)zspan >= (unsigned int)*zp) {
+                unsigned char* tp;
+                *zp = zspan;
+                tex = (LLTexDesc*)g_texture;
+                tp = tex->texels
+                   + (((int)(unsigned short)((unsigned int)vspan >> 16)
+                       & tex->umask) << tex->ushift)
+                   + ((int)(unsigned short)((unsigned int)uspan >> 16)
+                       & tex->vmask);
+                *(unsigned char*)&g_raster_hit |=
+                    (unsigned char)((char*)px == g_mouse_pixel);
+                *px = tex->ramps[*tp]->table[
+                          (unsigned short)((unsigned int)sspan >> 16)];
+            }
+            xpos++;
+            sspan += dsdx;
+            uspan += dudx;
+            vspan += dvdx;
+            zspan += dzdx;
+            px++;
+        }
+        xA += dxA; xB += dxB;
+        uA += duA; uB += duB;
+        vA += dvA; vB += dvB;
+        sA += dsA; sB += dsB;
+        zA += dzA; zB += dzB;
+        y++;
+        if (y >= yend)
+            break;
+    }
+
+gtt_L12:
+    /* Edge A re-aimed at b->c; its accumulators are NOT reloaded. */
+    recipA = g_recip[y2 - y1];
+    dxA = LL_FMUL16(x2 - x1, recipA);
+    duA = LL_FMUL16(u2 - u1, recipA);
+    dvA = LL_FMUL16(v2 - v1, recipA);
+    dsA = LL_FMUL16(s2 - s1, recipA);
+    dzA = LL_FMUL16(z2 - z1, recipA);
+    goto gtt_L14;
+
+gtt_L13:
+    /* The flat top: edge A = a->c, edge B = b->c. */
+    recipB = g_recip[y2 - y0];
+    recipA = g_recip[y2 - y1];
+    dxA = LL_FMUL16(x2 - x0, recipB);
+    dxB = LL_FMUL16(x2 - x1, recipA);
+    duA = LL_FMUL16(u2 - u0, recipB);
+    duB = LL_FMUL16(u2 - u1, recipA);
+    dvA = LL_FMUL16(v2 - v0, recipB);
+    dvB = LL_FMUL16(v2 - v1, recipA);
+    dsA = LL_FMUL16(s2 - s0, recipB);
+    dsB = LL_FMUL16(s2 - s1, recipA);
+    dzA = LL_FMUL16(z2 - z0, recipB);
+    dzB = LL_FMUL16(z2 - z1, recipA);
+    xA = x0; xB = x1;
+    uA = u0; uB = u1;
+    vA = v0; vB = v1;
+    sA = s0; sB = s1;
+    zA = z0; zB = z1;
+
+gtt_L14:
+    if (y > g_clip_y1)
+        return;
+    yend = y2;
+    if (y >= yend)
+        return;
+    n = g_clip_y0 - y;
+    if (n > 0) {
+        m = yend - y;
+        if (m > 0) {
+            if (n >= m) n = m;
+            y += n;
+            xA += (int)((unsigned int)dxA * (unsigned int)n);
+            xB += (int)((unsigned int)dxB * (unsigned int)n);
+            sA += (int)((unsigned int)dsA * (unsigned int)n);
+            sB += (int)((unsigned int)dsB * (unsigned int)n);
+            uA += (int)((unsigned int)duA * (unsigned int)n);
+            uB += (int)((unsigned int)duB * (unsigned int)n);
+            vA += (int)((unsigned int)dvA * (unsigned int)n);
+            vB += (int)((unsigned int)dvB * (unsigned int)n);
+            zA += (int)((unsigned int)dzA * (unsigned int)n);
+            zB += (int)((unsigned int)dzB * (unsigned int)n);
+            rowbase += (int)((unsigned int)g_pitch * (unsigned int)n);
+        }
+    }
+    if (y >= yend)
+        return;
+
+    while (y <= g_clip_y1) {                         /* L17                 */
+        row = rowbase;
+        rowbase += g_pitch;
+        if (xA > xB) {
+            spanrecip = g_recip[((unsigned int)(xA - xB) >> 16) + 1];
+            uspan = uB; dudx = LL_FMUL16(uA - uB, spanrecip);
+            vspan = vB; dvdx = LL_FMUL16(vA - vB, spanrecip);
+            sspan = sB; dsdx = LL_FMUL16(sA - sB, spanrecip);
+            zspan = zB; dzdx = LL_FMUL16(zA - zB, spanrecip);
+            lo = xB >> 16;
+            hi = xA >> 16;
+        } else {                                     /* L18                 */
+            spanrecip = g_recip[((unsigned int)(xB - xA) >> 16) + 1];
+            uspan = uA; dudx = LL_FMUL16(uB - uA, spanrecip);
+            vspan = vA; dvdx = LL_FMUL16(vB - vA, spanrecip);
+            sspan = sA; dsdx = LL_FMUL16(sB - sA, spanrecip);
+            zspan = zA; dzdx = LL_FMUL16(zB - zA, spanrecip);
+            lo = xA >> 16;
+            hi = xB >> 16;
+        }
+        xpos = lo;
+        n = lo - g_clip_x0;
+        if (n < 0) {
+            xpos = g_clip_x0;
+            sspan += (int)((unsigned int)dsdx * (unsigned int)(-n));
+            uspan += (int)((unsigned int)dudx * (unsigned int)(-n));
+            vspan += (int)((unsigned int)dvdx * (unsigned int)(-n));
+            zspan += (int)((unsigned int)dzdx * (unsigned int)(-n));
+        }
+        px = (unsigned short*)(row + xpos * 2);
+        endpx = (unsigned short*)(row + g_clip_x1 * 2);
+        while (xpos < hi && px <= endpx) {           /* L21                 */
+            zp = (int*)((char*)g_zbuf + (y << 9) + xpos * 4);
+            if ((unsigned int)zspan >= (unsigned int)*zp) {
+                unsigned char* tp;
+                *zp = zspan;
+                tex = (LLTexDesc*)g_texture;
+                tp = tex->texels
+                   + (((int)(unsigned short)((unsigned int)vspan >> 16)
+                       & tex->umask) << tex->ushift)
+                   + ((int)(unsigned short)((unsigned int)uspan >> 16)
+                       & tex->vmask);
+                *(unsigned char*)&g_raster_hit |=
+                    (unsigned char)((char*)px == g_mouse_pixel);
+                *px = tex->ramps[*tp]->table[
+                          (unsigned short)((unsigned int)sspan >> 16)];
+            }
+            xpos++;
+            sspan += dsdx;
+            uspan += dudx;
+            vspan += dvdx;
+            zspan += dzdx;
+            px++;
+        }
+        xA += dxA; xB += dxB;
+        uA += duA; uB += duB;
+        vA += dvA; vB += dvB;
+        sA += dsA; sB += dsB;
+        zA += dzA; zB += dzB;
+        y++;
+        if (y >= yend)
+            break;
+    }
+    }
 #endif
 }
 
