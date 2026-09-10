@@ -959,6 +959,24 @@ extern int g_popup_y;              /* 0x007fded0  PopUpInfo.pos.y */
  * The `y <= 0x24` measurement recorded above (2 mismatches, 144/144 bytes)
  * is deliberately still NOT taken: it trades one wrong instruction pair for
  * another and contradicts the original's plain `cmp esi,25h`.  FLOOR.
+ *
+ * 2026-09-10, scope LL22.  FLOOR RE-CONFIRMED, and the residual is now
+ * bounded exactly: a positional side-by-side (audit's own norm2) shows 3 of
+ * 43 positions differ and they are indices 25..27 and nothing else --
+ * original `cmp esi,25h / jge / mov eax,25h`, ours `mov eax,25h / cmp
+ * esi,eax / jge`.  Everything before and after, including the whole exiled
+ * high arm and the two exits, is index-for-index identical.  The two levers
+ * this wave brought that were unavailable to the earlier lanes were tried
+ * and are INERT here (all byte-identical to the committed body, 43i/143B/3):
+ * the scope-V cancelled-pair copy web on the arm's constant, through a
+ * struct member (`t.v = 0x25; t.v += x; t.v -= x;`), through the same member
+ * with an `^=` pair, and through a plain `int` -- VC6 folds every cancel
+ * before web building, so it never separates the arm's 0x25 from the
+ * compare's; and `return (g_popup_y = 0x25), 0x25;`.  A volatile STORE to
+ * g_popup_y in the arm is worse (6).  On the compare side `!(y >= 0x25)` and
+ * `y < 0x25 && 1` are byte-identical, `y - 0x25 < 0` costs 18, and a
+ * volatile read of g_popup_y in the compare costs 18 and 5 bytes.  The
+ * `y <= 0x24` trade remains rejected.
  */
 // WIP-FUNCTION: LEGOLAND 0x004718c0  (43/43 instructions, 143/144 bytes,
 //   mismatch 3: the y-clamp low bound's constant def is one block too early)
