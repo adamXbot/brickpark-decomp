@@ -548,7 +548,13 @@ did_match:
 int TrackPiece_FindIndex(TrackNode* node)
 {
     int slope = TrackNodeSlopeCode(node);
+#ifndef LEGOLAND_PORTABLE
     int off = ((int)node->jout.h - (int)node->jin.h) >> 1;
+#else
+    /* PORT-M5: 0x004283d2 / 0x004283dc round the two joint HEIGHTS (both
+     * `float h`), and the piece index is picked off their difference. */
+    int off = (LL_FISTP(node->jout.h) - LL_FISTP(node->jin.h)) >> 1;
+#endif
     off += 2;
     if (node->jin.dir == JointOppositeDir(node->jout.dir)) {
         if (slope == 8)

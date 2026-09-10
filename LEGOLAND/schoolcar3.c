@@ -327,10 +327,13 @@ extern void TransformVerts(const Vec3f* s, TrackVtx* d, const Mat4* m, int st, i
  * record at 0x004b5c9c) is dotted with rows 1 and 2 of the segment's basis,
  * each scaled by g_view_half_lo, giving two coefficients; g_view_half_hi is
  * the ambient.  Each ring point carries its own in-plane normal (e0, e1) at
- * 0x006126d8, so vertex j's light is  a*e0[j] + b*e1[j] + c, truncated by the
- * game's __ftol helper.  All three coefficients stay on the x87 stack across
- * the inner loop and across the __ftol calls, and are popped with three
- * `fstp st(0)` at the loop bottom -- reproduced exactly.
+ * 0x006126d8, so vertex j's light is  a*e0[j] + b*e1[j] + c, ROUNDED by the
+ * game's __ftol helper -- 0x00458930 is a bare `fistp` with no control-word
+ * save, so it takes the round-to-nearest mode the game leaves set, and
+ * "truncated" (which this line used to say) is the wrong direction.  Scope
+ * PORT-M5.  All three coefficients stay on the x87 stack across the inner loop
+ * and across the __ftol calls, and are popped with three `fstp st(0)` at the
+ * loop bottom -- reproduced exactly.
  *
  * THE COUNTS: with `last = n - 1` segments' worth of gaps, ntris (+0x0c) is
  * 12 * last (six quads = twelve triangles between each pair of rings) and
@@ -551,8 +554,15 @@ MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
                  g_view_cur.d * rot.m[8]) * g_view_half_lo;
             c = g_view_half_hi;
             for (j = 0; j < 6; j++)
+#ifndef LEGOLAND_PORTABLE
                 out[j].shade = (int)(a * g_ring_normals[j].e0 +
                                      b * g_ring_normals[j].e1 + c);
+#else
+                /* PORT-M5: 0x00428ded calls 0x00458930, which ROUNDS -- the
+                 * file header used to say "truncated" here; corrected. */
+                out[j].shade = LL_FISTP(a * g_ring_normals[j].e0 +
+                                        b * g_ring_normals[j].e1 + c);
+#endif
         }
     }
     g_track_mesh.nverts = 18 * last + 6;

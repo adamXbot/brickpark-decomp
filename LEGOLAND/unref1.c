@@ -762,7 +762,11 @@ int LFPiece_ShadeForRow(BPos sq, const Footprint* fp, void* unused,
         r = 0.0f;
     else if (r > 1.0f)
         r = 1.0f;
+#ifndef LEGOLAND_PORTABLE
     return 0x20 - (int)(r * -192.0f);
+#else
+    return 0x20 - LL_FISTP(r * -192.0f);   /* PORT-M5: 0x0040ae6f rounds */
+#endif
 }
 
 /* =========================================================================

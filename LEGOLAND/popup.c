@@ -1446,12 +1446,24 @@ void DrawPopUpInfo(void)
     box.top = py + lines * 20 + 0x6f;
     barw = lines * 0x20 + 0xbc;
     RenderBlock(box.left, box.top, barw, 6, 0);
+#ifndef LEGOLAND_PORTABLE
     if (frac < 0.25 && has_life)
         RenderBlock(box.left, box.top, (int)(barw * frac), 6,
                     GetNearestColour(0xff, 0, 0));
     else
         RenderBlock(box.left, box.top, (int)(barw * frac), 6,
                     GetNearestColour(0, 0xff, 0));
+#else
+    /* PORT-M5: VC6 shares ONE call to 0x00458930 (0x00472ef5) between the two
+     * arms, and it ROUNDS -- the life bar is a pixel wider than a truncation
+     * makes it for half of all fractions. */
+    if (frac < 0.25 && has_life)
+        RenderBlock(box.left, box.top, LL_FISTPD(barw * frac), 6,
+                    GetNearestColour(0xff, 0, 0));
+    else
+        RenderBlock(box.left, box.top, LL_FISTPD(barw * frac), 6,
+                    GetNearestColour(0, 0xff, 0));
+#endif
 
 icons:
     box.top = py + (lines * 5 + 0x1e) * 4;

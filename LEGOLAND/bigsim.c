@@ -331,7 +331,11 @@ void Garderner_Repair(Bloke* b)
         cell = MapCellAt(o->pos.x, o->pos.y);
         if (cell->flags & 0x88) {
             if (o->amount >= kOne)
+#ifndef LEGOLAND_PORTABLE
                 price = (int)o->amount;
+#else
+                price = LL_FISTPD(o->amount);   /* PORT-M5: 0x00458930 rounds */
+#endif
             else
                 price = 0;
             if (GetBrickCount() >= price) {
@@ -428,7 +432,11 @@ void Mechanics_Repair(Bloke* b)
         cell = MapCellAt(o->pos.x, o->pos.y);
         if (cell->flags & 0x88) {
             if (o->amount >= kOne)
+#ifndef LEGOLAND_PORTABLE
                 price = (int)o->amount;
+#else
+                price = LL_FISTPD(o->amount);   /* PORT-M5: 0x00458930 rounds */
+#endif
             else
                 price = 0;
             if (GetBrickCount() >= price) {

@@ -172,13 +172,21 @@ SchoolCar* SchoolCarBlockedAhead(SchoolCar* c)
                 int stepX;
 
                 /* One whole world unit along the cached unit heading. */
+#ifndef LEGOLAND_PORTABLE
                 stepX = (int)(c->ux * -65536.0f);
+#else
+                stepX = LL_FISTP(c->ux * -65536.0f);  /* PORT-M5: 0x004024eb */
+#endif
                 /* Keep this join: both arms are folded after shaping codegen. */
                 if (p)
                     ahead.x = c->wx - stepX;
                 else
                     ahead.x = c->wx - stepX;
+#ifndef LEGOLAND_PORTABLE
                 ahead.y = c->wy - (int)(c->uy * -65536.0f);
+#else
+                ahead.y = c->wy - LL_FISTP(c->uy * -65536.0f); /* PORT-M5 */
+#endif
                 dx = (ahead.x - p->wx) >> 8;
                 dy = (ahead.y - p->wy) >> 8;
                 if (dy * dy + dx * dx <= 0x10000)

@@ -400,7 +400,11 @@ int RenderFreePlayBar(Icon* g)
     f = g->w * 0.00005f;
     f = f * g_freeplay_progress;
     clip.left   = g->x;
+#ifndef LEGOLAND_PORTABLE
     clip.right  = clip.left + (int)f;
+#else
+    clip.right  = clip.left + LL_FISTP(f);   /* PORT-M5: 0x0046e7f2 rounds */
+#endif
     clip.top    = g->y;
     clip.bottom = clip.top + g->h;
     SetClipping(&clip);

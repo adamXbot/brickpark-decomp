@@ -580,8 +580,15 @@ void DrawSupportShadow(const Vec3f* pos, const Mat3* rot)
 #else
     t = ll_rdtsc();
 #endif
+#ifndef LEGOLAND_PORTABLE
     bx = (float)((int)pos->x * 0.2) * 5.0f;
     by = (float)((int)pos->y * 0.2) * 5.0f;
+#else
+    /* PORT-M5: 0x0042930c / 0x00429326 round.  The snap-to-five that follows
+     * is built on the ROUNDED world coordinate, not the truncated one. */
+    bx = (float)(LL_FISTP(pos->x) * 0.2) * 5.0f;
+    by = (float)(LL_FISTP(pos->y) * 0.2) * 5.0f;
+#endif
     for (i = 0; i <= 3; i++) {
         g_shadow_v[i].x = bx + g_shadow_src[i].x;
         g_shadow_v[i].y = by + g_shadow_src[i].y;

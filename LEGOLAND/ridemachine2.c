@@ -318,7 +318,11 @@ void Copters_UpdateCarRider(CoptersRec* rec, int index)
     AdjustOffsetForViewMode(&layer_ofs);
 
     kf1 = (float*)((char*)g_copters_postable->slots[anim] + seat->frame * 0x30);
+#ifndef LEGOLAND_PORTABLE
     ofs.oy = (int)kf1[1] + mode;
+#else
+    ofs.oy = LL_FISTP(kf1[1]) + mode;   /* PORT-M5: 0x00404705 rounds */
+#endif
     AdjustOffsetForViewMode(&ofs);
     ofs.ox = sprite->dim >> 1;
     pos.ox = layer_ofs.ox + screen.ox + ofs.ox;

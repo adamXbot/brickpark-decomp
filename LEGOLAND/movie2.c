@@ -201,7 +201,11 @@ unsigned int MovieTicks(void)
     switch (g_movie_timer_mode) {
     case 2:
         QueryPerformanceCounter(&now);
+#ifndef LEGOLAND_PORTABLE
         return (int)((float)now * g_movie_perf_scale);
+#else
+        return LL_FISTP((float)now * g_movie_perf_scale); /* PORT-M5: 0x004766e5 */
+#endif
     default:
         return GetTickCount();
     }
@@ -271,7 +275,11 @@ int PrimeMovieAudio(Movie* mv)
     g_mva_end = end;
     g_mva_playing = 1;
     UpdateMovieAudio(0, 0);
+#ifndef LEGOLAND_PORTABLE
     KLIBAUDIO_SetAVIVolume(g_mva_buffer, (int)g_movie_volume);
+#else
+    KLIBAUDIO_SetAVIVolume(g_mva_buffer, LL_FISTP(g_movie_volume)); /* PORT-M5 */
+#endif
     KLIBAUDIO_PlayAVISoundBuffer(g_mva_buffer, 0);
     return 1;
 }
@@ -474,7 +482,11 @@ int UpdateMovieAudio(int frame, int prev)
             } while (--i);
             if (restart) {
                 KLIBAUDIO_PlayAVISoundBuffer(g_mva_buffer, restart_pos);
+#ifndef LEGOLAND_PORTABLE
                 KLIBAUDIO_SetAVIVolume(g_mva_buffer, (int)g_movie_volume);
+#else
+                KLIBAUDIO_SetAVIVolume(g_mva_buffer, LL_FISTP(g_movie_volume)); /* PORT-M5 */
+#endif
             }
         }
         return 1;

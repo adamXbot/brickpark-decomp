@@ -205,7 +205,11 @@ void SchoolCarAccelerate(SchoolCar* c)
     dy = c->wp[0].y - c->wy;
     fy = (float)dy;
     fx = (float)dx;
+#ifndef LEGOLAND_PORTABLE
     len = (int)sqrt(fx * fx + fy * fy);
+#else
+    len = LL_FISTPD(sqrt(fx * fx + fy * fy)); /* PORT-M5: 0x00401a17 rounds */
+#endif
     if (len) {
         c->ux = fx / len;
         c->uy = fy / len;

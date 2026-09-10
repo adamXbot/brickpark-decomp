@@ -420,9 +420,19 @@ void BuildChannelTables(void)
     for (i = 0; i < 256; i++) {
         m = max;    /* loop-invariant on purpose: VC6 hoists it, see above */
         t = i * (1.0f / 256.0f);
+#ifndef LEGOLAND_PORTABLE
         g_chan[i].c2 = (unsigned short)((int)(t * 31.0f) << shift);
         g_chan[i].c1 = (unsigned short)((int)(t * m) << 5);
         g_chan[i].c0 = (unsigned short)(int)(t * 31.0f);
+#else
+        /* PORT-M5: the original's float-to-int is a CALL to 0x00458930 --
+         * `fistp` with the control word the game leaves at round-to-nearest,
+         * NOT C's truncation.  0x00486135 / 0x00486149 are the two calls here
+         * (VC6 shares one for c2 and c0).  LL_FISTP is that rounding. */
+        g_chan[i].c2 = (unsigned short)(LL_FISTP(t * 31.0f) << shift);
+        g_chan[i].c1 = (unsigned short)(LL_FISTPD(t * m) << 5);
+        g_chan[i].c0 = (unsigned short)LL_FISTP(t * 31.0f);
+#endif
     }
 }
 
@@ -487,7 +497,19 @@ int BuildRecipTable(void)
     for (n = 1; n < 100; n++) {
         fn = (float)n;
         g_recipf[n - 1] = 1.0f / fn;
+#ifndef LEGOLAND_PORTABLE
         g_recip[n] = (int)(65536.0 / fn);
+#else
+        /* PORT-M5 -- A REAL DIVERGENCE, not a theoretical one.  0x00486564 is
+         * `fdivr qword ptr [0x4ab558] / call 0x458930`, and that helper is a
+         * bare `fistp` under the game's round-to-nearest control word.  So the
+         * shipped table is ROUNDED: g_recip[30] is 2185 (65536/30 = 2184.533),
+         * where a C truncation gives 2184.  No value of n in 1..99 lands on an
+         * exact .5, so there is no tie to break.  PORT-B5's `tri_raster` test
+         * asserted the truncated value at n = 30; its expectation is corrected
+         * with a pointer back here. */
+        g_recip[n] = LL_FISTPD(65536.0 / fn);
+#endif
     }
     return 0;
 }
@@ -531,7 +553,12 @@ void SetTextureBits(void* bits)
 // FUNCTION: LEGOLAND 0x004864f0
 unsigned short ShadeLookup(Shade* s, float t)
 {
+#ifndef LEGOLAND_PORTABLE
     return s->table[(int)((float)(s->levels - 1) * t)];
+#else
+    /* PORT-M5: 0x00486504 is a call to the rounding helper, not a truncation. */
+    return s->table[LL_FISTP((float)(s->levels - 1) * t)];
+#endif
 }
 
 /* 0x00488700 -- arm the mouse-pick test for the coming triangles. */
@@ -681,9 +708,16 @@ Shade* MakeShadedColour(int levels, unsigned char* rgb)
         d1 = f1 / (float)levels;
         d0 = f0 / (float)levels;
         for (i = 0; i < levels; i++) {
+#ifndef LEGOLAND_PORTABLE
             px  = g_chan[(unsigned char)(int)a0].c0;
             px |= g_chan[(unsigned char)(int)a1].c1;
             px |= g_chan[(unsigned char)(int)a2].c2;
+#else
+            /* PORT-M5: 0x00458930 rounds (see BuildChannelTables). */
+            px  = g_chan[(unsigned char)LL_FISTP(a0)].c0;
+            px |= g_chan[(unsigned char)LL_FISTP(a1)].c1;
+            px |= g_chan[(unsigned char)LL_FISTP(a2)].c2;
+#endif
             s->table[i] = px;
             a2 += d2;
             a1 += d1;
@@ -696,9 +730,16 @@ Shade* MakeShadedColour(int levels, unsigned char* rgb)
         a1 = f1;
         a0 = f0;
         for (i = 0; i < levels; i++) {
+#ifndef LEGOLAND_PORTABLE
             px  = g_chan[(unsigned char)(int)a0].c0;
             px |= g_chan[(unsigned char)(int)a1].c1;
             px |= g_chan[(unsigned char)(int)a2].c2;
+#else
+            /* PORT-M5: 0x00458930 rounds (see BuildChannelTables). */
+            px  = g_chan[(unsigned char)LL_FISTP(a0)].c0;
+            px |= g_chan[(unsigned char)LL_FISTP(a1)].c1;
+            px |= g_chan[(unsigned char)LL_FISTP(a2)].c2;
+#endif
             s->table[levels + i] = px;
             a2 += d2;
             a1 += d1;

@@ -266,7 +266,14 @@ Pos LFPath_Point(LFPath* path, float t, int reverse)
         b = path->pts[path->n - j - 1];
     }
     u = (t - i * step) / step;
+#ifndef LEGOLAND_PORTABLE
     r.x = (int)((b.x - a.x) * u + a.x);
     r.y = (int)((b.y - a.y) * u + a.y);
+#else
+    /* PORT-M5: 0x00411398 / 0x004113af round.  (The `(int)floor(t / step)`
+     * above is insensitive: floor's result is already integral.) */
+    r.x = LL_FISTP((b.x - a.x) * u + a.x);
+    r.y = LL_FISTP((b.y - a.y) * u + a.y);
+#endif
     return r;
 }

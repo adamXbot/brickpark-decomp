@@ -458,13 +458,30 @@ void JungleCruise_BuildWobbleTable(void)
     for (i = 0; i < 16; i++) {
         a = i * 22.5f;
         r = a * 0.017453292f;
+#ifndef LEGOLAND_PORTABLE
         g_jc_seat_pos[0][i].x = (int)(sin(r) * -56.0);
         g_jc_seat_pos[0][i].y = (int)(cos(r) * 28.0);
+#else
+        /* PORT-M5: all six conversions in this table go through 0x00458930,
+         * which ROUNDS; the seats would sit one pixel out otherwise. */
+        g_jc_seat_pos[0][i].x = LL_FISTPD(sin(r) * -56.0);
+        g_jc_seat_pos[0][i].y = LL_FISTPD(cos(r) * 28.0);
+#endif
         r = (a + 180.0f - 16.0f) * 0.017453292f;
+#ifndef LEGOLAND_PORTABLE
         g_jc_seat_pos[1][i].x = (int)(sin(r) * -56.0);
         g_jc_seat_pos[1][i].y = (int)(cos(r) * 28.0);
+#else
+        g_jc_seat_pos[1][i].x = LL_FISTPD(sin(r) * -56.0);   /* PORT-M5 */
+        g_jc_seat_pos[1][i].y = LL_FISTPD(cos(r) * 28.0);
+#endif
         r = (a + 196.0f) * 0.017453292f;
+#ifndef LEGOLAND_PORTABLE
         g_jc_seat_pos[2][i].x = (int)(sin(r) * -56.0);
         g_jc_seat_pos[2][i].y = (int)(cos(r) * 28.0);
+#else
+        g_jc_seat_pos[2][i].x = LL_FISTPD(sin(r) * -56.0);   /* PORT-M5 */
+        g_jc_seat_pos[2][i].y = LL_FISTPD(cos(r) * 28.0);
+#endif
     }
 }

@@ -195,8 +195,14 @@ void Fort_StepVisitor(RiderNode* rd, Bloke* b)
             float fy = (rand() & 255) * (1.0f / 255.0f);
             unsigned char a;
 
+#ifndef LEGOLAND_PORTABLE
             b->target.x = (int)(((g_fort_area.x0 + key->bx) << 8) + dx * fx);
             b->target.y = (int)(((g_fort_area.y0 + key->by) << 8) + dy * fy);
+#else
+            /* PORT-M5: 0x004065cb / 0x004065f3 round (0x00458930). */
+            b->target.x = LL_FISTP(((g_fort_area.x0 + key->bx) << 8) + dx * fx);
+            b->target.y = LL_FISTP(((g_fort_area.y0 + key->by) << 8) + dy * fy);
+#endif
             a = (unsigned char)(CalcMoveLine(b->world, b->target, b->path) + 0x10);
             b->state = 7;
             b->new_dir = a;

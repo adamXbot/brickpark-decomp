@@ -619,7 +619,15 @@ void Shade_BuildRamp(unsigned int rgb, unsigned short* out)
     bs = bv * 0.03125f;
     dst = out;
     for (i = 33; i != 0; i--) {
+#ifndef LEGOLAND_PORTABLE
         *dst++ = (unsigned short)(((int)ra << rshift) | ((int)ga << 5) | (int)ba);
+#else
+        /* PORT-M5: 0x00458930 ROUNDS (a bare `fistp` under the game's
+         * round-to-nearest control word), so a C cast is one level out on
+         * every ramp entry whose channel has a fraction. */
+        *dst++ = (unsigned short)((LL_FISTP(ra) << rshift) |
+                                  (LL_FISTP(ga) << 5) | LL_FISTP(ba));
+#endif
         ra += rs;
         ga += gs;
         ba += bs;
@@ -634,7 +642,15 @@ void Shade_BuildRamp(unsigned int rgb, unsigned short* out)
     bs = (float)(maximum - ba) * 0.032258064f;
     dst = out + 32;
     for (i = 32; i != 0; i--) {
+#ifndef LEGOLAND_PORTABLE
         *dst++ = (unsigned short)(((int)ra << rshift) | ((int)ga << 5) | (int)ba);
+#else
+        /* PORT-M5: 0x00458930 ROUNDS (a bare `fistp` under the game's
+         * round-to-nearest control word), so a C cast is one level out on
+         * every ramp entry whose channel has a fraction. */
+        *dst++ = (unsigned short)((LL_FISTP(ra) << rshift) |
+                                  (LL_FISTP(ga) << 5) | LL_FISTP(ba));
+#endif
         ra += rs;
         ga += gs;
         ba += bs;

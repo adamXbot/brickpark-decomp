@@ -87,9 +87,17 @@ void RiderTrackToScreen(RideAnim* anim, Vec2f* pos, Pos* out)
     frame[1] = pos->y;
     frame[0] -= 320.0f;
     frame[1] -= 270.0f;
+#ifndef LEGOLAND_PORTABLE
     hx = (int)frame[0] / 2;
     out->x = hx;
     hy = (int)frame[1] / 2;
+#else
+    /* PORT-M5: 0x00441936 / 0x0044194c round.  The halving is an INTEGER
+     * divide of the rounded value, so the two cannot be folded. */
+    hx = LL_FISTP(frame[0]) / 2;
+    out->x = hx;
+    hy = LL_FISTP(frame[1]) / 2;
+#endif
     out->y = hy;
     out->x = anim->origin_x + hx;
     out->y = anim->origin_y + hy;

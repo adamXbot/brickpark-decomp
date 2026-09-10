@@ -653,7 +653,11 @@ void IterateNoneWorkersRepairOrders(void)
         cx = (l1 + r2) / 2;
         cy = (t3 + b.bottom) / 2;
         if (p->amount >= 1.0)
+#ifndef LEGOLAND_PORTABLE
             price = (int)p->amount;
+#else
+            price = LL_FISTPD(p->amount);   /* PORT-M5: 0x0049b832 rounds */
+#endif
         else
             price = 0;
         if (GetBrickCount() >= price) {

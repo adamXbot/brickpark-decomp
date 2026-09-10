@@ -871,14 +871,28 @@ curve:
         float step = (c[i].a1 - c[i].a0) * 0.012500000186264515f;
         float a = c[i].a0;
 
+#ifndef LEGOLAND_PORTABLE
         b->wob[0].x = (int)(((float)sin(a * 0.01745329238474369f) + c[i].ox) * 640.0f);
         b->wob[0].y = (int)(((float)cos((a + 180.0f) * 0.01745329238474369f) + c[i].oy) * 640.0f);
+#else
+        /* PORT-M5: the ARC arms convert a genuinely fractional value through
+         * 0x00458930, which ROUNDS.  The straight/drift arms of this function
+         * are insensitive -- `(int)((integer) * 16.0f + integer)` has no
+         * fraction to round -- so only these four sites change. */
+        b->wob[0].x = LL_FISTP(((float)sin(a * 0.01745329238474369f) + c[i].ox) * 640.0f);
+        b->wob[0].y = LL_FISTP(((float)cos((a + 180.0f) * 0.01745329238474369f) + c[i].oy) * 640.0f);
+#endif
         j = 1;
         k = 0x4f;
         do {
             a += step;
+#ifndef LEGOLAND_PORTABLE
             b->wob[j].x = (int)(((float)sin(a * 0.01745329238474369f) + c[i].ox) * 640.0f);
             b->wob[j].y = (int)(((float)cos((a + 180.0f) * 0.01745329238474369f) + c[i].oy) * 640.0f);
+#else
+            b->wob[j].x = LL_FISTP(((float)sin(a * 0.01745329238474369f) + c[i].ox) * 640.0f);   /* PORT-M5 */
+            b->wob[j].y = LL_FISTP(((float)cos((a + 180.0f) * 0.01745329238474369f) + c[i].oy) * 640.0f);
+#endif
             j++;
         } while (--k);
     }

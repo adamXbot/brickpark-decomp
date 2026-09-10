@@ -273,7 +273,11 @@ WalkPath* BuildWalkPath(PolyLine* poly)
         do {
             dx = p->x;
             dy = p->y;
+#ifndef LEGOLAND_PORTABLE
             total += (int)sqrt((double)(dy * dy + dx * dx));
+#else
+            total += LL_FISTPD(sqrt((double)(dy * dy + dx * dx))); /* PORT-M5 */
+#endif
             p++;
         } while (--i);
     }
@@ -294,7 +298,11 @@ WalkPath* BuildWalkPath(PolyLine* poly)
     for (i = 0; i < poly->count; i++) {
         dx = poly->pts[i].x;
         dy = poly->pts[i].y;
+#ifndef LEGOLAND_PORTABLE
         len = (int)sqrt((double)(dy * dy + dx * dx));
+#else
+        len = LL_FISTPD(sqrt((double)(dy * dy + dx * dx))); /* PORT-M5 */
+#endif
         px = cur.x;
         py = cur.y;
         if (len > 0) {
