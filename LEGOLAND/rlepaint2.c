@@ -367,7 +367,213 @@ void SoftBlitRLEFrameRecolour(void* dst, void* a, void* b, void* c, int h,
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    /* 0x00468040 in C.  The Hit+ClipLR shape of rlepaint.c's RLEPaintHitClipLR
+     * with `and ax, word ptr [g_sp_recolour]` on every store -- only the LOW
+     * WORD of the global is used.  Literal runs cannot be `rep movsw` because
+     * of the per-pixel mask, so they are a software loop; repeat runs mask the
+     * single word once and keep `rep stosw`.
+     *
+     * THREE hit-test divergences from the plain Hit leaves, all kept:
+     *   - a singleton (primary 0/1) is NEVER tested against the mouse;
+     *   - the remainder of a run that straddles the LEFT clip is not tested;
+     *   - the one test that exists (L_4682CF) runs BEFORE the literal/repeat
+     *     split and BEFORE the right-edge reduction, so it uses the run's
+     *     ORIGINAL length: a mouse in the unwritten right tail still sets the
+     *     flag.  The stores themselves are correctly clipped.
+     * The top-skip carries the primary-code-1 defect. */
+    unsigned char*        row;
+    unsigned short*       dp;
+    const unsigned short* sp = (const unsigned short*)a;
+    const unsigned char*  lp = (const unsigned char*)b;
+    LLRleCtl              cs;
+    unsigned int          code;
+    unsigned int          n;
+    unsigned short        v;
+    unsigned short        mask = (unsigned short)g_sp_recolour;
+    int                   rows;
+    int                   skip;
+    int                   lskip;
+    int                   budget;
+    int                   clipped;
+    int                   left_over;
+
+    (void)spare;
+    ll_rle_open(&cs, c);
+
+    skip = top;
+    if (skip != 0) {
+        for (;;) {
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code)) {
+                sp++;                              /* the code-1 defect  */
+                if (!LL_RLE_LO(code))
+                    continue;
+            } else if (!LL_RLE_LO(code)) {
+                continue;
+            }
+            n = *lp++;
+            if (n == 0) {
+                if (--skip > 0) continue;
+                break;
+            }
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) continue;
+            if (LL_RLE_LO(code)) sp++;
+            else sp += n;
+        }
+    }
+
+    row = (unsigned char*)dst;
+    dp = (unsigned short*)row;
+    rows = h;
+    lskip = left;
+    budget = w;
+    for (;;) {
+        /* ---- L_4680D1: skip `lskip` source pixels ----------------------- */
+        while (lskip > 0) {
+            lskip--;
+            dp++;
+            sp++;
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code))                  /* 0/1: clipped word  */
+                continue;
+            sp--;
+            if (!LL_RLE_LO(code))                  /* 2: transparent     */
+                continue;
+            lskip++;
+            dp--;
+            n = *lp++;
+            if (n == 0)                            /* L_4683D1: end row  */
+                goto end_of_row;
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) {                 /* transparent run    */
+                dp += n;
+                lskip -= (int)n;
+                if (lskip < 0)
+                    budget += lskip;
+                continue;
+            }
+            if (!LL_RLE_LO(code)) {                /* L_468160: literal  */
+                lskip -= (int)n;
+                if (lskip >= 0) {
+                    sp += n;
+                    dp += n;
+                    continue;
+                }
+                clipped = lskip;
+                budget += clipped;
+                if (budget > 0) {                  /* L_468179           */
+                    clipped += (int)n;
+                    sp += clipped;
+                    dp += clipped;
+                    n = (unsigned int)(-lskip);
+                    do { *dp++ = (unsigned short)(*sp++ & mask); } while (--n);
+                    continue;
+                }
+                clipped += (int)n;                 /* L_4681AE: cut twice */
+                sp += clipped;
+                dp += clipped;
+                n = (unsigned int)((int)n - clipped + budget);
+                do { *dp++ = (unsigned short)(*sp++ & mask); } while (--n);
+                sp += -budget;
+                goto row_tail;
+            } else {                               /* L_4681E0: repeat   */
+                lskip -= (int)n;
+                if (lskip >= 0) {
+                    sp++;
+                    dp += n;
+                    continue;
+                }
+                clipped = lskip;
+                budget += clipped;
+                if (budget > 0) {                  /* L_4681EE           */
+                    clipped += (int)n;
+                    dp += clipped;
+                    n = (unsigned int)(-lskip);
+                    v = (unsigned short)(*sp++ & mask);
+                    do { *dp++ = v; } while (--n);
+                    continue;
+                }
+                clipped += (int)n;                 /* L_468217: cut twice */
+                dp += clipped;
+                n = (unsigned int)((int)n - clipped + budget);
+                v = (unsigned short)(*sp++ & mask);
+                do { *dp++ = v; } while (--n);
+                goto row_tail;
+            }
+        }
+        if (budget <= 0)                           /* L_468237 second test */
+            goto row_tail;
+        /* ---- L_46824D: the visible span --------------------------------- */
+        while (budget > 0) {
+            budget--;
+            dp++;
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code)) {                /* 0/1: no hit test   */
+                dp[-1] = (unsigned short)(*sp++ & mask);
+                continue;
+            }
+            if (!LL_RLE_LO(code))                  /* 2: transparent     */
+                continue;
+            budget++;
+            dp--;
+            n = *lp++;
+            if (n == 0)
+                goto end_of_row;
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) {                 /* transparent run    */
+                dp += n;
+                budget -= (int)n;
+                continue;
+            }
+            if (ll_rle_hit_run(mouse, dp, n))      /* L_4682CF: full length */
+                g_blit_hit |= 1;
+            left_over = budget - (int)n;
+            if (LL_RLE_LO(code)) {                 /* L_468331: repeat   */
+                if (left_over >= 0) {
+                    budget = left_over;
+                    v = (unsigned short)(*sp++ & mask);
+                    do { *dp++ = v; } while (--n);
+                } else {                           /* L_46834F: clipped  */
+                    n = (unsigned int)budget;
+                    v = (unsigned short)(*sp++ & mask);
+                    do { *dp++ = v; } while (--n);
+                    goto row_tail;
+                }
+            } else {                               /* L_4682E2: literal  */
+                if (left_over >= 0) {
+                    budget = left_over;
+                    do { *dp++ = (unsigned short)(*sp++ & mask); } while (--n);
+                } else {                           /* L_46830E: clipped  */
+                    left_over = -left_over;
+                    n = (unsigned int)budget;
+                    do { *dp++ = (unsigned short)(*sp++ & mask); } while (--n);
+                    sp += left_over;
+                    goto row_tail;
+                }
+            }
+        }
+    row_tail:
+        /* ---- L_468370: consume the rest of the row ---------------------- */
+        for (;;) {
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code)) { sp++; continue; }
+            if (!LL_RLE_LO(code)) continue;
+            n = *lp++;
+            if (n == 0) break;
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) continue;
+            if (LL_RLE_LO(code)) sp++;
+            else sp += n;
+        }
+    end_of_row:
+        row += pitch;
+        dp = (unsigned short*)row;
+        lskip = left;
+        budget = w;
+        if (--rows == 0)
+            break;
+    }
 #endif
 }
 
@@ -722,6 +928,213 @@ void SoftBlitRLEFrame(void* dst, void* a, void* b, void* c, int h, int pitch,
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    /* 0x00468410 in C.  Instruction for instruction the recolour leaf above
+     * with one extra `shr ax,1` after every `and ax,word ptr [g_sp_recolour]`
+     * -- a LOGICAL shift of the 16-bit word, which halves all three RGB565
+     * fields at once except for the bit each one borrows from its neighbour.
+     * Every control-flow decision, every clip split and the single
+     * full-length run hit test are the same, including the top-skip
+     * primary-code-1 defect and the absent singleton hit test. */
+    unsigned char*        row;
+    unsigned short*       dp;
+    const unsigned short* sp = (const unsigned short*)a;
+    const unsigned char*  lp = (const unsigned char*)b;
+    LLRleCtl              cs;
+    unsigned int          code;
+    unsigned int          n;
+    unsigned short        v;
+    unsigned short        mask = (unsigned short)g_sp_recolour;
+    int                   rows;
+    int                   skip;
+    int                   lskip;
+    int                   budget;
+    int                   clipped;
+    int                   left_over;
+
+    (void)spare;
+    ll_rle_open(&cs, c);
+
+    skip = top;
+    if (skip != 0) {
+        for (;;) {
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code)) {
+                sp++;                              /* the code-1 defect  */
+                if (!LL_RLE_LO(code))
+                    continue;
+            } else if (!LL_RLE_LO(code)) {
+                continue;
+            }
+            n = *lp++;
+            if (n == 0) {
+                if (--skip > 0) continue;
+                break;
+            }
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) continue;
+            if (LL_RLE_LO(code)) sp++;
+            else sp += n;
+        }
+    }
+
+    row = (unsigned char*)dst;
+    dp = (unsigned short*)row;
+    rows = h;
+    lskip = left;
+    budget = w;
+    for (;;) {
+        /* ---- L_4684A1: skip `lskip` source pixels ----------------------- */
+        while (lskip > 0) {
+            lskip--;
+            dp++;
+            sp++;
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code))                  /* 0/1: clipped word  */
+                continue;
+            sp--;
+            if (!LL_RLE_LO(code))                  /* 2: transparent     */
+                continue;
+            lskip++;
+            dp--;
+            n = *lp++;
+            if (n == 0)                            /* L_4687BC: end row  */
+                goto end_of_row;
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) {                 /* transparent run    */
+                dp += n;
+                lskip -= (int)n;
+                if (lskip < 0)
+                    budget += lskip;
+                continue;
+            }
+            if (!LL_RLE_LO(code)) {                /* literal run        */
+                lskip -= (int)n;
+                if (lskip >= 0) {
+                    sp += n;
+                    dp += n;
+                    continue;
+                }
+                clipped = lskip;
+                budget += clipped;
+                if (budget > 0) {
+                    clipped += (int)n;
+                    sp += clipped;
+                    dp += clipped;
+                    n = (unsigned int)(-lskip);
+                    do {
+                        *dp++ = (unsigned short)((unsigned short)(*sp++ & mask) >> 1);
+                    } while (--n);
+                    continue;
+                }
+                clipped += (int)n;                 /* cut at both edges  */
+                sp += clipped;
+                dp += clipped;
+                n = (unsigned int)((int)n - clipped + budget);
+                do {
+                    *dp++ = (unsigned short)((unsigned short)(*sp++ & mask) >> 1);
+                } while (--n);
+                sp += -budget;
+                goto row_tail;
+            } else {                               /* repeat run         */
+                lskip -= (int)n;
+                if (lskip >= 0) {
+                    sp++;
+                    dp += n;
+                    continue;
+                }
+                clipped = lskip;
+                budget += clipped;
+                if (budget > 0) {
+                    clipped += (int)n;
+                    dp += clipped;
+                    n = (unsigned int)(-lskip);
+                    v = (unsigned short)((unsigned short)(*sp++ & mask) >> 1);
+                    do { *dp++ = v; } while (--n);
+                    continue;
+                }
+                clipped += (int)n;
+                dp += clipped;
+                n = (unsigned int)((int)n - clipped + budget);
+                v = (unsigned short)((unsigned short)(*sp++ & mask) >> 1);
+                do { *dp++ = v; } while (--n);
+                goto row_tail;
+            }
+        }
+        if (budget <= 0)
+            goto row_tail;
+        /* ---- the visible span ------------------------------------------- */
+        while (budget > 0) {
+            budget--;
+            dp++;
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code)) {                /* 0/1: no hit test   */
+                dp[-1] = (unsigned short)((unsigned short)(*sp++ & mask) >> 1);
+                continue;
+            }
+            if (!LL_RLE_LO(code))                  /* 2: transparent     */
+                continue;
+            budget++;
+            dp--;
+            n = *lp++;
+            if (n == 0)
+                goto end_of_row;
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) {                 /* transparent run    */
+                dp += n;
+                budget -= (int)n;
+                continue;
+            }
+            if (ll_rle_hit_run(mouse, dp, n))      /* the full length     */
+                g_blit_hit |= 1;
+            left_over = budget - (int)n;
+            if (LL_RLE_LO(code)) {                 /* repeat run         */
+                if (left_over >= 0) {
+                    budget = left_over;
+                    v = (unsigned short)((unsigned short)(*sp++ & mask) >> 1);
+                    do { *dp++ = v; } while (--n);
+                } else {
+                    n = (unsigned int)budget;
+                    v = (unsigned short)((unsigned short)(*sp++ & mask) >> 1);
+                    do { *dp++ = v; } while (--n);
+                    goto row_tail;
+                }
+            } else {                               /* literal run        */
+                if (left_over >= 0) {
+                    budget = left_over;
+                    do {
+                        *dp++ = (unsigned short)((unsigned short)(*sp++ & mask) >> 1);
+                    } while (--n);
+                } else {
+                    left_over = -left_over;
+                    n = (unsigned int)budget;
+                    do {
+                        *dp++ = (unsigned short)((unsigned short)(*sp++ & mask) >> 1);
+                    } while (--n);
+                    sp += left_over;
+                    goto row_tail;
+                }
+            }
+        }
+    row_tail:
+        /* ---- L_46875B: consume the rest of the row ---------------------- */
+        for (;;) {
+            code = ll_rle_code(&cs);
+            if (!LL_RLE_HI(code)) { sp++; continue; }
+            if (!LL_RLE_LO(code)) continue;
+            n = *lp++;
+            if (n == 0) break;
+            code = ll_rle_code(&cs);
+            if (LL_RLE_HI(code)) continue;
+            if (LL_RLE_LO(code)) sp++;
+            else sp += n;
+        }
+    end_of_row:
+        row += pitch;
+        dp = (unsigned short*)row;
+        lskip = left;
+        budget = w;
+        if (--rows == 0)
+            break;
+    }
 #endif
 }
