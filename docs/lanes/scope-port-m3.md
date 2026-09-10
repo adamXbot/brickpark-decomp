@@ -520,3 +520,39 @@ The one sentence to carry forward: **a slot is safe iff the set of real
 signatures of the bodies that reach it has exactly one element, and that element
 is the call site's type.** Everything in this lane is that sentence applied
 thirty times.
+
+## 10. What the page and the harness do after this lane
+
+Both were run after every batch. Neither regressed, and one of them is a
+surprise worth the integrator's attention.
+
+**`legoland_headless` under node** stops exactly where PORT-M1 and PORT-M2 left
+it and with the same trace: version block, mutex, `DirectDrawCreate`, the CD
+check, all three RES volumes and their directories, window, four fonts,
+`SetDisplayMode 640x480 16bpp`, three surfaces, both DirectInput devices, the
+eight title sprites and then the 343,366-byte title artwork, then
+
+```
+LEGOLAND/rlepaint.c:1016: RLEPaintHit() is an inline-asm body that has not been ported yet
+```
+
+which is the unported RLE blitter and not this lane's.
+
+**The browser page does NOT stop there.** Served from `portable/build-wasm`,
+`legoland.html?trace=1` replays the same trace, reaches `first present:
+640x480 pitch 1280`, loads a further 63,814-byte member and then **runs the
+title screen at ~4.5 fps with the LEGOLAND title artwork on the canvas** — 103
+frames and counting, no `TRAP` banner, no `unreachable`, nothing in the console.
+
+So the page is ahead of the node harness, which contradicts the "full parity"
+line in `scope-port-m2.md` section 7. This lane did not verify the page against
+its own base revision (the comparison needs a rebuild at the base and the lane
+ran out of window), so **do not attribute the picture to PORT-M3** — nothing
+here touches a blitter, and `RLEPaintHit` is reached by a direct call, not
+through a table. The likely explanation is that the page's sprite reaches one of
+the clipped RLE variants that already has a C body while the node harness's
+first sprite hits the unclipped one; `softblit2.c:758` is the only caller of
+`RLEPaintHit` in the tree and it is inside a macro with clip variants either
+side of it. Worth ten minutes from whoever owns rlepaint.c: **the difference
+between the two hosts is which clip variant the first sprite takes**, and the
+page proves the rest of the path already works.
