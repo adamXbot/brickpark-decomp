@@ -837,6 +837,13 @@ python3 tools/audit.py LEGOLAND/*.c | grep -E 'REJECT|FAIL|COMPILE FAILED'
 ALPHATEAM_VC6_ROOT="$PWD/toolchain" \
   "${LEGOLAND_CL:-../alphateam/tools/wibo-msvc/cl}" \
   /nologo /c /W3 /O2 /Gy /Gd /Fo/tmp/x.obj LEGOLAND/<file>.c
+# NOTHING WAS UN-CLOSED: the set of exact addresses before must be a SUBSET of
+# the set after.  BEFORE is the tip you merged onto, AFTER is what you are
+# about to push.  Must print nothing.  (See the note below -- this is not
+# optional and the counts will not tell you.)
+ex() { git grep -h -oE '^// FUNCTION: LEGOLAND 0x[0-9a-fA-F]+' "$1" -- 'LEGOLAND/*.c' \
+       | grep -oE '0x[0-9a-fA-F]+' | tr 'A-F' 'a-f' | sort -u; }
+comm -23 <(ex <before-ref>) <(ex <after-ref>)
 # relocation identity, per changed file: zero MISMATCH lines (UNRESOLVED is fine)
 python3 tools/relocs.py LEGOLAND/<file>.c
 # relocation identity, WHOLE TREE — run this every round, not just the changed
@@ -844,6 +851,24 @@ python3 tools/relocs.py LEGOLAND/<file>.c
 python3 tools/relocs.py --all | grep MISMATCH        # must print nothing
 python3 tools/verify.py     # ALONE. nothing else compiling.
 ```
+
+**A count is not a set — diff the marker SETS before every push.** On
+2026-09-10 an integration merge silently reverted `ZBuffer_FillPoly`
+0x00423350 from exact back to WIP, a body that had been closed two days
+earlier. It survived THREE whole-tree gate runs, because the same merge closed
+40 other bodies: the exact total went 3,231 -> 3,272, `audit.py` reported no
+REJECT, and `verify.py` was green at every step. Every gate in this checklist
+answers "is each marked body exact?" — none of them answers "is every body
+that WAS exact still marked?", and a net-positive round hides a regression
+perfectly. The `comm -23` above is the only check that sees it; on that merge
+it prints `0x00423350` in one line.
+
+**Measure the ref you are about to push, not your working tree.** The same
+incident had a second cause: every audit was run against a worktree holding an
+uncommitted fix, while the commit being pushed did not have it, so the gates
+described a tree that existed nowhere and reported one more exact body than
+main actually had. Either commit first and then gate, or read the file out of
+the ref with `git show <ref>:<file>`.
 
 **Run the whole-tree relocs sweep, not just the changed files.** `relocs.py`
 catches the one defect class the normalised gate is blind to: a wrong global
