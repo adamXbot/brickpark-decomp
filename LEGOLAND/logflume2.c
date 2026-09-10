@@ -1346,7 +1346,9 @@ void LFPiece_TickCommon(RideDef* def, Footprint* fp)
     g_ui_flags |= 8;
     BuildCursorPtr(&g_edit_cursor, 0x8f8, 0);
     SetEditCursorFootPrint(fp);
-    g_lf_tool_a = g_lf_tool_b = g_lf_tool_c = g_lf_tool_d = 0x2034;
+    /* The original stores these in a, b, c, d order; a chained assignment
+     * evaluates right to left, so the chain is written in reverse. */
+    g_lf_tool_d = g_lf_tool_c = g_lf_tool_b = g_lf_tool_a = 0x2034;
 }
 
 typedef struct LFOffsetTables {

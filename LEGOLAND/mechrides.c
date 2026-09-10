@@ -710,11 +710,14 @@ void SpinningBarrels_Destroy(void)
 extern void*  g_copters_fx;                                  /* 0x004b4140 (4 entries) */
 extern void*  g_copters_matte;                               /* 0x004c1120 */
 extern void*  g_copters_spr[10];                             /* 0x004c113c..0x004c1160 */
+/* The five are consecutive dwords (see g_copters_paths[5] below); the names
+ * follow the addresses.  They were previously numbered out of order, which
+ * made every use site name the wrong object -- relocs.py caught it. */
 extern void*  g_copters_path0;                               /* 0x004c1124 */
 extern void*  g_copters_path1;                               /* 0x004c1128 */
-extern void*  g_copters_path2;                               /* 0x004c1130 */
-extern void*  g_copters_path3;                               /* 0x004c1134 */
-extern void*  g_copters_path4;                               /* 0x004c112c */
+extern void*  g_copters_path2;                               /* 0x004c112c */
+extern void*  g_copters_path3;                               /* 0x004c1130 */
+extern void*  g_copters_path4;                               /* 0x004c1134 */
 extern void*  g_copters_postable;                            /* 0x00830f98 */
 extern void*  g_copters_paths[5];                            /* 0x004c1124 (the five as one array) */
 
@@ -733,12 +736,12 @@ void Copters_Destroy(void)
         FreeWalkPath(g_copters_path0);
     if (g_copters_path1)
         FreeWalkPath(g_copters_path1);
-    if (g_copters_path2)
-        FreeWalkPath(g_copters_path2);
     if (g_copters_path3)
         FreeWalkPath(g_copters_path3);
     if (g_copters_path4)
         FreeWalkPath(g_copters_path4);
+    if (g_copters_path2)
+        FreeWalkPath(g_copters_path2);
     Copters_FreeAllRecords();
     Kill_FXList(&g_copters_fx, 4);
     UnloadPos(g_copters_postable);
@@ -856,10 +859,10 @@ void Copters_Create(RideElem* elem)
         g_copters_spr[i] = LoadSprite(g_copters_spr_names[i], 1);
     g_copters_postable = LoadPos("3ddata\\copters.pos");
     g_copters_path0 = BuildWalkPath(&g_copters_poly0);
-    g_copters_path4 = BuildWalkPath(&g_copters_poly1);
+    g_copters_path2 = BuildWalkPath(&g_copters_poly1);
     g_copters_path1 = BuildWalkPath(&g_copters_poly2);
-    g_copters_path2 = BuildWalkPath(&g_copters_poly3);
-    g_copters_path3 = BuildWalkPath(&g_copters_poly4);
+    g_copters_path3 = BuildWalkPath(&g_copters_poly3);
+    g_copters_path4 = BuildWalkPath(&g_copters_poly4);
     g_copters_cur0 = &g_copters_slot0;
     g_copters_cur1 = &g_copters_slot1;
     g_copters_cur2 = &g_copters_slot2;
@@ -933,6 +936,12 @@ extern void  GetLayer(void* spr, LayerOut* out, unsigned int layer);  /* 0x00497
 
 extern void*  g_plane_layers;                                /* 0x0062fe7c */
 extern void*  g_plane_bnv_ride;                              /* 0x0062fe90 */
+/* The plane's BNV table, three consecutive dwords that PlaneRide_Create fills
+ * and PlaneRide_Update reads back.  0x0062fe84 is also reached as
+ * g_zoomer_obj_samples[] in ridesave.c, which indexes the same dwords. */
+extern void*  g_plane_tab0;                                  /* 0x0062fe84 */
+extern void*  g_plane_tab1;                                  /* 0x0062fe88 */
+extern void*  g_plane_tab2;                                  /* 0x0062fe8c */
 extern void*  g_plane_bnv_on;                                /* 0x0062fe94 */
 extern void*  g_plane_bnv_off;                               /* 0x0062fe78 */
 extern void*  g_plane_zsprite;                               /* 0x0062fe98 */
@@ -955,9 +964,13 @@ void PlaneRide_Create(RideElem* elem)
     g_plane_zsprite = g_plane_matte;
     g_plane_rider_dx = -10;
     g_plane_rider_dy = -107;
-    g_plane_bnv0 = g_plane_bnv_ride;
-    g_plane_bnv1 = g_plane_bnv_on;
-    g_plane_bnv2 = g_plane_bnv_off;
+    /* These land in the plane's BNV table at 0x0062fe84..0x0062fe8c, which
+     * PlaneRide_Update reads back through g_plane_tab1 / g_plane_tab2 -- NOT
+     * in the 0x0062fe90/94/78 slots PlaneRide_Destroy frees.  The two trios
+     * were conflated here until relocs.py caught the three wrong stores. */
+    g_plane_tab0 = g_plane_bnv_ride;
+    g_plane_tab1 = g_plane_bnv_on;
+    g_plane_tab2 = g_plane_bnv_off;
     Load_FXList(&g_plane_fx, 2);
     HideLayer(g_plane_layers, 1);
     StopLayerPlaying(g_plane_layers, 1);
@@ -2460,8 +2473,8 @@ void Copters_Activate(RideElem* elem)
             case 1:
                 i = Copters_CopterOf(r, RIDE_TILE(r));
                 switch (i) {
-                case 0: path = g_copters_path2; break;
-                case 1: path = g_copters_path0; break;
+                case 0: path = g_copters_path0; break;
+                case 1: path = g_copters_path2; break;
                 case 2: path = g_copters_path1; break;
                 case 3: path = g_copters_path3; break;
                 case 4: path = g_copters_path4; break;
@@ -2497,8 +2510,8 @@ void Copters_Activate(RideElem* elem)
             case 8:
                 i = Copters_CopterOf(r, RIDE_TILE(r));
                 switch (i) {
-                case 0: path2 = g_copters_path2; break;
-                case 1: path2 = g_copters_path0; break;
+                case 0: path2 = g_copters_path0; break;
+                case 1: path2 = g_copters_path2; break;
                 case 2: path2 = g_copters_path1; break;
                 case 3: path2 = g_copters_path3; break;
                 case 4: path2 = g_copters_path4; break;

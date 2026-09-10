@@ -1656,7 +1656,7 @@ void LFTrack_Update(RideElem* elem, int screen, int mode)
         SetCursorError(&g_edit_cursor, 2);
     if (CursorIsValid(&g_edit_cursor)) {
         sq.x = (unsigned char)(g_lf_footprint.v[0] + g_mapref.x);
-        sq.y = (unsigned char)(g_mapref.y + g_lf_footprint.v[1]);
+        sq.y = (unsigned char)(g_lf_footprint.v[1] + g_mapref.y);
         LFTrack_ProbeNeighbours(sq, &nb);
         LFTrack_DropFullNeighbours(nb);
         if (LFTrack_CountNeighbours(nb) == 0) {
