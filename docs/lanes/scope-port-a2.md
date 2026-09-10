@@ -147,3 +147,155 @@ the session teardown. Fixing the harness's own declaration to `int` made it
 work and return 0. **For a matching lane: `sweep4.c` is right (it has the
 body), `startup.c`'s prototype is wrong.** That is the shape of the remaining
 541, and it is worth a lane of its own.
+
+### The ordered sequence, and where it stops
+
+`--stages` walks InitSession's own order (startup.c 0x0047f880) with a line
+before each step. The browser page reaches exactly the same point.
+
+| # | step | result |
+| --- | --- | --- |
+| 1 | version block, mutex, one-instance test | as PORT-A left it |
+| 2 | `RES_EnsureMounted(1)`, CD found at `$LL_CD_DIR` | `g_res_path = "D:\"` |
+| 3 | `RES_OpenVolume` x3 | 595 + 905 + 574 members |
+| 4 | `LoadStrings()` | `GetString(0xcb)` = `"LEGOLAND ERROR"` |
+| 5 | `InitHostSystemGPU()` | 1 -- PORT-B's DDRAW |
+| 6 | `InitScreen()` | 1 -- 640x480 display opened, window "LEGOLAND" |
+| 7 | `InitInputSystem()` | 1 -- PORT-B's DINPUT |
+| 8 | `RES_OpenFile(".\graphics\erase it.lls")` | 0x9dbb58, 1402 bytes |
+| 9 | `LoadSprite("erase it.lls", 0)` | **`RuntimeError: unreachable` in `__BMPLoader`** |
+
+Steps 5-7 are the whole of PORT-B's graphics and input init and they all
+succeed, so **there is nothing here for PORT-B2 to fix**. The two things PORT-B2
+should know are in §5.
+
+## 3. Tests
+
+### `legoland_tests` links the host shim now
+
+`loadpos` trapped in `ShowWindow` because the closure the tests link,
+`legoland_gen`, has a trapping stub for every DDRAW/USER32/GDI32/DINPUT/WINMM
+name while PORT-B's real bodies live in `legoland_hostwin`, which nothing
+linked. `cmake/tests.cmake` links the shim and swaps the closure for
+`legoland_gen_browser` (the same closure with those stubs filtered out --
+linking both would duplicate every one of them). PORT-B's `user32.c` and
+`ddraw.c` tolerate node once five browser-only symbols exist: the four
+`ll_canvas.js` entry points (`ll_js_display_open` touches `document`) and
+`emscripten_sleep`. `portable/src/headless/node_shim.c` stubs exactly those
+five and is linked into the node executables only -- **PORT-B's files are not
+edited**, as the brief requires.
+
+Two more things that had been hidden behind the `ShowWindow` trap:
+
+* `loadpos` then spun for ever in the real missing-CD loop
+  (`while (!RES_FindVolumeOnResPath(...)) MessageBoxA("Please insert the
+  LEGOLAND CD-ROM into drive %s")`, sysmisc.c, no other exit). That prober does
+  `root[0] = g_res_path[0]` and asks about `"<letter>:\"`, so the test's
+  `g_res_path = "./"` was asking the host about a drive called `".:\"`. The
+  answer is a drive letter: the test sets `"D:\"` and `tests.cmake` sets
+  `LL_CD_DIR=gamedata/disc` for every test. **This is PORT-C's finding 2, and
+  the answer is a drive letter, not a cleverer `GetVolumeInformationA`** -- the
+  game only ever probes `<letter>:\`.
+* `loadpos` now runs every matrix check and finds `earth.pos` in the mounted
+  directory, then stops in `LoadPos` -- see §4. It is a real finding, not a
+  regression: it is three checks further than the whole test used to reach.
+
+### Verdict on the `llidb_icm` divergence: THE ORACLE WAS WRONG
+
+`LLIDB_FindElement("BuIlD MeNu") image: got "(null)", want ""`.
+
+`LLIDB_LoadICM` (data2.c 0x0047aff0) reads a length and then, for both the
+label and the image:
+
+```c
+_read(fd, &len, 4);
+if (len == 0) { g_llidb_pages[page][i].image = 0; }
+else { ...MemAlloc(len + 1)...; _read(fd, ..., len); }
+```
+
+A zero length is stored as a **null pointer**, not as a pointer to `""`. The C
+is doing exactly what the original does; `tools/oracle_icm.py` was emitting the
+field as `""` because that is what the FILE holds, which is honest about the
+file and wrong about the loaded record. `value == ""` and `len == 0` are the
+same set, so the two are exactly interchangeable and the oracle can say which
+it means. Fixed on the oracle side (`c_str_or_null`, which emits `0`), with
+`LL_CHECK_STR` taught that a NULL `want` means "expect NULL" -- previously it
+could not express that at all. **`llidb_icm`: 47 checks, 0 failed.**
+
+## 4. THE FRONTIER: the 542 prototype conflicts are live
+
+PORT-A found them and could not say whether they mattered. They matter: they
+are now the only thing between this port and a drawn frame, and three are
+proved live on paths the game takes.
+
+| symbol | defined | declared | proved live in |
+| --- | --- | --- | --- |
+| `RES_CloseFile` | `int RES_CloseFile(RVol*)` sweep4.c | `void RES_CloseFile(void*)` in 13 files | `LoadPos` (loaders.c) and `__BMPLoader` (screen.c) |
+| `RES_CloseVolume` | `int RES_CloseVolume(RVol*)` sweep4.c | `void` in startup.c | `InitSession`'s teardown, startup.c:140/153/161/183 |
+| `DBPrintf` | `void DBPrintf(void)` sweep1.c | variadic in 30+ files | `__BMPLoader`'s failure branch |
+
+**How to see one.** A signature mismatch is not a `TRAP` and not an undefined
+symbol: wasm-ld emits a stub named `signature_mismatch:<name>` and, at `-O2`,
+inlines its `unreachable` into the caller, so it arrives as a bare
+`RuntimeError: unreachable` attributed to whatever function made the call.
+Rebuild the same objects at `-O0` and the frame appears by name:
+
+```
+RuntimeError: unreachable
+    at tests_O0.wasm.signature_mismatch:RES_CloseFile
+    at tests_O0.wasm.LoadPos
+    at tests_O0.wasm.test_loadpos
+```
+
+That is the technique to hand the next lane; `--profiling-funcs` (now on
+`legoland_headless` and `legoland_tests`) is the half of it that costs nothing.
+
+**Which side is right.** The definition is, every time: it has the body the
+matcher validated against the original bytes. `sweep4.c`'s `int` return is real
+(the callers in x86 cdecl simply ignored EAX). `sweep1.c`'s
+`void DBPrintf(void)` is the awkward one -- the original at 0x00453a20 is an
+empty function, and an empty cdecl body compiles to `ret` whether or not it
+declares parameters, so `void DBPrintf(const char* fmt, ...) { }` should be
+byte-identical AND fix all 30+ call sites at once. That is a matching lane's
+call to make and to gate with `audit.py`; this lane did not touch
+`LEGOLAND/*.c` at all.
+
+**The cheap sweep**, for whoever takes it: `RES_CloseFile` is 13 files and
+`RES_CloseVolume` is one, each a caller-side
+`#ifdef LEGOLAND_PORTABLE` / `extern int ...` / `#else` / original / `#endif`
+that the VC6 arm never sees. `linkreport.md`'s "Prototype conflicts" section is
+the full list; sort it by whether the disagreement is a return type (harmless
+in cdecl, fatal on wasm) or arity (`AddBasicObject` is defined with three
+parameters and called with two from 21 files -- that one is a real recovery
+question).
+
+## 5. For PORT-B2
+
+Nothing in the DDRAW/USER32/GDI32/DINPUT/WINMM shim is blocking the spine:
+`InitHostSystemGPU`, `InitScreen` and `InitInputSystem` all return 1 and the
+display opens at 640x480. Two things are still owed, both already on PORT-B's
+list:
+
+1. **`MessageBoxA` must be able to return `IDCANCEL` (2).** PORT-A predicted
+   this; it is now measured. With the shim linked, `loadpos` sat in
+   `RES_EnsureMounted`'s retry loop until ctest's 300-second timeout, printing
+   `[MessageBox] CD Missing` for ever. In a test the answer is `LL_CD_DIR`; in
+   the page, a viewer with no CD gets an unbreakable loop.
+2. **The four `ll_canvas.js` entry points are the shim's whole JS surface**, and
+   `emscripten_sleep` its whole ASYNCIFY surface. That is a good property; it is
+   what let `node_shim.c` stub them in five short functions. Keep it.
+
+## 6. Build hygiene
+
+* `gen-browser` now DEPENDS on `portable/tools/linkreport.py`. `gen_link.py`
+  imports it for the object scanner, the source scanner, the classifier and the
+  wasm signature reader, so a change there changes the generated closure and
+  used to leave it stale. **`portable/CMakeLists.txt`'s own `gen` command has
+  the same gap** and only the integrator may edit that file.
+* **`-sERROR_ON_UNDEFINED_SYMBOLS=0` is gone from the browser link.** Nothing
+  breaks: the link is clean and the page runs the spine to the same point. It
+  was there while PORT-A's `--ilp32` work was in flight. Note that it does NOT
+  catch the prototype conflicts of §4 -- a signature mismatch is a wasm-ld
+  warning and a poisoned call site, not an undefined symbol.
+* Build from CLEAN directories after a generator change; the stale-object trap
+  in HANDOFF.md is real.
