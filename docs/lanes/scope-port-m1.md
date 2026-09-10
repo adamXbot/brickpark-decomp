@@ -85,6 +85,16 @@ single highest-value item left in `portable/`: nothing can be seen on the canvas
 until the RLE blitters have C fallbacks. `SoftBlitRLEPlain` (softblit.c) and
 `SoftBlitSprite` are its callers, so the porting lane should start there.
 
+What that lane is actually facing, counted: `rlepaint.c` alone holds eight
+`LL_UNPORTED_ASM()` blitters — `RLEPaintHit` (line 1016, the one the title
+screen hits) plus `RLEPaintHitClipLR` / `ClipL` / `ClipR`, `RLEPaintClipLR` /
+`ClipL` / `ClipR` and `RLEPaintFast` — and they all share one parameter shape
+(`void* dst, void* a, void* b, void* c, int h, int pitch, ...`), so one correct
+C decoder plus four clip variants covers the file. The other files with asm
+still standing are `rlepaint2.c`, `softblit.c`, `softblit2.c`, `blitmisc.c`,
+`bigrender.c`, `popup.c`, `bnvpath.c`, `tri3d.c`, `coaster13.c`,
+`coastermath.c`, `coastershade2.c`. The title screen needs only the first group.
+
 **The browser page reaches exactly the same point**, which is the useful part:
 `http://localhost:8793/legoland.html?trace=1` (serve `portable/build-wasm` with
 `python3 -m http.server 8793`) replays the whole trace above and then loads the
