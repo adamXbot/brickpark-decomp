@@ -92,12 +92,12 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **76.7% exact, 94.4% with partials** (2026-09-09) |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3231 |
-| `verify.py` | `python3 tools/verify.py` (ALONE) | 3231/3231 at 100% (2026-09-09, after LL3/4/6/7) |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **81.4% exact, 94.4% with partials** (2026-09-10) |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3273 |
+| `verify.py` | `python3 tools/verify.py` (ALONE) | 3273/3273 at 100% (2026-09-10, after the FGH wave) |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F owned part of this list and are both closed; use `tools/inventory.py` for game-code targets. |
-| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 92 — all listed in §6B; LL17–LL24 claim 80 of them |
+| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 50 — all listed in §6B |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-09) | **ZERO — 0 live, 0 dead.** Every function in the game-code range has a body in C; see the frontier milestone below and §6C. |
 | **the ceiling** | `tools/inventory.py` residue line | 35,370 bytes (5.5%) is padding, `switch` tables in `.text` and CRT data that no C body can ever claim, so **~94.5% exact is the theoretical maximum**, not 100%. |
 
@@ -566,6 +566,29 @@ All four carry the scope Codex-F levers (the cancelled-pair anchor, the alias
 pointer for reversed commutative operands) and the `/FAcs` frame-symbol route,
 none of which the earlier waves had.
 
+**THE FGH WAVE LANDED (2026-09-10, main `9a82cc00`): 81.4% exact.** Five FGH
+branches (`cursor/fgh-100b..d`, `codex/fgh-integration`, `fgh-pickup`) sat 418
+commits behind and had never been assessed; they closed **40** of the bodies
+main still carried as WIP. Verified before taking anything: their 30 files
+overlaid on main audited 410 `[OK]` / 0 `[REJECT]`, so every promoted marker
+is a true match, not an interrupted claim. `scope/AC` gave a sixth
+improvement, `LoadAltTextures` 78 -> 6 mismatches. Partials fell 92 -> 50,
+exact rose 3,231 -> 3,273, `verify.py` 3273/3273.
+
+Two files needed a splice rather than an overlay, because neither side
+dominated: `schoolcar6.c` (main had `ZBuffer_FillPoly` exact, FGH had two
+others) and `mantex.c` (main had `PutOne3DBlokeOnRide` exact, AC had the far
+better `LoadAltTextures`). Both now carry the best of each.
+
+Assessed and deliberately NOT merged: `scope/LL8` is strictly behind main
+(main closed `AddScriptString`; the branch still calls it a FLOOR). The five
+`codex/*` runtime branches and `feat/browser-game-repo-setup-6bcb9e` are
+600-commit-old forks that place the SAME addresses in DIFFERENT files
+(`0x00499fb0` is `workers3.c` on main, `blokemisc.c` there), so merging their
+`LEGOLAND/*.c` would create duplicate markers and fail the gate. Their
+`runtime/`, `web/` and `portable/` trees are separate browser-port work and
+are untouched by this.
+
 **MILESTONE (2026-09-09): the unmatched game-code frontier is EXHAUSTED.**
 After LL3, LL4, LL6 and LL7 merged, `inventory.py` reports **0 live unmatched
 bytes and 0 candidate groups** — every live game function now carries a
@@ -849,104 +872,61 @@ Lanes that had been running, all resumable from `docs/LANE_BRIEF.md`:
 **A. Done (2026-09-03 afternoon):** the 62 audit-exact WIPs are promoted and
 `verify.py` is green at 1473/1473. Start at B.
 
-**B. The partials are now the whole of the remaining work — refreshed 2026-09-09.**
-With the frontier at zero, every function in the binary has a body; what is left
-is turning these 92 partials exact, and LL21–LL24 claim 80 of them. Each carries a
-note above its marker recording its measured residual, its first diverging index,
-and what previous agents ruled out. *Read that note before touching one.* Sorted
-by mismatch. A row tagged **EXHAUSTED**, **FLOOR** or **… floor** has a recorded
-proof of why no source form reaches the original — do not re-grind it; the
-evidence is in the matching `docs/lanes/scope-*.md`.
+**B. The 50 partials are the whole of the remaining work — refreshed 2026-09-10.**
+Every function in the binary has a body; what is left is turning these exact.
+Each carries a note above its marker with its measured residual, its first
+diverging index, and what previous agents ruled out. *Read that note before
+touching one.* Sorted by mismatch. A row tagged **EXHAUSTED**, **FLOOR** or
+**… floor** has a recorded proof that no source form reaches the original —
+do not re-grind it; the evidence is in the matching `docs/lanes/scope-*.md`.
 
 | mismatch | insns | address | function | file — status |
 | ---: | ---: | --- | --- | --- |
 | 2 | 81 | 0x00420200 | IntegrateSimpson | coastershade2.c |
-| 2 | 144 | 0x0040ca60 | LFTrack_DrawAlt | logflume4.c |
 | 3 | 43 | 0x004718c0 | ClampPopUpToScreen | misc3.c — **EXHAUSTED** |
-| 3 | 109 | 0x0041c4c0 | BsWater_SetTile | bswater.c |
-| 3 | 207 | 0x00401080 | SchoolCarManoeuvreC | schoolcar2.c |
-| 3 | 330 | 0x00433840 | JcBoat_Animate | roads.c — **EXHAUSTED** |
-| 3 | 334 | 0x004198a0 | BsBoat_Animate | bswater3.c |
 | 3 | 482 | 0x00477bd0 | RequestRoute | simcore.c — **EXHAUSTED** |
-| 4 | 60 | 0x00428750 | InitTrackDrawModes | coaster4.c |
 | 5 | 53 | 0x00471ca0 | RemoveNewObjectMarker | fpui5.c |
 | 5 | 66 | 0x004966a0 | UpdateSampleSource | sysmisc.c |
 | 5 | 205 | 0x0045f810 | ValidateCursor | objmap2.c — **EXHAUSTED, leave** |
-| 5 | 217 | 0x0040f050 | LFTunnel_Place | logflume3.c |
-| 5 | 637 | 0x0042aa90 | Balloonz_Tick | ridecb3.c |
-| 6 | 70 | 0x00422000 | TrackCurve_GatherParams | schoolcar4.c |
-| 6 | 129 | 0x00422e40 | Shade_BuildRamp | schoolcar6.c |
+| 6 | 151 | 0x00428cb0 | Coaster3D_BuildTrackMesh | schoolcar3.c |
+| 6 | 229 | 0x00442980 | LoadAltTextures | mantex.c |
 | 6 | 521 | 0x004227c0 | Mesh_DropBackFaces | unref2.c — **LL10 floor: SIB rank has two reachable states, original in neither** |
 | 7 | 94 | 0x004349b0 | JcDeco_CalcCursor | unref4.c — **LL12 floor: mod-3 count of real memory-to-memory value moves** |
 | 7 | 3161 | 0x00492db0 | MusicThread | musicthread.c — **LL18 floor: import hoisting needs a register free across the whole loop** |
-| 8 | 151 | 0x00428cb0 | Coaster3D_BuildTrackMesh | schoolcar3.c |
-| 8 | 173 | 0x004234e0 | Coaster3D_DrawMesh | schoolcar3.c |
 | 8 | 218 | 0x0041a040 | BoatingSchool_Add | ridecb5.c — **EXHAUSTED, leave** |
 | 10 | 88 | 0x00451280 | UnlockAllPhysicalLocks | unref5.c — **LL13 floor: an exiled return-0 is laid last or inlined early, never first** |
-| 10 | 129 | 0x00425e20 | Coaster3D_SetupView | coaster3d.c |
-| 10 | 207 | 0x00401320 | SchoolCarManoeuvreA | schoolcar2.c |
-| 10 | 222 | 0x0040bf70 | LFEntrance_Activate | lfentrance.c |
-| 10 | 574 | 0x0040dc00 | LFCorner_Place | logflume3.c |
-| 11 | 102 | 0x0040abf0 | LFEntrance_Remove | logflume.c |
+| 10 | 222 | 0x0043bac0 | SpaceTower_Activate | mechrides.c |
+| 11 | 354 | 0x00435750 | JungleCruise_Tick | ridecb2.c |
 | 12 | 31 | 0x00417e70 | WW_AnyBlokeInRect | waterworks.c — **EXHAUSTED** |
-| 12 | 191 | 0x00421660 | CoasterCar_BuildRider | coaster6.c |
 | 13 | 109 | 0x00473b00 | UpdateControllerFromMouseData | input.c — **EXHAUSTED** |
 | 13 | 962 | 0x004724a0 | DrawPopUpInfo | popup.c — **LL18 floor: residency, not forward substitution** |
 | 14 | 39 | 0x00451390 | LockPhysicalVolume | unref5.c — **LL13 floor: RA08 zero-web count is three either way** |
 | 14 | 50 | 0x00408f90 | LFTrack_FindPieceCovering | unref1.c — **LL9 floor: y ranks below two span hoists** |
 | 15 | 116 | 0x00459970 | TallyBuildFootprints | mapbuild2.c — **LL17 floor: the bound is read before the store in source order** |
-| 15 | 141 | 0x00434f90 | JungleCruise_Add | ridecb9.c |
-| 15 | 376 | 0x00416330 | SpiderRide_Activate | mechrides.c |
 | 16 | 20 | 0x00453c20 | DDrawErrorPassThrough | unref5.c — **LL13 floor: VC6 cross-jumps identical arms before the search tree** |
-| 16 | 703 | 0x00407c30 | Joust_Update | joust2.c |
-| 18 | 33 | 0x00411dc0 | Pump_SnapToRoad | ridemisc3.c |
-| 19 | 362 | 0x0043c950 | SpinningBarrels_Activate | mechrides.c |
-| 19 | 387 | 0x0043e410 | PlaneRide_Activate | mechrides.c |
+| 18 | 347 | 0x00417430 | TempleSlide_Update | joust.c |
 | 20 | 191 | 0x0048a3e0 | GetObjectUID | objmap2.c — **LL17 floor: a global load is rematerialised at its use** |
 | 22 | 68 | 0x00475630 | InsertChildIntoList | fpui.c — **EXHAUSTED** |
-| 22 | 347 | 0x00417430 | TempleSlide_Update | joust.c |
 | 26 | 124 | 0x0046c7e0 | LoadScriptEvent | savechunks2.c — **LL18 floor: a single-predecessor cold block is laid next to its predecessor** |
-| 27 | 63 | 0x00402490 | SchoolCarBlockedAhead | schoolcar4.c |
-| 27 | 64 | 0x00413450 | Road_FindDiagonals | ridecb5.c |
-| 27 | 116 | 0x00436dc0 | JungleCruise_UpdateRiverTile | junglecruise.c |
-| 29 | 378 | 0x0042c820 | Carousel_Tick | ridecb3.c |
-| 30 | 212 | 0x00418fe0 | BoatingSchool_DrawBoats | anim2.c |
-| 32 | 129 | 0x0041bfb0 | BsWater_DrawSelection | screencb.c |
-| 32 | 129 | 0x00436470 | JcWater_DrawSelection | screencb.c |
 | 34 | 87 | 0x00424050 | GetTrackSegment | coaster12.c |
 | 35 | 61 | 0x00423200 | Raster_AddSpanRecord | coaster12.c |
 | 35 | 121 | 0x0046d850 | ScrollIconPanel | fpui4.c — **LL17 floor: appearance-count model out of domain** |
-| 37 | 58 | 0x004070b0 | GoldRush_KneelAtPan | goldrush3.c |
 | 38 | 143 | 0x004284d0 | Coaster3D_BuildPieceGeometry | coaster3d.c |
 | 42 | 77 | 0x0041db90 | Route_GetMassAndPower | coaster11.c |
-| 44 | 111 | 0x00410180 | LFDrop_Place | logflume2.c |
-| 47 | 358 | 0x0041a720 | BoatingSchool_Tick | ridecb5.c |
-| 53 | 76 | 0x0041e000 | Route_StepFree | schoolcar5.c |
-| 53 | 174 | 0x00428f00 | Coaster3D_InitTrackTopology | schoolcar3.c |
 | 62 | 136 | 0x0041fba0 | Span_FillFlatZ | coastershade2.c |
 | 62 | 202 | 0x0041ff80 | Span_FillShadeZ | coastershade2.c — **LL4: ZBuffer-class, byte-exact, row homes vs the original frame** |
-| 78 | 84 | 0x0041df00 | Route_StepToPieceEnd | schoolcar6.c |
-| 78 | 229 | 0x00442980 | LoadAltTextures | mantex.c |
+| 72 | 351 | 0x00402780 | StepSchoolCar | goldrush.c |
 | 82 | 184 | 0x00470620 | CheckWorkerOnMouseStatus | workers2.c — **LL18 floor: const-1 web threading** |
 | 88 | 106 | 0x0041f8d0 | Span_FillFlat | coastershade2.c |
 | 93 | 160 | 0x0045fad0 | DrawCursorSegmentB | cursorseg.c — **LL19 floor: a void default arm is threaded away before layout** |
-| 99 | 110 | 0x00421e90 | TrackCurve_Refine | schoolcar5.c |
 | 105 | 130 | 0x0041c940 | BsRoute_Trace | coaster11.c — **FLOOR (NG22): same phase-order allocation as JungleCruise_TraceRoute** |
-| 105 | 130 | 0x00437260 | JungleCruise_TraceRoute | jcroute.c |
 | 106 | 162 | 0x0041fd80 | Span_FillShade | coastershade2.c |
+| 108 | 252 | 0x0042a2f0 | Raster_SubmitPoly | coaster3d.c |
 | 111 | 195 | 0x0045fca0 | DrawCursorSegmentA | cursorseg.c — **LL19 floor: same default-arm layout as DrawCursorSegmentB** |
-| 112 | 422 | 0x00432d00 | JungleCruise_UpdateRiverAnim | junglecruise.c |
 | 118 | 119 | 0x0048f0f0 | InitExitCheckBox | screens2.c — **LL17 floor: VC6 folds phi(0,0)** |
-| 132 | 402 | 0x00415220 | SafariRide_Activate | mechrides.c |
-| 138 | 222 | 0x0043bac0 | SpaceTower_Activate | mechrides.c |
 | 147 | 254 | 0x00428860 | TrackShade_FillPoly | coaster13.c — **LL7: ZBuffer-class sibling of ZBuffer_FillPoly** |
 | 173 | 179 | 0x0041f050 | Span_ClipPlane | coaster11.c — ESCAPES |
-| 182 | 331 | 0x00442040 | AnimApplyPart | anim2.c |
-| 206 | 256 | 0x0040a600 | LFEntrance_Add | lfentrance.c |
-| 208 | 354 | 0x00435750 | JungleCruise_Tick | ridecb2.c |
-| 231 | 252 | 0x0042a2f0 | Raster_SubmitPoly | coaster3d.c |
 | 273 | 454 | 0x0045ff00 | RenderCursor | bigrender.c |
-| 319 | 351 | 0x00402780 | StepSchoolCar | goldrush.c |
 | 377 | 1023 | 0x00440a30 | Draw3DPersonModel | person3d.c — **EXHAUSTED, leave** |
 | 378 | 431 | 0x004608c0 | PaintTileLayer | render4.c |
 | 381 | 903 | 0x0045b180 | RenderView | renderview.c — **LL20 floor: zero-web extension decided with the geometry allocation** |

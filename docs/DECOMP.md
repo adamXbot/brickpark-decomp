@@ -91,7 +91,7 @@ for the live list.
 | --- | --- | --- |
 | exported functions matched | `tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `tools/callees.py` | moves both ways — the frontier, not progress |
-| **bytes of game code matched** | **`tools/coverage.py`** | **76.7% (94.4% with partials)** — 2026-09-09; the unwritten-function frontier is ZERO |
+| **bytes of game code matched** | **`tools/coverage.py`** | **81.4% (94.4% with partials)** — 2026-09-10, after the FGH wave |
 
 The first two are both true and both misleading on their own.
 
