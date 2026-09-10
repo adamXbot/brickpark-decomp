@@ -22,6 +22,13 @@ extern int  WriteExceptionReport(EXCEPTION_POINTERS* ep, const char* where); /* 
 
 void* __cdecl _exception_info(void);
 
+#ifdef LEGOLAND_PORTABLE
+/* No structured exception handling off Win32 (same stand-in as exceptlog.c):
+ * the guarded block runs unguarded and the filter is dead code. */
+#define __try if (1)
+#define __except(x) else if (0)
+#endif
+
 /* Gate note: the try body is straight-line and ends in `jmp` over the
  * filter/handler blocks, which only the .rdata scope table (0x004ab4e0)
  * reaches, so the extent walker used to stop at 31i/93B and report ESCAPES.

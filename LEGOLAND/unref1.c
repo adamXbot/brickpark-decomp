@@ -1129,6 +1129,7 @@ void ZBuffer_FillShadedPoly(int ramp, const int* src, int n,
         }
         while (y < key->y) {
             y++;
+#ifndef LEGOLAND_PORTABLE
             __asm {
                 mov  eax, ed[0]                 /* left.x             */
                 mov  edx, ed[8]                 /* left.z             */
@@ -1164,6 +1165,24 @@ void ZBuffer_FillShadedPoly(int ramp, const int* src, int n,
                 jle  fill
             done:
             }
+#else
+            {
+                int ll_l, ll_r, ll_x, ll_z;
+                ed[0].x += ed[1].x;
+                ed[0].rest[1] += ed[1].rest[1];
+                ed[2].x += ed[3].x;
+                if (ed[2].x - ed[0].x >= 0x8000) {
+                    ll_l = ed[0].x >> 16;
+                    ll_r = ed[2].x >> 16;
+                    ll_z = ed[0].rest[1];
+                    for (ll_x = ll_l; ll_x <= ll_r; ll_x++) {
+                        r.row[ll_x]  = colour;
+                        r.zrow[ll_x] = (short)(ll_z >> 16);
+                        ll_z += zstep;
+                    }
+                }
+            }
+#endif
             r.row  += r.pitch;
             r.zrow += r.pitch;
         }

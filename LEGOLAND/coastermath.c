@@ -13,7 +13,11 @@ typedef struct RideElem { int unused[3]; void* data; } RideElem;
 typedef struct CtIface { RideElem* elem; void* hooks[5]; } CtIface;
 typedef struct SpanRect { int top, left, bottom, right; } SpanRect;
 typedef struct SqrtEnt { float add, mul; } SqrtEnt;
+#ifndef LEGOLAND_PORTABLE
 #define NAKED __declspec(naked)
+#else
+#define NAKED
+#endif
 
 extern CtIface g_ct_iface[6];                                  /* 0x0082ad20 */
 extern void* g_span_context;                                   /* 0x004b55fc */
@@ -105,6 +109,7 @@ int PackTrackClass(void* cls)
 // FUNCTION: LEGOLAND 0x00426ab0
 NAKED void FastSqrt(void)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         fstp dword ptr [esp-10h]
         mov [esp-8], ebx
@@ -128,11 +133,15 @@ NAKED void FastSqrt(void)
         mov edx, [esp-0ch]
         ret
     }
+#else
+    LL_UNPORTED_ASM(); /* ST(0) ABI; the portable build calls ll_FastSqrt */
+#endif
 }
 
 // FUNCTION: LEGOLAND 0x00426980
 NAKED void FastRSqrt(void)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         fstp dword ptr [esp-10h]
         mov [esp-8], ebx
@@ -156,6 +165,9 @@ NAKED void FastRSqrt(void)
         mov edx, [esp-0ch]
         ret
     }
+#else
+    LL_UNPORTED_ASM(); /* ST(0) ABI; the portable build calls ll_FastRSqrt */
+#endif
 }
 
 // FUNCTION: LEGOLAND 0x00425de0
@@ -193,3 +205,30 @@ void Vec3_Normalize(Vec3f* vec)
     for (i = 0; i < 3; i++)
         v[i] *= inv;
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* C-ABI versions of the ST(0) helpers above; coaster5.c installs them in
+ * g_fast_sqrt / g_fast_rsqrt. The original indexes the exponent table with
+ * the unmasked sign bit (a negative input reads past it); the port masks. */
+float ll_FastSqrt(float value)
+{
+    unsigned int bits, mant;
+    float        m;
+    __builtin_memcpy(&bits, &value, 4);
+    mant = (bits & 0x7fffffu) | 0x3f800000u;
+    __builtin_memcpy(&m, &mant, 4);
+    return (m * g_sqrt_tab[(bits >> 17) & 0x3f].mul + g_sqrt_tab[(bits >> 17) & 0x3f].add)
+           * g_sqrt_exp[(bits >> 23) & 0xff];
+}
+
+float ll_FastRSqrt(float value)
+{
+    unsigned int bits, mant;
+    float        m;
+    __builtin_memcpy(&bits, &value, 4);
+    mant = (bits & 0x7fffffu) | 0x3f800000u;
+    __builtin_memcpy(&m, &mant, 4);
+    return (m * g_rsqrt_tab[(bits >> 17) & 0x3f].mul + g_rsqrt_tab[(bits >> 17) & 0x3f].add)
+           * g_rsqrt_exp[(bits >> 23) & 0xff];
+}
+#endif

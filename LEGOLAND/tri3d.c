@@ -389,10 +389,13 @@ void BuildChannelTables(void)
 /* 0x004860b0 -- flood the whole render target with g_clear_pixel.  Hand
  * assembly: the fill value is a 32-bit pattern (two pixels), which `memset`
  * cannot express, and the row walk is a `rep stosd` per row. */
+#ifndef LEGOLAND_PORTABLE
 __declspec(naked)
+#endif
 // FUNCTION: LEGOLAND 0x004860b0
 void ClearRenderTarget(void)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push   ebx
         push   edi
@@ -416,6 +419,20 @@ void ClearRenderTarget(void)
         pop    ebx
         ret
     }
+#else
+    {
+        unsigned int ll_fill = ((unsigned int)g_clear_pixel << 16) | g_clear_pixel;
+        char*        ll_row = g_surface;
+        int          ll_y;
+        for (ll_y = 0; ll_y < g_rows; ll_y++) {
+            unsigned int* ll_p = (unsigned int*)ll_row;
+            int           ll_n = g_width >> 1;
+            while (ll_n-- > 0)
+                *ll_p++ = ll_fill;
+            ll_row += g_pitch;
+        }
+    }
+#endif
 }
 
 /* 0x00486540 -- build the reciprocal tables the rasterisers divide with.
@@ -550,6 +567,7 @@ void RenderZBufferObject(SpriteRec* s, int x, int y)
     WinRect src;
     Pos     dst;
 
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push edi
         mov  eax, g_zbw
@@ -560,6 +578,9 @@ void RenderZBufferObject(SpriteRec* s, int x, int y)
         rep  stosd
         pop  edi
     }
+#else
+    __builtin_memset(g_zbuf, 0, (__SIZE_TYPE__)g_zbw * (__SIZE_TYPE__)g_zbh * 4);
+#endif
 
     if (s == 0)
         return;
@@ -652,10 +673,13 @@ Shade* MakeShadedColour(int levels, unsigned char* rgb)
  * 0x004877b0 -- DrawFlatTri: flat-colour, Z-buffered triangle.
  * ------------------------------------------------------------------------- */
 
+#ifndef LEGOLAND_PORTABLE
 __declspec(naked)
+#endif
 // FUNCTION: LEGOLAND 0x004877b0
 void DrawFlatTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push   ebp
         mov    ebp, esp
@@ -1164,16 +1188,22 @@ void DrawFlatTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
         pop    ebp
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* -------------------------------------------------------------------------
  * 0x00486590 -- DrawGouraudTri: Gouraud-shaded, Z-buffered triangle.
  * ------------------------------------------------------------------------- */
 
+#ifndef LEGOLAND_PORTABLE
 __declspec(naked)
+#endif
 // FUNCTION: LEGOLAND 0x00486590
 void DrawGouraudTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push   ebp
         mov    ebp, esp
@@ -1799,16 +1829,22 @@ void DrawGouraudTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
         pop    ebp
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* -------------------------------------------------------------------------
  * 0x00487d40 -- DrawFlatTexTri: textured, single shade level, Z-buffered.
  * ------------------------------------------------------------------------- */
 
+#ifndef LEGOLAND_PORTABLE
 __declspec(naked)
+#endif
 // FUNCTION: LEGOLAND 0x00487d40
 void DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push   ebp
         mov    ebp, esp
@@ -2609,16 +2645,22 @@ void DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
         pop    ebp
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* -------------------------------------------------------------------------
  * 0x00486c70 -- DrawGouraudTexTri: textured + Gouraud shading, Z-buffered.
  * ------------------------------------------------------------------------- */
 
+#ifndef LEGOLAND_PORTABLE
 __declspec(naked)
+#endif
 // FUNCTION: LEGOLAND 0x00486c70
 void DrawGouraudTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push   ebp
         mov    ebp, esp
@@ -3537,5 +3579,8 @@ void DrawGouraudTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c)
         pop    ebp
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 

@@ -558,6 +558,7 @@ void DrawSupportShadow(const Vec3f* pos, const Mat3* rot)
     float        bx, by, d;
     int          i;
 
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -566,6 +567,9 @@ void DrawSupportShadow(const Vec3f* pos, const Mat3* rot)
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc();
+#endif
     bx = (float)((int)pos->x * 0.2) * 5.0f;
     by = (float)((int)pos->y * 0.2) * 5.0f;
     for (i = 0; i <= 3; i++) {
@@ -586,6 +590,7 @@ void DrawSupportShadow(const Vec3f* pos, const Mat3* rot)
                                          - g_shadow_v[i + 8].y * up->y)
                                       / up->z);
     }
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -595,6 +600,9 @@ void DrawSupportShadow(const Vec3f* pos, const Mat3* rot)
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc() - t;
+#endif
     g_stat_c_615f68 += t;
     org.x = 0.0f;
     org.y = 0.0f;

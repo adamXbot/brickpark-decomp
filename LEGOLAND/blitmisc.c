@@ -5,7 +5,11 @@
  * unless a caller already named the address.
  */
 
+#ifndef LEGOLAND_PORTABLE
 #define NAKED __declspec(naked)
+#else
+#define NAKED
+#endif
 
 typedef struct WinRect {
     long left;
@@ -193,6 +197,7 @@ NAKED
 // FUNCTION: LEGOLAND 0x004659a0
 void BltAdvisor(DibHeader* dib, int x, int y)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         mov      edx, dword ptr [g_ddsd_pitch]
         mov      eax, dword ptr [esp+4]
@@ -257,6 +262,9 @@ void BltAdvisor(DibHeader* dib, int x, int y)
         pop      ebx
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* 0x004640f0 -- push lock status, unlock if locked, then lock.
@@ -358,6 +366,7 @@ NAKED
 // FUNCTION: LEGOLAND 0x004632b0
 void ShowCapacityOverlay(void)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     ebp
         mov      ebp, esp
@@ -460,4 +469,7 @@ void ShowCapacityOverlay(void)
         pop      ebp
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }

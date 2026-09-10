@@ -85,7 +85,11 @@ typedef struct PosTable { char pad[0x24]; float** slots; } PosTable;
 extern PosTable* g_copters_postable;               /* 0x00830f98; +0x24 = per-anim POS frame arrays */
 
 /* In-place float*k -> int through the game's masked-FPU fistp (no __ftol). */
+#ifndef LEGOLAND_PORTABLE
 #define FSCALEF(x, k) __asm { fld x } __asm { fmul k } __asm { fistp x }
+#else
+#define FSCALEF(x, k) LL_FISTP_SCALE_INPLACE(x, k)
+#endif
 
 extern int g_copter_ord_a[3];                       /* 0x004b42a0 = {0,1,2} */
 extern int g_copter_ord_b[3];                       /* 0x004b42ac = {0,2,1} */

@@ -45,3 +45,32 @@ jobs:
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # The portable build: every game source compiles with clang and the whole
+  # archive links against the generated closure (portable/README.md). The
+  # original binary is not available in CI, so globals are zero-initialised.
+  portable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang ninja-build cmake
+      - name: Configure
+        run: cmake -S portable -B portable/build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Release
+      - name: Compile every game source
+        run: ninja -C portable/build
+      - name: Link the whole archive
+        run: |
+          ninja -C portable/build legoland_linkcheck
+          ./portable/build/legoland_linkcheck
+      - name: Link census
+        run: python3 portable/tools/linkreport.py portable/build/CMakeFiles/legoland_core.dir --out portable/build/linkreport.md | head -14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portable-linkreport
+          path: portable/build/linkreport.md

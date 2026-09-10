@@ -274,6 +274,7 @@ void SoftBlitAnimPlain(LLSRec* lls, WinRect* src, Pos* dst)
             ctrl = f->body;
             data = f->body + n16;
         }
+#ifndef LEGOLAND_PORTABLE
         __asm {
             push    esi
             push    edi
@@ -672,6 +673,9 @@ void SoftBlitAnimPlain(LLSRec* lls, WinRect* src, Pos* dst)
             pop     edi
             pop     esi
         }
+#else
+    LL_UNPORTED_ASM();
+#endif
     }
 }
 

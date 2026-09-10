@@ -115,7 +115,11 @@ unsigned int JointBitFromIndex(int index) { return 1u << index; }
 // FUNCTION: LEGOLAND 0x00423730
 void Raster_RestoreFloatMode(unsigned short control)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm { fldcw control }
+#else
+    (void)control; /* x87 control word: no-op in the portable build */
+#endif
 }
 // FUNCTION: LEGOLAND 0x00421cc0
 void TrackCurve_CubicUpVector(void* curve, float t, Vec3f* out)
@@ -182,11 +186,15 @@ void Route_UpdateTimer(CoasterRoute* route)
 // FUNCTION: LEGOLAND 0x00426960
 float VecMath_ReciprocalSqrt(float value)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         fld value
         call dword ptr [g_fast_rsqrt]
         fstp value
     }
+#else
+    value = ((float (*)(float))g_fast_rsqrt)(value);
+#endif
     return value;
 }
 // FUNCTION: LEGOLAND 0x0041ddb0

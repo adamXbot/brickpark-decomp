@@ -191,6 +191,7 @@ void SoftPrint_Clear(void)
 
     g_sp_width  = g_ddsd_width;
     g_sp_height = g_ddsd_height;
+#ifndef LEGOLAND_PORTABLE
     __asm {
         pushad
         mov  edi, g_ddsd_bits
@@ -209,6 +210,18 @@ void SoftPrint_Clear(void)
         jne  row
         popad
     }
+#else
+    {
+        unsigned short* ll_row = (unsigned short*)g_ddsd_bits;
+        unsigned long   ll_x, ll_y;
+        g_sp_rowlen = g_sp_width;
+        for (ll_y = 0; ll_y < g_sp_height; ll_y++) {
+            for (ll_x = 0; ll_x < g_sp_rowlen; ll_x++)
+                ll_row[ll_x] = (unsigned short)colour;
+            ll_row = (unsigned short*)((char*)ll_row + g_ddsd_pitch);
+        }
+    }
+#endif
 }
 
 /* -------------------------------------------------------------------------

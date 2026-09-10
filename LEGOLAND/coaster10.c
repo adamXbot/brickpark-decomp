@@ -313,6 +313,7 @@ void CoasterModel_DrawPass1(CoasterMesh* model, void* texture, int mode)
     PolyVtx v[4];
     PolyJob job;
 
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -321,6 +322,9 @@ void CoasterModel_DrawPass1(CoasterMesh* model, void* texture, int mode)
         pop edx
         pop eax
     }
+#else
+    cycles = ll_rdtsc();
+#endif
     job.kind = (mode != 0);
     job.v[0] = &v[0];
     job.v[1] = &v[1];
@@ -357,10 +361,14 @@ void CoasterModel_DrawPass1(CoasterMesh* model, void* texture, int mode)
                 lit = lit + g_view_half_hi;
                 {
                     int shade;
+#ifndef LEGOLAND_PORTABLE
                     __asm {
                         fld lit
                         fistp shade
                     }
+#else
+                    shade = LL_FISTP(lit);
+#endif
                     job.shade = shade;
                 }
                 job.tag = ((int*)texture)[face->mat * 3];
@@ -373,6 +381,7 @@ void CoasterModel_DrawPass1(CoasterMesh* model, void* texture, int mode)
             }
         }
     }
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -382,6 +391,9 @@ void CoasterModel_DrawPass1(CoasterMesh* model, void* texture, int mode)
         pop edx
         pop eax
     }
+#else
+    cycles = ll_rdtsc() - cycles;
+#endif
     g_stat_c_4dcbc8 += cycles;
 }
 
@@ -396,6 +408,7 @@ void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
     PolyVtx v[4];
     PolyJob job;
 
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -404,6 +417,9 @@ void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
         pop edx
         pop eax
     }
+#else
+    cycles = ll_rdtsc();
+#endif
     job.kind = (mode != 0);
     job.v[0] = &v[0];
     job.v[1] = &v[1];
@@ -440,10 +456,14 @@ void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
                     lit = lit + g_model_light.y * n->y;
                     lit = lit + g_model_light.x * n->x;
                     lit = lit + g_view_half_hi;
+#ifndef LEGOLAND_PORTABLE
                     __asm {
                         fld lit
                         fistp shade
                     }
+#else
+                    shade = LL_FISTP(lit);
+#endif
                     v[k].sy = g_model_vertices[tri[k]].y;
                     v[k].sx = g_model_vertices[tri[k]].x;
                     v[k].shade = shade;
@@ -455,6 +475,7 @@ void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
             }
         }
     }
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -464,6 +485,9 @@ void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
         pop edx
         pop eax
     }
+#else
+    cycles = ll_rdtsc() - cycles;
+#endif
     g_stat_c_4dcbc8 += cycles;
 }
 
@@ -477,6 +501,7 @@ void CoasterModel_DrawPass3(CoasterMesh* model, void* texture, int mode)
     PolyVtx v[4];
     PolyJob job;
 
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -485,6 +510,9 @@ void CoasterModel_DrawPass3(CoasterMesh* model, void* texture, int mode)
         pop edx
         pop eax
     }
+#else
+    cycles = ll_rdtsc();
+#endif
     job.kind = (mode != 0);
     job.v[0] = &v[0];
     job.v[1] = &v[1];
@@ -521,10 +549,14 @@ void CoasterModel_DrawPass3(CoasterMesh* model, void* texture, int mode)
                 lit = lit + g_view_half_hi;
                 {
                     int shade;
+#ifndef LEGOLAND_PORTABLE
                     __asm {
                         fld lit
                         fistp shade
                     }
+#else
+                    shade = LL_FISTP(lit);
+#endif
                     job.shade = shade;
                 }
 
@@ -543,6 +575,7 @@ void CoasterModel_DrawPass3(CoasterMesh* model, void* texture, int mode)
             }
         }
     }
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -552,5 +585,8 @@ void CoasterModel_DrawPass3(CoasterMesh* model, void* texture, int mode)
         pop edx
         pop eax
     }
+#else
+    cycles = ll_rdtsc() - cycles;
+#endif
     g_stat_c_4dcbc8 += cycles;
 }

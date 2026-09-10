@@ -19,7 +19,11 @@
  * primary code 1; HitLR and all four no-hit leaves handle both literal codes.
  */
 
+#ifndef LEGOLAND_PORTABLE
 #define NAKED __declspec(naked)
+#else
+#define NAKED
+#endif
 
 extern int g_blit_hit;  /* 0x007feb14 */
 
@@ -29,6 +33,7 @@ NAKED
 void RLEPaintHitClipLR(void* dst, void* a, void* b, void* c, int h, int pitch,
                               int top, int left, int w, int spare, void* mouse)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         mov      edx, dword ptr [esp+14h]
@@ -389,6 +394,9 @@ void RLEPaintHitClipLR(void* dst, void* a, void* b, void* c, int h, int pitch,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* 0x00467180 -- hit + left clip; 202 instructions. */
@@ -397,6 +405,7 @@ NAKED
 void RLEPaintHitClipL(void* dst, void* a, void* b, void* c, int h, int pitch,
                               int top, int left, int w, int spare, void* mouse)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         mov      edx, dword ptr [esp+14h]
@@ -621,6 +630,9 @@ void RLEPaintHitClipL(void* dst, void* a, void* b, void* c, int h, int pitch,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* 0x004673f0 -- hit + right clip; 197 instructions. */
@@ -629,6 +641,7 @@ NAKED
 void RLEPaintHitClipR(void* dst, void* a, void* b, void* c, int h, int pitch,
                               int top, int left, int w, int spare, void* mouse)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         mov      edx, dword ptr [esp+14h]
@@ -849,6 +862,9 @@ void RLEPaintHitClipR(void* dst, void* a, void* b, void* c, int h, int pitch,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* 0x00467640 -- hit, unclipped; 122 instructions. */
@@ -857,6 +873,7 @@ NAKED
 void RLEPaintHit(void* dst, void* a, void* b, void* c, int h, int pitch,
                               int top, int left, int w, int spare, void* mouse)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         push     esi
@@ -995,6 +1012,9 @@ void RLEPaintHit(void* dst, void* a, void* b, void* c, int h, int pitch,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* 0x004677b0 -- no hit, both edges; 271 instructions. */
@@ -1003,6 +1023,7 @@ NAKED
 void RLEPaintClipLR(void* dst, void* a, void* b, void* c, int h, int pitch,
                               int top, int left, int w, int spare, void* mouse)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         mov      edx, dword ptr [esp+14h]
@@ -1300,6 +1321,9 @@ void RLEPaintClipLR(void* dst, void* a, void* b, void* c, int h, int pitch,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* 0x00467b00 -- no hit, left clip; 180 instructions. */
@@ -1308,6 +1332,7 @@ NAKED
 void RLEPaintClipL(void* dst, void* a, void* b, void* c, int h, int pitch,
                               int top, int left, int w, int spare, void* mouse)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         mov      edx, dword ptr [esp+14h]
@@ -1506,6 +1531,9 @@ void RLEPaintClipL(void* dst, void* a, void* b, void* c, int h, int pitch,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* 0x00467d10 -- no hit, right clip; 167 instructions. */
@@ -1514,6 +1542,7 @@ NAKED
 void RLEPaintClipR(void* dst, void* a, void* b, void* c, int h, int pitch,
                               int top, int left, int w, int spare, void* mouse)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         mov      edx, dword ptr [esp+14h]
@@ -1699,6 +1728,9 @@ void RLEPaintClipR(void* dst, void* a, void* b, void* c, int h, int pitch,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 
 /* 0x00467f00 -- no hit, unclipped; 114 instructions. */
@@ -1707,6 +1739,7 @@ NAKED
 void RLEPaintFast(void* dst, void* a, void* b, void* c, int h, int pitch,
                          int top)
 {
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push     edi
         push     esi
@@ -1835,5 +1868,8 @@ void RLEPaintFast(void* dst, void* a, void* b, void* c, int h, int pitch,
         pop      edi
         ret
     }
+#else
+    LL_UNPORTED_ASM();
+#endif
 }
 

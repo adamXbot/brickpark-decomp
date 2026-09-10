@@ -281,12 +281,21 @@ int RenderTransSprite(SpriteRec* s, int x, int y)
         return 0;
     switch (g_screen_depth) {
     case 0:
+#ifndef LEGOLAND_PORTABLE
         __asm { mov eax, 0 }
+#else
+        rc = 0;
+#endif
         break;
     case 1:
+#ifndef LEGOLAND_PORTABLE
         __asm { mov eax, 0 }
+#else
+        rc = 0;
+#endif
         break;
     case 2:
+#ifndef LEGOLAND_PORTABLE
         __asm {
             lea     edx, g_clip_rect
             lea     esi, srect
@@ -415,6 +424,10 @@ skip:       add     edi, 4
             jns     row
 done:       mov     rc, eax
         }
+#else
+        LL_UNPORTED_ASM(); /* 16-bpp 50% blend blit */
+        rc = 0;
+#endif
         break;
     }
     ReleaseSprite(&src);

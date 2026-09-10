@@ -463,6 +463,7 @@ MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
     Mat3 rot;
     Mat4 xf;
     last = n - 1;
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -471,6 +472,9 @@ MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc();
+#endif
     if (last >= 0) {
         for (i = 0; i <= last; i++) {
             float a;
@@ -504,6 +508,7 @@ MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
     }
     g_track_mesh.nverts = 18 * last + 6;
     g_track_mesh.ntris = 12 * last;
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -513,6 +518,9 @@ MeshDesc* Coaster3D_BuildTrackMesh(DrawObj* o, const Vec3f* origin, int slot,
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc() - t;
+#endif
     g_stat_c_615f68 += t;
     return &g_track_mesh;
 }
@@ -641,6 +649,7 @@ int Coaster3D_DrawMesh(const MeshDesc* m)
     int          k;
 
     Raster_SaveState(&g);
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -649,6 +658,9 @@ int Coaster3D_DrawMesh(const MeshDesc* m)
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc();
+#endif
     job.v[0] = &v[0];
     job.v[1] = &v[1];
     job.v[2] = &v[2];
@@ -706,6 +718,7 @@ int Coaster3D_DrawMesh(const MeshDesc* m)
             }
         }
     }
+#ifndef LEGOLAND_PORTABLE
     __asm {
         push eax
         push edx
@@ -715,6 +728,9 @@ int Coaster3D_DrawMesh(const MeshDesc* m)
         pop  edx
         pop  eax
     }
+#else
+    t = ll_rdtsc() - t;
+#endif
     g_stat_c_60f8fc += t;
     Raster_RestoreState(&g);
     return 1;

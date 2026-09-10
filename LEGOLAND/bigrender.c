@@ -628,6 +628,7 @@ void ZBufferHelper(char* lls, WinRect* src, Pos* dst, void* zbuf)
     else
         lls = p + n + 8;
 
+#ifndef LEGOLAND_PORTABLE
     __asm {
         pushad
         mov     eax, dst
@@ -934,6 +935,9 @@ void ZBufferHelper(char* lls, WinRect* src, Pos* dst, void* zbuf)
     done:
         popad
     }
+#else
+    LL_UNPORTED_ASM(); /* ZBufferHelper: the RLE z-buffer walker */
+#endif
 }
 
 /* -------------------------------------------------------------------------
@@ -1129,6 +1133,7 @@ void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
         g_sp_width = (image->w + 3) & ~3;
         g_sp_height = image->h;
         g_sp_pal16 = (char*)image->pal + 4;
+#ifndef LEGOLAND_PORTABLE
         __asm {
             pushad
             mov     eax, dst
@@ -1179,10 +1184,17 @@ void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
             jne     row8
             popad
         }
+#else
+        g_sp_rowlen = (int)(src->right - src->left);
+        ll_blit8(g_ddsd.lpSurface, g_ddsd.lPitch, dst->left, dst->top, g_sp_pixels, g_sp_width,
+                 src->left, src->top, src->right, src->bottom, g_sp_pal16,
+                 g_transparent_colour, g_sp_recolour);
+#endif
     } else {
         g_sp_pixels = image->lls;
         g_sp_width = image->w * 2;
         g_sp_height = image->h;
+#ifndef LEGOLAND_PORTABLE
         __asm {
             pushad
             mov     eax, dst
@@ -1228,6 +1240,12 @@ void SoftPrint_XBltFast(SpriteRec* s, WinRect* src, WinRect* dst, int colour)
             jne     row16
             popad
         }
+#else
+        g_sp_rowlen = (int)(src->right - src->left);
+        ll_blit16(g_ddsd.lpSurface, g_ddsd.lPitch, dst->left, dst->top, g_sp_pixels, g_sp_width,
+                  src->left, src->top, src->right, src->bottom,
+                  g_transparent_colour, g_sp_recolour);
+#endif
     }
     if (s->flags & 0x20)
         ReleaseSprite(&handle);

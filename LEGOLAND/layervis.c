@@ -111,7 +111,11 @@ void LLSPlay(LLS* lls, void* owner)
         count = lls->count;
         if (count > 1) {
             if (count > 1000) {
+#ifndef LEGOLAND_PORTABLE
                 __asm int 3
+#else
+                LL_DEBUGBREAK();
+#endif
             }
             while (node) {
                 if (node->lls == lls)

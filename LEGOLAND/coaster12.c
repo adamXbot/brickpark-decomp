@@ -349,7 +349,11 @@ int ClipRect_ClipTo(ClipBox* dest, const ClipBox* clip)
     return 0xf;
 }
 
+#ifndef LEGOLAND_PORTABLE
 #define TOINT(x) __asm { fld x } __asm { fistp dword ptr x }
+#else
+#define TOINT(x) do { int ll_t = LL_FISTP(x); __builtin_memcpy(&(x), &ll_t, 4); } while (0)
+#endif
 #define ASINT(x) (*(int*)&(x))
 
 /* Same 2-row walk as TransformVerts (0x00426250): while(n-- > 0), one

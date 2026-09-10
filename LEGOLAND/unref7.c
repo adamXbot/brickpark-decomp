@@ -1281,6 +1281,7 @@ unsigned short SampleTexturePixel(unsigned int u, unsigned int v, unsigned int s
 {
     unsigned int px;
 
+#ifndef LEGOLAND_PORTABLE
     __asm {
         mov   ebx, g_texture
         mov   eax, [ebx]
@@ -1313,5 +1314,16 @@ unsigned short SampleTexturePixel(unsigned int u, unsigned int v, unsigned int s
         movzx eax, word ptr [ebx+eax*2]
         mov   px, eax
     }
+#else
+    {
+        TexDesc* ll_t  = g_texture;
+        unsigned ll_cu = (unsigned)(((unsigned long long)(ll_t->w - 1) * (u & 0xffffu)) >> 16);
+        unsigned ll_cv = (unsigned)(((unsigned long long)(ll_t->h - 1) * (v & 0xffffu)) >> 16);
+        unsigned ll_ix = (ll_cv << ll_t->shift) + ll_cu;
+        Shade*   ll_rp = ll_t->ramps[ll_t->texels[ll_ix]];
+        /* shr ecx,11h / sbb eax,0: 1.0 exactly (bit 16) folds back onto level 63 */
+        px = ll_rp->table[(shade - ((shade >> 17) & 1)) >> 10];
+    }
+#endif
     return (unsigned short)px;
 }

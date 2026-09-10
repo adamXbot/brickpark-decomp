@@ -151,6 +151,7 @@ void Span_FillFlat(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
         }
         while (y < key->y) {
             y++;
+#ifndef LEGOLAND_PORTABLE
             __asm {
                 mov  eax, ed[0]
                 mov  ebx, ed[40]
@@ -177,6 +178,19 @@ void Span_FillFlat(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
                 jle  fill
             done:
             }
+#else
+            {
+                int ll_l, ll_r, ll_x;
+                ed[0].x += ed[1].x;
+                ed[2].x += ed[3].x;
+                if (ed[2].x - ed[0].x >= 0x8000) {
+                    ll_l = ed[0].x >> 16;
+                    ll_r = ed[2].x >> 16;
+                    for (ll_x = ll_l; ll_x <= ll_r; ll_x++)
+                        row[ll_x] = (short)color;
+                }
+            }
+#endif
             row += pitch;
         }
     } while (y < ylast);
@@ -222,6 +236,7 @@ void Span_FillFlatZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
         }
         while (y < key->y) {
             y++;
+#ifndef LEGOLAND_PORTABLE
             __asm {
                 mov  eax, ed[0]
                 mov  edx, ed[8]
@@ -260,6 +275,25 @@ void Span_FillFlatZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
                 jle  fill
             done:
             }
+#else
+            {
+                int ll_l, ll_r, ll_x, ll_z;
+                ed[0].x += ed[1].x;
+                ed[0].z += ed[1].z;
+                ed[2].x += ed[3].x;
+                if (ed[2].x - ed[0].x >= 0x8000) {
+                    ll_l = ed[0].x >> 16;
+                    ll_r = ed[2].x >> 16;
+                    ll_z = ed[0].z;
+                    for (ll_x = ll_l; ll_x <= ll_r; ll_x++, ll_z += dz) {
+                        if ((unsigned short)(ll_z >> 16) >= (unsigned short)zrow[ll_x]) {
+                            crow[ll_x] = (short)color;
+                            zrow[ll_x] = (short)(ll_z >> 16);
+                        }
+                    }
+                }
+            }
+#endif
             crow += pitch;
             zrow += pitch;
         }
@@ -314,6 +348,7 @@ void Span_FillShade(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
         }
         while (y < key->y) {
             y++;
+#ifndef LEGOLAND_PORTABLE
             __asm {
                 mov  eax, ed[0]
                 mov  ebx, ed[40]
@@ -371,6 +406,9 @@ void Span_FillShade(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
                 jle  negfill
             done:
             }
+#else
+            LL_UNPORTED_ASM(); /* gouraud span with carry-chained shade: not ported */
+#endif
             row += pitch;
         }
     } while (y < ylast);
@@ -428,6 +466,7 @@ void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
         }
         while (y < key->y) {
             y++;
+#ifndef LEGOLAND_PORTABLE
             __asm {
                 mov  eax, ed[0]
                 mov  edx, ed[8]
@@ -509,6 +548,9 @@ void Span_FillShadeZ(int tag, int* grad, int n, SortKey* key, SpanEdge* edge)
                 pop  ebp
             done:
             }
+#else
+            LL_UNPORTED_ASM(); /* gouraud z-tested span: not ported */
+#endif
             crow += pitch;
             zrow += pitch;
         }
@@ -543,7 +585,9 @@ float IntegrateSimpson(float (*fn)(float), float a, float b, float tol)
 {
     volatile SimpsonFrame f;
 
+#ifndef LEGOLAND_PORTABLE
     __asm {}
+#endif
     f.n = 1;
     f.h = b - a;
     f.fa = fn(a);

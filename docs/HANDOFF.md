@@ -83,6 +83,39 @@ toolchain was rebuilt from `adamXbot/alphateam`'s
 
 ---
 
+## 0b. Portable build (merged 2026-09-11)
+
+`portable/` is the isle-portable-style browser/native port (see
+`portable/README.md`), merged from `feat/browser-game-repo-setup-6bcb9e` with
+the census refreshed against main. Every game source compiles with clang and a
+whole-archive link closes against a generated closure (`ninja -C
+portable/build legoland_linkcheck`). All source changes sit under
+`#ifdef LEGOLAND_PORTABLE`, invisible to the VC6 gate: every inline-asm site
+has a C fallback or an `LL_UNPORTED_ASM()` trap, exceptlog.c's and winmain.c's
+SEH compile to plain blocks, and castleobj.c's `Track_Update` is renamed for
+the portable build only (it collides with coaster.c's). The merge changed no
+VC6 bytes: `audit.py` PASS on all 38 touched files, relocs 0 MISMATCH, exact
+and WIP marker sets identical before and after.
+
+The census (`portable/tools/linkreport.py`) is the port's work list at the
+merge: 84 externs without an address comment, 228 stale extern names (bridged
+by generated aliases until the rename pass), 149 Win32/DirectX imports for the
+host shim, 26 asm blitters to port, 2,612 extern-only globals rebuilt from the
+exe. The 12 symbols it files as unwritten game functions are all CRT-range
+wrappers (`HeapAlloc_w`, `MemAlloc`, `Format`, ...), the host CRT's job.
+
+**Rule for every matching lane from here on: a new `__asm` site must be
+wrapped in `#ifndef LEGOLAND_PORTABLE` with a C fallback or
+`LL_UNPORTED_ASM()` in the `#else` arm, inside the function body, never
+between a marker and its signature. Keep the `/* 0x... */` address comment on
+every new extern: the generator sizes and initialises globals from it.**
+Quick check without CMake: compile the file with
+`clang -fsyntax-only -fms-extensions -fdeclspec -fcommon -Wno-everything
+-DLEGOLAND_PORTABLE=1 -include portable/hostwin/include/ll_portable.h
+-Iportable/hostwin/include -ILEGOLAND LEGOLAND/<file>.c`.
+
+---
+
 ## 1. Where the project stands
 
 Goal: human-written C that, compiled with the VC6 SP3 toolchain the game shipped

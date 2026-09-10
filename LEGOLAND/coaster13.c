@@ -641,6 +641,7 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
             ed[2].x += ed[3].x;
             span = ed[2].x - ed[0].x;
             if (span >= 0x8000) {
+#ifndef LEGOLAND_PORTABLE
                 __asm {
                     mov  eax, ed[0]
                     mov  ebx, ed[40]
@@ -705,6 +706,9 @@ void TrackShade_FillPoly(int tag, int* grad, int nkeys, SortKey* keys, SpanEdge*
                     pop  ebp
                     add  esp, 4
                 }
+#else
+                LL_UNPORTED_ASM(); /* textured z-tested span: not ported */
+#endif
             } else {
                 ed[0].rest[2] += ed[1].rest[2];
                 ed[0].rest[3] += ed[1].rest[3];

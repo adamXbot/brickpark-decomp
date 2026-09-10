@@ -465,6 +465,7 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
         }
         while (y < key->y) {
             y++;
+#ifndef LEGOLAND_PORTABLE
             __asm {
                 mov  eax, ed[0]                 /* left.x            */
                 mov  ebx, ed[40]                /* right.x           */
@@ -491,6 +492,19 @@ void ZBuffer_FillPoly(int n, ZKey* key, ZEdge* edge)
                 jle  fill
             done:
             }
+#else
+            {
+                int ll_l, ll_r, ll_x;
+                ed[0].x += ed[1].x;
+                ed[2].x += ed[3].x;
+                if (ed[2].x - ed[0].x >= 0x8000) {
+                    ll_l = ed[0].x >> 16;
+                    ll_r = ed[2].x >> 16;
+                    for (ll_x = ll_l; ll_x <= ll_r; ll_x++)
+                        r.row[ll_x] = (short)fillv;
+                }
+            }
+#endif
             r.row += r.pitch;
         }
     } while (y < ylast);

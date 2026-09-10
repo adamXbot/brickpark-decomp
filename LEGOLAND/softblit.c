@@ -273,6 +273,7 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
         g_sp_width = (image->w + 3) & ~3;
         g_sp_height = image->h;
         g_sp_pal16 = (char*)image->pal + 4;
+#ifndef LEGOLAND_PORTABLE
         __asm {
             pushad
             mov     eax, dst
@@ -322,10 +323,17 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
             jne     row8
             popad
         }
+#else
+        g_sp_rowlen = (int)(src->right - src->left);
+        ll_blit8(g_ddsd.lpSurface, g_ddsd.lPitch, dst->x, dst->y, g_sp_pixels, g_sp_width,
+                 src->left, src->top, src->right, src->bottom, g_sp_pal16,
+                 g_transparent_colour, 0xffff);
+#endif
     } else {
         g_sp_pixels = image->lls;
         g_sp_width = image->w * 2;
         g_sp_height = image->h;
+#ifndef LEGOLAND_PORTABLE
         __asm {
             pushad
             mov     eax, dst
@@ -397,6 +405,12 @@ void __fastcall SoftBlitSprite(SpriteRec* s, WinRect* src, Pos* dst)
             jne     row16
             popad
         }
+#else
+        g_sp_rowlen = (int)(src->right - src->left);
+        ll_blit16(g_ddsd.lpSurface, g_ddsd.lPitch, dst->x, dst->y, g_sp_pixels, g_sp_width,
+                  src->left, src->top, src->right, src->bottom,
+                  g_transparent_colour, 0xffff);
+#endif
     }
     if (s->flags & 0x20)
         ReleaseSprite(&handle);
@@ -640,6 +654,7 @@ void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
             ctrl = f->body;
             data = f->body + f->npixels;
         }
+#ifndef LEGOLAND_PORTABLE
         __asm {
             pushad
             mov     eax, dst
@@ -1009,6 +1024,9 @@ void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
         done:
             popad
         }
+#else
+    LL_UNPORTED_ASM();
+#endif
     }
 }
 
