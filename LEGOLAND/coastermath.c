@@ -105,6 +105,31 @@ int PackTrackClass(void* cls)
  * is no argument slot or prologue, input arrives in ST(0), and three GPRs
  * are saved below ESP without reserving a frame. Preserve that original
  * scratch-stack convention and the unmasked sign bit in the exponent index.
+ *
+ * WHY THE PORTABLE ARMS ARE UNREACHABLE (scope PORT-B5, verified).  An ST(0)
+ * argument has no C signature, so these two cannot be ported -- but nothing in
+ * the portable build can reach them either:
+ *
+ *  - The only two references to their addresses in the whole image are the two
+ *    `lea eax, FastSqrt` / `lea eax, FastRSqrt` stores inside
+ *    `FastSqrt_InitTables` (0x00426b10) and `FastRSqrt_InitTables`
+ *    (0x004269e0) -- .text+0x25b87 and .text+0x25a77.  There is no direct
+ *    `call` to either one anywhere (an .text scan for relative branches to
+ *    0x00426ab0 / 0x00426980 finds none).
+ *  - Both of those stores are inside `#ifndef LEGOLAND_PORTABLE` arms in
+ *    coaster5.c, whose `#else` arms install `ll_FastSqrt` / `ll_FastRSqrt`
+ *    below instead -- the same tables, the same arithmetic, a C signature.
+ *  - Every consumer goes through the hook: `VecMath_Sqrt` (coaster9.c
+ *    0x00426a90) calls `[g_fast_sqrt]` and `VecMath_ReciprocalSqrt`
+ *    (coastertiny.c 0x00426960) calls `[g_fast_rsqrt]`, and both have portable
+ *    arms that call the hook through a `float (*)(float)` cast.
+ *
+ * So the `LL_UNPORTED_ASM()` traps below are dead code in the portable build.
+ * `portable/tests/test_tri_raster.c`'s `fast_sqrt` checks keep that honest: it
+ * runs the two init functions and asserts the hooks hold the C twins and that
+ * the twins agree with libm to the tables' precision.  The census keeps
+ * listing these two because there genuinely is no C body for the ST(0) ABI,
+ * not because one is owed; see docs/lanes/scope-port-b5.md.
  */
 // FUNCTION: LEGOLAND 0x00426ab0
 NAKED void FastSqrt(void)
