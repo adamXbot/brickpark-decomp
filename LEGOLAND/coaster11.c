@@ -165,7 +165,7 @@ extern void RouteNode_GetTailTangent(RouteNode* n, Vec3f* dir); /* 0x0041e930 */
 extern void Sub_429f30(Vec3f* dir, float step, RoutePos* from, float f40,
                        float tol, RoutePos* out, float* out_a); /* 0x00429f30 */
 int Span_ClipPlane(int n, void* in, void* out, void** cursor,
-                   void* plane);                    /* 0x0041f050 */
+                   ClipPlane* plane);                /* 0x0041f050 */
 extern BsWater* BsWater_FindAt(int x, int y);       /* 0x0041c890 */
 extern int CalcMoveLine(Pos from, Pos to, void* path); /* 0x00480740 */
 extern int NewDirForAction(Bloke* b, unsigned char dir); /* 0x004833d0 */
@@ -592,7 +592,16 @@ void LFQueue_StepRider(LFQueue* q, int tx, int ty, Bloke* b)
  * esi/edi/ebp/ebx to x/y/x1/y1 with w in the dead arg3 slot; our
  * tail-call-to-loop conversion runs before allocation and ranks the
  * pointers first. Dead trailing statements restore the ints but lose the
- * loop. Retired. */
+ * loop. Retired.
+ * LL23 2026-09-10 re-verified against the binary and the floor HOLDS: the
+ * twin `JungleCruise_TraceRoute` (jcroute.c 0x00437260) audits at exactly
+ * the same 130i/339B and 105 mismatches, so this is one shared allocation
+ * floor reached from two independent reconstructions, not a spelling miss
+ * in either.  The original's prologue is `mov eax,[esp+0x18]; push ebx;
+ * push ebp; push esi; mov ecx,[eax]; push edi; cmp ecx,1; je` and only
+ * THEN loads ebx=y1, ebp=x1, esi=x, edi=y, with `w` written into x1's dead
+ * home at [esp+0x1c]: four int parameters ranked above every pointer.
+ * Not re-run. */
 // WIP-FUNCTION: LEGOLAND 0x0041c940  (FLOOR, 130i/339B byte-exact, 105 NG22)
 void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
 {
@@ -645,7 +654,18 @@ void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok)
  * Known-zero / dead-alias / g_route_eval from n-0x70 / SetTrainAt next /
  * if(n) / Fst / EvalRange commas CSE away or steal edx. Cannot exact with
  * the extra store; cannot lea without it on this body. q after add esp,4;
- * hist ecx/edx swap sticky. */ 
+ * hist ecx/edx swap sticky.
+ * LL23 2026-09-10, the Codex-F scope-V CANCELLED-PAIR anchor is INERT here.
+ * `struct { RouteNode* np; } t; t.np = &p->head; t.np += A; t.np -= A;
+ * n = t.np;` with A = p / rt / mass / power / &fr (values already in a
+ * register) folds completely in the front end -- 77i/259B and 65/77,
+ * bit-identical to the tip, so the web is NOT kept separate the way scope
+ * V's `t.x = bx` was.  With A a link-time address constant assigned to a
+ * second struct member first (&g_route_eval, &g_route_eval_at,
+ * g_span_eval_ops, &g_mass_hist[0], (int)p), the anchor costs a real
+ * `mov reg,imm32` -- 78i/262B, worse than the tip and past the extent.
+ * The lever needs an anchor the body already materialises for its own
+ * reasons; this body has none live at the `&p->head` site. */ 
 // WIP-FUNCTION: LEGOLAND 0x0041db90  (84%, lea ebx coupled to imm8 store)
 void Route_GetMassAndPower(CoasterRoute* rt, float* mass, float* power)
 {
@@ -759,130 +779,111 @@ void** Span_FillEvalTable(void (*eval)(float, void*), SpanOps2* ops, int n,
  * closed to in[0].  Negative plane distance is inside.  Crossing edges
  * lerp every dword 0..g_span_vtx of the PolyVtx into *cursor and emit
  * that cursor pointer; both-inside emits the previous vertex. */
-/* Residual: shared *cursor=dst after n>=1 (early-out stores dest, no
- * xor-eax). lea edi lerp remains — destrel pin / pad+delta steal dest=edi
- * and and-ebx. bits still n-slot 0x40. 606B ESCAPES. */
-// WIP-FUNCTION: LEGOLAND 0x0041f050  (33.9%, latch jne, ebx=n, and ebx, frame 0x2c)
-int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
+/* LL23 2026-09-10 — ESCAPES fixed by rebuilding, not by a pin.  The old
+ * body was 189i (10 past the original's 179): a fabricated `destrel` +
+ * volatile-pad store in the loop header (3), pa/na colouring copies (2), a
+ * plane reload (1) and a register-materialised out_n (1) pushed the second
+ * epilogue past the extent, so the early-out `jl` targeted an address the
+ * original does not have.  Rebuilt index-based (prev[k]/nxt[k]/dst[k], one
+ * cursor + two memory offsets, ENTER's k outside the vtx guard and LEAVE's
+ * ebp counter), 179i/588B, no ESCAPES, audit 137 (was 173).
+ * Residual is the frame and one register: VC6 gives us `sub esp,0x24`
+ * (7 local slots + a hole) where the original has 0x2c (9 locals + the
+ * unused +0x30/+0x38 pair), because the two dead parameter homes go to
+ * `bits`/`pabs`+`k` here and to `in`/`t` in the original; and `plane`
+ * takes ebx as a whole-function web instead of the original's ecx that is
+ * reloaded from [esp+0x50] after each __ftol loop.  Every slot-numbered
+ * operand therefore differs.  Ruled out this wave: declaration order (5
+ * orders, inert); `pabs` as a 12-byte padded struct, address-taken or not
+ * (frame unchanged); `ClipPlane* volatile plane` (does free ebp and lands
+ * `xor ebp,ebp`, but costs 4 reload instructions -> 183i); the Codex-F
+ * operand-alias lever on the fild pair (`q = nxt`, a `char*` cast, an
+ * alias on plane) — the fild order is already correct here and the alias
+ * is inert; every lerp spelling that might flip the cursor base from nxt
+ * to prev (separate temps, pre-loaded delta, negated delta, repeated
+ * subscript) — inert, VC6 always bases the cursor on the subtraction's
+ * left operand; `*(volatile int*)&out_n = 0` (177i, worse). */
+// WIP-FUNCTION: LEGOLAND 0x0041f050  (33.5%, frame 0x24 vs 0x2c, plane in ebx)
+int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, ClipPlane* plane)
 {
     void** in = (void**)in_v;
-    void* dst;
+    int* prev;
+    int* nxt;
+    int* dst;
     int out_n = 0;
     int prev_sign;
     int cls;
     int abs_r;
-    void* prev;
-    void* nxt;
-    union { float f; int i; } bits;
-    struct { int i; int pad; } prev_abs;
     int left;
+    union { float f; int i; } bits;
+    union { float f; int i; } pabs;
 
-    /* n first (in[n]) so ebx=n; dest assigned after so it can be edx. */
+    dst = (int*)*cursor;
     in[n] = in[0];
-    dst = *cursor;
-    nxt = in[0];
-    {
-        ClipPlane* plane = *(ClipPlane* volatile*)&plane_v;
-        int* p = (int*)nxt;
-        bits.f = (float)p[2] * plane->nx;
-        bits.f += (float)p[1] * plane->ny;
-        bits.f = plane->d - bits.f;
-    }
-    /* abs primary, sign is the copy (orig mov ebp / mov esi,ebp). */
+    left = n;
+    nxt = (int*)in[0];
+    bits.f = plane->d - ((float)nxt[2] * plane->nx + (float)nxt[1] * plane->ny);
     abs_r = bits.i;
     prev_sign = abs_r;
     abs_r &= 0x7fffffff;
-    prev_sign &= 0x80000000;
-    bits.i = abs_r;
+    prev_sign &= (int)0x80000000;
     if (n >= 1) {
         cls = prev_sign;
         in++;
-        left = n;
         do {
+            int next_sign;
             prev_sign = cls;
             prev = nxt;
-            *(volatile int*)&prev_abs.i = abs_r;
-            nxt = *in;
-            {
-                union { float f; int i; } pa, na;
-                int next_sign;
-                ClipPlane* plane = *(ClipPlane* volatile*)&plane_v;
-                int* p = (int*)nxt;
-                int destrel;
-
-                cls = (prev_sign >> 1) & 0x40000000;
-                /* destrel + pad store before the fild occupies dest/ecx
-                 * through fstp so the abs copy is leftover ebx. */
-                destrel = (char*)dst - (char*)nxt;
-                *(volatile int*)&prev_abs.pad = destrel;
-                bits.f = (float)p[2] * plane->nx;
-                bits.f += (float)p[1] * plane->ny;
-                bits.f = plane->d - bits.f;
-                n = bits.i;
-                next_sign = n;
-                n &= 0x7fffffff;
-                next_sign &= 0x80000000;
-                bits.i = n;
-                abs_r = n;
-                cls |= next_sign;
-                pa.i = *(volatile int*)&prev_abs.i;
-                na.i = n;
-                /* je ENTER / je BOTH / fallthrough LEAVE */
-                if (cls != (int)0x80000000) {
-                    if (cls != (int)0xc0000000) {
-                        if (cls == (int)0x40000000) {
-                            float t = *(float*)&prev_abs.i / (pa.f + na.f);
-                            int k = 0;
-                            *(void**)out_v = prev;
-                            out_v = (char*)out_v + 4;
-                            if ((int)g_span_vtx >= 0) {
-                                int* src = (int*)prev;
-                                int delta = (char*)nxt - (char*)prev;
-                                int dest = (char*)dst - (char*)prev;
-                                do {
-                                    int dword = src[0];
-                                    {
-                                        int dlt = *(int*)((char*)src + delta) - dword;
-                                        *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
-                                    }
-                                    src++;
-                                    k++;
-                                } while (k <= (int)g_span_vtx);
-                            }
-                            *(void**)out_v = dst;
-                            out_v = (char*)out_v + 4;
-                            dst = (char*)dst + g_span_vtx_stride;
-                            out_n += 2;
-                        }
-                    } else {
+            pabs.i = abs_r;
+            nxt = (int*)*in;
+            cls = (prev_sign >> 1) & 0x40000000;
+            bits.f = plane->d - ((float)nxt[2] * plane->nx + (float)nxt[1] * plane->ny);
+            abs_r = bits.i;
+            next_sign = abs_r;
+            abs_r &= 0x7fffffff;
+            next_sign &= (int)0x80000000;
+            bits.i = abs_r;
+            cls |= next_sign;
+            if (cls != (int)0x80000000) {
+                if (cls != (int)0xc0000000) {
+                    if (cls == 0x40000000) {
+                        float t = pabs.f / (pabs.f + bits.f);
+                        int k = 0;
                         *(void**)out_v = prev;
                         out_v = (char*)out_v + 4;
-                        out_n++;
+                        if ((int)g_span_vtx >= 0) {
+                                do {
+                                    int a = prev[k];
+                                    int dd = nxt[k] - a;
+                                    dst[k] = a + (int)((float)dd * t);
+                                    k++;
+                                } while (k <= (int)g_span_vtx);
+                        }
+                        *(void**)out_v = dst;
+                        out_v = (char*)out_v + 4;
+                        dst = (int*)((char*)dst + g_span_vtx_stride);
+                        out_n += 2;
                     }
                 } else {
-                    float t = na.f / (*(float*)&prev_abs.i + na.f);
-                    {
-                        int k = 0;
-                        if ((int)g_span_vtx >= 0) {
-                            int* src = (int*)nxt;
-                            int delta = (char*)prev - (char*)nxt;
-                            int dest = destrel;
-                            do {
-                                int dword = src[0];
-                                {
-                                    int dlt = *(int*)((char*)src + delta) - dword;
-                                    *(int*)((char*)src + dest) = dword + (int)((float)dlt * t);
-                                }
-                                src++;
-                                k++;
-                            } while (k <= (int)g_span_vtx);
-                        }
-                    }
-                    *(void**)out_v = dst;
+                    *(void**)out_v = prev;
                     out_v = (char*)out_v + 4;
-                    dst = (char*)dst + g_span_vtx_stride;
                     out_n++;
                 }
+            } else {
+                float t = bits.f / (pabs.f + bits.f);
+                int k = 0;
+                if ((int)g_span_vtx >= 0) {
+                            do {
+                                int a = nxt[k];
+                                int dd = prev[k] - a;
+                                dst[k] = a + (int)((float)dd * t);
+                                k++;
+                            } while (k <= (int)g_span_vtx);
+                }
+                *(void**)out_v = dst;
+                out_v = (char*)out_v + 4;
+                dst = (int*)((char*)dst + g_span_vtx_stride);
+                out_n++;
             }
             in++;
         } while (--left);
