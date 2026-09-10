@@ -2104,8 +2104,7 @@ extern EditCursorRec g_lf_cursor_d;     /* 0x004c74f8  the per-piece ghost */
 extern BPos          g_lf_hover_sq;     /* 0x00667c54 */
 
 extern LFRun* LFStation_FindAt(const BPos* sq);                  /* 0x00408ec0 */
-extern void   LFPiece_GetFootprint(LFPiece* p, Footprint** fp,
-                                   void** out2);                 /* 0x0040d090 */
+extern void LFPiece_GetFootprint(LFPiece* p, Footprint** fp, void** out2); /* 0x0040d090 */
 extern void   BasicObjectDCalcCursor(void* a, void* b);          /* 0x00480bb0 */
 extern void   BuildCursorPtr(EditCursorRec* c, int a, int b);    /* 0x0045f5f0 */
 extern void   RenderCursor(EditCursorRec* c);                    /* 0x0045ff00 */

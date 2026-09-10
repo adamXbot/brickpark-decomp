@@ -522,10 +522,8 @@ extern PieceDesc g_pieces[];                                    /* 0x00828fe0 */
 
 /* Fills one prototype piece: three Vec3f, the two radii, and the fixed
  * 0..pi/2 parameter range and hook table every curve shares. */
-extern void Piece_InitCurve(const Vec3f* d0, const Vec3f* d1,
-    const Vec3f* org, PieceDesc* out, float r0, float r1);      /* 0x00421ce0 */
-extern void Piece_InitStraight(int dir, int side, int off,
-    PieceDesc* out, int slot);                                  /* 0x00428350 */
+extern void Piece_InitCurve(const Vec3f* d0, const Vec3f* d1, const Vec3f* org, PieceDesc* out, float r0, float r1); /* 0x00421ce0 */
+extern void Piece_InitStraight(int dir, int side, int off, PieceDesc* out, int slot); /* 0x00428350 */
 
 /* =========================================================================
  * 0x004284d0 -- Coaster3D_BuildPieceGeometry (coaster.c's `Coaster3D_BuildPieceGeometry`, run

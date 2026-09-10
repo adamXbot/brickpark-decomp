@@ -397,8 +397,7 @@ extern void TransformVec3(const Vec3f* src, Vec3f* dst, const Mat4* m,
 /* The 30-step line rasteriser; it interpolates into a local 30-entry
  * ScreenPt array and hands that to Coaster3D_PlotPoints above.  Its colour
  * parameter is 16-bit -- the caller only ever loads `cx`. */
-extern void Coaster3D_DrawLine(const ScreenPt* a, const ScreenPt* b,
-                               short colour);                   /* 0x004237f0 */
+extern void Coaster3D_DrawLine(const ScreenPt* a, const ScreenPt* b, short colour); /* 0x004237f0 */
 
 /* Draw the wire box at `pos` with orientation `rot`: build the 4x4, rotate
  * the 8 corners into world space, project them to the 16-byte screen
@@ -509,8 +508,8 @@ extern void  TrackCursor_AdvanceGeometry(RoutePos* p);          /* 0x0041f850 */
 extern float TrackProbe_Distance(float t);                      /* 0x00429cf0 */
 /* 0x00429e20, reached through the module's own hook slot: bisect `f` between
  * a and b and report whether it changed sign there. */
-extern int (*g_find_bracket)(float (*f)(float), float a, float b,
-                             float* out);                       /* 0x004b63fc */
+typedef int (*FindBracketFn)(float (*f)(float), float a, float b, float* out);
+extern FindBracketFn g_find_bracket;                            /* 0x004b63fc */
 
 /* =========================================================================
  * 0x0042a020 -- walk forward from `start`, one geometry segment at a time,

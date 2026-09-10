@@ -178,7 +178,13 @@ extern void* g_fe_sprite_684;    /* 0x00798684  PU_ClosePopUp.lls */
 extern void* g_fe_sprite_688;    /* 0x00798688  PU_ClosePopUpON.lls */
 extern void* g_np_icon_extra;    /* 0x007986d8 */
 extern Icon* g_np_close_icon;    /* 0x007986dc */
-extern char (*g_active_input_cb)(Icon*, int);   /* 0x006687c0 */
+/* 0x006687c0 is the icon handler slot four other files call g_icon_handler2
+ * (the "escape/cancel" slot). Declared through a typedef so the address
+ * comment belongs to the NAME: `extern char (*g)(..)` makes linkreport's
+ * line scanner read the TYPE as the symbol, and the global then gets a
+ * zeroed placeholder block instead of the real one. */
+typedef char (*IconInputFn)(Icon*, int);
+extern IconInputFn g_active_input_cb;           /* 0x006687c0 */
 
 /* ---- map teardown --------------------------------------------------------- */
 #ifndef LEGOLAND_PORTABLE

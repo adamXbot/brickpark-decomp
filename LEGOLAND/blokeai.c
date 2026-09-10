@@ -167,7 +167,8 @@ extern Bloke*        g_bloke_base;          /* 0x0066b57c */
 extern Person3D*     g_person_head;         /* 0x00655a3c */
 extern unsigned char g_printlist_arena[];   /* 0x007cb600 */
 extern int           g_printlist_x;         /* 0x0066b5a8 */
-extern void        (*g_lt_action_handlers[])(Bloke*);  /* 0x004b8368 */
+typedef void       (*LtActionFn)(Bloke*);
+extern LtActionFn    g_lt_action_handlers[];/* 0x004b8368 */
 extern char*         g_texnames_boy;        /* 0x00630100 */
 extern char*         g_texnames_girl;       /* 0x0062feac */
 extern char          s_texname_result[16];  /* 0x004b7d14 */

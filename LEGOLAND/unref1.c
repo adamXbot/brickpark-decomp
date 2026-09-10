@@ -463,15 +463,13 @@ extern float g_deriv_weights[4];                 /* 0x004b5624 */
 
 extern void* AllocZeroed(unsigned int size, int a, int b, int c); /* 0x004775b0 */
 /* The Sutherland-Hodgman clipper behind Span_SetClip's half-plane list. */
-extern void* ClipPolygonPlanes(int count, void* verts, int* out_count,
-                               int nplanes, const ClipPlane* planes); /* 0x0041f2b0 */
+extern void* ClipPolygonPlanes(int count, void* verts, int* out_count, int nplanes, const ClipPlane* planes); /* 0x0041f2b0 */
 extern void  CarPoolInit(void);                                 /* 0x00421470 */
 extern void  PhysVec_InitOps(PhysOps* out, int dimension);      /* 0x00421540 */
 /* The vector derivative MathSelfTest actually calls: the difference-table
  * form (0x0041f3e0 builds the vector triangle), NOT the four-point stencil
  * PhysVec_Derivative4 below. */
-extern int   PhysVec_DerivativeTable(void (*fn)(float, PhysVec*), PhysOps* ops,
-                                     float x, float h, PhysVec* out); /* 0x0041f4e0 */
+extern int PhysVec_DerivativeTable(void (*fn)(float, PhysVec*), PhysOps* ops, float x, float h, PhysVec* out); /* 0x0041f4e0 */
 
 double exp(double);
 #pragma intrinsic(exp)

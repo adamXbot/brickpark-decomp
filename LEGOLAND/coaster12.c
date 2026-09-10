@@ -88,8 +88,7 @@ extern int g_span_overflow;                     /* 0x0060f90c */
 extern int JointOppositeDir(int dir);           /* 0x0041cc50 */
 extern int TrackNodeSlopeCode(TrackNode* n);    /* 0x0041ce60 */
 extern void* GetTrackNodeWorldPos(TrackNode* n, Vec3f* out); /* 0x0041cff0 */
-extern void Curve_InitLine(void* dest, const Vec3f* from,
-    const Vec3f* to, const Vec3f* offset);      /* 0x00421ab0 */
+extern void Curve_InitLine(void* dest, const Vec3f* from, const Vec3f* to, const Vec3f* offset); /* 0x00421ab0 */
 extern void MakeTransform(const Vec3f*, const Mat3*, Mat4*); /* 0x004264e0 */
 extern void MatMul(const Mat4*, const Mat4*, Mat4*);         /* 0x00426120 */
 extern void AddRollerCoasterPath(Pos* pos);     /* 0x0045dc50 */

@@ -115,9 +115,11 @@ extern int GetBlokeNum(RideBloke* bloke);               /* 0x00482fb0 */
 extern int GetBlokeCounter(RideObject* item, int index); /* 0x00480ee0 */
 extern RideInstance* GetInstanceOfClass(RideObject* item, RideTile* tile);
 extern Offset GetScreenCoordsForObject(void* instance, RideObject* item);
-extern RiderNode* GetNthRider(int index, RideObject* item, void* instance);
-extern RiderNode* FindFirstRider(RideObject* item, void* instance);
-extern RiderNode* FindNextRider(RideObject* item, void* instance);
+/* The rider-list walk. 0x004418c0 is savemisc2.c's GetObjRiderN, 0x00441870 /
+ * 0x00441890 are texture.c's ObjFirstRider / ObjNextRider. */
+extern RiderNode* GetNthRider(int index, RideObject* item, void* instance); /* 0x004418c0 */
+extern RiderNode* FindFirstRider(RideObject* item, void* instance); /* 0x00441870 */
+extern RiderNode* FindNextRider(RideObject* item, void* instance); /* 0x00441890 */
 extern void PutOne3DBlokeOnRide(RideAnim* anim, int index, int frame,
                                void* person, int screen_x, int screen_y);
 extern void UpdatePersonPos(void* person, RideBloke* bloke);
@@ -137,7 +139,8 @@ extern int CountBlokesAtRideID(RideObject* item, unsigned short* ride_id);
 extern void HeapFree_w(void* pointer);
 extern int IsFavouriteFood(RideBloke* bloke, void* elem);
 extern int IsFavouriteAttraction(RideBloke* bloke, void* elem);
-extern void ApplyMoodEvent(RideBloke* bloke, int event, int amount);
+/* 0x00482df0 is simcore2.c's AdjustMood. */
+extern void ApplyMoodEvent(RideBloke* bloke, int event, int amount); /* 0x00482df0 */
 extern void IncrementBlokeCounter(RideObject* item, int index);
 int CalculateRideCode(int trait, RideObject* item, int visits);
 void RemoveBlokeFromRide(RideObject* item, RiderNode* rider);

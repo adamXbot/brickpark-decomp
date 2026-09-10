@@ -162,8 +162,7 @@ extern float RouteCar_GetVelocity(RouteNode* n);    /* 0x0041e810 */
 extern CoasterRec g_castle;                         /* 0x00829ae0 */
 extern unsigned int JointBitFromIndex(int index);   /* 0x0041cc90 */
 extern void RouteNode_GetTailTangent(RouteNode* n, Vec3f* dir); /* 0x0041e930 */
-extern void Sub_429f30(Vec3f* dir, float step, RoutePos* from, float f40,
-                       float tol, RoutePos* out, float* out_a); /* 0x00429f30 */
+extern void Sub_429f30(Vec3f* dir, float step, RoutePos* from, float f40, float tol, RoutePos* out, float* out_a); /* 0x00429f30 */
 int Span_ClipPlane(int n, void* in, void* out, void** cursor,
                    void* plane);                    /* 0x0041f050 */
 extern BsWater* BsWater_FindAt(int x, int y);       /* 0x0041c890 */
@@ -171,8 +170,7 @@ extern int CalcMoveLine(Pos from, Pos to, void* path); /* 0x00480740 */
 extern int NewDirForAction(Bloke* b, unsigned char dir); /* 0x004833d0 */
 void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok); /* 0x0041c940 */
 extern float RouteNode_GetAcceleration(RouteNode* n); /* 0x0041e7e0 */
-extern void Span_EvalRange(void (*fn)(float, RouteCarSample*), void* ops,
-                           float a, float dt, RouteCarSample* out); /* 0x0041f4e0 */
+extern void Span_EvalRange(void (*fn)(float, RouteCarSample*), void* ops, float a, float dt, RouteCarSample* out); /* 0x0041f4e0 */
 extern char g_span_eval_ops[];                      /* 0x004d8270 */
 extern float g_mass_hist[];                         /* 0x004d829c */
 extern int g_mass_hist_i;                           /* 0x004d83c0 */

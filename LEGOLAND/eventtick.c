@@ -167,7 +167,8 @@ extern int        g_visitor_cap_extra;   /* 0x00832924 */
 extern int        g_entrance_fee;        /* 0x00832970 */
 extern int        g_scroll_x;            /* 0x00667cb4  24.8 */
 extern int        g_scroll_y;            /* 0x00667cb8 */
-extern void     (*g_report_setters[25])(int a, int b); /* 0x004b7e38  REPORT: per-index setter (first named here) */
+typedef void    (*ReportSetterFn)(int a, int b);
+extern ReportSetterFn g_report_setters[25];/* 0x004b7e38  REPORT: per-index setter (first named here) */
 
 /* ---- callees ------------------------------------------------------------- */
 #ifndef LEGOLAND_PORTABLE

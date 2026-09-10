@@ -423,10 +423,8 @@ void* CoasterModel_LoadFile(const char* name, unsigned int* len)
  * pos = from, offset = the sideways displacement, and the parameter range is
  * left at [0, 1]. 0x00421ce0 is its CORNER counterpart, taking three points
  * and two shape constants. Both first named here. */
-extern void Curve_InitLine(RouteGeom* curve, const Vec3f* from,
-                           const Vec3f* to, const Vec3f* offset); /* 0x00421ab0 */
-extern void Curve_InitCorner(const Vec3f* a, const Vec3f* b, const Vec3f* c,
-                             RouteGeom* curve, float k0, float k1); /* 0x00421ce0 */
+extern void Curve_InitLine(RouteGeom* curve, const Vec3f* from, const Vec3f* to, const Vec3f* offset); /* 0x00421ab0 */
+extern void Curve_InitCorner(const Vec3f* a, const Vec3f* b, const Vec3f* c, RouteGeom* curve, float k0, float k1); /* 0x00421ce0 */
 extern void Castle_GetFirstCorner(const Pos16* square, Pos16* out);  /* 0x004239b0 */
 extern void Castle_GetSecondCorner(const Pos16* square, Pos16* out); /* 0x004239e0 */
 

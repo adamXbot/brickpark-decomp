@@ -1263,8 +1263,7 @@ void Coaster3D_EndFrame(void)
  * ======================================================================== */
 extern void RouteCar_SetPosition(RouteNode* n, const RoutePos* at, float a);      /* 0x0041e820 */
 extern void RouteNode_GetTailTangent(RouteNode* n, Vec3f* dir);                       /* 0x0041e930 */
-extern void Sub_429f30(Vec3f* dir, float step, RoutePos* from, float f40,
-                       float tol, RoutePos* out, float* out_a);         /* 0x00429f30 */
+extern void Sub_429f30(Vec3f* dir, float step, RoutePos* from, float f40, float tol, RoutePos* out, float* out_a); /* 0x00429f30 */
 
 /* Closed by TYPES alone: `a`, route +0x24, RouteNode +0x40, the spacing
  * local and 0x00429f30's scalar out-parameter are all FLOATS. The original
