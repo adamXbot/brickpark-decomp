@@ -1,3 +1,6 @@
+#ifdef LEGOLAND_PORTABLE
+#define LoadAppraisalScreenSprites LoadAppraisalScreenSprites_vc6_body
+#endif
 /* LEGOLAND -- scope Y: the appraisal report screen's helper tier.
  *
  * The screen itself (0x004453a0, 8,085 instructions) is not in this scope;
@@ -101,7 +104,11 @@ extern Cell*   GetFirstRenderObject(void);                  /* 0x0045a850 */
 extern Cell*   GetNextRenderObject(Cell* c);                /* 0x0045a8b0 */
 extern void    RefreshEntranceTile(int force);              /* 0x00482b20 */
 extern int     TileJoinsPathNetwork(Pos* pos);              /* 0x00482b60 */
+#ifndef LEGOLAND_PORTABLE
 extern int     DBPrintf(const char* fmt, ...);              /* 0x00453a20 */
+#else
+extern void DBPrintf(const char* fmt, ...);              /* 0x00453a20 */
+#endif
 extern int     GetNearestColour(int r, int g, int b);       /* 0x0044e6c0 */
 extern int     RenderBlock(int x, int y, int w, int h, int colour); /* 0x004890c0 */
 
@@ -138,8 +145,16 @@ extern void  SetIconSprite(Icon* p, Sprite* s);            /* 0x0046d680 */
 extern void  RemoveIconGroup(unsigned short group);        /* 0x0046d520 */
 extern int   UnreferenceSprite(Sprite* s);                        /* 0x00497bd0 */
 extern char* GetString(int id);                            /* 0x00498f50 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  PauseCurrentTrack(void);                      /* 0x00498920 */
+#else
+extern int PauseCurrentTrack(void);                      /* 0x00498920 */
+#endif
 
 /* ========================================================================== */
 /* The five attraction counters.                                              */
@@ -616,3 +631,12 @@ void DrawAppraisalBar(AppraisalBox box, int value, int range, int mark)
     PrintSprite(g_rep_barmarker, (box.right - box.left - 2) * mark / range + box.left + 2,
                 box.top + 2, 0, 0);
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* LoadAppraisalScreenSprites is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef LoadAppraisalScreenSprites
+void LoadAppraisalScreenSprites(int ll_a1) { (void)ll_a1; LoadAppraisalScreenSprites_vc6_body(); }
+#endif

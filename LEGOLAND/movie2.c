@@ -151,7 +151,11 @@ extern long  KLIBAUDIO_StopAVISoundBuffer(IDSBuffer* buf);          /* 0x004964d
 extern long  KLIBAUDIO_SetAVIVolume(IDSBuffer* buf, int volume);    /* 0x004964e0 */
 extern long  KLIBAUDIO_PlayAVISoundBuffer(IDSBuffer* buf, unsigned long pos); /* 0x004963d0 */
 extern void* KLIBAUDIO_LockAVISoundBuffer(IDSBuffer* buf, unsigned long offset, unsigned long len); /* 0x004963f0 */
+#ifndef LEGOLAND_PORTABLE
 extern long  KLIBAUDIO_UnLockAVISoundBuffer(IDSBuffer* buf);        /* 0x00496490 */
+#else
+extern void KLIBAUDIO_UnLockAVISoundBuffer(IDSBuffer* buf);        /* 0x00496490 */
+#endif
 
 extern int   UpdateMovieAudio(int frame, int prev);                 /* 0x00476d20 */
 /* The CRT's float-to-int helper every (int) cast of a float calls; declared

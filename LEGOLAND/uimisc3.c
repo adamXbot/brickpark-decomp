@@ -342,9 +342,21 @@ extern const char g_fmt_wav[];            /* 0x004bf688 "%s%02d.wav" */
 
 extern int  sprintf(char* dst, const char* fmt, ...);              /* 0x0049e573 (CRT) */
 
+#ifndef LEGOLAND_PORTABLE
 extern void SetPointer(int shape);                                 /* 0x00463850 */
+#else
+extern int SetPointer(int shape);                                 /* 0x00463850 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void PlayMovie(const char* name, int a, int b);             /* 0x004771f0 */
+#else
+extern int PlayMovie(const char* name, int a, int b);             /* 0x004771f0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void PlayInstanceOfSample(void* def, int a, int b, void* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* def, int a, int b, void* src); /* 0x00496d20 */
+#endif
 extern int  GetGameTimer(void);                                    /* 0x00499430 */
 extern int  GetBlink(void);                                        /* 0x00499480 */
 extern int  PrintSprite(Sprite* s, int x, int y, int mode, BlitCtx* ctx); /* 0x004853a0 */
@@ -352,7 +364,11 @@ extern int  MakeUpObjectList(int group, int x, int y, int h);      /* 0x00475960
 extern LLElem* ElemID(const char* name);                           /* 0x0047b3f0 */
 extern int  FreePlayItemUpdate(const char* name, FPTableEntry** out); /* 0x0048a840 */
 extern void FreeScriptEvent(ScriptEvent* e);                       /* 0x00468940 */
+#ifndef LEGOLAND_PORTABLE
 extern int  CheckWorkerOnMouseStatus(int mode);                    /* 0x00470620 */
+#else
+extern void CheckWorkerOnMouseStatus(int mode);                    /* 0x00470620 */
+#endif
 extern char OptionsIconInput(Icon* p, int ev, int dx, int dy);     /* 0x00475120 */
 
 /* 0x0048ffb0 (not exported): drop the front-end backdrop and empty icon
@@ -369,7 +385,11 @@ extern void RestoreFrontEndState(int* a, int* b, int* c);          /* 0x0048fa40
 extern int  CloseInfoPopUpIfOpen(void);                            /* 0x00473130 */
 /* 0x004989b0 (not exported): stop the narration buffer, rewind it and refill
  * it from the ACM stream. */
+#ifndef LEGOLAND_PORTABLE
 extern void RewindNarrationBuffer(void);                           /* 0x004989b0 */
+#else
+extern int RewindNarrationBuffer(void);                           /* 0x004989b0 */
+#endif
 /* 0x00498920 / 0x00498630 (not exported): audio4.c's duck / play pair. */
 extern int  PauseCurrentTrack(void);                               /* 0x00498920 */
 extern int  PlayNarrationFile(const char* name);                   /* 0x00498630 */

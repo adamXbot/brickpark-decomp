@@ -76,7 +76,11 @@ extern void HeapFree_w(void*); /* 0x0049e4d0 */
 extern int ReadNarrationWaveHeader(void); /* 0x00498420 */
 extern void RewindNarrationSource(void); /* 0x00498120 */
 extern void ResetNarrationStreamState(void); /* 0x00498870 */
+#ifndef LEGOLAND_PORTABLE
 extern void StopNarrationPlayback(void); /* 0x004988c0 */
+#else
+extern int StopNarrationPlayback(void); /* 0x004988c0 */
+#endif
 extern IDSBuffer* KLIBAUDIO_CreateAVISoundBuffer(WaveFormat*, unsigned long); /* 0x00496360 */
 extern int KLIBAUDIO_DestroyAVISoundBuffer(IDSBuffer*); /* 0x004964c0 */
 

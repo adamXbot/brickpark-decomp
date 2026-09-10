@@ -1098,7 +1098,11 @@ extern int         g_last_hint;        /* 0x00668614 */
 extern const char* g_hint_strings[];   /* 0x007fe120 */
 
 extern int  GetGameTimer(void);                       /* 0x00499430 */
+#ifndef LEGOLAND_PORTABLE
 extern void AddHelpMessage(const char* fmt, ...);     /* 0x00468bb0 */
+#else
+extern int AddHelpMessage(const char* fmt, ...);     /* 0x00468bb0 */
+#endif
 extern void RemoveGoals(int code);                    /* 0x004693b0 */
 
 extern const char kFmtStr[];             /* 0x004b8bbc "%s" */

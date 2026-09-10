@@ -155,9 +155,17 @@ extern void*       SelectFont(void* dc, int font);                          /* 0
 extern int         GetNearestColour(int r, int g, int b);                   /* 0x0044e6c0 */
 extern int         LLIDB_FindElement(const char* name, void** out, unsigned int* outidx); /* 0x0047b330 */
 extern int         LLIDB_UnLoadData(void* elem);                            /* 0x0047d450 */
+#ifndef LEGOLAND_PORTABLE
 extern void        KillSprite(SpriteRec* s);                                /* 0x00497bd0 */
+#else
+extern int KillSprite(SpriteRec* s);                                /* 0x00497bd0 */
+#endif
 extern TextEntry*  FindCachedText(const char* text, int font, int format, int ink, int paper); /* 0x00455d40 */
+#ifndef LEGOLAND_PORTABLE
 extern void        RenderBlock(int x, int y, int w, int h, int colour);     /* 0x004890c0 */
+#else
+extern int RenderBlock(int x, int y, int w, int h, int colour);     /* 0x004890c0 */
+#endif
 
 void DrawCachedTextSprite(SpriteRec* s);
 

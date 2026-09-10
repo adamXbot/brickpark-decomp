@@ -90,8 +90,16 @@ extern void  PushRenderingStatusAndLockVideoSurface(void);             /* 0x0046
 extern void  PopRenderingStatus(void);                                 /* 0x004641f0 */
 extern int   RenderingComplete(void);                                  /* 0x00466500 */
 extern int   KillSprite(void* sprite);                                 /* 0x00497bd0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  SetPointer(int shape);                                    /* 0x00463850 */
+#else
+extern int SetPointer(int shape);                                    /* 0x00463850 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  UpDateCurrentProfile(void);                               /* 0x00491680 */
+#else
+extern int UpDateCurrentProfile(void);                               /* 0x00491680 */
+#endif
 extern int   FreezeGameClock(void);                                    /* 0x00499380 */
 extern void  ThawGameClock(void);                                      /* 0x004993c0 */
 extern void  ResetGameClock(void);                                     /* 0x00499410 */
@@ -103,7 +111,11 @@ extern void  FreeBlokeCounters(void);                                  /* 0x0048
 extern void  EnterParkPlayMode(void);                                  /* 0x00458940 */
 extern void  UpdateMenu(void);                                         /* 0x004758c0 */
 extern void  ShowInfoPanel(int kind);                                  /* 0x00490600 */
+#ifndef LEGOLAND_PORTABLE
 extern void  SetInfoPanelText(const char* a, const char* b);           /* 0x004911c0 */
+#else
+extern int SetInfoPanelText(const char* a, const char* b);           /* 0x004911c0 */
+#endif
 extern void  ClearObjInfoList(void);                                   /* 0x00481170 */
 extern void  RemoveObjectListIcons(int group);                         /* 0x0046fb40 */
 extern void  DelObjectList(void);                                      /* 0x004756e0 */
@@ -144,10 +156,18 @@ extern void  ClearWaitSprite(void);                                    /* 0x0046
 extern int   LoadGame(const char* path);                               /* 0x0047e980 */
 extern void  InitGameInterface(int a);                                 /* 0x004749d0 */
 extern void  KillHelpText(void);                                       /* 0x0046c5c0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  UpdateSoundVols(void);                                    /* 0x00495a90 */
+#else
+extern int UpdateSoundVols(void);                                    /* 0x00495a90 */
+#endif
 extern void  InitScreens(char screen);                                 /* 0x00458640  declared int elsewhere; this caller pushes a byte */
 extern void  ReadGameButtons(void);                                    /* 0x00452460 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PlayMovie(const char* name, int a, int b);                /* 0x004771f0 */
+#else
+extern int PlayMovie(const char* name, int a, int b);                /* 0x004771f0 */
+#endif
 extern void  UpdateHelpBar(void);                                      /* 0x0046d110 */
 extern void  MapScreenFrame(void);                                     /* 0x00459360 (scope Q) */
 extern void  sub_498b40(void);                                         /* 0x00498b40 */
@@ -798,7 +818,11 @@ extern void       BuildCursorPtr(Cursor* c, int a, int b);               /* 0x00
 extern void       RenderCursor(Cursor* c);                               /* 0x0045ff00 */
 extern int        CursorIsValid(Cursor* c);                              /* 0x0045f4b0 */
 extern void       RemObjFromMap(ObjDef* d, MapObj* o, BPosW sq, Cursor* c); /* 0x00459c90 */
+#ifndef LEGOLAND_PORTABLE
 extern void       PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
+#endif
 extern void       CalculateMapRenderOrder(void);                         /* 0x0045a4a0 */
 extern void       ClearObjectUserFlags(MapObj* obj, Pos* pos);           /* 0x0045e850 */
 extern void       RemoveObjectPathTiles(ObjDef* def, Pos* pos);          /* 0x0045d3d0 */

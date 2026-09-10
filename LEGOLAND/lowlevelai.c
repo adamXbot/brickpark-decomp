@@ -56,7 +56,11 @@ extern Bloke* g_icon_value;              /* 0x004bdd04 */
 typedef void (*LowAIFn)(Bloke*);
 extern LowAIFn g_lowlevel_ai[];           /* 0x004bd34c */
 
+#ifndef LEGOLAND_PORTABLE
 extern int DBPrintf(const char*, ...);                        /* 0x00453a20 */
+#else
+extern void DBPrintf(const char*, ...);                        /* 0x00453a20 */
+#endif
 extern int rand(void);                                        /* 0x0049e4b2 */
 extern unsigned short DoPendingAction(Bloke*);                 /* 0x00483240 */
 extern Pos GetTileInDir(Pos, unsigned char);                   /* 0x004846a0 */

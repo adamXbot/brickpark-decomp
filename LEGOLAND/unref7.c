@@ -326,7 +326,11 @@ extern void  RenderCursor(Cursor* c);                           /* 0x0045ff00 */
 extern void  SetCursorError(Cursor* c, int error);              /* 0x0045f480 */
 extern int   PlayInstanceOfSample(void* s, int a, int b, void* src); /* 0x00496d20 */
 extern void  CloseFontEndCheckBox(void);                        /* 0x0048cc10 */
+#ifndef LEGOLAND_PORTABLE
 extern void  UpDateCurrentProfile(void);                        /* 0x00491680 */
+#else
+extern int UpDateCurrentProfile(void);                        /* 0x00491680 */
+#endif
 extern char  ScanForProfiles(void);                             /* 0x004913f0 */
 extern char  LoadProfilesFormDisk(void);                        /* 0x00491470 */
 extern char  SaveProfileToDisk(void);                           /* 0x00491910 */

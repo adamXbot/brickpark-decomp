@@ -89,6 +89,9 @@
  * and the four scroll-arrow cursors.
  * ------------------------------------------------------------------------- */
 #include "legoland.h"
+#ifdef LEGOLAND_PORTABLE
+#define ScreenToMapRef2 ScreenToMapRef2_vc6_body
+#endif
 
 /* ------------------------------------------------------------------ types -- */
 
@@ -502,3 +505,12 @@ void RemovePathTile(Pos* pos, int tile)
     if (g_path_overlay_active)
         RefreshPathArea(pos);
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* ScreenToMapRef2 is called with 0 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef ScreenToMapRef2
+int ScreenToMapRef2(Pos* ll_screen, Pos* ll_out, int ll_unused) {  return ScreenToMapRef2_vc6_body(ll_screen, ll_out); }
+#endif

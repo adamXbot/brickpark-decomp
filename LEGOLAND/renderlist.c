@@ -93,9 +93,15 @@ extern void  RenderItem2_Link(RenderList* list, RenderItem* item, int key);
 extern RenderItem* RenderItem2_Alloc(void);                   /* 0x00443120 */
 extern void  RenderThickBox(int x, int y, int w, int h, int t, int colour);
                                                               /* 0x00489390 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RenderSpriteScaledOffset(Sprite* sprite, int x, int y,
                                       int w, int h, Pos* offset);
                                                               /* 0x00488c80 */
+#else
+extern int   RenderSpriteScaledOffset(Sprite* sprite, int x, int y,
+                                      int w, int h, Pos* offset);
+                                                              /* 0x00488c80 */
+#endif
 
 /* -------------------------------------------------------------- functions -- */
 

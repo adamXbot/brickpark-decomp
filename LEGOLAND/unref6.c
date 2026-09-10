@@ -168,7 +168,11 @@ char* strcpy(char*, const char*);
 extern Icon* InsertIcon(short x, short y, unsigned short group, SpriteRec* s); /* 0x0046d6c0 */
 extern Icon* FindIcon(unsigned short group);                    /* 0x0046d630 */
 extern void  MoveIcons(int mask, short group, short dx, short dy); /* 0x0046dcd0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  ReferenceSprite(SpriteRec* s);                     /* 0x00497bb0 */
+#else
+extern int ReferenceSprite(SpriteRec* s);                     /* 0x00497bb0 */
+#endif
 extern Icon* AddGBarClassIcon(void* owner, ObjDef* d, int x, int y, int group,
                               short f16);                       /* 0x0046f690 */
 extern int   PrintSprite(SpriteRec* s, int x, int y, int mode, BlitCtx* ctx); /* 0x004853a0 */
@@ -189,7 +193,11 @@ extern void  SetNewGroup_Callbacks(void* a, void* b, void* c);  /* 0x0046d740 */
 extern void  AddFullScreenIcon(int group);                      /* 0x0046d760 */
 extern void  RemoveObjectListIcons(int group);                  /* 0x0046fb40 */
 extern int   LLIDB_GetCount(void);                              /* 0x0047b2d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_GetElement(int i, LLElem** out);             /* 0x0047b2e0 */
+#else
+extern int LLIDB_GetElement(int i, LLElem** out);             /* 0x0047b2e0 */
+#endif
 extern char  BuildObjectIconInput(Icon* p, int ev, short dx, short dy); /* 0x00470000 */
 __declspec(dllimport) int __stdcall IntersectRect(WinRect* dst, const WinRect* a,
                                                   const WinRect* b); /* [0x4ab2a0] */

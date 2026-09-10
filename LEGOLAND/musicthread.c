@@ -343,7 +343,11 @@ extern const GUID_ GUID_NOTIFICATION_SEGMENT;     /* 0x004ab8a0 */
 /* ---- callees ----------------------------------------------------------- */
 
 extern void  DBPrintf(const char* fmt, ...);                    /* 0x00453a20 */
+#ifndef LEGOLAND_PORTABLE
 extern void  UpdateSoundVols(void);                             /* 0x00495a90 */
+#else
+extern int UpdateSoundVols(void);                             /* 0x00495a90 */
+#endif
 extern void* malloc(unsigned int size);                         /* 0x0049e4ff (CRT) */
 extern void  free(void* p);                                     /* 0x0049e4d0 (CRT) */
 extern int   _open(const char* path, int mode, ...);            /* 0x0049f6c0 (CRT) */

@@ -41,7 +41,11 @@ __declspec(dllimport) int __stdcall WriteFile(int h, const void* buf,
                                               void* ov);                /* [0x4ab254] */
 __declspec(dllimport) int __stdcall CloseHandle(int h);                 /* [0x4ab260] */
 
+#ifndef LEGOLAND_PORTABLE
 extern void ModelRecord_GetName(ModelImage* image, char* out, int index); /* 0x00422390 */
+#else
+extern int ModelRecord_GetName(ModelImage* image, char* out, int index); /* 0x00422390 */
+#endif
 extern void Free_w(void* p);                                             /* 0x004775d0 */
 
 /* ==========================================================================

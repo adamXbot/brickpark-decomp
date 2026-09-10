@@ -40,7 +40,11 @@ extern void* realloc(void* p, unsigned int size);              /* 0x0049fca2 */
 /* ---- RES ---------------------------------------------------------------- */
 extern void* RES_OpenFile(const char* name);                   /* 0x00489b60 */
 extern int   RES_ReadFile(void* file, void* buf, int len);     /* 0x00489cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* file);                        /* 0x00489de0 */
+#else
+extern int RES_CloseFile(void* file);                        /* 0x00489de0 */
+#endif
 extern int   RES_GetFilePointer(void* file);                   /* 0x00489db0 */
 extern int   RES_SetFilePointer(void* file, int pos);          /* 0x00489d70 */
 

@@ -193,7 +193,12 @@ extern void  HeapFree_w(void* p);                               /* 0x0049e4d0 */
 
 extern void  DefaultCursor(void* cursor);                       /* 0x0045a390 */
 extern void  SetEditCursorFootPrint(void* src);                 /* 0x0045f440 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* obj, Pos* pos);               /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);               /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void  StandardRemoveObject(void* obj, CellPos tile, void* ctx);
                                                                 /* 0x0045f220 */
 extern void  RemoveAllBlokesFromRide(RideDef* cls, CellPos tile);
@@ -725,7 +730,11 @@ void Catapult_Fire(RideTile* tile, RiderNode* r)
  * bound a tail-jmp function and would score it red.
  * ========================================================================== */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                          /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                          /* 0x00497bd0 */
+#endif
 extern void  KillMoneySFX(void);                                /* 0x00453930 */
 extern void* g_legoshop1_matte;   /* 0x0081cb18  "Lego Shop 1 Matte.LLS" */
 

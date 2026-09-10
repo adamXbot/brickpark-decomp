@@ -170,8 +170,16 @@ extern void* g_raster_bits;                                     /* 0x004b5b20 */
 extern int   g_zb_pitch;                                        /* 0x004b5b28 */
 extern int*  g_coaster_colours;                                 /* 0x004d8bac */
 extern int   RouteSeat_IsOccupied(RouteSeat* seat);             /* 0x004273c0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RouteSeat_AttachCar(RouteSeat* seat, CoasterCar* car); /* 0x004273d0 */
+#else
+extern int RouteSeat_AttachCar(RouteSeat* seat, CoasterCar* car); /* 0x004273d0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  RouteSeat_DetachCar(RouteSeat* seat);              /* 0x004273f0 */
+#else
+extern int RouteSeat_DetachCar(RouteSeat* seat);              /* 0x004273f0 */
+#endif
 extern void  RouteSeat_Update(RouteSeat* seat);                 /* 0x00427410 */
 
 /* -------------------------------------------------------------------------

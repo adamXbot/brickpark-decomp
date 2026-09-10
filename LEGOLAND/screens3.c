@@ -436,7 +436,11 @@ extern int   LoadHelpTextFor(void* key);
 extern void  FreeHelpTextBuffer(void);
 
 extern Sprite* LoadSprite(const char* name, int mode);         /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  ReferenceSprite(Sprite* s);                      /* 0x00497bb0 */
+#else
+extern int ReferenceSprite(Sprite* s);                      /* 0x00497bb0 */
+#endif
 extern int   KillSprite(Sprite* s);                           /* 0x00497bd0 */
 extern Icon* InsertIcon(short x, short y, unsigned short group, Sprite* s); /* 0x0046d6c0 */
 extern Icon* LoadSpriteIcon(const char* name, int mode, int x, int y, int group); /* 0x0046d7b0 */
@@ -476,13 +480,25 @@ extern void  InitSavedGameScreen(void);
 /* 0x0048d490 (not exported): restores the icon handlers 0x0048d470 stashed. */
 extern void  RestoreSavedGameIconHandlers(void);
 /* 0x0048e870 (not exported): writes the new saved game to disk. */
+#ifndef LEGOLAND_PORTABLE
 extern void  StoreNewSaveGameToDisk(void);
+#else
+extern int StoreNewSaveGameToDisk(void);
+#endif
 /* 0x0048faa0 (not exported): drops the title-screen sprites. */
 extern void  KillTitleScreenSprites(void);
 /* 0x00491550 (not exported): refreshes the current save-slot record. */
+#ifndef LEGOLAND_PORTABLE
 extern void  UpDateCurrentSaveSlotInfo(void);
+#else
+extern int UpDateCurrentSaveSlotInfo(void);
+#endif
 /* 0x00491680 (not exported): writes CurProfile back to the profile list. */
+#ifndef LEGOLAND_PORTABLE
 extern void  UpDateCurrentProfile(void);
+#else
+extern int UpDateCurrentProfile(void);
+#endif
 /* 0x0048eb40 (not exported): restores the icon handlers 0x0048eb20 stashed. */
 extern void  RestoreOptionIconHandlers(void);
 /* 0x0048f0f0 (not exported): builds the exit confirmation popup at (x,y). */
@@ -502,15 +518,27 @@ extern int   TestMenu(Menu* m);                              /* 0x00475710 */
 extern void  SetIconSprite(Icon* p, Sprite* s);              /* 0x0046d680 */
 extern void  CloseFontEndCheckBox(void);                     /* 0x0048cc10 */
 extern void  RemoveIconGroup(int group);                     /* 0x0046d520 */
+#ifndef LEGOLAND_PORTABLE
 extern void  SaveProfileToDisk(void);                        /* 0x00491910 */
+#else
+extern int SaveProfileToDisk(void);                        /* 0x00491910 */
+#endif
 extern void  DeleteProfileList(void);                        /* 0x00491b50 */
 extern char  LoadProfilesFormDisk(void);                     /* 0x00491470 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RemoveProfile(unsigned char slot);              /* 0x00491ab0 */
+#else
+extern int RemoveProfile(unsigned char slot);              /* 0x00491ab0 */
+#endif
 extern void  InitNewProfilePoPUp(Icon* p);                   /* 0x00491290 */
 /* 0x00490600 (not exported): opens a front-end/in-game info panel. */
 extern void  ShowInfoPanel(int kind);
 /* 0x004911c0 (not exported): fills the info panel from the two script texts. */
+#ifndef LEGOLAND_PORTABLE
 extern void  SetInfoPanelText(const char* a, const char* b);
+#else
+extern int SetInfoPanelText(const char* a, const char* b);
+#endif
 /* 0x0046b700 (not exported): ends the running script. */
 extern void  EndScript(void);
 /* 0x00474750 (not exported): drops the side panel's object icons. */

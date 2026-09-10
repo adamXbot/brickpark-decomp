@@ -362,7 +362,11 @@ extern void  FreePTPOpenList(void);                       /* 0x004821e0 */
 extern void  FreePTPRouteList(void);                      /* 0x00482210 */
 extern void  ClearPTPVisited(void);                       /* 0x004821c0 */
 /* Push (x,y) onto the open list if it is on the map, walkable and unvisited. */
+#ifndef LEGOLAND_PORTABLE
 extern int   PTPVisitTile(int x, int y, PTPNode* parent);  /* 0x00482620 */
+#else
+extern void PTPVisitTile(int x, int y, PTPNode* parent);  /* 0x00482620 */
+#endif
 /* Walk the parent chain of g_ptp_found back into the route list; non-zero
  * when the first step IS the tile we are standing on. */
 extern int   BuildPTPRoute(void);                         /* 0x00482430 */

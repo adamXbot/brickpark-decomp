@@ -508,12 +508,24 @@ extern int      g_8003e8;                 /* 0x008003e8 */
 /* ---- core helpers -------------------------------------------------------- */
 extern void  SetEditCursorFootPrint(void* footprint);           /* 0x0045f440 */
 extern void  DefaultCursor(void* cursor);                       /* 0x0045a390 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                          /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                          /* 0x00497bd0 */
+#endif
 extern int   LLIDB_FindElement(const char* name, void** out,
                                unsigned int* outidx);           /* 0x0047b330 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_UnLoadData(void* elem);                      /* 0x0047d450 */
+#else
+extern int LLIDB_UnLoadData(void* elem);                      /* 0x0047d450 */
+#endif
 extern RideElem* ElemID(const char* name);                      /* 0x0047b3f0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int screen, MapRef* out, int mode);  /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int screen, MapRef* out, int mode);  /* 0x0045be90 */
+#endif
 extern void  ValidateCursor(void* cursor, RideDef* cls);        /* 0x0045f810 */
 extern void  ResetCursorFootprint(void* cursor);                /* 0x0045f460 */
 extern void  SetCursorError(void* cursor, int code);            /* 0x0045f480 */

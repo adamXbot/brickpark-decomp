@@ -227,10 +227,19 @@ typedef struct RenderList {
 
 /* ---- engine entry points ------------------------------------------------ */
 extern void*  LoadSprite(const char* name, int flag);                /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   KillSprite(void* spr);                                 /* 0x00497bd0 */
+#else
+extern int KillSprite(void* spr);                                 /* 0x00497bd0 */
+#endif
 extern void   DefaultCursor(void* cursor);                           /* 0x0045a390 */
 extern void   SetEditCursorFootPrint(void* src);                     /* 0x0045f440 */
+#ifndef LEGOLAND_PORTABLE
 extern void   AddBasicObject(void* obj, Pos* pos);                   /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                   /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void   StandardRemoveObject(void* obj, unsigned int tile, void* ctx); /* 0x0045f220 */
 extern void   RemoveAllBlokesFromRide(RideObject* cls, unsigned int tile);   /* 0x0048a2e0 */
 extern void   RenderItems_New(void);                                 /* 0x00442e90 */
@@ -577,7 +586,11 @@ void Temple_Draw(RideElem* elem, int x, int y, MapSquare* sq,
 
 extern void*  GetSpriteForLayer(RenderObj* obj, int layer);          /* 0x00441ec0 */
 extern void*  GetLLSForSprite(void* spr);                            /* 0x00441e80 */
+#ifndef LEGOLAND_PORTABLE
 extern void   LLSStop(void* lls);                                    /* 0x0047d4c0 */
+#else
+extern int LLSStop(void* lls);                                    /* 0x0047d4c0 */
+#endif
 extern void   LLSSetFrame(void* lls, int frame);                     /* 0x0047d5a0 */
 
 typedef struct FortBloke {

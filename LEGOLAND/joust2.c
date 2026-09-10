@@ -314,7 +314,11 @@ extern void*  GetLLSForLayer(void* sprite, int layer);              /* 0x00441ea
 extern void*  GetSpriteForLayer(void* sprite, int layer);           /* 0x00441ec0 */
 extern Offset GetRenderOffsetForLayer(void* sprite, int layer);     /* 0x00441ee0 */
 extern void*  GetLLSForSprite(void* spr);                           /* 0x00441e80 */
+#ifndef LEGOLAND_PORTABLE
 extern void   LLSStop(void* lls);                                   /* 0x0047d4c0 */
+#else
+extern int LLSStop(void* lls);                                   /* 0x0047d4c0 */
+#endif
 extern void   LLSSetFrame(void* lls, int frame);                    /* 0x0047d5a0 */
 extern Offset GetScreenCoordsForObject(RideTile* sq, RideDef* item);/* 0x00442cc0 */
 extern void   AdjustOffsetForViewMode(Offset* o);                   /* 0x00442d30 */

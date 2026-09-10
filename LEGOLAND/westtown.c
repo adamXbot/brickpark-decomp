@@ -248,7 +248,11 @@ struct RiderNode {
 typedef struct Offset { int ox; int oy; } Offset;
 
 extern void*  LoadSprite(const char* name, int flag);           /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   KillSprite(void* sprite);                         /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                         /* 0x00497bd0 */
+#endif
 extern void   LoadMoneySFX(void);                               /* 0x00453900 */
 extern void   KillMoneySFX(void);                               /* 0x00453930 */
 extern void   DefaultCursor(void* cursor);                      /* 0x0045a390 */
@@ -529,7 +533,12 @@ void Explorers_DrawOverlay(ShopElem* elem, int x, int y, ShopTile* sq,
 
 extern void  AddPathTileGFX(Pos* pos, unsigned short tile);     /* 0x0045d350 */
 extern void  RemoveRollerCoasterPath(Pos* pos);                 /* 0x0045dcd0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* elem, Pos* pos);              /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);              /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void* g_path_tile_ptr;   /* 0x00832bf0  loaded path tile record; first word = tile code */
 
 // FUNCTION: LEGOLAND 0x00439230

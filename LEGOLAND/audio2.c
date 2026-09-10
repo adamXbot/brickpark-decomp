@@ -73,7 +73,11 @@ extern PlayableSample* g_playable_list;   /* 0x007988cc  head of live samples */
 
 extern int  StopPlayableSample(PlayableSample* s);   /* 0x004927b0 (internal) */
 extern int  StartPlayableSample(PlayableSample* s);  /* 0x004928a0 (internal) */
+#ifndef LEGOLAND_PORTABLE
 extern void UpdateSampleSource(PlayableSample* s);   /* 0x004966a0 (internal) */
+#else
+extern int UpdateSampleSource(PlayableSample* s);   /* 0x004966a0 (internal) */
+#endif
 
 /* ---- pause / resume / mute --------------------------------------------- */
 

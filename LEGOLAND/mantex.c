@@ -36,7 +36,11 @@ typedef struct PersonXY {
 /* ---- CRT / RES ---------------------------------------------------------- */
 extern int   RES_ReadFile(void* f, void* buf, int n);           /* 0x00489cf0 */
 extern void* RES_OpenFile(const char* path);                    /* 0x00489b60 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* f);                            /* 0x00489de0 */
+#else
+extern int RES_CloseFile(void* f);                            /* 0x00489de0 */
+#endif
 extern int   NameCompare(const char* a, const char* b);         /* 0x004aab90 */
 extern void* HeapAlloc_w(unsigned int n);                       /* 0x0049e4ff */
 extern void  HeapFree_w(void* p);                               /* 0x0049e4d0 */

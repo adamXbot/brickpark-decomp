@@ -567,7 +567,11 @@ extern int   LLIDB_FindElement(const char* name, void** out,
 extern void* LLIDB_LoadData(void* elem);                      /* 0x0047d3a0 */
 extern void* GetSpriteForLayer(Spr* sprite, int layer);       /* 0x00441ec0 */
 extern LLS*  GetLLSForSprite(void* sprite);                   /* 0x00441e80 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLSStop(LLS* lls);                               /* 0x0047d4c0 */
+#else
+extern int LLSStop(LLS* lls);                               /* 0x0047d4c0 */
+#endif
 extern void  LLSPlay(LLS* lls, void* owner);                  /* 0x0047d520 */
 
 extern FXEntry    g_bs_fx[2];                                 /* 0x004b52c0 */

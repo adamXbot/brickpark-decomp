@@ -1,3 +1,6 @@
+#ifdef LEGOLAND_PORTABLE
+#define KLIBAUDIO_SetAVIVolume KLIBAUDIO_SetAVIVolume_vc6_body
+#endif
 /* LEGOLAND — audio odds and ends: the AVI sound-buffer wrappers, sound-system
  * teardown, the money SFX refcount pair and the generic FX-list loader.
  *
@@ -191,3 +194,12 @@ void KillMoneySFX(void)
     if (--g_money_fx_refs == 0)
         Kill_FXList(g_money_fx, 2);
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* KLIBAUDIO_SetAVIVolume is called with 0 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef KLIBAUDIO_SetAVIVolume
+long KLIBAUDIO_SetAVIVolume(IDSBuffer* ll_buf, int ll_vol) {  return KLIBAUDIO_SetAVIVolume_vc6_body(ll_buf); }
+#endif

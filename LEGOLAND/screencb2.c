@@ -333,12 +333,24 @@ int Balloonz_Load(RideElem* elem)
  * ========================================================================= */
 
 extern void  Kill_FXList(void* list, int count);              /* 0x00496e30 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                        /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                        /* 0x00497bd0 */
+#endif
 extern int   LLIDB_FindElement(const char* name, void** out,
                                unsigned int* idx);            /* 0x0047b330 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLIDB_UnLoadData(void* elem);                    /* 0x0047d450 */
+#else
+extern int LLIDB_UnLoadData(void* elem);                    /* 0x0047d450 */
+#endif
 extern void* GetLLSForSprite(void* sprite);                   /* 0x00441e80 */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLSStop(void* lls);                              /* 0x0047d4c0 */
+#else
+extern int LLSStop(void* lls);                              /* 0x0047d4c0 */
+#endif
 
 /* The 0x08-byte-header image list: `count` entries of `sprites`. */
 typedef struct ImageList {
@@ -1103,7 +1115,11 @@ extern Cursor g_ds_prev_a;                                    /* 0x0082f760 */
 extern Cursor g_ds_prev_b;                                    /* 0x0082c6e0 */
 extern Cursor g_ds_prev_c;                                    /* 0x0082df20 */
 
+#ifndef LEGOLAND_PORTABLE
 extern void      ScreenToMapRef(int screen, Pos* out, int mode); /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int screen, Pos* out, int mode); /* 0x0045be90 */
+#endif
 extern void      ValidateCursor(Cursor* c, RideDef* def);     /* 0x0045f810 */
 extern void      PropagateCursorStatus(Cursor* c);            /* 0x0045f4d0 */
 extern void      ResetCursorFootprint(Cursor* c);             /* 0x0045f460 */
@@ -1299,7 +1315,12 @@ void DrivingSchool_Update(RideElem* elem, int screen, int mode)
  * takings figure of 5.
  * ========================================================================= */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* obj, Pos* pos);             /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);             /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void  NewRoadRecord(BPosW school, int x, int y,
                            int shape, int rot);               /* 0x004132a0 */
 extern RideElem* ElemID(const char* name);                    /* 0x0047b3f0 */

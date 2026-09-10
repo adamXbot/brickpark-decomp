@@ -50,7 +50,11 @@ extern void* g_route_node_model[];                 /* 0x0082add0 */
 extern void* g_route_node_texture[];               /* 0x0082ade0 */
 
 extern void MakeTransform(const Vec3f*, const Mat3*, Mat4*); /* 0x004264e0 */
+#ifndef LEGOLAND_PORTABLE
 extern void Mat4_Transpose(const Mat4*, Mat4*);              /* 0x00426190 */
+#else
+extern int Mat4_Transpose(const Mat4*, Mat4*);              /* 0x00426190 */
+#endif
 extern int ClipRect_ComputeMask(ClipRect*, const int*);      /* 0x004265d0 */
 extern void ModelClip_Project(void* mesh, const Vec3f*, const Mat3*, SpanRect*); /* 0x00426750 */
 extern float Route_SumPotentialEnergy(CoasterRoute*);        /* 0x0041dae0 */

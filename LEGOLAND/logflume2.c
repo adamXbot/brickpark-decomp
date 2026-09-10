@@ -1044,8 +1044,13 @@ void LFAnim_Release(LFAnimRefs* r)
 
 extern void  LFPiece_DrawJoin(LFPiece* p);                       /* 0x0040cca0 */
 extern void* g_lf_sprites[];                                     /* 0x004c2abc */
+#ifndef LEGOLAND_PORTABLE
 extern void  PrintSprite(void* spr, int x, int y, int mode,
                          int flag);                              /* 0x004853a0 */
+#else
+extern int   PrintSprite(void* spr, int x, int y, int mode,
+                         int flag);                              /* 0x004853a0 */
+#endif
 
 /* Repaint the two sub-pieces that bracket a compound piece, but only the
  * ones whose orientation faces the way the caller is drawing: with mode set
@@ -1404,7 +1409,11 @@ Pos LFPiece_ScreenPos(LFPiece* p)
  * log-flume class placed it. */
 extern void LFPiece_QueryRect(LFPiece* p, Footprint** out_fp,
                               BPos* out_sq);                     /* 0x0040d090 */
+#ifndef LEGOLAND_PORTABLE
 extern void DBPrintf(const char* fmt);                           /* 0x00453a20 */
+#else
+extern void DBPrintf(const char* fmt, ...);                           /* 0x00453a20 */
+#endif
 extern char g_lf_norect_msg[];                                   /* 0x004b4a24 */
 
 /* Which placed piece covers map point (x,y)?  Walks every run and every

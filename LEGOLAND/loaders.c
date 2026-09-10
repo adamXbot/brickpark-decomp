@@ -32,7 +32,11 @@ char* strcat(char*, const char*);
 extern int  rand(void);                                        /* 0x0049e4b2 */
 extern void _splitpath(const char* path, char* drive, char* dir,
                        char* fname, char* ext);                /* 0x0049ec85 */
+#ifndef LEGOLAND_PORTABLE
 extern void Format(char* dest, const char* fmt, ...);          /* 0x0049e573 (sprintf) */
+#else
+extern int Format(char* dest, const char* fmt, ...);          /* 0x0049e573 (sprintf) */
+#endif
 extern int  NameCompare(const char* a, const char* b);         /* 0x004aab90 (_stricmp) */
 
 /* ---- Win32 ----------------------------------------------------------------
@@ -45,7 +49,11 @@ __declspec(dllimport) void* __stdcall LoadLibraryExA(const char* name, void* fil
 extern void* HeapAlloc_w(unsigned int size);                   /* 0x0049e4ff */
 extern void* RES_OpenFile(const char* name);                   /* 0x00489b60 */
 extern int   RES_ReadFile(void* file, void* buf, int len);     /* 0x00489cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* file);                        /* 0x00489de0 */
+#else
+extern int RES_CloseFile(void* file);                        /* 0x00489de0 */
+#endif
 extern int   SaveGameWrite(const void* buf, unsigned int n);   /* 0x0047d760 */
 extern void  AddBricks(int n);                                 /* 0x004578a0 */
 extern void  LLSPlay(void* anim, void* owner);                 /* 0x0047d520 */

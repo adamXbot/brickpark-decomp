@@ -598,7 +598,11 @@ extern Cursor g_edit_cursor;                                  /* 0x007febc0 */
  * g_lf_cursor_c -- it is whichever class is being dragged that owns it. */
 extern Cursor g_prev_cursor;                                  /* 0x00830fc0 */
 
+#ifndef LEGOLAND_PORTABLE
 extern void ScreenToMapRef(int screen, Pos* out, int mode);   /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int screen, Pos* out, int mode);   /* 0x0045be90 */
+#endif
 extern void ResetCursorFootprint(Cursor* c);                  /* 0x0045f460 */
 extern void ValidateCursor(Cursor* c, RideDef* def);          /* 0x0045f810 */
 

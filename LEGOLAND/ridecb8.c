@@ -562,7 +562,11 @@ extern Pos     g_edit_cursor_origin;    /* 0x007fffc4 == g_edit_cursor.origin */
 extern Rect    g_edit_cursor_rect;      /* 0x007fffd4 == g_edit_cursor.rect */
 extern Cursor* g_edit_cursor_next;      /* 0x008003f0 == g_edit_cursor.next */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#endif
 extern void  DefaultCursor(Cursor* c);                       /* 0x0045a390 */
 extern void  ValidateCursor(Cursor* c, ObjDef* cls);         /* 0x0045f810 */
 extern int   CursorIsValid(Cursor* c);                       /* 0x0045f4b0 */
@@ -874,7 +878,11 @@ extern Pos    GetScreenCoordsForObject(MapSquare* sq, ShopDef* def); /* 0x00442c
 extern int    LLIDB_FindElement(const char* name, void** out,
                                 unsigned int* idx);             /* 0x0047b330 */
 extern void*  LLIDB_LoadData(void* elem);                       /* 0x0047d3a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   LLIDB_UnLoadData(void* elem);                     /* 0x0047d450 */
+#else
+extern int LLIDB_UnLoadData(void* elem);                     /* 0x0047d450 */
+#endif
 
 extern int      g_edit_changed;                                 /* 0x008119b0 */
 extern ObjDef*  g_edit_object;                                  /* 0x008119b8 */
@@ -1189,9 +1197,19 @@ typedef struct SoundSource {
 
 extern FXEntry g_castlebbq_fx_list[1];  /* 0x004b66e8 "Dragon BBQ01.wav" */
 
+#ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(void* obj, Pos* pos);                  /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                  /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void PlayInstanceOfSample(void* sample, int a, int b,
                                  SoundSource* src);               /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* sample, int a, int b,
+                                 SoundSource* src);               /* 0x00496d20 */
+#endif
 extern void UnSourceAndFadeAllSamplesFromSource(SoundSource* src,
                                                 int fade);        /* 0x00496c80 */
 
@@ -1780,7 +1798,11 @@ extern void*  g_rest1_mask_3;       /* 0x0081cd90 RestMaskLevel3.lls */
 
 extern void UnLoadRin(void* rin);                                /* 0x00441cf0 */
 extern void UnloadPos(void* anim);                               /* 0x0043f7d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(void* sprite);                            /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                            /* 0x00497bd0 */
+#endif
 
 /* 0x0042d1f0 -- EARTH SLIDE RIDE +0xac.  Note it RE-PUBLISHES the ObjDef on
  * the way OUT (the +0xa4 already did), which is harmless but is the

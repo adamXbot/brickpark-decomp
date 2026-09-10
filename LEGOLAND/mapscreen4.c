@@ -176,7 +176,11 @@ extern Sprite* LoadSprite(const char* name, int mode);                 /* 0x0049
 extern Icon*   LoadSpriteIcon(const char* name, int mode, int x, int y, int group); /* 0x0046d7b0 */
 extern char*   GetString(int id);                                      /* 0x00498f50 */
 extern void    SetIconSprite(Icon* p, Sprite* s);                      /* 0x0046d680 */
+#ifndef LEGOLAND_PORTABLE
 extern void    PlayInstanceOfSample(void* def, int a, int b, void* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* def, int a, int b, void* src); /* 0x00496d20 */
+#endif
 /* 0x00499450: the sound clock in ms.  Declared SIGNED here because
  * PrintScreenMode7's expiry test is `jle`, not `ja`; audiomisc.c declares the
  * same address `unsigned int` (its use has no compare) — a caller-side type

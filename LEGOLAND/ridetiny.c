@@ -1,3 +1,9 @@
+#ifdef LEGOLAND_PORTABLE
+#define PowerStation_InitSound PowerStation_InitSound_vc6_body
+#endif
+#ifdef LEGOLAND_PORTABLE
+#define Fountain_InitSound Fountain_InitSound_vc6_body
+#endif
 /* LEGOLAND -- scope E: ride record, queue, path and sound micro-helpers.
  * VC6 SP3 /O2 /Gy /Gd; see docs/lanes/scope-e.md for audit evidence.
  */
@@ -346,3 +352,21 @@ Pos LFQuadBottomLeft(void)
     GetTileDimensions(&width, &height); width <<= 1; height <<= 1;
     out.x = width >> 1; out.y = (height >> 1) + height; return out;
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* Fountain_InitSound is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef Fountain_InitSound
+void Fountain_InitSound(int ll_a1) { (void)ll_a1; Fountain_InitSound_vc6_body(); }
+#endif
+
+#ifdef LEGOLAND_PORTABLE
+/* PowerStation_InitSound is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef PowerStation_InitSound
+void PowerStation_InitSound(int ll_a1) { (void)ll_a1; PowerStation_InitSound_vc6_body(); }
+#endif

@@ -36,9 +36,17 @@ extern void* LLIDB_LoadData(void* elem);        /* 0x47d3a0 */
 extern void* ElemID(const char* name);          /* 0x47b3f0 */
 extern void* RES_OpenFile(const char* name);    /* 0x489b60 */
 extern int   RES_ReadFile(void* file, void* buf, int len); /* 0x489cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* file);         /* 0x489de0 */
+#else
+extern int RES_CloseFile(void* file);         /* 0x489de0 */
+#endif
 extern int   RES_GetFilePointer(void* file);    /* 0x489db0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_SetFilePointer(void* file, int pos); /* 0x489d70 */
+#else
+extern int RES_SetFilePointer(void* file, int pos); /* 0x489d70 */
+#endif
 extern void  ResetBuildStats(void);             /* 0x459880 */
 extern void  PutObjOnMap(void* cls, void* obj, Pos* pos); /* 0x459ad0 */
 extern void  SetMapTile(int x, int y, unsigned short tile);  /* 0x461780 */
@@ -49,7 +57,11 @@ extern void  Set_UserFlags(int x, int y, unsigned short value);/* 0x461730 —
    3rd param is 16-bit: the original pushes ecx straight after
    "movzx cx, byte ptr [...]", which only happens for a WORD formal.
    Confirmed against the matched definition in sweep2.c. */
+#ifndef LEGOLAND_PORTABLE
 extern void  Format(char* dest, const char* fmt, ...);       /* 0x49e573 */
+#else
+extern int Format(char* dest, const char* fmt, ...);       /* 0x49e573 */
+#endif
 extern void* HeapAlloc_w(unsigned int size);    /* 0x49e4ff */
 extern void  HeapFree_w(void* p);               /* 0x49e4d0 */
 extern void  progress_tick(void);               /* 0x4663f0 */

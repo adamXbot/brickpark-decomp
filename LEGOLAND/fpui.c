@@ -276,7 +276,11 @@ extern char g_lls_script_end[];        /* 0x004bb1d8 */
 extern void*      HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
 extern void       HeapFree_w(void* p);                            /* 0x0049e4d0 */
 extern SpriteRec* LoadSprite(const char* name, int mode);         /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void       KillSprite(SpriteRec* s);                       /* 0x00497bd0 */
+#else
+extern int KillSprite(SpriteRec* s);                       /* 0x00497bd0 */
+#endif
 extern char*      GetString(int id);                              /* 0x00498f50 */
 extern int        GetTicks(void);                                 /* 0x00499450 */
 extern int        GetBlink(void);                                 /* 0x00499480 */
@@ -303,7 +307,11 @@ extern void       RemoveObjectListIcons(int group);               /* 0x0046fb40 
 extern void       RemoveFreePlayList(int group);                  /* 0x0048b4a0 */
 extern void       UpdateSidePanelScroll(int step);                /* 0x0046ec50 */
 extern void       RenderIconsExtra(void);                         /* 0x004760a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void       FreePlayItemUpdate(int value, int a);           /* 0x0048a840 */
+#else
+extern int FreePlayItemUpdate(int value, int a);           /* 0x0048a840 */
+#endif
 extern int        FreePlayItemAvailable(int value, int b);        /* 0x0048aef0 */
 extern void       InsertObjectNode(ObjDef* d);                    /* 0x004755c0 */
 extern void       MoveIcons(int mask, short group, short dx, short dy); /* 0x0046dcd0 */

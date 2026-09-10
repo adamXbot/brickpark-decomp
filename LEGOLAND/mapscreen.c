@@ -121,7 +121,11 @@ extern void       RenderIcons(void);                               /* 0x0046eee0
 extern void       RenderIcons2(int a, int b, int c);               /* 0x0046f010 */
 extern void       ProcessFrontEndHelp(void);                       /* 0x0046d080 */
 extern void       UpdateFocussedIconPtr(void);                     /* 0x004700a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void       CheckFocussedIcon(void);                         /* 0x0046f4c0 */
+#else
+extern int CheckFocussedIcon(void);                         /* 0x0046f4c0 */
+#endif
 extern int        SetPointer(int idx);                             /* 0x00463850 */
 extern void       PrintProfileDetails(void);                       /* 0x0048cf10 */
 extern void       PrintSavedGameDetails(void);                     /* 0x0048dd00 */

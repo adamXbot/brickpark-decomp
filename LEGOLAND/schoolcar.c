@@ -30,6 +30,12 @@
 
 #include <math.h>
 #include <string.h>
+#ifdef LEGOLAND_PORTABLE
+#define Coaster3D_EndFrame Coaster3D_EndFrame_vc6_body
+#endif
+#ifdef LEGOLAND_PORTABLE
+#define Castle_StartCoasterIfComplete Castle_StartCoasterIfComplete_vc6_body
+#endif
 
 #pragma intrinsic(sqrt, memset)
 
@@ -939,8 +945,16 @@ struct DrawObj {
 
 extern void* Raster_SetFloatMode(void);                                  /* 0x004236f0 */
 extern void  Raster_RestoreFloatMode(void* saved);                           /* 0x00423730 */
+#ifndef LEGOLAND_PORTABLE
 extern void  Coaster3D_BuildTrackMesh(DrawObj* o, void* b, int c, void* model, void* ctx); /* 0x00428cb0 */
+#else
+extern int Coaster3D_BuildTrackMesh(DrawObj* o, void* b, int c, void* model, void* ctx); /* 0x00428cb0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  Coaster3D_DrawMesh(void* pal);                             /* 0x004234e0 */
+#else
+extern int Coaster3D_DrawMesh(void* pal);                             /* 0x004234e0 */
+#endif
 extern void* g_615f6c;                                          /* 0x00615f6c */
 extern int   g_612178;                                          /* 0x00612178 */
 extern int   g_4b5f60;                                          /* 0x004b5f60 */
@@ -1300,8 +1314,16 @@ void PositionRouteCars(CoasterRoute* rt, float a, const RoutePos* at)
  * The 0x100-byte name buffer is the function's only local.
  * ======================================================================== */
 extern void* CoasterModel_LoadPalette(void);                          /* 0x004207a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  CoasterModel_SetDirectory(const char* s);                 /* 0x00420530 */
+#else
+extern int CoasterModel_SetDirectory(const char* s);                 /* 0x00420530 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  LoadCoasterModelSet(const char* s);                 /* 0x004226c0 */
+#else
+extern int LoadCoasterModelSet(const char* s);                 /* 0x004226c0 */
+#endif
 extern int   CoasterModel_GetMeshCount(void);                          /* 0x004225d0 */
 extern void  CoasterModel_GetRecordName(int i, char* name);             /* 0x004225b0 */
 extern void* LoadLmsModel(const char* name);              /* 0x00420640 */
@@ -1491,3 +1513,21 @@ void Coaster_TickLoadingBay(CoasterRec* r)
         }
     }
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* Castle_StartCoasterIfComplete is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef Castle_StartCoasterIfComplete
+void Castle_StartCoasterIfComplete(int ll_a1) { (void)ll_a1; Castle_StartCoasterIfComplete_vc6_body(); }
+#endif
+
+#ifdef LEGOLAND_PORTABLE
+/* Coaster3D_EndFrame is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef Coaster3D_EndFrame
+void Coaster3D_EndFrame(int ll_a1) { (void)ll_a1; Coaster3D_EndFrame_vc6_body(); }
+#endif

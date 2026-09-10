@@ -1,3 +1,6 @@
+#ifdef LEGOLAND_PORTABLE
+#define PU_NextInput PU_NextInput_vc6_body
+#endif
 /* LEGOLAND: small icon/help, script and report/free-play handlers. */
 typedef struct Pos { int x, y; } Pos;
 typedef struct ClipRect { int left, top, right, bottom; } ClipRect;
@@ -114,20 +117,36 @@ extern Sprite* g_pu_gardener_on; /* 0x00668944 */
 extern Sprite* g_pu_mech_on; /* 0x0066894c */
 extern int CanHireGardener(void); /* 0x0049a120 */
 extern int CanHireMechanic(void); /* 0x0049a160 */
+#ifndef LEGOLAND_PORTABLE
 extern void GenerateGardener(Pos*, int); /* 0x0049a1a0 */
+#else
+extern int GenerateGardener(Pos*, int); /* 0x0049a1a0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void GenerateMechanic(Pos*, int); /* 0x0049a340 */
+#else
+extern int GenerateMechanic(Pos*, int); /* 0x0049a340 */
+#endif
 extern Sprite* g_backdrop; /* 0x00810148 */
 extern int g_cur_screen; /* 0x0080ff84 */
 extern void* g_icon_handler1; /* 0x006687bc */
 extern void* g_icon_handler2; /* 0x006687c0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(Sprite*); /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite*); /* 0x00497bd0 */
+#endif
 extern void RemoveIconGroup(int); /* 0x0046d520 */
 extern void KillSaveScreenSprites(void); /* 0x0048dbc0 */
 extern void KillTitleScreenSprites(void); /* 0x0048faa0 */
 extern void DeleteSavedGameList(void); /* 0x0048e160 */
 extern void CleanUpFreePlay(void); /* 0x0048b540 */
 extern void RestoreCurrentProfileFromList(void); /* 0x0048d230 */
+#ifndef LEGOLAND_PORTABLE
 extern void UpdateSoundVols(void); /* 0x00495a90 */
+#else
+extern int UpdateSoundVols(void); /* 0x00495a90 */
+#endif
 extern void DeleteProfileList(void); /* 0x00491b50 */
 extern void KillListProfileSprite(void); /* 0x0048ca40 */
 extern Sprite* g_rep_next_lit; /* 0x0081c034 */
@@ -136,7 +155,11 @@ extern Icon* g_rep_prev_icon; /* 0x007cb2e0 */
 extern void* g_snd_click; /* 0x004b92c0 */
 extern int g_rep_page; /* 0x004bf670; 1-based starting line, not page ordinal */
 extern int g_rep_line_count; /* 0x0079887c */
+#ifndef LEGOLAND_PORTABLE
 extern void PlayInstanceOfSample(void*, int, int, void*); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void*, int, int, void*); /* 0x00496d20 */
+#endif
 extern char ReportAcceptInput(Icon*, int, short, short); /* 0x00490970 */
 extern void UpdateReportPageIcons(void); /* 0x00490aa0 */
 extern void PlayReportPageNarration(int); /* 0x00490a20 */
@@ -160,12 +183,24 @@ extern void KillReportScreenSprites(void); /* 0x004908b0 */
 extern void FreeHelpTextBuffer(void); /* 0x00490850 */
 extern void FreeReportHintBuffer(void); /* 0x00490880 */
 extern void ShowInfoPanel(int); /* 0x00490600 */
+#ifndef LEGOLAND_PORTABLE
 extern void SetPointer(int); /* 0x00463850 */
+#else
+extern int SetPointer(int); /* 0x00463850 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void PlayMovie(const char*, int, int); /* 0x004771f0 */
+#else
+extern int PlayMovie(const char*, int, int); /* 0x004771f0 */
+#endif
 extern void SetReportMovie(const char*); /* 0x00490610 */
 extern void ResumePausedSamples(void); /* 0x00492850 */
 extern void KillAdvisorHelp(void); /* 0x0046ce20 */
+#ifndef LEGOLAND_PORTABLE
 extern void RestoreScriptStepHelp(void); /* 0x0046b760 */
+#else
+extern int RestoreScriptStepHelp(void); /* 0x0046b760 */
+#endif
 
 // FUNCTION: LEGOLAND 0x004714a0
 void ResetInfoPopUp(void)
@@ -637,3 +672,12 @@ char ReportAcceptInput(Icon* p, int ev, short dx, short dy)
     }
     return 1;
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* PU_NextInput is called with 0 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef PU_NextInput
+char PU_NextInput(Icon* ll_p, int ll_ev, short ll_a, short ll_b) {  return PU_NextInput_vc6_body(ll_p, ll_ev); }
+#endif

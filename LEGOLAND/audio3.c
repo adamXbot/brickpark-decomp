@@ -116,15 +116,27 @@ extern const char kUnSourceClearFmt[]; /* 0x004bfe30 */
 
 /* ---- callees ----------------------------------------------------------- */
 extern int     StartPlayableSample(Sample* s);   /* 0x004928a0 (internal) */
+#ifndef LEGOLAND_PORTABLE
 extern void    UpdateSampleSource(Sample* s);    /* 0x004966a0 (internal) */
+#else
+extern int UpdateSampleSource(Sample* s);    /* 0x004966a0 (internal) */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void    ClearSampleSource(Sample* s);     /* 0x00496660 (internal) */
+#else
+extern int ClearSampleSource(Sample* s);     /* 0x00496660 (internal) */
+#endif
 extern Sample* MakePlayable(void);               /* 0x00492110 (internal) */
 extern int     PlaySample(Sample* s, int a, int b); /* 0x00492710 */
 extern int     PauseSingleSample(Sample* s);     /* 0x00492800 */
 extern void    RefreshSampleVolumes(void);       /* 0x004967b0 (internal) */
 extern void    SetSpeechVolume(long db);         /* 0x00498900 (internal) */
 extern void    DBPrintf(const char* fmt, ...);   /* 0x00453a20 */
+#ifndef LEGOLAND_PORTABLE
 extern int     HeapFree_w(void* p);              /* 0x0049e4d0 */
+#else
+extern void HeapFree_w(void* p);              /* 0x0049e4d0 */
+#endif
 extern int     _stricmp(const char* a, const char* b); /* 0x004aab90 (CRT) */
 extern int     rand(void);                       /* 0x0049e4b2 (CRT) */
 
@@ -379,7 +391,17 @@ int FreePlayableSample(Sample* s)
     if (s) {
         s->buf->lpVtbl->Release(s->buf);
         s->def->refcount--;
+#ifndef LEGOLAND_PORTABLE
         return HeapFree_w(s);
+#else
+        /* HeapFree_w is the CRT's free (0x0049e4d0), which really returns
+         * nothing; the `int` above is the lever that keeps this a call plus
+         * `pop ecx` rather than a `jmp`, and the value returned is whatever the
+         * wrapper left in eax.  This function also falls off its end, so the
+         * portable arm drops the value instead of inventing one. */
+        HeapFree_w(s);
+        return 0;
+#endif
     }
 }
 

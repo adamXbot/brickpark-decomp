@@ -23,6 +23,9 @@
  * to EGC.bmp stamped with the CRT's asctime(localtime()).
  */
 #include "legoland.h"
+#ifdef LEGOLAND_PORTABLE
+#define DrawPathTileOverlay DrawPathTileOverlay_vc6_body
+#endif
 
 #pragma intrinsic(strlen)
 extern unsigned int strlen(const char* s);
@@ -116,8 +119,17 @@ extern void DrawCursorTileAt(Pos* at, int x, int y, int mode);       /* 0x004610
  * coordinate here, so it is declared Pos (the divergence is deliberate). */
 extern Pos  PlayfieldToMap(int x, int y);                            /* 0x0045a970 */
 extern void GetTileBounds(Pos* tile, TileBounds* out);               /* 0x0045acc0 */
+#ifndef LEGOLAND_PORTABLE
 extern long  time(long* t);                                          /* 0x0049fbc6 */
 extern void* localtime(const long* t);                               /* 0x0049fa66 */
+#else
+/* VC6's time_t is a 32-bit long; emscripten's is 64-bit, so the host's `time`
+ * returns i64 and writes eight bytes through its argument.  Declaring the
+ * original's shape here would both mismatch the libc signature (a trapping
+ * wasm-ld stub) and overwrite four bytes of stack past the local. */
+extern long long  time(long long* t);                                /* 0x0049fbc6 */
+extern void*      localtime(const long long* t);                     /* 0x0049fa66 */
+#endif
 extern char* asctime(const void* tm);                                /* 0x0049f990 */
 
 /* =========================================================================
@@ -258,7 +270,11 @@ void ExpireCachedText(int all)
 // FUNCTION: LEGOLAND 0x00451e20
 int SaveCertificateBitmap(void)
 {
+#ifndef LEGOLAND_PORTABLE
     long  t;
+#else
+    long long t;   /* the host's time_t; see the declarations above */
+#endif
     char* stamp;
 
     time(&t);
@@ -371,3 +387,12 @@ void PaintCursorTiles(Pos* p, TileBounds* clip)
         map.y = row.y;
     }
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* DrawPathTileOverlay is called with 0 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef DrawPathTileOverlay
+void DrawPathTileOverlay(Pos* ll_at, int ll_x, int ll_y, int ll_mode) {  DrawPathTileOverlay_vc6_body(ll_at, ll_x, ll_y); }
+#endif

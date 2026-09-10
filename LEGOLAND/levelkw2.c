@@ -65,7 +65,11 @@ extern void  SetLevelGoalState(int state, const char* text);                    
 extern void  SetLevelEndSequence(int which, const char* s);                      /* 0x004597e0 */
 /* The immediate forms of THEMEICON / ADDFLAG / BRIDGES (scope X's names). */
 extern void  SetThemeIcon(int icon, int on);                                     /* 0x00468860 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddLevelFlag(int flag, int on);                                     /* 0x00468890 */
+#else
+extern int AddLevelFlag(int flag, int on);                                     /* 0x00468890 */
+#endif
 extern void  SetBridges(int count, int on);                                      /* 0x004688f0 */
 
 /* ---- the event constructors (scope W) ------------------------------------ */

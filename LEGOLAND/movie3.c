@@ -147,12 +147,20 @@ extern int   sprintf(char* dst, const char* fmt, ...);              /* 0x0049e57
 extern char* strncpy(char* dst, const char* src, unsigned int n);   /* 0x004a0110 (CRT) */
 extern void* HeapAlloc_w(unsigned int n);                           /* 0x0049e4ff (CRT malloc) */
 extern void  HeapFree_w(void* p);                                   /* 0x0049e4d0 */
+#ifndef LEGOLAND_PORTABLE
 extern int   DBPrintf(const char* fmt, ...);                        /* 0x00453a20 */
+#else
+extern void DBPrintf(const char* fmt, ...);                        /* 0x00453a20 */
+#endif
 
 extern void* RES_OpenFile(const char* path);                        /* 0x00489b60 */
 extern int   RES_GetFileSize(void* f);                              /* 0x00489ce0 */
 extern int   RES_ReadFile(void* f, void* buf, int len);             /* 0x00489cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* f);                                /* 0x00489de0 */
+#else
+extern int RES_CloseFile(void* f);                                /* 0x00489de0 */
+#endif
 /* 0x00478280 (not exported): read the opened keyword file section by section
  * and dispatch each `[keyword]` through the table; first named here. */
 extern int   ParseKeywordSections(void* f, const void* table, int count, int arg); /* 0x00478280 */

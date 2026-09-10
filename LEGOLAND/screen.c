@@ -78,7 +78,11 @@ extern void  DBPrintf(const char* fmt, ...);                   /* 0x00453a20 */
 extern void  DebugPrintf(const char* fmt, ...);                /* 0x0047f870 */
 extern void* RES_OpenFile(const char* name);                   /* 0x00489b60 */
 extern int   RES_ReadFile(void* file, void* buf, int len);     /* 0x00489cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RES_CloseFile(void* file);                        /* 0x00489de0 */
+#else
+extern int RES_CloseFile(void* file);                        /* 0x00489de0 */
+#endif
 extern int   RES_GetFileSize(void* file);                      /* 0x00489ce0 */
 extern int   RES_GetFilePointer(void* file);                   /* 0x00489db0 */
 extern int   RES_SetFilePointer(void* file, int pos);          /* 0x00489d70 */

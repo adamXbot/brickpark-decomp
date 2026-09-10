@@ -126,7 +126,11 @@ extern Cursor* g_edit_cursor_next;     /* 0x008003f0 == g_edit_cursor.next */
  * river arm the piece can hang off. */
 extern Cursor g_jctree_cursors[4];     /* 0x00622320, stride 0x1834 */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(int sx, Pos* out, int sy);       /* 0x0045be90 */
+#endif
 extern void  DefaultCursor(Cursor* c);                       /* 0x0045a390 */
 extern void  ValidateCursor(Cursor* c, ObjDef* cls);         /* 0x0045f810 */
 extern int   CursorIsValid(Cursor* c);                       /* 0x0045f4b0 */
@@ -142,7 +146,12 @@ extern int   JungleCruise_ProbeRiver(int x, int y, void* owner); /* 0x00436fb0 *
 extern void  JungleCruise_UpdateRiverTile(int x, int y, int mask, void* owner); /* 0x00436dc0 */
 
 /* ---- other subsystems --------------------------------------------------- */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* o, Pos* p);                /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void  SetMapTile(int x, int y, unsigned short tile);  /* 0x00461780 */
 extern void* HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
 
@@ -374,7 +383,11 @@ void MonkeyTree_CalcCursor(MapObj* o, int sx, int sy)
  * but the shared tools/match.py cannot bound a tail-jump function.
  * ========================================================================= */
 
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(void* sprite);                        /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                        /* 0x00497bd0 */
+#endif
 extern void KillMoneySFX(void);                              /* 0x00453930 */
 
 /* The cafe's own sprite layers and the sixteen chair sprites. */

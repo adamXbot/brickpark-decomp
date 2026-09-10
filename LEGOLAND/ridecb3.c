@@ -255,7 +255,11 @@ extern void*  NewBNVPath(void* bin, int tag, const char* name,
                          float near_z, float far_z, Vec3* origin);   /* 0x00484c20 */
 extern int    UpdateBlokeFromBNVPath(Bloke* b, void* path);          /* 0x00484cd0 */
 extern void   UnAdjustBlokePosition(Offset* p);                      /* 0x00442d80 */
+#ifndef LEGOLAND_PORTABLE
 extern void   ScreenToMapRef(Offset* screen, Pos* out, int mode);    /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(Offset* screen, Pos* out, int mode);    /* 0x0045be90 */
+#endif
 extern int    CalcMoveLine(Pos from, Pos to, void* path);            /* 0x00480740 */
 extern int    NewDirForAction(Bloke* b, unsigned char dir);          /* 0x004833d0 */
 extern void   BlokeSitAnim(Bloke* b);                                /* 0x00440780 */
@@ -265,8 +269,13 @@ extern void   SetPersonDirection(Person3D* p, int dir);              /* 0x004400
 extern void   RemoveBlokeFromRide(RideObject* item, RiderNode* r);   /* 0x0048a100 */
 extern void   Ride_ClearFlagToNotLetAnyoneOn(void* square);          /* 0x00443000 */
 extern void   BuyItem(RideElem* elem, MapSquare* at, int which);     /* 0x004539e0 */
+#ifndef LEGOLAND_PORTABLE
 extern void   PlayInstanceOfSample(void* def, int a, int b,
                                    RideSoundSource* src);            /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* def, int a, int b,
+                                   RideSoundSource* src);            /* 0x00496d20 */
+#endif
 extern void   HeapFree_w(void* p);                                   /* 0x0049e4d0 */
 extern int    rand(void);                                            /* 0x0049e4b2 (CRT) */
 extern int    sprintf(char* dst, const char* fmt, ...);              /* 0x0049e573 (CRT) */

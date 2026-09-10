@@ -197,7 +197,12 @@ extern RideElem* g_lftr_elem;           /* 0x004c74f4 */
 extern RideDef*  g_lfen_def;            /* 0x004c2b9c  LOG FLUME ENTRANCE */
 extern void*     g_lf_anim_a;           /* 0x004c2ae8  the 4-frame path set */
 
+#ifndef LEGOLAND_PORTABLE
 extern void     AddBasicObject(RideElem* elem, const Pos* p);    /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);    /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void     LFRun_New(BPosW sq);                             /* 0x00408e40 */
 extern LFPiece* LFPiece_Alloc(void);                             /* 0x00409010 */
 extern void     LFPiece_LinkAfter(LFPiece* at, LFPiece* p);      /* 0x00409080 */

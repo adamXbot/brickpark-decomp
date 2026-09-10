@@ -73,11 +73,23 @@ extern PhysOps g_car_pool_hooks;                               /* 0x004dcbd0 */
 extern ModelImage g_cc_obj;                                    /* 0x004dd860 */
 extern char g_cc_name[0x100];                                   /* 0x004dd760 */
 extern int __declspec(dllimport) __cdecl wsprintfA(char* out, const char* fmt, ...); /* 0x004ab298 */
+#ifndef LEGOLAND_PORTABLE
 extern void ModelRecord_GetName(ModelImage* image, char* out, int index); /* 0x00422390 */
+#else
+extern int ModelRecord_GetName(ModelImage* image, char* out, int index); /* 0x00422390 */
+#endif
 extern TrackNode* FindTrackNodeAt(CoasterRec* rec, const unsigned int* square); /* 0x0041d060 */
 extern void TrackCursor_Evaluate(NodeCursor* cursor, int mode, Vec3f* out); /* 0x0042a640 */
+#ifndef LEGOLAND_PORTABLE
 extern void RouteSeat_DetachCar(RouteSeat* seat);               /* 0x004273e0 */
+#else
+extern int RouteSeat_DetachCar(RouteSeat* seat);               /* 0x004273e0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void RouteSeat_AttachCar(RouteSeat* seat, CoasterCar* car); /* 0x004273d0 */
+#else
+extern int RouteSeat_AttachCar(RouteSeat* seat, CoasterCar* car); /* 0x004273d0 */
+#endif
 extern int CoasterRider_GetSaveIndex(void* bloke);              /* 0x00426ff0 */
 extern void* CoasterModel_LoadFile(const char* name, int mode); /* 0x00420550 */
 extern void Route_Reset(CoasterRoute* route);                   /* 0x0041e500 */

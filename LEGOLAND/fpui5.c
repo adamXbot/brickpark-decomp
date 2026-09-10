@@ -181,9 +181,21 @@ extern int DisplayAdvisorHelp(const char* t, int plain, int x); /* 0x0046ce60 */
 /* The media module's duck / play / restore trio.  0x00498630 takes a path in
  * a 0x404-byte buffer, so it is the file player; the other two gate on the
  * same playback-state global (0x0079a84c) and bracket it.  Names are ours. */
+#ifndef LEGOLAND_PORTABLE
 extern void PauseCurrentTrack(void);                             /* 0x00498920 */
+#else
+extern int PauseCurrentTrack(void);                             /* 0x00498920 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void PlayNarrationFile(const char* path);                 /* 0x00498630 */
+#else
+extern int PlayNarrationFile(const char* path);                 /* 0x00498630 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void ResumeCurrentTrack(void);                            /* 0x00498b00 */
+#else
+extern int ResumeCurrentTrack(void);                            /* 0x00498b00 */
+#endif
 /* 0x0046d3a0 (not exported): put the help face state (0x006687a4) to 4; its
  * neighbour at 0x0046d3b0 puts it to 6. */
 extern void SetHelpFaceTalking(void);                            /* 0x0046d3a0 */
@@ -394,7 +406,11 @@ typedef struct NewObjStrip {
 extern NewObjStrip g_newobj;        /* 0x007fded4 */
 extern int         g_popup_state;   /* 0x007fdfa0  PopUpInfo +0xe0 */
 
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(Sprite* s);                               /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite* s);                               /* 0x00497bd0 */
+#endif
 
 /* =========================================================================
  * 0x00471ca0 -- drop a class's entry from the new-objects strip.

@@ -85,7 +85,11 @@ extern ObjDef* g_edit_object;        /* 0x008119b8 */
 extern ObjDef* g_env_class;          /* 0x007fd624 */
 
 extern int ObjCount(Elem* elem);                                  /* 0x00480d30 */
+#ifndef LEGOLAND_PORTABLE
 extern int DBPrintf(const char*, ...);                            /* 0x00453a20 */
+#else
+extern void DBPrintf(const char*, ...);                            /* 0x00453a20 */
+#endif
 extern int _stricmp(const char*, const char*);                    /* 0x004aab90 */
 extern Cell* GetFirstObjectMatching(Elem* elem);                  /* 0x0045a910 */
 extern unsigned short GetRideVisitCountAt(Pos* pos);              /* 0x00489fd0 */

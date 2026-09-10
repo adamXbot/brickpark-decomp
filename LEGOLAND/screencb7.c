@@ -1,3 +1,6 @@
+#ifdef LEGOLAND_PORTABLE
+#define Dino_InitSound Dino_InitSound_vc6_body
+#endif
 /* LEGOLAND -- the smallest SetCustomCallbacks handlers (scope codex-c).
  * Names follow screen.c's class arms and slots: +a4 create, +ac destroy,
  * +94 draw-selection. VC6 SP3 /O2 /Gy /Gd; local types preserve the ABI.
@@ -10,7 +13,11 @@ extern int g_power_station_sound_refs;                     /* 0x00667118 */
 extern int g_dino_sound_refs;                              /* 0x0066711c */
 extern unsigned char g_power_station_fx[];                 /* 0x004b8750 */
 extern unsigned char g_dino_fx[];                          /* 0x004b8768 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(void* sprite);                       /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                       /* 0x00497bd0 */
+#endif
 extern void BasicObjectDCalcCursor(void* elem, void* pos);   /* 0x00480bb0 */
 extern void Kill_FXList(void* list, int count);              /* 0x00496e30 */
 extern void Load_FXList(void* list, int count);              /* 0x00496dd0 */
@@ -65,3 +72,12 @@ void Dino_InitSound(void)
     if (g_dino_sound_refs++ == 0)
         Load_FXList(g_dino_fx, 5);
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* Dino_InitSound is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef Dino_InitSound
+void Dino_InitSound(int ll_a1) { (void)ll_a1; Dino_InitSound_vc6_body(); }
+#endif

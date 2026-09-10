@@ -205,7 +205,11 @@ extern int   SaveGameRead(void* buf, unsigned int n);         /* 0x0047d730 */
 extern int   LLIDB_UnLoadData(LLElem* e);                     /* 0x0047d450 */
 extern SrcImage* CreateSourceImage(const char* path, int fmt); /* 0x00497280 */
 extern int   ConvertSourceImage(SrcImage* img);               /* 0x004434d0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillImage(SrcImage* img);                        /* 0x00497510 */
+#else
+extern int KillImage(SrcImage* img);                        /* 0x00497510 */
+#endif
 extern void  FreeScriptEvent(Goal* g);                        /* 0x00468940 */
 extern Rider* ObjFirstRider(RiderItem* item, void* inst);     /* 0x00441870 */
 extern Rider* ObjNextRider(RiderItem* item, void* inst);      /* 0x00441890 */

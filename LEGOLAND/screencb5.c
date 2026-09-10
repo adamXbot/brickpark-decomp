@@ -414,7 +414,11 @@ extern void Kill_FXList(FXEntry* list, int count);              /* 0x00496e30 */
 extern void LoadMoneySFX(void);                                 /* 0x00453900 */
 extern void KillMoneySFX(void);                                 /* 0x00453930 */
 extern Spr* LoadSprite(const char* name, int mode);             /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(Spr* s);                                 /* 0x00497bd0 */
+#else
+extern int KillSprite(Spr* s);                                 /* 0x00497bd0 */
+#endif
 
 /* The entrance's one-entry FX table: {"turnstyles.wav", sample}. */
 extern FXEntry g_entrance_fx[];                                 /* 0x004b6668 */
@@ -547,9 +551,18 @@ typedef struct JcMonkeyTree {
 
 extern JcMonkeyTree* g_jc_trees;                                /* 0x00629c2c */
 
+#ifndef LEGOLAND_PORTABLE
 extern void JungleCruise_ProbeRiver(int x, int y, BPosW* owner);/* 0x00436fb0 */
+#else
+extern int JungleCruise_ProbeRiver(int x, int y, BPosW* owner);/* 0x00436fb0 */
+#endif
 extern void JungleCruise_AddValue(BPosW id, int delta);         /* 0x00436130 */
+#ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(void* obj, Pos* pos);                /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 
 // FUNCTION: LEGOLAND 0x00433d20
 void MonkeyTree_Add(void* o, Pos* pos)

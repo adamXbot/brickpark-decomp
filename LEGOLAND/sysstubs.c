@@ -1,3 +1,6 @@
+#ifdef LEGOLAND_PORTABLE
+#define InitMusicSystem InitMusicSystem_vc6_body
+#endif
 /* LEGOLAND -- small system, save, audio, script and math helpers.
  * VC6 SP3 /O2 /Gy /Gd. Import declarations describe the original x86 ABI. */
 double sin(double x);
@@ -476,3 +479,12 @@ void FreePlayItemAdd(const char* name)
     if (g_freeplay_selected_count++ == 0)
         g_fp_accept_icon->flags &= ~0x400;
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* InitMusicSystem is called with 1 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef InitMusicSystem
+int InitMusicSystem(int ll_a1) { (void)ll_a1; return InitMusicSystem_vc6_body(); }
+#endif

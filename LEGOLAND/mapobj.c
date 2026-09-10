@@ -31,7 +31,11 @@ extern int   g_map_dirty;      /* 0x00668610 */
 
 extern int   GetRectArea(Rect* rect);
 extern void  AddObjectsPowerStats(void* obj, Pos* pos);
+#ifndef LEGOLAND_PORTABLE
 extern void  MarkObjectTiles(Pos* pos);          /* 0x00489f00 (unconfirmed name) */
+#else
+extern int MarkObjectTiles(Pos* pos);          /* 0x00489f00 (unconfirmed name) */
+#endif
 extern Elem* ElemID(const char* name);
 
 // FUNCTION: LEGOLAND 0x00459ad0

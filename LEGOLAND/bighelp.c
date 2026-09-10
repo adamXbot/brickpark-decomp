@@ -83,7 +83,11 @@ __declspec(dllimport) unsigned long __stdcall GetTickCount(void);   /* [0x4ab1f8
 extern unsigned long GetTicks(void);                      /* 0x00499450 (jmp [GetTickCount]) */
 extern int   ScrollFromKeys(void);                        /* 0x00451f70  keyboard map scroll; 1 if scrolled */
 extern void  MouseScrollMap(void);                        /* 0x004614f0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  ScreenToMapRef(Pos* screen, Pos* map, int mode); /* 0x0045be90 */
+#else
+extern int ScreenToMapRef(Pos* screen, Pos* map, int mode); /* 0x0045be90 */
+#endif
 extern void  BeginMapClick(void);                         /* 0x00452390 */
 extern void  UpdateMapDrag(void);                         /* 0x00452030 */
 
@@ -265,7 +269,11 @@ extern TextEntry* RasterizeText(const char* text, int w, int h, int font, int f1
                                 int ink, int paper);                           /* 0x00455bb0 */
 extern void  PrintCachedEntry(TextEntry* e, int x, int y);                    /* 0x00455ec0 */
 extern void* SelectFont(void* dc, int font);                                  /* 0x00454b40 */
+#ifndef LEGOLAND_PORTABLE
 extern void  RenderBlock(int x, int y, int w, int h, int colour);             /* 0x004890c0 */
+#else
+extern int RenderBlock(int x, int y, int w, int h, int colour);             /* 0x004890c0 */
+#endif
 extern int   GetNearestColour(int r, int g, int b);                           /* 0x0044e6c0 */
 extern int   PrintSprite(Sprite* s, int x, int y, int mode, BlitCtx* ctx);    /* 0x004853a0 */
 #pragma intrinsic(strlen, memset)

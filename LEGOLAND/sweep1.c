@@ -5,6 +5,19 @@
  * offsets are the only load-bearing detail; type/field names are ours. */
 #include "legoland.h"
 
+/* DBPrintf (0x00453a20) is a single `ret`: the shipped build compiled the debug
+ * printf away to an empty body, so the original bytes say nothing at all about
+ * its parameters.  Thirty-six translation units declare it variadic and call it
+ * that way, which is what the SOURCE must have looked like; an empty cdecl body
+ * emits `ret` whether or not it declares parameters, so both shapes are
+ * byte-identical and VC6 keeps the `void` one.  On wasm a variadic call and a
+ * `() -> void` definition are two different function types, so the portable
+ * build renames the matched body out of the way and supplies a variadic
+ * DBPrintf with the same (empty) behaviour. */
+#ifdef LEGOLAND_PORTABLE
+#define DBPrintf DBPrintf_vc6_body
+#endif
+
 /* ---- globals touched (declared once each) ------------------------------- */
 extern int   g_vp_left;        /* 0x0081c8d0 */
 extern int   g_vp_top;         /* 0x0081c8d4 */
@@ -297,6 +310,11 @@ void ClearBuildObjList(void)
 void DBPrintf(void)
 {
 }
+
+#ifdef LEGOLAND_PORTABLE
+#undef DBPrintf
+void DBPrintf(const char* fmt, ...) { (void)fmt; }
+#endif
 
 // FUNCTION: LEGOLAND 0x004578a0
 void AddBricks(int n)

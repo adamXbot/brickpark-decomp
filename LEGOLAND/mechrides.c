@@ -165,7 +165,12 @@ typedef struct Pos {
 /* ---- shared engine entry points ----------------------------------------- */
 extern void  DefaultCursor(void* cursor);                    /* 0x0045a390 */
 extern void  SetEditCursorFootPrint(void* src);              /* 0x0045f440 */
+#ifndef LEGOLAND_PORTABLE
 extern void  AddBasicObject(void* obj, Pos* pos);            /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);            /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 
 extern int      g_edit_changed;                              /* 0x008119b0 EditMode */
 extern RideDef* g_edit_object;                               /* 0x008119b8 */
@@ -577,7 +582,11 @@ void Copters_Remove(void* obj, CellPos tile, void* ctx)
  * that does, and it leaks whatever rider nodes were still on it.
  * ========================================================================== */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                       /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                       /* 0x00497bd0 */
+#endif
 extern void  FreeBinV(void* bnv);                            /* 0x0044dd60 */
 extern void  Kill_FXList(void* list, int count);             /* 0x00496e30 */
 extern void  FreeWalkPath(void* path);                       /* 0x00412290 */
@@ -2402,7 +2411,11 @@ void SpaceTower_Interact(RideElem* elem, int x, int y, RideTile* sq,
 
 extern void  Copters_TickMachine(void);                      /* 0x00404bc0 */
 extern int   Copters_CopterOf(RiderNode* r, RideTile* t);    /* 0x00404f20 */
+#ifndef LEGOLAND_PORTABLE
 extern void  Copters_StepRider(RiderNode* r);                /* 0x00403d30 */
+#else
+extern int Copters_StepRider(RiderNode* r);                /* 0x00403d30 */
+#endif
 extern void  Copters_SetFull(CoptersRec* rec);               /* 0x004048b0 */
 extern void  WalkPath_Board(void* path, Bloke* b);           /* 0x004122d0 */
 extern void  WalkPath_Alight(void* path, Bloke* b);          /* 0x004122a0 */
@@ -2964,7 +2977,11 @@ void SpiderRide_Interact(RideElem* elem, int x, int y, RideTile* sq,
  * ========================================================================== */
 
 extern void   UnAdjustBlokePosition(Offset* p);              /* 0x00442d80 */
+#ifndef LEGOLAND_PORTABLE
 extern void   ScreenToMapRef(Offset* screen, Pos* out, int z);/* 0x0045be90 */
+#else
+extern int ScreenToMapRef(Offset* screen, Pos* out, int z);/* 0x0045be90 */
+#endif
 extern void   HeapFree_w(void* p);                           /* 0x0049e4d0 */
 extern int    sprintf_w(char* dst, const char* fmt, int v);  /* 0x0049e573 */
 extern void   GetTileDimensions(int* out_w, int* out_h);     /* 0x00460540 */

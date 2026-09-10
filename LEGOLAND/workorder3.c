@@ -166,7 +166,11 @@ typedef struct PTPNode {
 extern PTPNode* g_ptp_found;                          /* 0x0066b454 */
 
 /* Push a tile on the FRONT of the route list (0x0066b458). */
+#ifndef LEGOLAND_PORTABLE
 extern void AddPTPRouteNode(int x, int y);            /* 0x00482300 */
+#else
+extern int AddPTPRouteNode(int x, int y);            /* 0x00482300 */
+#endif
 /* 0, 1 or 2: how many of b, c, d the walker may step past in one go. */
 extern int  PTPShortcutSteps(PTPNode* a, PTPNode* b, PTPNode* c, PTPNode* d); /* 0x00482330 */
 

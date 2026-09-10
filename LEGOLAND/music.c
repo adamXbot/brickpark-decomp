@@ -359,7 +359,11 @@ struct MidiFile {
 
 extern void*      RES_OpenFile(const char* path);            /* 0x00489b60 */
 extern int        RES_ReadFile(void* f, void* buf, int len); /* 0x00489cf0 */
+#ifndef LEGOLAND_PORTABLE
 extern void       RES_CloseFile(void* f);                    /* 0x00489de0 */
+#else
+extern int RES_CloseFile(void* f);                    /* 0x00489de0 */
+#endif
 extern void       ReadBE32(void* f, void* out);              /* 0x00480150 (internal) */
 extern void       ReadBE16(void* f, void* out);              /* 0x00480170 (internal) */
 extern MidiTrack* ReadMidiTrack(void* f);                    /* 0x004801a0 (internal) */

@@ -514,7 +514,12 @@ void Joust_FreeAllRecords(void)
  * allocation failure faults (reproduced).
  * ========================================================================== */
 
+#ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(void* obj, Pos* pos);             /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);             /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 
 // FUNCTION: LEGOLAND 0x004079e0
 void Joust_Place(void* obj, Pos* pos)
@@ -621,7 +626,11 @@ typedef struct FXEntry {
 extern void  Load_FXList(FXEntry* list, int count);          /* 0x00496dd0 */
 extern void  Kill_FXList(FXEntry* list, int count);          /* 0x00496e30 */
 extern void* LoadSprite(const char* name, int flag);         /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillSprite(void* sprite);                       /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite);                       /* 0x00497bd0 */
+#endif
 extern void* LoadBinV(const char* name);                     /* 0x0044dc90 */
 extern void  FreeBinV(void* bnv);                            /* 0x0044dd60 */
 extern void  HideLayer(Spr* sprite, int layer);              /* 0x00497de0 */

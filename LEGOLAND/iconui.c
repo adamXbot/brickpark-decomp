@@ -5,6 +5,9 @@
  * names are ours.
  */
 #include "legoland.h"
+#ifdef LEGOLAND_PORTABLE
+#define DisplayAdvisorHelp DisplayAdvisorHelp_vc6_body
+#endif
 
 unsigned int strlen(const char*);
 char* strcpy(char*, const char*);
@@ -111,8 +114,16 @@ extern char g_close_children_bar_lls[]; /* 0x004bb4bc */
 extern void*   HeapAlloc_w(unsigned int size);                /* 0x0049e4ff */
 extern void    HeapFree_w(void* p);                           /* 0x0049e4d0 */
 extern Sprite* LoadSprite(const char* name, int mode);        /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void    ReferenceSprite(Sprite* s);                    /* 0x00497bb0 */
+#else
+extern int ReferenceSprite(Sprite* s);                    /* 0x00497bb0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void    KillSprite(Sprite* s);                         /* 0x00497bd0 */
+#else
+extern int KillSprite(Sprite* s);                         /* 0x00497bd0 */
+#endif
 extern char*   GetString(int id);                             /* 0x00498f50 */
 extern int     GetGameTimer(void);                            /* 0x00499430 */
 extern void    LinkIcon(Icon* p);                             /* 0x0046d440 */
@@ -522,3 +533,12 @@ void DeleteIndicator(Indicator* p)
     }
     HeapFree_w(p);
 }
+
+#ifdef LEGOLAND_PORTABLE
+/* DisplayAdvisorHelp is called with 0 argument(s) the original ignores: the body
+ * at this address never reads them, and in cdecl the caller cleans them up.
+ * On wasm the argument count is part of the function type, so the exported
+ * name is this forwarder and the matched body keeps its own.  */
+#undef DisplayAdvisorHelp
+int DisplayAdvisorHelp(const char* ll_text, int ll_arg, int ll_x) {  return DisplayAdvisorHelp_vc6_body(ll_text, ll_arg); }
+#endif

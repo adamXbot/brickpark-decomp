@@ -71,13 +71,21 @@ extern int      g_screen_depth;     /* 0x00668088 */
 /* LEGOLAND/layers.c 0x00441ea0 -- the per-layer LLS lookup. */
 extern void* GetLLSForLayer(void* obj, int layer);
 /* 0x0047d4c0 -- stop an LLS animation (tolerates a null handle). */
+#ifndef LEGOLAND_PORTABLE
 extern void  LLSStop(void* lls);
+#else
+extern int LLSStop(void* lls);
+#endif
 /* 0x0043fe50 -- draw one 3D person model. */
 extern void  Render3DPerson(void* person);
 /* 0x0047bef0 -- free an ILF (indexed frame) table. */
 extern int   LLIDB_FreeILFTable(void* table);  /* int (never sets eax): memdb.c */
 /* 0x00497510 -- drop a reference on an image record. */
+#ifndef LEGOLAND_PORTABLE
 extern void  KillImage(void* image);
+#else
+extern int KillImage(void* image);
+#endif
 /* 0x004975b0 -- unlink a sprite record from the global sprite list and free it. */
 extern void  UnlinkSprite(SpriteRes* res);
 

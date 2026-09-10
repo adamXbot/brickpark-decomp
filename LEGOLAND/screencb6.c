@@ -22,14 +22,27 @@ extern void Kill_FXList(void* list, int count); /* 0x00496e30 */
 extern void DefaultCursor(void* cursor); /* 0x0045a390 */
 extern void SetEditCursorFootPrint(Rect* rect); /* 0x0045f440 */
 extern Spr* LoadSprite(const char* name, int mode); /* 0x00497ab0 */
+#ifndef LEGOLAND_PORTABLE
 extern void KillSprite(void* sprite); /* 0x00497bd0 */
+#else
+extern int KillSprite(void* sprite); /* 0x00497bd0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void AddBasicObject(RideElem* elem, Pos* pos); /* 0x0045efe0 */
+#else
+extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx); /* 0x0045efe0 */
+#define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
+#endif
 extern void Set_UserFlags(int x, int y, int flags); /* 0x00461730 */
 extern void KillMoneySFX(void); /* 0x00453930 */
 extern void StandardRemoveObject(RideElem* elem, unsigned int square, void* cursor); /* 0x0045f220 */
 extern void RemoveAllBlokesFromRide(RideDef* def, unsigned int square); /* 0x0048a2e0 */
 extern void StopMoneySFX(unsigned int* square); /* 0x004539a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void PlayInstanceOfSample(void* sample, int a, int b, SoundSource* src); /* 0x00496d20 */
+#else
+extern int PlayInstanceOfSample(void* sample, int a, int b, SoundSource* src); /* 0x00496d20 */
+#endif
 extern unsigned int rand(void); /* 0x0049e4b2 */
 extern void FreeBinV(void* bnv); /* 0x0044dd60 */
 extern void Balloonz_FreeRecords(void); /* 0x0042a9f0 */

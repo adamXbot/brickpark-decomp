@@ -20,7 +20,11 @@ extern int  GetGameTimer(void);                          /* 0x00499430 */
 extern int  ScriptRunning(void);                         /* 0x0046b280 */
 extern int  PauseGameTimer(void);                        /* 0x00499380 */
 extern void PauseAllSamples(void);                       /* 0x00492830 */
+#ifndef LEGOLAND_PORTABLE
 extern void PauseCurrentTrack(void);                     /* 0x00498920 */
+#else
+extern int PauseCurrentTrack(void);                     /* 0x00498920 */
+#endif
 extern int  RunAppraisalScreen(void);                    /* 0x004453a0 */
 extern void StopScript(int stop);                        /* 0x0046b240 */
 extern void sub_48a750(void);                            /* 0x0048a750 */

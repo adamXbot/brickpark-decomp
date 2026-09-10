@@ -272,9 +272,21 @@ extern void  BlitDIBToScreen(void* dib);                 /* 0x00465850 */
  * there is one; 0x00476bf0 primes it at the first displayed frame;
  * 0x00476d20 tops it up per frame step; 0x00476c90 tears it down. */
 extern int   StartMovieAudio(Movie* mv);                 /* 0x00476910 */
+#ifndef LEGOLAND_PORTABLE
 extern void  PrimeMovieAudio(Movie* mv);                 /* 0x00476bf0 */
+#else
+extern int PrimeMovieAudio(Movie* mv);                 /* 0x00476bf0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  UpdateMovieAudio(int frame, int prev);      /* 0x00476d20 */
+#else
+extern int UpdateMovieAudio(int frame, int prev);      /* 0x00476d20 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void  StopMovieAudio(void);                       /* 0x00476c90 */
+#else
+extern int StopMovieAudio(void);                       /* 0x00476c90 */
+#endif
 /* 0x00476680: a millisecond clock -- QueryPerformanceCounter scaled by its
  * frequency where one exists, GetTickCount otherwise (the mode is latched in
  * 0x00668fac on the first call). */
