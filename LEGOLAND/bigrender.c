@@ -936,7 +936,228 @@ void ZBufferHelper(char* lls, WinRect* src, Pos* dst, void* zbuf)
         popad
     }
 #else
-    LL_UNPORTED_ASM(); /* ZBufferHelper: the RLE z-buffer walker */
+    {
+    /* 0x00464a90's pixel loop in C.  It is the type-2 LLS walker of
+     * softblit2.c's SoftBlitAnimPlain -- same grammar, same `ll_anim_code` /
+     * `ll_anim_count` reader -- writing DWORDS into the Z buffer instead of
+     * 16-bpp words into a surface:
+     *   - a pixel is `(unsigned)index << 24`, so the index byte becomes the
+     *     TOP byte of the Z key and the low three bytes are zero;
+     *   - there is no palette, no recolour mask and no mouse hit test;
+     *   - the row pitch is g_sp_rowlen, which the C above sets to 0x200 (128
+     *     dwords), and the destination is zbuf + dst->x*4 + dst->y*0x200;
+     *   - `d_skip1` is `dec edx / je tail_skip / add edi,4`, the CORRECT
+     *     order, so this one does not carry SoftBlitAnimPlain's dead row-end
+     *     branch (PORT-B3 FINDING 1);
+     *   - a repeat run that exactly fills the row ends with `mov ecx,edx /
+     *     rep stosd`, and `rep` with a zero count writes nothing, so there is
+     *     no stray pixel either.
+     *
+     * FINDING (scope PORT-B5): the left-clip TRANSPARENT-run path steps the
+     * output pointer by TWO bytes per pixel --
+     *     neg edx / lea edi,[edi+edx*2]
+     * -- where every other step in this function uses four (`add edi,4`,
+     * `lea edi,[edi+ecx*4]`, `stosd`).  It is the 16-bpp sibling's
+     * instruction left in place: a transparent run that crosses src->left
+     * therefore lands the rest of the row at HALF the offset it should, i.e.
+     * (left_overhang/2) dwords in instead of left_overhang.  REPRODUCED, not
+     * fixed; `*2` is spelled out below at the site. */
+    LLAnimCtl            cs;
+    unsigned char*       rowp;
+    unsigned int*        dp;
+    const unsigned char* ip;
+    unsigned int         code;
+    unsigned int         cnt;
+    unsigned int         drawn;
+    unsigned int         v;
+    int                  budget;
+    int                  rows_left;
+    int                  skip;
+
+    rowp = (unsigned char*)zbuf + dst->x * 4 + dst->y * 0x200;
+    g_zb_row = rowp;
+    g_sp_left = src->left;
+    g_sp_w = src->right - src->left;
+    g_sp_top = src->top;
+    g_sp_h = src->bottom - src->top;
+    dp = (unsigned int*)rowp;
+    ip = (const unsigned char*)rows;
+    ll_anim_open(&cs, lls);
+    g_zb_bits = 0;
+
+    /* ---- skip_loop: consume src->top whole rows ------------------------ */
+    skip = g_sp_top;
+    if (skip != 0) {
+        for (;;) {
+            code = ll_anim_code(&cs);
+            if (!(code & 2)) { ip++; continue; }       /* s_inc            */
+            if (!(code & 1)) continue;
+            cnt = ll_anim_count(&cs);
+            if (cnt == 0) {                            /* s_next_row       */
+                if (--skip != 0) continue;
+                break;
+            }
+            code = ll_anim_code(&cs);
+            if (code & 2) continue;
+            if (code & 1) ip++;
+            else ip += cnt;
+        }
+    }
+
+    rows_left = g_sp_h;
+    if (rows_left == 0)
+        goto zb_done;
+
+zb_row:
+    g_sp_rows_left = rows_left;
+    skip = g_sp_left;
+    if (skip == 0) {                                   /* r_nocol          */
+        budget = g_sp_w;
+        goto zb_draw;
+    }
+    /* ---- c_loop: skip src->left pixels of this row ---------------------- */
+    for (;;) {
+        code = ll_anim_code(&cs);
+        if (!(code & 2)) {                             /* c_inc            */
+            ip++;
+            goto zb_c_dec;
+        }
+        if (!(code & 1))                               /* c_dec            */
+            goto zb_c_dec;
+        cnt = ll_anim_count(&cs);
+        if (cnt == 0)
+            goto zb_row_end;
+        code = ll_anim_code(&cs);
+        if (code & 2) {                                /* a transparent run */
+            skip -= (int)cnt;
+            if (skip >= 0) continue;
+            skip = -skip;
+            /* THE *2: see the FINDING above.  Two bytes per pixel in a
+             * four-byte-per-pixel buffer. */
+            dp = (unsigned int*)((unsigned char*)dp + skip * 2);
+            budget = g_sp_w - skip;
+            if (budget < 0)
+                goto zb_tail;
+            goto zb_draw;
+        }
+        if (code & 1) {                                /* a repeat run      */
+            ip++;
+            skip -= (int)cnt;
+            if (skip >= 0) continue;
+            ip--;                                      /* dec esi           */
+            cnt = (unsigned int)(-skip);
+            budget = g_sp_w;
+            if (budget == 0)
+                goto zb_tail;
+            goto zb_d_run;
+        }
+        /* c5: a literal run */
+        ip += cnt;
+        skip -= (int)cnt;
+        if (skip >= 0) continue;
+        ip += skip;                                    /* lea esi,[esi+edx] */
+        cnt = (unsigned int)(-skip);
+        budget = g_sp_w;
+        if (budget == 0)
+            goto zb_tail;
+        goto zb_d_lit;
+    zb_c_dec:
+        if (--skip != 0) continue;
+        budget = g_sp_w;
+        goto zb_draw;
+    }
+
+    /* ---- draw_loop: the visible span ------------------------------------ */
+zb_draw:
+    for (;;) {
+        code = ll_anim_code(&cs);
+        if (!(code & 2)) {                             /* d_one             */
+            cnt = 1;
+            goto zb_d_lit;
+        }
+        if (!(code & 1)) {                             /* d_skip1           */
+            if (--budget == 0)
+                goto zb_tail;
+            dp++;
+            continue;
+        }
+        cnt = ll_anim_count(&cs);
+        if (cnt == 0)
+            goto zb_row_end;
+        code = ll_anim_code(&cs);
+        if (code & 2) {                                /* a transparent run */
+            budget -= (int)cnt;
+            if (budget < 0)
+                goto zb_tail;
+            dp += cnt;
+            continue;
+        }
+    zb_d_run:
+        if (!(code & 1))
+            goto zb_d_lit;
+        /* the repeat run.  `cmp edx,ecx / ja d_run2` is UNSIGNED. */
+        v = (unsigned int)*ip << 24;
+        ip++;
+        if ((unsigned int)budget > cnt) {               /* d_run2           */
+            budget -= (int)cnt;
+            while (cnt--) *dp++ = v;                    /* rep stosd        */
+            continue;
+        }
+        cnt = (unsigned int)budget;                     /* mov ecx,edx      */
+        while (cnt--) *dp++ = v;                        /* a zero count is
+                                                           a no-op          */
+        goto zb_tail;
+
+    zb_d_lit:
+        if ((unsigned int)budget > cnt) {               /* d_lit2           */
+            budget -= (int)cnt;
+            do {
+                *dp++ = (unsigned int)*ip << 24;
+                ip++;
+            } while (--cnt);
+            continue;
+        }
+        /* d_lit_loop: `xchg ecx,edx / sub edx,ecx` makes the drawn count the
+         * budget and leaves the clipped index bytes to be stepped over. */
+        drawn = (unsigned int)budget;
+        budget = (int)(cnt - drawn);
+        if (drawn != 0) {
+            cnt = drawn;
+            do {
+                *dp++ = (unsigned int)*ip << 24;
+                ip++;
+            } while (--cnt);
+        }
+        ip += budget;                                   /* d_lit_end        */
+        goto zb_tail;
+    }
+
+    /* ---- tail_skip: run the stream on to the end-of-row marker ---------- */
+zb_tail:
+    for (;;) {
+        code = ll_anim_code(&cs);
+        if (!(code & 2)) { ip++; continue; }
+        if (!(code & 1)) continue;
+        cnt = ll_anim_count(&cs);
+        if (cnt == 0)
+            goto zb_row_end;
+        code = ll_anim_code(&cs);
+        if (code & 2) continue;
+        if (code & 1) ip++;
+        else ip += cnt;
+    }
+
+zb_row_end:
+    rowp += g_sp_rowlen;
+    g_zb_row = rowp;
+    dp = (unsigned int*)rowp;
+    rows_left = g_sp_rows_left - 1;
+    if (rows_left != 0)
+        goto zb_row;
+
+zb_done:
+    g_zb_bits = cs.bits;
+    }
 #endif
 }
 

@@ -263,7 +263,41 @@ void BltAdvisor(DibHeader* dib, int x, int y)
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    {
+    /* 0x004659a0 in C.  A bottom-up 16-bpp DIB: the source starts at
+     * dib + 0x28 + (h-1)*w*2 and walks UP by w*2 per row while the
+     * destination walks DOWN by g_ddsd_pitch.  `mov ax, word ptr [edx+ecx]`
+     * with edx = src - dst is just src[i].
+     *
+     * The RGB555 -> RGB565 widening when g_screen_depth == 2 is
+     *     ebx = eax / and eax,1fh / and ebx,0ffffffe0h / shl ebx,1 / or eax,ebx
+     * -- the low 5 bits (blue) stay put and everything above them moves up one
+     * bit, so bit 15 of a 555 word (unused) shifts out of the stored half-word.
+     * Only AX is written back, so the shifted-in high garbage never lands. */
+    const unsigned short* src;
+    unsigned short*       dst;
+    int                   w = dib->width;
+    int                   h = dib->height;
+    int                   i, n;
+
+    dst = (unsigned short*)((char*)g_ddsd_bits + g_ddsd_pitch * y) + x;
+    src = (const unsigned short*)((char*)dib + 0x28) + (h - 1) * w;
+    if (h == 0)
+        return;
+    n = h;
+    do {
+        if (w > 0) {
+            for (i = 0; i < w; i++) {
+                unsigned int v = src[i];
+                if (g_screen_depth == 2)
+                    v = (v & 0x1fu) | (((v & 0xffe0u) << 1) & 0xffffu);
+                dst[i] = (unsigned short)v;
+            }
+        }
+        dst = (unsigned short*)((char*)dst + g_ddsd_pitch);
+        src -= w;                       /* lea eax,[eax+ecx*2], ecx = -w */
+    } while (--n);
+    }
 #endif
 }
 
@@ -470,6 +504,48 @@ void ShowCapacityOverlay(void)
         ret
     }
 #else
-    LL_UNPORTED_ASM();
+    {
+    /* 0x004632b0 in C.  Six AICat rows then a total.  esi walks
+     * &g_ai_cat[i] + 0x18, so the four fields it reads are
+     *   [esi-0x18] objects, [esi-0x10] cap, [esi-0x04] pct, [esi] scale,
+     * and `lea edx,[eax+eax*4] / lea edx,[edx+edx*4] / shl edx,2` is
+     * scale * 100.
+     *
+     * THE ARGUMENT ORDER is the asm's push order read backwards, and it
+     * interleaves a double between two ints:
+     *   sprintf(buf, kCapRowFmt, *names, objects, cap, pct,
+     *           product*0.01, scale, min(product, scale*100)*0.01)
+     * (`push eax` carries SCALE -- eax still holds [esi] when that push
+     * happens, and only then is eax reloaded with objects).  The running
+     * total sums the MIN, not the product: `[esp+0x14]` is the clamped value
+     * and it is what is added into the accumulator at `[esp+0x18]`.
+     *
+     * `fild <int> / fmul kHundredth / fstp qword` is an int widened through
+     * the FLOAT 0.01f and stored as a double, hence (double)kHundredth. */
+    char         buf[500];                /* the 0x208 frame block, at +0x24 */
+    const char** names = g_capacity_names;
+    AICat*       cat = &g_ai_cat[0];
+    int          i, yrow = 0x14, acc = 0;
+    int          product, limit100, clamped;
+
+    for (i = 0; i < 6; i++) {
+        product = cat->cap * cat->pct;
+        limit100 = cat->scale * 100;
+        clamped = product;
+        if (product >= limit100)
+            clamped = limit100;
+        sprintf(buf, kCapRowFmt, *names, cat->objects, cat->cap, cat->pct,
+                (double)product * (double)kHundredth, cat->scale,
+                (double)clamped * (double)kHundredth);
+        Print((int)g_clip_rect.left + 8, (int)g_clip_rect.top + yrow, buf, 2);
+        acc += clamped;
+        yrow += 0x14;
+        cat++;
+        names++;
+    }
+    sprintf(buf, kCapTotFmt, (double)acc * (double)kHundredth,
+            g_visitor_cap_extra, g_visitor_cap, g_visitor_limit);
+    Print((int)g_clip_rect.left + 8, (int)g_clip_rect.top + 0x96, buf, 2);
+    }
 #endif
 }
