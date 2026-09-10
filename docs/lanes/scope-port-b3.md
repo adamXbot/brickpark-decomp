@@ -283,6 +283,30 @@ Two things worth recording from building it:
 
 ## 4. Evidence: how far the game runs
 
+### The census
+
+`python3 portable/tools/linkreport.py portable/build`: **asm stubs 26 -> 16**.
+The sixteen left are `bigrender.c:939 ZBufferHelper`, `blitmisc.c` x2,
+`bnvpath.c:95 sub_458930`, `coaster13.c:737 TrackShade_FillPoly`,
+`coastermath.c` x2 (`FastSqrt`/`FastRSqrt`), `coastershade2.c` x2,
+`popup.c:432 RenderTransSprite`, `softblit.c:1028 SoftBlitAnim`,
+`softblit2.c:677 SoftBlitAnimPlain` and `tri3d.c`'s four triangle
+rasterisers. Everything else in the report is unchanged (game-fn 0, host 0,
+alias 0, duplicates 0, prototype conflicts 0).
+
+**The two `SoftBlitAnim*` bodies were NOT attempted**, and they are the next
+ones the front end will want (ImageRec type 2). They are the same *family*
+but not the same decoder: the type-2 control stream is walked with
+`shr ebx,2` over a word cached in `ebx` with `g_zb_bits` counting the codes
+left and a refill from `[ebp]`, an 8-bit literal count is spliced out of the
+LOW BYTE (`movzx ecx,bl / shr ebx,6`, costing four codes), the pixels are
+8-bit indices through `g_sp_pal16` rather than u16 words, the repeat run
+builds a doubled dword for `rep stosd`, and the mouse hit test is armed
+through `g_sp_hit_armed` rather than computed per run. 341 lines of asm in
+`SoftBlitAnimPlain` alone. `softblit2.c`'s file header documents that stream
+completely and is the place to start.
+
+
 ### The headless spine (node)
 
 ```
