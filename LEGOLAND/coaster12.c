@@ -148,6 +148,15 @@ void TrackNode_SetBothHeights(TrackNode* node, float h)
 }
 
 /* Build hook of the raised piece: desc->h0 is the tail, desc->h1 the head. */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M3: the TrackDesc +0x20 build slot is called with two arguments
+ * (coaster.c TrackNode_Build) and the flat piece's entry,
+ * TrackNode_SetBothHeights, takes (TrackNode*, float). This body ignores the
+ * second dword, which x86 cdecl tolerates and a wasm call_indirect does not,
+ * so the portable build exports a twin of the slot's shape over the matched
+ * body. The body itself is untouched; VC6 never sees the rename. */
+#define TrackNode_LoadDescHeights TrackNode_LoadDescHeights_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00427c70
 void TrackNode_LoadDescHeights(TrackNode* node)
 {
@@ -155,6 +164,14 @@ void TrackNode_LoadDescHeights(TrackNode* node)
     node->jout.h = (float)desc->h0;
     node->jin.h = (float)desc->h1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef TrackNode_LoadDescHeights
+void TrackNode_LoadDescHeights(TrackNode* node, float ll_unused)
+{
+    (void)ll_unused;
+    TrackNode_LoadDescHeights_vc6_body(node);
+}
+#endif
 
 /* Draw/setup hook shared by the flat and raised TrackDesc vtables: a free
  * end (-1) takes the opposite direction and the other end's height. */

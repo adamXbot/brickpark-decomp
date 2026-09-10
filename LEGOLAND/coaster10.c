@@ -167,7 +167,16 @@ void TrackCurve_EvaluateUp(RoutePos* at, int mode, int t, Vec3f* out)
 {
     RouteGeom* geom = (RouteGeom*)at->geom;
     (void)mode;
+#ifndef LEGOLAND_PORTABLE
     (*(void (__cdecl **)(void*, int, Vec3f*))((char*)geom->vt + 0x1c))(geom, t, out);
+#else
+    /* PORT-M3: the up-vector slot holds TrackCurve_CubicUpVector /
+     * LineUpVector / NormalAt, all (curve, FLOAT t, Vec3f*) -- the dword `t`
+     * is a float's bits (PORT-M2 section 3). On wasm a call_indirect whose
+     * type is not the target's traps, so the portable arm casts to the
+     * bodies' real type and moves the bits across unconverted. */
+    (*(void (**)(void*, float, Vec3f*))((char*)geom->vt + 0x1c))(geom, LL_ASFLT(t), out);
+#endif
 }
 
 // FUNCTION: LEGOLAND 0x00420fb0
@@ -209,7 +218,17 @@ void ClipRect_SetBounds(ClipRect* clip, const SpanRect* bounds)
 void TrackCurve_EvaluatePosition(RoutePos* at, int mode, int t, Vec3f* out)
 {
     RouteGeom* geom = (RouteGeom*)at->geom;
+#ifndef LEGOLAND_PORTABLE
     (*(void (__cdecl **)(void*, int, Vec3f*))((char*)geom->vt + mode * 8))(geom, t, out);
+#else
+    /* PORT-M3: see TrackCurve_EvaluateUp. mode 0/1/2 select the offset-plus,
+     * position and offset-minus entries of the curve's group in
+     * g_car_class_vt, and all nine of those bodies are
+     * (curve, float t, Vec3f*). (mode == 3 would land on
+     * TrackCurve_GatherParams / GetLimits / GetQuarterTurnSamples, which are
+     * (curve, int) -> int and not position getters at all; nothing passes 3.) */
+    (*(void (**)(void*, float, Vec3f*))((char*)geom->vt + mode * 8))(geom, LL_ASFLT(t), out);
+#endif
     out->x += at->pos.x;
     out->y += at->pos.y;
     out->z += at->pos.z;
