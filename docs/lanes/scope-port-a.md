@@ -173,6 +173,28 @@ legoland_headless: volumes mounted, g_res_path="D:\"
 TRAP GAME 0x0049e4ff MemAlloc from blokeai.c, bnvmove.c, data2.c...
 ```
 
+`MemAlloc` is now forwarded rather than trapped (see below), so the same probe
+gets one step further — and straight into the next thing:
+
+```
+legoland_headless: volumes mounted, g_res_path="D:\"
+HOST CreateFileA(".\volumes\.res", access=0x80000000, disp=3)
+HOST CreateFileA("D:\.res", access=0x80000000, disp=3)
+legoland_headless: RES_OpenVolume("") = 0
+```
+
+Both paths are right except for the volume NAME, which is empty.
+`g_volume_names` (0x004bcba4) is a table of three `const char*` pointing at
+string literals in `.rdata` — and those literals are not named by any extern,
+so `--ilp32` has no symbol to re-point the words at and leaves the original
+0x004b… values, which are not addresses in wasm linear memory. **Pointers to
+unnamed data are the next limit of the re-pointing pass**, and the fix belongs
+in gen_link: it already computes the gaps between known addresses, so a word
+pointing into a gap can get a synthetic `ll_gap_<start>` block (initialised
+from the exe like any other global) and be re-pointed at
+`&ll_gap_<start>[X - start]`. Nothing in the startup spine depends on it;
+everything in the loaders does. Left open (see below).
+
 So `RES_EnsureMounted` is satisfied and `g_res_path` is set. Without
 `LL_CD_DIR` it fails instead — and on the real startup path it would loop on
 `MessageBoxA("Insert CD")` forever, because sysmisc.c's loop has no other exit
@@ -192,7 +214,7 @@ the emcc objects (`portable/build-wasm`, wasm32 `-DLL_ILP32=ON`):
 
 | category | native before | native after | wasm32 after |
 | --- | --- | --- | --- |
-| game-fn | 12 | 12 | 12 |
+| game-fn (all 12 were CRT thunks; now forwarded, not trapped) | 12 | 12 | 12 |
 | game-data | 2613 | 2613 | 2613 |
 | alias | 228 | 228 | 228 |
 | **host** | **149** | **95** | **95** |
@@ -213,7 +235,8 @@ Apple's does not and vice versa.)
 - globals defined: 2232 (3705348 bytes), data aliases: 381
 - symbols re-pointed into (ilp32): 243
 - function aliases (stale extern names): 228
-- unwritten game function stubs: 12
+- unwritten game function stubs: 0
+- CRT thunks forwarded instead of trapped: 12
 - unresolved-name stubs: 44 (+44 placeholder data blocks)
 - host API stubs: 95
 - symbols imported with more than one signature (most common wins): 54
@@ -286,28 +309,50 @@ is the "Prototype conflicts" section of `linkreport.md`.
   `headless.cmake` does.
 * Run with `LL_DATA_DIR`-style `chdir` (or your own) into `gamedata/main`, and
   `LL_CD_DIR=$PWD/gamedata/disc` if the test needs the `.res` volumes.
-* Expect `TRAP GAME 0x0049e4ff MemAlloc` the moment a loader allocates — see
-  the next section. Until that is fixed, tests that take a buffer rather than
-  opening a file are the ones that will run.
+* `MemAlloc` and the other eleven CRT thunks are forwarded now, so allocation
+  works. The open limit is pointer tables of unnamed data (item 1 under "Left
+  open"): a test that reads a string table out of `.data` will see rubbish,
+  while one handed a buffer or a file path of its own will not.
+
+## The 12 "unwritten game functions" were CRT thunks: 12 → 0
+
+`MemAlloc`/`HeapAlloc_w` at 0x0049e4ff, `MemFree`/`HeapFree_w`/`RES_FreeFile`/
+`ReleaseAnimInstance` at 0x0049e4d0, `Format`/`sprintf_w` at 0x0049e573,
+`CRT_calloc` (0x004a020e), `rand_w` (0x0049e4b2), `NameCompare` (0x004aab90),
+`DebugPrint` (0x0049e5c5) — every one of them is a second name for a CRT
+function the sources ALSO declare at that same address (startup.c has `malloc`
+at 0x0049e4ff, `free` at 0x0049e4d0, `sprintf` at 0x0049e573; anim2.c has
+`rand` at 0x0049e4b2; audio3.c has `_stricmp` at 0x004aab90; bigrender.c has
+`printf` at 0x0049e5c5). So they are exactly the "stale extern name" case, and
+gen_link now routes them through the alias machinery:
+
+```
+- unwritten game function stubs: 0
+- CRT thunks forwarded instead of trapped: 12 (CRT_calloc -> calloc,
+  DebugPrint -> printf, Format -> sprintf, HeapAlloc_w -> malloc,
+  HeapFree_w -> free, MemAlloc -> malloc, MemFree -> free,
+  NameCompare -> _stricmp, RES_FreeFile -> free,
+  ReleaseAnimInstance -> free, rand_w -> rand, sprintf_w -> sprintf)
+```
+
+The printf-shaped ones work because a variadic callee has a fixed wasm
+signature (its arguments arrive through one pointer), so forwarding what the
+caller passed is exactly right. `linkreport.py` still files them under
+"Unwritten game functions", which is now a misnomer for all 12 — the report
+lists them, the generator no longer traps them. That is the row the old
+`portable/README.md` census called "CRT-range wrappers filed as game-fn: 12".
 
 ## Left open
 
-1. **The 12 "unwritten game functions" are CRT thunks, and they block every
-   loader.** `MemAlloc`/`HeapAlloc_w` (0x0049e4ff = `malloc`),
-   `MemFree`/`HeapFree_w`/`RES_FreeFile`/`ReleaseAnimInstance` (0x0049e4d0 =
-   `free`), `Format`/`sprintf_w` (0x0049e573 = `sprintf`), `CRT_calloc`
-   (0x004a020e), `rand_w` (0x0049e4b2), `NameCompare` (0x004aab90),
-   `DebugPrint` (0x0049e5c5). They are not matching work and they are not
-   Win32: each is a second name for a CRT function the sources ALSO declare at
-   that same address (startup.c has `malloc` at 0x0049e4ff, `sprintf` at
-   0x0049e573, `free` at 0x0049e4d0). The clean fix is in gen_link, not in a
-   hand-written stub: where a `game-fn` address is also the address of an
-   extern whose name is a known CRT function, emit a forwarder to that CRT name
-   instead of a trap — fixed-arity ones forward their arguments, and the
-   printf-shaped ones (`Format`, `sprintf_w`) need a `va_list` forwarder to
-   `vsprintf`. I did not do it inside this lane's time; it is the obvious next
-   commit and it is ~20 lines in `gen_link.py` plus the address→CRT name map
-   the sources already contain.
+1. **Pointers to unnamed data are not re-pointed** (`--ilp32`): the word in
+   `g_volume_names` that should point at the string `"Legoland.res"` keeps the
+   original 0x004b… value, because no extern names that literal. That is why
+   `--resmount` opens `"D:\.res"` instead of `"D:\Legoland.res"`. The fix is
+   the one sketched in the `--resmount` section: synthetic `ll_gap_<start>`
+   blocks for the gaps between known addresses, re-pointing into them with an
+   offset. Until then, anything that reads a pointer table of unnamed data
+   (string tables above all) sees rubbish — this is the single biggest thing
+   between the port and a loader that works.
 2. **44 unclassified externs used as data get a 256-byte placeholder block**
    (`UNKNOWN_DATA_SIZE`) rather than their real storage, because nothing knows
    their address or size. They keep the link closed; a write through one is
