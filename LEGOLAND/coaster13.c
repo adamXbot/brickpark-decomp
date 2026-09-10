@@ -110,10 +110,28 @@ extern int   TrackJointSloped(TrackDesc* d, int din, int dout);     /* 0x0042991
 extern int   TrackRunStepsBack(TrackNode* n, TrackNode** endOut);   /* 0x00429940 */
 extern int   TrackRunSteps(TrackNode* n, TrackNode** endOut);       /* 0x00429990 */
 extern int   JointOppositeDir(int dir);                             /* 0x0041cc50 */
+#ifndef LEGOLAND_PORTABLE
 extern void  TrackCurve_EvaluateOffset(RoutePos* at, int mode, float t,
                                        float offset, Vec3f* out);   /* 0x00429bb0 */
 extern void  TrackCurve_EvaluateDerivative(RoutePos* at, int mode, float t,
                                            float offset, Vec3f* out); /* 0x00429c60 */
+#else
+/* `t` is a float, but both definitions (coaster9.c 0x00429bb0, coaster10.c
+ * 0x00429c60) spell the parameter `int` and forward it to the geometry
+ * vtable as a RAW DWORD -- the recorded lever that keeps the value in a GPR
+ * instead of giving it an x87 home. On x86 `push t` is the same dword either
+ * way; on wasm32 f32 and i32 are different function types, so the callers
+ * here have to hand over the BITS. LL_ASINT on the float parameter does
+ * exactly what the original's push did. */
+extern void  TrackCurve_EvaluateOffset(RoutePos* at, int mode, int t,
+                                       float offset, Vec3f* out);   /* 0x00429bb0 */
+extern void  TrackCurve_EvaluateDerivative(RoutePos* at, int mode, int t,
+                                           float offset, Vec3f* out); /* 0x00429c60 */
+#define TrackCurve_EvaluateOffset(_at, _m, _t, _o, _out) \
+    TrackCurve_EvaluateOffset((_at), (_m), LL_ASINT(_t), (_o), (_out))
+#define TrackCurve_EvaluateDerivative(_at, _m, _t, _o, _out) \
+    TrackCurve_EvaluateDerivative((_at), (_m), LL_ASINT(_t), (_o), (_out))
+#endif
 extern int   JointDir_ToIndex(int direction);                         /* 0x0041cca0 */
 extern void  MapSquareToWorld(const short* sq, float h, Vec3f* out);  /* 0x00425cb0 */
 extern void  TrackGeom_BuildRamp(Vec3f* p0, Vec3f* p1, const Vec3f* half,
@@ -134,10 +152,22 @@ extern int   g_step_far;         /* 0x00615fe4 */
 extern int   g_step_up;          /* 0x00615fe8 */
 extern int (*g_track_solver)(float (*fn)(float), float lo, float hi, float* out); /* 0x004b63fc */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  TrackCurve_EvaluatePosition(RoutePos* at, int mode, float t,
                                          Vec3f* out);                     /* 0x00429a80 */
 extern void  TrackCurve_EvaluateUp(RoutePos* at, int mode, float t,
                                    Vec3f* out);                           /* 0x00429b90 */
+#else
+/* Same raw-dword `t` as the two above; coaster10.c defines both with `int`. */
+extern void  TrackCurve_EvaluatePosition(RoutePos* at, int mode, int t,
+                                         Vec3f* out);                     /* 0x00429a80 */
+extern void  TrackCurve_EvaluateUp(RoutePos* at, int mode, int t,
+                                   Vec3f* out);                           /* 0x00429b90 */
+#define TrackCurve_EvaluatePosition(_at, _m, _t, _out) \
+    TrackCurve_EvaluatePosition((_at), (_m), LL_ASINT(_t), (_out))
+#define TrackCurve_EvaluateUp(_at, _m, _t, _out) \
+    TrackCurve_EvaluateUp((_at), (_m), LL_ASINT(_t), (_out))
+#endif
 extern void  TrackCursor_RetreatGeometry(RoutePos* p);                    /* 0x0041f880 */
 extern void  TrackCursor_AdvanceGeometry(RoutePos* p);                    /* 0x0041f850 */
 extern void  TrackCursor_Evaluate(TrackCursor* c, int mode, Vec3f* out);  /* 0x0042a640 */

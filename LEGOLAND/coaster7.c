@@ -299,8 +299,18 @@ void RoutePhys_EvaluateDerivative(PhysObj* obj, float t, PhysVec* out)
  * another. All first named here. */
 extern float Route_TravelThisTick(CoasterRoute* rt);            /* 0x0041dd50 */
 extern float Route_SumMass(CoasterRoute* rt);                   /* 0x0041dd70 */
+#ifndef LEGOLAND_PORTABLE
 extern float Track_MeasureDistance(RoutePos* from, float t, RoutePos* to,
                                    float t2, int a, int b);     /* 0x0042a1b0 */
+#else
+/* coaster13.c defines the last parameter `float offset`. On x86 `push 0` is
+ * the same dword either way (0 and 0.0f share a bit pattern), so the `int`
+ * spelling above costs nothing; on wasm32 it is a different function type.
+ * The single call site below passes the literal 0, which this prototype
+ * converts to 0.0f -- the same bits the original pushed. */
+extern float Track_MeasureDistance(RoutePos* from, float t, RoutePos* to,
+                                   float t2, int a, float b);   /* 0x0042a1b0 */
+#endif
 extern void MapSquareToWorld(const short* square, float height,
                              Vec3f* out);                       /* 0x00425cb0 */
 /* schoolcar8.c declares this `unsigned char g_station_geometry[]`; it is

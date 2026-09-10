@@ -48,7 +48,17 @@ extern void RouteNode_LinkPending(RouteNode*);           /* 0x0041ea70 */
 extern void RouteNode_SetPending(RouteNode*, int);       /* 0x0041e640 */
 extern float RouteNode_GetAcceleration(RouteNode*);      /* 0x0041e7e0 */
 extern float Route_GetSpeed(CoasterRoute*);              /* 0x0041dca0 */
+#ifndef LEGOLAND_PORTABLE
 extern void TrackCurve_EvaluateDerivative(RoutePos*, int, int, int, Vec3f*); /* 0x00429c60 */
+#else
+/* coaster10.c defines the fourth parameter `float h`. Route_TravelPerTick
+ * passes the literal 0 for it, and `push 0` is the same dword as 0.0f, so
+ * the `int` spelling costs nothing on x86 -- but on wasm32 it is a different
+ * function type. The literal converts itself through this prototype. The
+ * THIRD parameter stays `int`: it really is the float's raw bits, and the
+ * definition takes it as a dword too. */
+extern void TrackCurve_EvaluateDerivative(RoutePos*, int, int, float, Vec3f*); /* 0x00429c60 */
+#endif
 extern float Vec3Dot(const Vec3f*, const Vec3f*);         /* 0x00425d30 */
 extern void TrackCurve_EvaluatePosition(RoutePos*, int, int, Vec3f*); /* 0x00429a80 */
 extern void TrackCurve_EvaluateUp(RoutePos*, int, int, Vec3f*); /* 0x00429b90 */
