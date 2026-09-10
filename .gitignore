@@ -20,3 +20,4 @@ original
 gamedata
 portable/build/
 portable/build-wasm/
+portable/build-wasm-*/

@@ -1,12 +1,13 @@
 # Scope PORT-A / PORT-B / PORT-C — the port wave: first running code (2026-09-11)
 
 > **PORT-A — Status: OPEN, unclaimed**
-> **PORT-B — Status: OPEN, unclaimed**
+> **PORT-B — Status: MERGED (2026-09-11) — DDRAW/USER32/GDI32/DINPUT/WINMM/DSOUND shim complete, 0 traps left in those six DLLs, ASYNCIFY main loop decided; `legoland_shimtest` runs at ~82 fps in the browser; `legoland_browser` itself waits on PORT-A's wasm32 closure. GDI text, AVI, sound, MIDI, printing are documented non-trapping stubs. Notes `docs/lanes/scope-port-b.md`**
 > **PORT-C — Status: MERGED at 5 tests / 193 checks green natively (2026-09-11, d19d3fd7) — res_archive, llidb_icm and loadpos are ILP32-only and run once PORT-A's wasm32 closure links; 8 findings in `docs/lanes/scope-port-c.md` (resfile.py drops alias members; RES_EnsureMounted needs GetVolumeInformationA to report CDFS/LEGOLAND; LEGOLAND.ICM case)**
 > Branches `scope/PORT-A`, `scope/PORT-B`,
 > `scope/PORT-C` from `origin/main` `6de9cab0`+scaffold. Notes:
 > `docs/lanes/scope-port-a.md` / `-b.md` / `-c.md`. No VC6 object prefix: these
 > lanes do not match; they compile with clang/emcc only.
+> **PORT-B: IN PROGRESS (claimed 2026-09-11 by PORT-B).**
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
