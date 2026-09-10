@@ -4,6 +4,7 @@
 > `scope/PORT-C` from `origin/main` `6de9cab0`+scaffold. Notes:
 > `docs/lanes/scope-port-a.md` / `-b.md` / `-c.md`. No VC6 object prefix: these
 > lanes do not match; they compile with clang/emcc only.
+> **PORT-B: IN PROGRESS (claimed 2026-09-11 by PORT-B).**
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
