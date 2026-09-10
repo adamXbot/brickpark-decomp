@@ -6,8 +6,9 @@
  * owned elsewhere). Extern prototype TYPES are caller-side codegen levers.
  *
  * 0x004689f0 is the script-string intern, not sysstubs.c's NewScriptEvent
- * at 0x00468910. movie3.c / levelkw.c declare this address under that
- * colliding name; the definition here is AddScriptString.
+ * at 0x00468910. movie3.c and levelkw.c used to declare this address under
+ * that colliding name; PORT-M2 renamed both to AddScriptString, the name the
+ * definition here carries.
  *
  * Verification and recovered mechanics: docs/lanes/scope-ll8.md.
  */
