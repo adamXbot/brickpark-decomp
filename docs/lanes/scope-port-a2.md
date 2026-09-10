@@ -1,8 +1,12 @@
 # Scope PORT-A2 — the ILP32 re-pointing blocker, and the spine past the loader
 
-> **Status: IN PROGRESS (claimed 2026-09-11).** Branch `scope/PORT-A2` from
+> **Status: deliverables 1-5 done, 2026-09-11.** Branch `scope/PORT-A2` from
 > main `8e02a675`. PORT-A's follow-up. Nothing in `LEGOLAND/*.c` is touched, so
-> the VC6 gate has nothing to check for this lane either.
+> the VC6 gate has nothing to check for this lane either. Verified from CLEAN
+> build directories: native `legoland_linkcheck` + ctest 2/2 green; wasm32
+> `legoland_linkcheck` runs, ctest 4/5 (`loadpos` is section 4's prototype
+> conflict, not a regression -- it used to trap in `ShowWindow` three checks
+> earlier).
 
 ## 1. THE BLOCKER: pointers to unnamed data (`gen_link.py --ilp32`)
 
