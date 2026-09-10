@@ -18,4 +18,4 @@ toolchain
 # worktree symlinks to the main checkout (docs/HANDOFF.md) and the portable build tree
 original
 gamedata
-portable/build/
+portable/build*/
