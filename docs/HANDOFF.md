@@ -92,12 +92,12 @@ and commit messages are that runtime's spec.
 
 | measure | command | value |
 | --- | --- | --- |
-| **bytes of game code matched** | `python3 tools/coverage.py` | **81.4% exact, 94.4% with partials** (2026-09-10) |
-| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3273 |
-| `verify.py` | `python3 tools/verify.py` (ALONE) | 3273/3273 at 100% (2026-09-10, after the FGH wave) |
+| **bytes of game code matched** | `python3 tools/coverage.py` | **81.8% exact, 94.4% with partials** (2026-09-11) |
+| functions matched exactly | `rg -c '^// FUNCTION: LEGOLAND' LEGOLAND/*.c` (sum) | 3279 |
+| `verify.py` | `python3 tools/verify.py` (ALONE) | 3279/3279 at 100% (2026-09-11, after LL21–LL24) |
 | exported functions | `python3 tools/remaining.py` | 665 of 675 (98.5%) |
 | unmatched callees | `python3 tools/callees.py` | 161, 6,932 instructions (2026-09-07); includes CRT/import references. V and Codex-F owned part of this list and are both closed; use `tools/inventory.py` for game-code targets. |
-| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 50 — all listed in §6B |
+| partials (WIP markers) | `rg -c '^// WIP-FUNCTION:' LEGOLAND/*.c` (sum) | 44 — all listed in §6B |
 | **unwritten game functions, whole binary** | `python3 tools/inventory.py` (2026-09-09) | **ZERO — 0 live, 0 dead.** Every function in the game-code range has a body in C; see the frontier milestone below and §6C. |
 | **the ceiling** | `tools/inventory.py` residue line | 35,370 bytes (5.5%) is padding, `switch` tables in `.text` and CRT data that no C body can ever claim, so **~94.5% exact is the theoretical maximum**, not 100%. |
 
@@ -566,15 +566,21 @@ All four carry the scope Codex-F levers (the cancelled-pair anchor, the alias
 pointer for reversed commutative operands) and the `/FAcs` frame-symbol route,
 none of which the earlier waves had.
 
-**WARNING — `scope/LL21`..`LL24` are based on `307c0dc9`, BEFORE the FGH wave
-(2026-09-11).** All four are local-only, unpushed, and actively being worked;
-between them they carry 6 genuine closes (`WW_AnyBlokeInRect` 0x00417e70 and
-`LoadAltTextures` 0x00442980 — both previously called floors — plus the four
-`Span_Fill*` bodies in `coastershade2.c`). But their base predates `850ef7fc`,
-so **merging any of them as they stand reverts all 40 bodies the FGH wave
-closed**, and the exact TOTAL would still rise because each branch adds its
-own closes. Only the §4 marker-set diff catches this. Merge current `main`
-into each branch and re-run that diff before landing any of them.
+**LL21–LL24 MERGED (2026-09-11, main `27866e0c`): 81.8% exact, 44 partials.**
+Six bodies closed: `WW_AnyBlokeInRect` 0x00417e70 (LL21), `LoadAltTextures`
+0x00442980 (LL22) and all four `Span_Fill*` in `coastershade2.c` (LL23);
+LL24 landed the `Draw3DPersonModel` frame map without closing it. Two of
+those — `WW_AnyBlokeInRect` and `InsertChildIntoList`, the latter now at 1
+mismatch — had been formally EXHAUSTED by earlier waves, so treat that list
+in §1 as a record of what was tried, not a proof.
+
+All four branches were cut from `307c0dc9`, one commit BEFORE the FGH wave, and
+were rebased onto current `main` before merging. Un-rebased they would have
+reverted all 40 FGH closes while the exact total still ROSE, because each
+branch also adds its own. The §4 marker-set diff was run on each branch and on
+the merge: nothing un-closed. `mantex.c` was the one conflict — LL22 had closed
+`LoadAltTextures` outright where `main` had it at 6 mismatches from `scope/AC`,
+so LL22's file won and that scope's splice is superseded.
 
 **THE FGH WAVE LANDED (2026-09-10, main `9a82cc00`): 81.4% exact.** Five FGH
 branches (`cursor/fgh-100b..d`, `codex/fgh-integration`, `fgh-pickup`) sat 418
@@ -930,16 +936,18 @@ Lanes that had been running, all resumable from `docs/LANE_BRIEF.md`:
 **A. Done (2026-09-03 afternoon):** the 62 audit-exact WIPs are promoted and
 `verify.py` is green at 1473/1473. Start at B.
 
-**B. The 50 partials are the whole of the remaining work — refreshed 2026-09-10.**
+**B. The 44 partials are the whole of the remaining work — refreshed 2026-09-11.**
 Every function in the binary has a body; what is left is turning these exact.
 Each carries a note above its marker with its measured residual, its first
 diverging index, and what previous agents ruled out. *Read that note before
 touching one.* Sorted by mismatch. A row tagged **EXHAUSTED**, **FLOOR** or
 **… floor** has a recorded proof that no source form reaches the original —
-do not re-grind it; the evidence is in the matching `docs/lanes/scope-*.md`.
+but see the LL21–LL24 note in §1: two such rows were closed anyway, so a tag
+is evidence of what was tried, not a proof over all C.
 
 | mismatch | insns | address | function | file — status |
 | ---: | ---: | --- | --- | --- |
+| 1 | 68 | 0x00475630 | InsertChildIntoList | fpui.c — **EXHAUSTED** |
 | 2 | 81 | 0x00420200 | IntegrateSimpson | coastershade2.c |
 | 3 | 43 | 0x004718c0 | ClampPopUpToScreen | misc3.c — **EXHAUSTED** |
 | 3 | 482 | 0x00477bd0 | RequestRoute | simcore.c — **EXHAUSTED** |
@@ -947,7 +955,6 @@ do not re-grind it; the evidence is in the matching `docs/lanes/scope-*.md`.
 | 5 | 66 | 0x004966a0 | UpdateSampleSource | sysmisc.c |
 | 5 | 205 | 0x0045f810 | ValidateCursor | objmap2.c — **EXHAUSTED, leave** |
 | 6 | 151 | 0x00428cb0 | Coaster3D_BuildTrackMesh | schoolcar3.c |
-| 6 | 229 | 0x00442980 | LoadAltTextures | mantex.c |
 | 6 | 521 | 0x004227c0 | Mesh_DropBackFaces | unref2.c — **LL10 floor: SIB rank has two reachable states, original in neither** |
 | 7 | 94 | 0x004349b0 | JcDeco_CalcCursor | unref4.c — **LL12 floor: mod-3 count of real memory-to-memory value moves** |
 | 7 | 3161 | 0x00492db0 | MusicThread | musicthread.c — **LL18 floor: import hoisting needs a register free across the whole loop** |
@@ -955,7 +962,6 @@ do not re-grind it; the evidence is in the matching `docs/lanes/scope-*.md`.
 | 10 | 88 | 0x00451280 | UnlockAllPhysicalLocks | unref5.c — **LL13 floor: an exiled return-0 is laid last or inlined early, never first** |
 | 10 | 222 | 0x0043bac0 | SpaceTower_Activate | mechrides.c |
 | 11 | 354 | 0x00435750 | JungleCruise_Tick | ridecb2.c |
-| 12 | 31 | 0x00417e70 | WW_AnyBlokeInRect | waterworks.c — **EXHAUSTED** |
 | 13 | 109 | 0x00473b00 | UpdateControllerFromMouseData | input.c — **EXHAUSTED** |
 | 13 | 962 | 0x004724a0 | DrawPopUpInfo | popup.c — **LL18 floor: residency, not forward substitution** |
 | 14 | 39 | 0x00451390 | LockPhysicalVolume | unref5.c — **LL13 floor: RA08 zero-web count is three either way** |
@@ -964,26 +970,21 @@ do not re-grind it; the evidence is in the matching `docs/lanes/scope-*.md`.
 | 16 | 20 | 0x00453c20 | DDrawErrorPassThrough | unref5.c — **LL13 floor: VC6 cross-jumps identical arms before the search tree** |
 | 18 | 347 | 0x00417430 | TempleSlide_Update | joust.c |
 | 20 | 191 | 0x0048a3e0 | GetObjectUID | objmap2.c — **LL17 floor: a global load is rematerialised at its use** |
-| 22 | 68 | 0x00475630 | InsertChildIntoList | fpui.c — **EXHAUSTED** |
 | 26 | 124 | 0x0046c7e0 | LoadScriptEvent | savechunks2.c — **LL18 floor: a single-predecessor cold block is laid next to its predecessor** |
 | 34 | 87 | 0x00424050 | GetTrackSegment | coaster12.c |
 | 35 | 61 | 0x00423200 | Raster_AddSpanRecord | coaster12.c |
 | 35 | 121 | 0x0046d850 | ScrollIconPanel | fpui4.c — **LL17 floor: appearance-count model out of domain** |
-| 38 | 143 | 0x004284d0 | Coaster3D_BuildPieceGeometry | coaster3d.c |
+| 35 | 143 | 0x004284d0 | Coaster3D_BuildPieceGeometry | coaster3d.c |
 | 42 | 77 | 0x0041db90 | Route_GetMassAndPower | coaster11.c |
-| 62 | 136 | 0x0041fba0 | Span_FillFlatZ | coastershade2.c |
-| 62 | 202 | 0x0041ff80 | Span_FillShadeZ | coastershade2.c — **LL4: ZBuffer-class, byte-exact, row homes vs the original frame** |
 | 72 | 351 | 0x00402780 | StepSchoolCar | goldrush.c |
 | 82 | 184 | 0x00470620 | CheckWorkerOnMouseStatus | workers2.c — **LL18 floor: const-1 web threading** |
-| 88 | 106 | 0x0041f8d0 | Span_FillFlat | coastershade2.c |
 | 93 | 160 | 0x0045fad0 | DrawCursorSegmentB | cursorseg.c — **LL19 floor: a void default arm is threaded away before layout** |
 | 105 | 130 | 0x0041c940 | BsRoute_Trace | coaster11.c — **FLOOR (NG22): same phase-order allocation as JungleCruise_TraceRoute** |
-| 106 | 162 | 0x0041fd80 | Span_FillShade | coastershade2.c |
 | 108 | 252 | 0x0042a2f0 | Raster_SubmitPoly | coaster3d.c |
 | 111 | 195 | 0x0045fca0 | DrawCursorSegmentA | cursorseg.c — **LL19 floor: same default-arm layout as DrawCursorSegmentB** |
 | 118 | 119 | 0x0048f0f0 | InitExitCheckBox | screens2.c — **LL17 floor: VC6 folds phi(0,0)** |
+| 137 | 179 | 0x0041f050 | Span_ClipPlane | coaster11.c |
 | 147 | 254 | 0x00428860 | TrackShade_FillPoly | coaster13.c — **LL7: ZBuffer-class sibling of ZBuffer_FillPoly** |
-| 173 | 179 | 0x0041f050 | Span_ClipPlane | coaster11.c — ESCAPES |
 | 273 | 454 | 0x0045ff00 | RenderCursor | bigrender.c |
 | 377 | 1023 | 0x00440a30 | Draw3DPersonModel | person3d.c — **EXHAUSTED, leave** |
 | 378 | 431 | 0x004608c0 | PaintTileLayer | render4.c |
