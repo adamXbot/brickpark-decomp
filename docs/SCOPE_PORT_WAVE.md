@@ -25,6 +25,14 @@
 > **PORT-B5 — Status: MERGED (2026-09-12) — 9 more asm bodies ported (SoftBlitAnim with the `row:` label fix, tri3d.c x4, ZBufferHelper, BltAdvisor, ShowCapacityOverlay, RenderTransSprite); the 3 ST(0) helpers proved unreachable in the portable build; `LL_FISTP` no longer lowers to a libm call (every fistp site was a latent wasm trap); census asm stubs 15 -> 6; tests anim_recolour/tri_raster/zbuf_blit (70 checks); findings: tri3d/texture texel formula transposed in the headers, DrawGouraudTexTri masks crossed, ZBufferHelper 2-byte step in a 4-byte buffer, sub_458930 is (int)<float> rounding to nearest at 110 sites. Notes `docs/lanes/scope-port-b5.md`**
 > **PORT-M4 — Status: MERGED (2026-09-12) — externs without a readable address comment 81 -> 2 (52 lacked one, 29 had one the scanner could not read: continuation lines, function-pointer types); 7 live globals had existed TWICE as zeroed placeholders (g_present, g_active_input_cb, g_lt_action_handlers, ...); 30 files, audit rows unchanged, relocs 0 MISMATCH, 3281/42; WindowProc -> LegoLandWindowProc. With the integrator's libm/WINMM classification fixes the page reaches PLAYER DETAILS with zero GAME traps (six AVIFIL32 host stubs remain). Four caller/definition name disagreements recorded, not resolved. Notes `docs/lanes/scope-port-m4.md`**
 > **PORT-A5 — Status: MERGED (2026-09-12) — LL_TRAP_CONTINUE=1 / name_trap.py --continue (every blocker in one run); CreateThread runs MusicThread inline with a setjmp escape and unsignalled events poll as WAIT_TIMEOUT (the front end is reached WITHOUT -nomusic); _findclose(-1) and the CRT -1-handle family; THE INPUT BUG: the 164-byte GameInput record (and PopUpUI, Profile) was emitted as nine separate objects — STRUCT_EXTENTS in gen_link.py, ctest probe_input. Notes `docs/lanes/scope-port-a5.md`**
+> **PORT-B6 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-B6)** — the page
+> made trap-free and the front end walked with real input. `avifil32.c` (all 16
+> AVIFile entry points, AVIFileOpenA reporting AVIERR_FILEOPEN, which is the
+> path movie.c/advisor.c are written for), `msacm32.c` (a REAL PCM -> PCM16
+> converter, because data2.c runs every sample through it and drops what fails)
+> and WINSPOOL's `EnumPrintersA` in gdi32.c: **generated host traps in the
+> closure 96 -> 0**, and `legoland_headless` now runs the front end with no
+> `LL_TRAP_CONTINUE` at all. Notes `docs/lanes/scope-port-b6.md`.
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
