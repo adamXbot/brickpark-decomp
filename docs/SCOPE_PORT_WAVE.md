@@ -15,11 +15,20 @@
 > the DirectInput shapes checked against `input.c`/`input2.c`, and the page
 > instrumented. Notes `docs/lanes/scope-port-b2.md`.
 > **PORT-A2 — Status: MERGED (2026-09-11) — pointer words resolve to symbol / interior-of-block / game object / gap (272 exact + 441 interior), all three RES volumes open; fopen wrapper + install-path resolution; tests link the shim, llidb_icm 47/47 (oracle was wrong); spine now reaches LoadSprite -> unreachable in __BMPLoader, caused by live prototype conflicts (RES_CloseFile, RES_CloseVolume, DBPrintf) — a matching lane's work under LEGOLAND_PORTABLE guards**
-> **PORT-A3 — Status: IN PROGRESS (claimed 2026-09-11 by PORT-A3)** — the
-> follow-up to PORT-A2 on the generator and the node harness: one block per
-> object (interior aliases), trap naming as a one-command tool, the node path
-> of the full spine, and case-insensitive install paths over a preloaded
-> MEMFS. Notes `docs/lanes/scope-port-a3.md`.
+> **PORT-A3 — Status: IN PROGRESS (claimed 2026-09-11 by PORT-A3)** — all five
+> deliverables done. gen_link emits ONE block per object with interior aliases
+> (15 objects, 100 names; `g_key_state[256]` and `g_gpu_state[0x3d8]` were the
+> live ones) — census unchanged, proved by `legoland_tests keystate` on both
+> toolchains. `name_trap.py` + `legoland_headless_debug` name a poisoned call
+> site in one command. The node harness and the browser page now stop at the
+> SAME instruction, `signature_mismatch:InitHostSystemGPU <- InitSession`
+> (startup.c:38 declares `void`, gpu.c defines `int`) — so ctest
+> `headless_spine` runs the whole loader stack without a browser, and ctest
+> `install_paths` checks `ll_host_resolve_path` over a preloaded MEMFS, which
+> NODERAWFS on APFS had been hiding. Live prototype conflicts for a matching
+> lane, in execution order: `InitHostSystemGPU`, `RES_CloseFile` (13 files),
+> `InitSoundSystem`, then `RES_CloseVolume` / `DBPrintf`. wasm ctest 7/8,
+> native 3/3. Notes `docs/lanes/scope-port-a3.md`.
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
