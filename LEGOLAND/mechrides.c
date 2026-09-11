@@ -342,6 +342,20 @@ extern RideDrawDesc g_spider_draw;                           /* 0x004cbf40 */
 extern RideDrawDesc g_sbarrel_draw;                          /* 0x0062fdb0 */
 extern RideDrawDesc g_plane_draw;                            /* 0x0062fe60 */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the ObjDef +0xa0 DRAW slot is typed
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)` (renderview.c:304) and
+ * renderview.c:1238 calls it that way, so on wasm32 the 2-byte square goes
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- while this body's
+ * `unsigned short` is a direct i32.  Same arity, no wasm-ld warning: PORT-M10
+ * s1b's silent window, in the direction PORT-M11 s1b closed for eight other
+ * classes.  These ten were invisible to BOTH sweeps because the name stored in
+ * the slot (`SafariRide_Draw`, interfaces.c:768) is not the name of the
+ * body, and the slot section pairs slot to body BY NAME.
+ * PORT-M3's `_vc6_body` rename: VC6 compiles the matched text unchanged and
+ * the portable build exports a wrapper of the slot's own shape over it. */
+#define SafariRide_GetDrawDesc SafariRide_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00414ff0
 RideDrawDesc* SafariRide_GetDrawDesc(RideElem* elem, unsigned short arg)
 {
@@ -354,7 +368,28 @@ RideDrawDesc* SafariRide_GetDrawDesc(RideElem* elem, unsigned short arg)
     def->sprite->flags |= 0x2000;
     return &g_safari_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef SafariRide_GetDrawDesc
+RideDrawDesc* SafariRide_GetDrawDesc(RideElem* elem, RideTile base)
+{
+    return SafariRide_GetDrawDesc_vc6_body(elem, base.key);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the ObjDef +0xa0 DRAW slot is typed
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)` (renderview.c:304) and
+ * renderview.c:1238 calls it that way, so on wasm32 the 2-byte square goes
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- while this body's
+ * `unsigned short` is a direct i32.  Same arity, no wasm-ld warning: PORT-M10
+ * s1b's silent window, in the direction PORT-M11 s1b closed for eight other
+ * classes.  These ten were invisible to BOTH sweeps because the name stored in
+ * the slot (`SpiderRide_Draw`, interfaces.c:815) is not the name of the
+ * body, and the slot section pairs slot to body BY NAME.
+ * PORT-M3's `_vc6_body` rename: VC6 compiles the matched text unchanged and
+ * the portable build exports a wrapper of the slot's own shape over it. */
+#define SpiderRide_GetDrawDesc SpiderRide_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00416120
 RideDrawDesc* SpiderRide_GetDrawDesc(RideElem* elem, unsigned short arg)
 {
@@ -367,7 +402,28 @@ RideDrawDesc* SpiderRide_GetDrawDesc(RideElem* elem, unsigned short arg)
     def->sprite->flags |= 0x2000;
     return &g_spider_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef SpiderRide_GetDrawDesc
+RideDrawDesc* SpiderRide_GetDrawDesc(RideElem* elem, RideTile base)
+{
+    return SpiderRide_GetDrawDesc_vc6_body(elem, base.key);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the ObjDef +0xa0 DRAW slot is typed
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)` (renderview.c:304) and
+ * renderview.c:1238 calls it that way, so on wasm32 the 2-byte square goes
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- while this body's
+ * `unsigned short` is a direct i32.  Same arity, no wasm-ld warning: PORT-M10
+ * s1b's silent window, in the direction PORT-M11 s1b closed for eight other
+ * classes.  These ten were invisible to BOTH sweeps because the name stored in
+ * the slot (`SpinningBarrels_Draw`, interfaces.c:917) is not the name of the
+ * body, and the slot section pairs slot to body BY NAME.
+ * PORT-M3's `_vc6_body` rename: VC6 compiles the matched text unchanged and
+ * the portable build exports a wrapper of the slot's own shape over it. */
+#define SpinningBarrels_GetDrawDesc SpinningBarrels_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0043c570
 RideDrawDesc* SpinningBarrels_GetDrawDesc(RideElem* elem, unsigned short arg)
 {
@@ -380,7 +436,28 @@ RideDrawDesc* SpinningBarrels_GetDrawDesc(RideElem* elem, unsigned short arg)
     def->sprite->flags |= 0x2000;
     return &g_sbarrel_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef SpinningBarrels_GetDrawDesc
+RideDrawDesc* SpinningBarrels_GetDrawDesc(RideElem* elem, RideTile base)
+{
+    return SpinningBarrels_GetDrawDesc_vc6_body(elem, base.key);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the ObjDef +0xa0 DRAW slot is typed
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)` (renderview.c:304) and
+ * renderview.c:1238 calls it that way, so on wasm32 the 2-byte square goes
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- while this body's
+ * `unsigned short` is a direct i32.  Same arity, no wasm-ld warning: PORT-M10
+ * s1b's silent window, in the direction PORT-M11 s1b closed for eight other
+ * classes.  These ten were invisible to BOTH sweeps because the name stored in
+ * the slot (`PlaneRide_Draw`, interfaces.c:964) is not the name of the
+ * body, and the slot section pairs slot to body BY NAME.
+ * PORT-M3's `_vc6_body` rename: VC6 compiles the matched text unchanged and
+ * the portable build exports a wrapper of the slot's own shape over it. */
+#define PlaneRide_GetDrawDesc PlaneRide_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0043e010
 RideDrawDesc* PlaneRide_GetDrawDesc(RideElem* elem, unsigned short arg)
 {
@@ -393,6 +470,13 @@ RideDrawDesc* PlaneRide_GetDrawDesc(RideElem* elem, unsigned short arg)
     def->sprite->flags |= 0x2000;
     return &g_plane_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef PlaneRide_GetDrawDesc
+RideDrawDesc* PlaneRide_GetDrawDesc(RideElem* elem, RideTile base)
+{
+    return PlaneRide_GetDrawDesc_vc6_body(elem, base.key);
+}
+#endif
 
 /* ==========================================================================
  * +0x9c -- TAKE ONE OFF THE MAP
@@ -769,6 +853,20 @@ extern void  HideLayer(void* sprite, int layer);             /* 0x00497de0 */
 extern RideDrawDesc g_spacetower_draw;                       /* 0x0062fd48 */
 extern void*        g_spacetower_layers;                     /* 0x0062fd60 */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the ObjDef +0xa0 DRAW slot is typed
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)` (renderview.c:304) and
+ * renderview.c:1238 calls it that way, so on wasm32 the 2-byte square goes
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- while this body's
+ * `unsigned short` is a direct i32.  Same arity, no wasm-ld warning: PORT-M10
+ * s1b's silent window, in the direction PORT-M11 s1b closed for eight other
+ * classes.  These ten were invisible to BOTH sweeps because the name stored in
+ * the slot (`SpaceTower_Draw`, interfaces.c:854) is not the name of the
+ * body, and the slot section pairs slot to body BY NAME.
+ * PORT-M3's `_vc6_body` rename: VC6 compiles the matched text unchanged and
+ * the portable build exports a wrapper of the slot's own shape over it. */
+#define SpaceTower_GetDrawDesc SpaceTower_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0043b4e0
 RideDrawDesc* SpaceTower_GetDrawDesc(RideElem* elem, unsigned short tile)
 {
@@ -786,10 +884,31 @@ RideDrawDesc* SpaceTower_GetDrawDesc(RideElem* elem, unsigned short tile)
     HideLayer(g_spacetower_layers, 5);
     return &g_spacetower_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef SpaceTower_GetDrawDesc
+RideDrawDesc* SpaceTower_GetDrawDesc(RideElem* elem, RideTile base)
+{
+    return SpaceTower_GetDrawDesc_vc6_body(elem, base.key);
+}
+#endif
 
 extern RideDrawDesc g_copters_draw;                          /* 0x004c1170 */
 extern void*        g_copters_layers;                        /* 0x004c1138 */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the ObjDef +0xa0 DRAW slot is typed
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)` (renderview.c:304) and
+ * renderview.c:1238 calls it that way, so on wasm32 the 2-byte square goes
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- while this body's
+ * `unsigned short` is a direct i32.  Same arity, no wasm-ld warning: PORT-M10
+ * s1b's silent window, in the direction PORT-M11 s1b closed for eight other
+ * classes.  These ten were invisible to BOTH sweeps because the name stored in
+ * the slot (`Copters_Draw`, interfaces.c:715) is not the name of the
+ * body, and the slot section pairs slot to body BY NAME.
+ * PORT-M3's `_vc6_body` rename: VC6 compiles the matched text unchanged and
+ * the portable build exports a wrapper of the slot's own shape over it. */
+#define Copters_GetDrawDesc Copters_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00404490
 RideDrawDesc* Copters_GetDrawDesc(RideElem* elem, unsigned short tile)
 {
@@ -814,6 +933,13 @@ RideDrawDesc* Copters_GetDrawDesc(RideElem* elem, unsigned short tile)
     }
     return &g_copters_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Copters_GetDrawDesc
+RideDrawDesc* Copters_GetDrawDesc(RideElem* elem, RideTile base)
+{
+    return Copters_GetDrawDesc_vc6_body(elem, base.key);
+}
+#endif
 
 /* ==========================================================================
  * +0xa4 -- CREATE (load the ride's resources)

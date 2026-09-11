@@ -494,6 +494,20 @@ void Catapult_Remove(void* obj, CellPos tile, void* ctx)
         Catapult_RemoveRecord(rec);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the ObjDef +0xa0 DRAW slot is typed
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)` (renderview.c:304) and
+ * renderview.c:1238 calls it that way, so on wasm32 the 2-byte square goes
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- while this body's
+ * `unsigned short` is a direct i32.  Same arity, no wasm-ld warning: PORT-M10
+ * s1b's silent window, in the direction PORT-M11 s1b closed for eight other
+ * classes.  These ten were invisible to BOTH sweeps because the name stored in
+ * the slot (`Catapult_Draw`, interfaces.c:670) is not the name of the
+ * body, and the slot section pairs slot to body BY NAME.
+ * PORT-M3's `_vc6_body` rename: VC6 compiles the matched text unchanged and
+ * the portable build exports a wrapper of the slot's own shape over it. */
+#define Catapult_GetDrawDesc Catapult_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004039e0
 RideDrawDesc* Catapult_GetDrawDesc(RideElem* elem, unsigned short tile)
 {
@@ -506,6 +520,13 @@ RideDrawDesc* Catapult_GetDrawDesc(RideElem* elem, unsigned short tile)
     def->sprite->flags |= 0x2000;
     return &g_catapult_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Catapult_GetDrawDesc
+RideDrawDesc* Catapult_GetDrawDesc(RideElem* elem, RideTile base)
+{
+    return Catapult_GetDrawDesc_vc6_body(elem, base.key);
+}
+#endif
 
 /* ==========================================================================
  * THE MACHINE ITSELF -- what one copy of the catapult does per frame.

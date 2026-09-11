@@ -99,6 +99,20 @@ struct RideDef {
     void* cb_c0;                /* +0xc0 */
 };
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the packed 2-byte map square the +0xa0 DRAW slot takes BY VALUE
+ * (renderview.c:304 `SpriteDesc* (*draw)(void* ctx, BPos base)`).  It is a
+ * 2-byte, 2-member aggregate, so wasm32 passes it INDIRECTLY while the
+ * `unsigned short` these declarations used to carry is direct -- the same
+ * i32 arity, so nothing warned.  See the ten bodies' notes (mechrides.c,
+ * joust.c, catapult.c, westtown.c).  VC6 never sees this type. */
+typedef struct LLDrawPos { unsigned char x; unsigned char y; } LLDrawPos;
+typedef union LLDrawSquare {
+    unsigned short key;
+    LLDrawPos      b;
+} LLDrawSquare;
+#endif
+
 /* ======================================================================
  * CASTLE LEVEL 1 -- 0x00403080
  * ====================================================================== */
@@ -647,7 +661,7 @@ extern void Catapult_Add(void* obj, void* pos);   /* 0x00403970 */
 #ifndef LEGOLAND_PORTABLE
 extern void Catapult_Draw(void);        /* 0x004039e0 */
 #else   /* PORT-M7: catapult.c RideDrawDesc* Catapult_GetDrawDesc(RideElem* elem, unsigned short tile) */
-extern void* Catapult_Draw(void* elem, unsigned short tile);   /* 0x004039e0 */
+extern void* Catapult_Draw(void* elem, LLDrawSquare tile);   /* 0x004039e0 */
 #endif
 extern int  SaveCatapult(void);         /* 0x00403a20 */
 extern int  LoadCatapult(void);         /* 0x00403af0 */
@@ -696,7 +710,7 @@ extern void Copters_Activate(void);    /* 0x00404be0 */
 #ifndef LEGOLAND_PORTABLE
 extern void Copters_Draw(void);        /* 0x00404490 */
 #else   /* PORT-M7: mechrides.c RideDrawDesc* Copters_GetDrawDesc(RideElem* elem, unsigned short tile) */
-extern void* Copters_Draw(void* elem, unsigned short tile);   /* 0x00404490 */
+extern void* Copters_Draw(void* elem, LLDrawSquare tile);   /* 0x00404490 */
 #endif
 extern void Copters_Interact(void);    /* 0x00404290 */
 extern void Copters_Destroy(void);     /* 0x00404040 */
@@ -749,7 +763,7 @@ extern void SafariRide_Add(void* obj, void* pos);   /* 0x00414fc0 */
 #ifndef LEGOLAND_PORTABLE
 extern void SafariRide_Draw(void);        /* 0x00414ff0 */
 #else   /* PORT-M7: mechrides.c RideDrawDesc* SafariRide_GetDrawDesc(RideElem* elem, unsigned short arg) */
-extern void* SafariRide_Draw(void* elem, unsigned short tile);   /* 0x00414ff0 */
+extern void* SafariRide_Draw(void* elem, LLDrawSquare tile);   /* 0x00414ff0 */
 #endif
 extern int  SaveSafariRide(void);         /* 0x004157b0 */
 extern int  LoadSafariRide(void);         /* 0x00415820 */
@@ -792,7 +806,7 @@ extern void SpiderRide_Add(void* obj, void* pos);   /* 0x004160f0 */
 #ifndef LEGOLAND_PORTABLE
 extern void SpiderRide_Draw(void);        /* 0x00416120 */
 #else   /* PORT-M7: mechrides.c RideDrawDesc* SpiderRide_GetDrawDesc(RideElem* elem, unsigned short arg) */
-extern void* SpiderRide_Draw(void* elem, unsigned short tile);   /* 0x00416120 */
+extern void* SpiderRide_Draw(void* elem, LLDrawSquare tile);   /* 0x00416120 */
 #endif
 extern int  SaveSpiderRide(void);         /* 0x00416880 */
 #ifndef LEGOLAND_PORTABLE
@@ -831,7 +845,7 @@ extern void SpaceTower_Activate(void);    /* 0x0043bac0 */
 #ifndef LEGOLAND_PORTABLE
 extern void SpaceTower_Draw(void);        /* 0x0043b4e0 */
 #else   /* PORT-M7: mechrides.c RideDrawDesc* SpaceTower_GetDrawDesc(RideElem* elem, unsigned short tile) */
-extern void* SpaceTower_Draw(void* elem, unsigned short tile);   /* 0x0043b4e0 */
+extern void* SpaceTower_Draw(void* elem, LLDrawSquare tile);   /* 0x0043b4e0 */
 #endif
 extern void SpaceTower_Interact(void);    /* 0x0043af50 */
 extern void SpaceTower_Remove(void);      /* 0x0043b460 */
@@ -890,7 +904,7 @@ extern void SpinningBarrels_Destroy(void);     /* 0x0043c5b0 */
 #ifndef LEGOLAND_PORTABLE
 extern void SpinningBarrels_Draw(void);        /* 0x0043c570 */
 #else   /* PORT-M7: mechrides.c RideDrawDesc* SpinningBarrels_GetDrawDesc(RideElem* elem, unsigned short arg) */
-extern void* SpinningBarrels_Draw(void* elem, unsigned short tile);   /* 0x0043c570 */
+extern void* SpinningBarrels_Draw(void* elem, LLDrawSquare tile);   /* 0x0043c570 */
 #endif
 extern int  SaveSpinningBarrels(void);         /* 0x0043c620 */
 #ifndef LEGOLAND_PORTABLE
@@ -941,7 +955,7 @@ extern void PlaneRide_Add(void* obj, void* pos);   /* 0x0043dfe0 */
 #ifndef LEGOLAND_PORTABLE
 extern void PlaneRide_Draw(void);        /* 0x0043e010 */
 #else   /* PORT-M7: mechrides.c RideDrawDesc* PlaneRide_GetDrawDesc(RideElem* elem, unsigned short arg) */
-extern void* PlaneRide_Draw(void* elem, unsigned short tile);   /* 0x0043e010 */
+extern void* PlaneRide_Draw(void* elem, LLDrawSquare tile);   /* 0x0043e010 */
 #endif
 #ifndef LEGOLAND_PORTABLE
 extern int  LoadPlaneRide(void);         /* 0x0043e110 */
@@ -1169,7 +1183,7 @@ void WaterWorks_GetInterfaces(RideElem* elem, RideDef* def)
 #ifndef LEGOLAND_PORTABLE
 extern void Shop_Draw(void);           /* 0x0043a390  shared by all nine */
 #else   /* PORT-M7: westtown.c ShopDrawDesc* Shop_GetDrawDesc(ShopElem* elem, unsigned short arg) */
-extern void* Shop_Draw(void* elem, unsigned short tile);   /* 0x0043a390 */
+extern void* Shop_Draw(void* elem, LLDrawSquare tile);   /* 0x0043a390 */
 #endif
 extern void Shop_Remove(void);         /* 0x0043a3d0  shared by six */
 
