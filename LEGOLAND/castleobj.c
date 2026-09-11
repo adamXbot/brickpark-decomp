@@ -719,6 +719,39 @@ static int ll_cb_save_SaveRollerCoaster(void* ll_elem)
     (void)ll_elem;
     return SaveRollerCoaster();
 }
+/* PORT-M8: the +0xb0 slot HAS a call site, and it takes SIX arguments.
+ * PORT-M3 §5 and PORT-M7 §2 both recorded "no call site anywhere in the
+ * recovered tree" for this slot; it is printlist.c:641 and :660
+ * (DrawAndClearPrintList, 0x004859d0), which reads the class out of the
+ * element at +0x0c and calls +0xb0 of it:
+ *
+ *     owner->vtbl->DrawOver(owner, x, y, &ctx.n, clip, mode)
+ *
+ *     0x00485ac3  call dword ptr [edx + 0xb0]   <- six pushes before it
+ *     0x00485b70  call dword ptr [ecx + 0xb0]   <- six pushes before it
+ *
+ * printlist.c's `HitOwner` is the RideElem (pad 0x0c, then the class pointer)
+ * and its `HitOwnerVtbl` is this file's `RideDef`, so the canonical +0xb0
+ * type is `(elem, x, y, sq, clip, mode) -> void`.  52 of the 59 `+0xb0`
+ * stores tree-wide already have it; these two bodies (5 of the stores) do not
+ * -- they are four-argument (free on x86 cdecl, a mismatch on wasm),
+ * so the portable build registers an adapter of the slot's own type that
+ * drops the last two.  The matched bodies are untouched. */
+static void ll_cb_b0_CastleDummy_Interact(int ll_a, int ll_b, int ll_c,
+                                          MapPos* ll_p, void* ll_clip,
+                                          int ll_mode)
+{
+    (void)ll_clip;
+    (void)ll_mode;
+    CastleDummy_Interact(ll_a, ll_b, ll_c, ll_p);
+}
+static void ll_cb_b0_Track_Interact(int ll_a, int ll_b, int ll_c,
+                                    MapPos* ll_p, void* ll_clip, int ll_mode)
+{
+    (void)ll_clip;
+    (void)ll_mode;
+    Track_Interact(ll_a, ll_b, ll_c, ll_p);
+}
 #endif
 /* See "VC6 CODEGEN NOTE" in the file header: the `volatile` parameters and
  * the empty `__asm` block are the two levers that reproduce this function's
@@ -766,7 +799,11 @@ void CastleObj_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add = CtThunk_Add;
         def->cb_remove = CtThunk_Remove;
         def->cb_a4 = CastleDummy_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_b0 = CastleDummy_Interact;
+#else
+        def->cb_b0 = ll_cb_b0_CastleDummy_Interact;   /* PORT-M8 */
+#endif
         g_ct_iface[1].update2 = CastleDummy_Update2;
         g_ct_iface[1].remove = CastleDummy_Remove;
         g_elem_castle_dummy = elem;
@@ -778,7 +815,11 @@ void CastleObj_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_remove = CtThunk_Remove;
         def->cb_a4 = Track_Create;
         def->cb_ac = Track_Destroy;
+#ifndef LEGOLAND_PORTABLE
         def->cb_b0 = Track_Interact;
+#else
+        def->cb_b0 = ll_cb_b0_Track_Interact;   /* PORT-M8 */
+#endif
         def->cb_90 = Track_Update90;
         g_ct_iface[2].elem = elem;
         g_ct_iface[2].tick = Track_Tick;
@@ -794,7 +835,11 @@ void CastleObj_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add = CtThunk_Add;
         def->cb_remove = CtThunk_Remove;
         def->cb_a4 = TrackH_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_b0 = Track_Interact;
+#else
+        def->cb_b0 = ll_cb_b0_Track_Interact;   /* PORT-M8 */
+#endif
         g_ct_iface[3].elem = elem;
         g_ct_iface[3].tick = Track_Tick;
         g_ct_iface[3].update = TrackH_Update;
@@ -809,7 +854,11 @@ void CastleObj_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add = CtThunk_Add;
         def->cb_remove = CtThunk_Remove;
         def->cb_a4 = TrackH0_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_b0 = Track_Interact;
+#else
+        def->cb_b0 = ll_cb_b0_Track_Interact;   /* PORT-M8 */
+#endif
         g_ct_iface[4].elem = elem;
         g_ct_iface[4].tick = Track_Tick;
         g_ct_iface[4].update = TrackH_Update;
@@ -824,7 +873,11 @@ void CastleObj_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add = CtThunk_Add;
         def->cb_remove = CtThunk_Remove;
         def->cb_a4 = TrackHP_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_b0 = Track_Interact;
+#else
+        def->cb_b0 = ll_cb_b0_Track_Interact;   /* PORT-M8 */
+#endif
         g_ct_iface[5].elem = elem;
         g_ct_iface[5].tick = Track_Tick;
         g_ct_iface[5].update = TrackHP_Update;
