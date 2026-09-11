@@ -355,7 +355,92 @@ native build still runs the classifier checks.
 
 ---
 
-## 5. For the integrator
+## 5. PORT-M11 ran in parallel and collides — measured, with the numbers
+
+`scope/PORT-M11` exists and has done the game side of both classes: the bounds
+(raw pointer words 122 → 31 by its own count) and the by-value-struct fixes (21
+silent sites → 0), plus a third section in its sweep for the SLOT vs BODY
+direction. **It also extended `tools/port_m10_bvstruct_sweep.py` in place**, which
+this lane turned into an alias — so the two branches conflict in exactly two
+files. This section is the reconciliation, measured rather than guessed: a trial
+merge was built and run in this worktree (local branch `port-a9-m11-trial`, **not
+for merge**, and not pushed).
+
+### 5a. The conflicts, and how they resolve
+
+| file | conflict | resolution |
+| --- | --- | --- |
+| `tools/port_m10_bvstruct_sweep.py` | A9 replaced it with a forwarding alias; M11 grew it by 406 lines | take **M11's** content here, then port its SLOT-vs-BODY section into `portable/tools/bvstruct_sweep.py` and make the root file the alias again. A9's file carries the cmake wiring, the accepted-list gate and the emcc/clang controls; M11's carries the third section and the fixes that prove it |
+| `docs/SCOPE_PORT_WAVE.md` | both lanes' status lines | keep both (M11 hit the same thing merging B11) |
+
+Nothing else conflicts: M11 touched game sources, its own notes and
+`portable/src/browser/**`; this lane touched `portable/tools`, `portable/cmake`,
+`portable/src/headless` and `portable/tests`.
+
+### 5b. What the merged tree measures (built, ctest run)
+
+| gate | A9 alone | after the trial merge with M11 |
+| --- | --- | --- |
+| `rawwords` objects / words | 27 / 107 | **12 / 85** |
+| of those, pointing at a C string | 55 | **31** (30 of them the CRT's `_matherr` table) |
+| FX sample names still raw | 23 | **0** |
+| `probe_audio` sound buffers | 4 | **24** (1,372,148 bytes of PCM) |
+| `bvstruct_sweep` silent sites | 20 over 15 addresses | **1** (§5d) |
+| wasm ctest | 24/24 | 23/24 — `raw_words` fails, by design (§5c) |
+
+### 5c. The one failure is the gate working, and the fix is one line
+
+`raw_words` fails after the merge because a row **GREW**: `g_spacetower_fx`
+0x004b7618, 2 words → 4. M11 bounded the declaration (`extern FXEntry
+g_spacetower_fx[1];`, ridemachine.c:55), which is correct — the table really has
+one entry — and that makes A9's guessed extent inapplicable, so the two words at
+0x004b76a8/0x004b76b0 that the 13-element guess had re-pointed go back to raw.
+**They were never part of `g_spacetower_fx`**: they are an unnamed anim pointer
+table (0x004b76a8 → 0x004b7688, 0x004b7698) swallowed into its block, and they
+need a declaration of their own — the same row `g_anim_tower_b` already carries.
+So M11's bound is right, A9's guess over-reached there, and the honest baseline
+after both land is the twelve rows below.
+
+```
+0x004ab3d8 1 g_two str=0,sym=0,data=1
+0x004acfd0 8 GUID_NULL str=0,sym=0,data=8
+0x004b59f8 2 g_seat_name_man str=0,sym=0,data=2
+0x004b7618 4 g_spacetower_fx str=0,sym=0,data=4
+0x004b76b8 5 g_anim_tower_b str=0,sym=0,data=5
+0x004b7750 1 g_anim_tower_a str=1,sym=0,data=0
+0x004b775c 1 g_bloke_anim_ref str=0,sym=1,data=0
+0x004b9558 1 g_path_3x3_masks str=0,sym=0,data=1
+0x004b95cc 1 g_cursor_col_a str=0,sym=1,data=0
+0x004b95d4 1 g_cursor_col_c str=0,sym=1,data=0
+0x004b95dc 1 g_cursor_col_d str=0,sym=0,data=1
+0x004bff28 59 g_near_offsets str=30,sym=0,data=29
+```
+
+Every FX row is gone. Six of the twelve are the false positives with reasons; the
+rest are the CRT's swallowed table and four anim/model pointer tables declared
+`int` or `char`. In the same edit, raise `LL_AUDIO_BUFFERS` in
+`portable/cmake/headless.cmake` from 4 to **24** — the probe prints the line
+asking for it.
+
+### 5d. One by-value site survives M11's "silent 0"
+
+`0x00439c90`: westtown.c:766 DEFINES `void LegoMedia_Remove(void* obj, ShopTile
+tile, void* ctx)` and interfaces.c:1339's own portable arm declares
+`MediaShop_Remove(void* obj, unsigned short tile, void* ctx)`. `ShopTile` is
+`union { unsigned short key; struct { unsigned char x, y; } b; }` — 2 bytes, two
+members, inside the silent window — and **M11's sweep reports it as "size
+unknown"** and files it under "wasm-ld already warns", because its nested
+aggregate is an inline anonymous struct rather than a named typedef. A9's
+tree-wide widest-view sizing reads it as 2B/2 members and keeps it in the silent
+section, where it is the only unaccepted row left after M11's fixes.
+
+The shape is the same as M11's own: the removal handler is registered in
+interfaces.c through the scalar spelling, so the body dereferences a shadow-stack
+pointer as the shop's map square. It is a one-line portable arm in the same style,
+and it is the best evidence that the two sweeps should become one file rather than
+two.
+
+## 6. For the integrator
 
 1. **Three new asset-free ctests** — `raw_words`, `bvstruct_sweep`,
    `bvstruct_sweep_selftest` — and one local one, `probe_audio`. wasm 24/24,
@@ -374,7 +459,13 @@ native build still runs the classifier checks.
 5. **Two free findings:** `FXEntry`'s sample offset is +0x08 per audiomisc.c and
    +0x04 per joust.c (§3); `coaster.c:1515` declares 0x00412650 as
    `GetSchoolRecord` where ridecb6.c defines it as `Road_FindStartPiece` (§4b).
-6. **B11's merge was not in the integration branch** when this lane started —
+6. **PORT-M11 collides in two files and is measured in §5**: take M11's
+   `tools/port_m10_bvstruct_sweep.py`, move its SLOT-vs-BODY section into
+   `portable/tools/bvstruct_sweep.py`, keep both status lines, replace the
+   `rawwords` baseline with §5c's twelve rows and raise `LL_AUDIO_BUFFERS` to 24.
+   One by-value site (`0x00439c90`, §5d) survives M11's fixes and its sweep
+   cannot see it.
+7. **B11's merge was not in the integration branch** when this lane started —
    `git merge --ff-only feat/decomp-completion-next-steps-24a0d6` had to be run
    twice, a few minutes apart, to land at `68fab1d3`. Worth knowing when a brief
    says "you sit at or after the B11 merge".
