@@ -54,7 +54,8 @@ is that parser.
 
 ## 2. `portable/tools/cdecl.py`
 
-A C declaration parser, 700 lines, no dependencies, that reads `LEGOLAND/*.c`
+A C declaration parser, 1040 lines with its docstrings and selftest, no
+dependencies, that reads `LEGOLAND/*.c`
 and `*.h` and answers one question: how many bytes is the object at this
 address?
 
@@ -105,10 +106,14 @@ size — every object that *would have been split* — is a row of the new
 * what the interior-alias pass did with it (`merged`, `clamped at 0x...`,
   `nothing named inside it`, `no block here`);
 * every interior alias with its offset **and the field it lands on** —
-  `g_mouse_buttons+0x84 (btn0.state)` — computed by walking the type, with
-  `NOT A FIELD` on any offset that is not a field boundary (legitimate for a
-  byte name inside a dword, and the first thing to check when a type looks
-  wrong);
+  `g_mouse_buttons+0x84 (btn0.state)`, `g_progress_click_level+0x110
+  ([9].lit_name)` — computed by walking the type, with `NOT A FIELD` on any
+  offset that is not a field boundary (legitimate for a byte name inside a
+  dword, and the first thing to check when a type looks wrong). **Measured: all
+  307 interior offsets across the 44 merged objects land on a real field**, and
+  that is the independent check on the extents — the addresses the image hands
+  these names agree, to the byte, with the layout the parser computed from the
+  struct definitions;
 * the 45 inter-TU disagreements;
 * **the residue**: 463 declarations (of 574) whose type the parser cannot size
   and whose tile is ≤ 64 bytes — the objects that could still be split records.
@@ -394,7 +399,42 @@ The page: `(cd portable/build-wasm && python3 -m http.server 8799)` then
 centre first (the pointer is relative), then game (260,188), then click;
 `window.llFrameHash()` before and after.
 
-## 10. Scratch
+## 10. For the integrator
+
+1. **`tools/cdecl.py` must be added to two `DEPENDS` lists.** `gen_link.py`
+   imports it, so a change there changes the generated closure — exactly the
+   hazard `portable/cmake/browser.cmake:121` already documents for
+   `linkreport.py` ("without this line an edit leaves gen-browser stale, which
+   cost an afternoon once"). Neither file is this lane's to edit:
+
+   * `portable/CMakeLists.txt`, the `gen` custom command (integrator's file):
+     add `"${CMAKE_CURRENT_SOURCE_DIR}/tools/cdecl.py"` next to `gen_link.py`
+     and `linkreport.py`. While there, `"${LL_GEN_DIR}/extents.md"` may be added
+     to the `OUTPUT` list — the generator writes it either way.
+   * `portable/cmake/browser.cmake`, the `gen-browser` command (PORT-B's file):
+     the same one line.
+
+   Every build in this lane was from a CLEAN directory, so nothing here depends
+   on that line existing; the next person to edit the parser does.
+2. **ctest counts change**: native 8 -> 9, wasm 14 -> 15. The new one is
+   `cdecl_extents` and it is asset-free, so the CI row (`portable-wasm`, which
+   has no `gamedata/`) gains a test rather than skipping one.
+3. **The post-click page hash is `0xdea21168`, not the `0xdd2ac534` in the
+   brief.** Section 5 has the measurement: one 40x40 block of the 640x480 frame
+   differs from the pre-A6 closure rebuilt here, and it is the name field's text
+   caret, which this closure draws and the old one does not. The pre-A6 closure
+   gives `0x5c300878` on this machine, so `0xdd2ac534` is not reproducible here
+   either and the two numbers should not be compared across machines.
+4. **`RES_LowRead` / `RES_LowSeek` are host imports wearing game names**
+   (`0x4ab264` / `0x4ab104` are IAT thunks; `memdb.c:313` says `RES_LowSeek` is
+   `SetFilePointer`). The scanner now classifies them `game-fn` instead of
+   leaving them unclassified; neither reaches the closure, and the real fix is a
+   `win32_imports.txt` row. A census question, not this lane's.
+5. **Nothing in `LEGOLAND/` was touched**, so `audit.py` / `relocs.py` /
+   `progress.py` have nothing to re-check for this branch: the diff against
+   `1a7b38a4` is empty for that directory.
+
+## 11. Scratch
 
 `port-a6-*` in the shared scratchpad. Two worth keeping:
 
