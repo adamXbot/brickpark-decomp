@@ -136,7 +136,18 @@ extern void  sub_489ee0(void);                                         /* 0x0048
 extern void  sub_48a750(void);                                         /* 0x0048a750 */
 extern void  sub_48a800(void);                                         /* 0x0048a800 */
 extern void  sub_48a040(void);                                         /* 0x0048a040 */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x0046cb20 is gameframe2.c:166 `int UnloadParkHelp(void)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void  sub_46cb20(void);                                         /* 0x0046cb20 */
+#else
+extern int   sub_46cb20(void);                                         /* 0x0046cb20 */
+#endif
 extern void  sub_483090(void);                                         /* 0x00483090 */
 extern void  sub_49cfc0(void);                                         /* 0x0049cfc0  frees the object lists */
 extern void  UnLoadInGameIcons(void);                                         /* 0x00474ed0 */
@@ -170,7 +181,18 @@ extern int PlayMovie(const char* name, int a, int b);                /* 0x004771
 #endif
 extern void  UpdateHelpBar(void);                                      /* 0x0046d110 */
 extern void  MapScreenFrame(void);                                     /* 0x00459360 (scope Q) */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00498b40 is narration2.c:622 `int PumpNarration(void)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void  sub_498b40(void);                                         /* 0x00498b40 */
+#else
+extern int   sub_498b40(void);                                         /* 0x00498b40 */
+#endif
 extern void  sub_4969d0(void);                                         /* 0x004969d0 */
 void InGameFrame(void);                                                /* 0x00458ee0 below */
 
@@ -252,7 +274,18 @@ extern int   sub_482cb0(void* value);                                    /* 0x00
 extern void  sub_455fc0(HelpRect* r, char* text, int font, int a);     /* 0x00455fc0  HTBubbleHelp with an extra arg */
 extern void  sub_450a40(void* value);                                    /* 0x00450a40 */
 extern void  sub_4632b0(void);                                         /* 0x004632b0 */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x0044db90 is goalstate.c:234 `int AppraisalDueTick(void)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void  sub_44db90(void);                                         /* 0x0044db90  the appraisal-due tick */
+#else
+extern int   sub_44db90(void);                                         /* 0x0044db90  the appraisal-due tick */
+#endif
 void HandleMapClick(void);                                             /* 0x00457a70 below */
 
 extern int          g_drag_lock;          /* 0x00668954  a worker is on the mouse */
@@ -780,6 +813,17 @@ typedef struct PopUpKey { int type; void* obj; int ref; } PopUpKey;
  * off-map compare below stays a compare on memory as in the original. */
 typedef struct EditState { int mode; int game_mode; ObjDef* object; } EditState;
 extern EditState   g_edit;              /* 0x008119b0 */
+#ifdef LEGOLAND_PORTABLE
+/* ...and that is exactly the overlap hazard for a build that is not matching:
+ * g_edit.mode and g_edit_mode (declared above, 0x008119b0) are ONE word, but
+ * two extern objects to clang, and HandleMapClick both reads the word through
+ * g_edit and writes it through g_edit_mode. PORT-M6's -O2 probe shows clang
+ * folding the second load of such a pair into the first across the store
+ * (`ret 0` where the answer is 1), so the portable build spells the word once.
+ * The VC6 arm keeps the lever: the leading test must stay a compare on memory.
+ * The #undef is needed because g_edit_mode is declared as an extern above. */
+#define g_edit_mode (g_edit.mode)       /* 0x008119b0 */
+#endif
 /* The mouse-hit record at 0x004bdd00 as ONE object -- {type, obj, cell} --
  * which is how this function must see it: PopUpInfoSetUp takes it by value
  * and the copy's first field comes from the cached type register. */
@@ -792,7 +836,16 @@ extern int         g_drag_step_y;       /* 0x00813a3c  footprint height, in refs
 extern Cell**      g_map_rows;          /* 0x00801400 */
 extern TileInfo    g_tile_info[];       /* 0x00801f40 */
 extern BPosW       g_sel_bpos;          /* 0x00667c54  the selected object's base cell */
+#ifndef LEGOLAND_PORTABLE
 extern int         g_sel_bpos_wide;     /* 0x00667c54  the same word read as a dword */
+#else
+/* The dword spelling of the same word: a VC6 codegen lever (the original reads
+ * the cell as a dword here and as a word everywhere else), and for any other
+ * compiler an overlap hazard -- two extern objects over one address, written
+ * through `g_sel_bpos.b` and read through `g_sel_bpos_wide`. One object in the
+ * portable build; the low byte is the same byte either way. */
+#define g_sel_bpos_wide (*(unsigned short*)&g_sel_bpos)   /* 0x00667c54 */
+#endif
 extern ObjDef*     g_drag_class;        /* 0x0080ff6c  class being placed by a drag */
 extern ObjDef*     g_env_class;         /* 0x007fd624  the environment class */
 extern ObjDef*     g_hedge_def;         /* 0x0081cd08 */
@@ -855,7 +908,18 @@ static void ll_popup_info_setup(const HitInfo* key, int x, int y)
 #endif
 extern int        sub_457970(int x, int y);                              /* 0x00457970  footprint clearance test (group 15) */
 extern void       sub_475f40(void);                                      /* 0x00475f40 */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00473640 is popupmisc.c:238 `int ShowCursorErrorMessage(int)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void       sub_473640(int error);                                 /* 0x00473640 */
+#else
+extern int        sub_473640(int error);                                 /* 0x00473640 */
+#endif
 
 /* The click-on-map action handler, called from InGameFrame on a button or a
  * drag. First the hit under the cursor is classified (an object, a work

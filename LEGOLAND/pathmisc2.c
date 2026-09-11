@@ -37,11 +37,14 @@ typedef struct Cell {
 typedef struct Map { unsigned char pad00[0x14]; unsigned short width, height; } Map;
 extern PTPNode* g_ptp_route_head;                         /* 0x0066b458 */
 extern MarkedTile g_marked_tiles[128];                    /* 0x007cb3e0 */
-extern RouteNode *g_route_closed, *g_route_open;          /* 0x00668fc4, 0x00668fc0 */
+extern RouteNode* g_route_closed;                         /* 0x00668fc4 */
+extern RouteNode* g_route_open;                           /* 0x00668fc0 */
 extern PathSquare* g_path_squares;                       /* 0x0066b44c */
-extern WorkOrder *g_mechanic_orders, *g_mechanic_order_tail; /* 0x0079a8c0, 0x0079a8c4 */
+extern WorkOrder* g_mechanic_orders;                     /* 0x0079a8c0 */
+extern WorkOrder* g_mechanic_order_tail;                 /* 0x0079a8c4 */
 extern int g_mechanic_order_count;                       /* 0x0079a8c8 */
-extern WorkOrder *g_gardener_orders, *g_gardener_order_tail; /* 0x0079a8b0, 0x0079a8b4 */
+extern WorkOrder* g_gardener_orders;                     /* 0x0079a8b0 */
+extern WorkOrder* g_gardener_order_tail;                 /* 0x0079a8b4 */
 extern int g_gardener_order_count;                       /* 0x0079a8b8 */
 extern int g_path_gfx_batch;                             /* 0x0066b46c: force refresh */
 extern Map* g_map;                                      /* 0x004bcbf4 */
