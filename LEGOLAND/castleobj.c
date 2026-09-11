@@ -661,7 +661,11 @@ void CastleDummy_Remove(RideElem* elem, MapPos p, int c); /* 0x00424800 */
 extern void Track_Create(void);                      /* 0x00427aa0 */
 void Track_Destroy(RideElem* elem);                  /* 0x00427af0 */
 void Track_Interact(int a, int b, int c, MapPos* p); /* 0x00427a00 */
+#ifndef LEGOLAND_PORTABLE
 extern void Track_Update90(void);                    /* 0x004275d0 */
+#else   /* PORT-M7: coaster.c void Track_Update(RideElem* elem, int screen, int mode) */
+extern void Track_Update90(void* elem, int screen, int mode);   /* 0x004275d0 */
+#endif
 void Track_Tick(RideElem* elem);                     /* 0x00427940 */
 #ifdef LEGOLAND_PORTABLE
 /* Name collision with coaster.c's Track_Update (0x004275d0, declared here as
