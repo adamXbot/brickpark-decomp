@@ -53,7 +53,7 @@ declaration, and those were already the body's shape:
 | `+0x9c` remove | `objmap2.c:1895` `def->remove(obj, bp, ctx)` | `(i32, i32, i32) -> void` | `LegoMedia_Remove(void*, ShopTile, void*)` ✔ |
 | `+0x90` update | `eventtick.c:400` and five more | `(i32, i32, i32) -> void` | `Track_Update(RideElem*, int, int)` ✔ |
 | `+0xb8` load | `savegame.c:1365` `def->cb_load(def->elem)` | `(i32) -> i32` | `LoadZoomer(RideElem*)` ✔ |
-| `+0x8c`, `+0x98` add, `+0xb0` interact | **no call site anywhere in the recovered tree** (PORT-M3 section 2, re-checked) | — | — |
+| `+0x8c`, `+0x98` add, `+0xb0` interact | **no call site anywhere in the recovered tree** (PORT-M3 section 2, re-checked — see below) | — | — |
 
 So for 71 rows the **forwarder was the only wrong thing in the chain**: the
 slot already wanted what the body already had, and the cast was what broke it.
@@ -61,6 +61,24 @@ Correcting the declaration does not start a trap — it ends one. Three of the
 slots involved (`+0xa8`, `+0xa4`, `+0xa0`) are reached every frame a class with
 `flags & 0x20` or `0x400` is on the map, and `g_icon_handler1/2` is reached by
 the first click on the map screen's OK icon.
+
+The "no call site" row is worth re-deriving rather than inherited, and it is
+cheap to: **every declaration of `+0x8c`, `+0x98` and `+0xb0` in all 258
+sources is `void*`, never a typed function pointer** (`castleobj.c:175/178/184`,
+`interfaces.c:86/89/95`, `ridesave.c:67`, `screen.c:551`, `loaders.c:140/149`),
+so there is no `call_indirect` type for them to disagree with. For those three
+slots this lane makes the forwarder agree with its own body, which is all that
+can be decided locally.
+
+**What that leaves open, and it is not this lane's to close.** `+0xb0` and
+`+0x98` have genuinely MIXED body sets — `castleobj.c:1538` and
+`logflume.c:2332` describe `+0xb0` as a *draw* pass whose bodies are
+`(piece, mode)` two-argument, while the fifteen `*_Interact` rows below are
+`(elem, x, y, sq, clip, mode)` six-argument. Both shapes are now declared
+truthfully, which is strictly better than all of them lying the same way, but
+the first consumer that dispatches through `+0xb0` with one fixed type will
+trap on the others and needs PORT-M3 section 5's adapter treatment at the
+registration sites. Recorded so the next lane does not re-derive it.
 
 **One row genuinely had a live slot type that had to move with it**, and it is
 the one M6 predicted: `mapscreen.c:52` declares the icon-handler slot itself
@@ -282,22 +300,47 @@ Every row measured on the committed tree, `LEGOLAND_CL` = the wibo VC6 `cl`.
 `relocs.py` exits 2 on a clean file (bit 1 = "unresolved or skipped"), so the
 column is a `grep -c MISMATCH`, per HANDOFF §4.
 
-<!-- PORT-M7-GATES -->
+| file | rows | what changed | `audit.py` | `relocs.py` MISMATCH |
+| --- | --- | --- | --- | --- |
+| `interfaces.c` | 59 + 35 | 59 stale declarations given the body's real signature; 35 `+0xac`/`+0xa8` adapters (section 5) | 15 `[OK]`, 0 `[WIP]` | 0 |
+| `ridesave.c` | 10 | the Joust and Temple Slide declarations | 27 `[OK]`, 0 `[WIP]` | 0 |
+| `mapscreen.c` | 1 | `MapScreenIconHandler` **and** the `IconHandler` slot typedef | 12 `[OK]`, 0 `[WIP]` | 0 |
+| `castleobj.c` | 1 | `Track_Update90` | 39 `[OK]`, 0 `[WIP]` | 0 |
+| `gameframe.c` | 1 | `sub_457970` → `FootprintClearanceTest(Pos)` (section 4) | 10 `[OK]`, 0 `[WIP]` | 0 |
+
+Every diff in `LEGOLAND/*.c` is **pure insertion** — `git diff --numstat` shows
+0 deletions in all five files, so the `#ifndef LEGOLAND_PORTABLE` world VC6
+compiles is character-for-character what it was, and no `// FUNCTION:` marker
+line is touched.
 
 Tree-wide:
 
-<!-- PORT-M7-TREE -->
+| gate | result |
+| --- | --- |
+| `progress.py --check` | **3281 exact / 42 WIP**, unchanged; `665/675 exports exact (98.5%)`. `--check` reported `docs/LEGOLANDPROGRESS.HTML` stale because the insertions moved line numbers, so the report is regenerated and committed; `--check` then exits clean |
+| `grep -c '(\*)' gen-browser/aliases.c`, clean wasm build | **72 → 0** |
+| `port-m7-slotsweep.py` (every live `def->cb_* =` store vs its slot's call-site type) | 35 → **0** |
+| wasm `ctest` | 16/16 |
+| native `ctest` | 10/10 |
+| `legoland_headless -nointro`, 90 s alarm | reaches the game loop (exits 142 = the alarm, i.e. still running), 2639 host-trace lines, **no trap / RuntimeError / indirect-call line** |
+| the same harness **on a pre-lane build** | `7b1ae15d`'s five sources checked back out, built clean into `portable/build-wasm-base` (72 casts, as expected), run with the same environment: **2639 lines, byte-identical to the lane's trace** (`diff -q`). So the lane removed 72 latent traps and changed nothing the front-end path observes. Batch-by-batch traces are identical too |
+| `headless_spine` ctest | PASS — this is the pinned regression gate (PORT-A4 pins the title-screen first present: 98% non-black, checksum `0x4a092b01`), so a changed render path would fail here, not only in the trace |
+| `legoland_cbtypes` (`-Werror=incompatible-function-pointer-types`) | builds on both targets |
+| both builds from a CLEAN directory | wasm and native reconfigured and relinked from scratch at each batch |
 
 ## 8. What the integrator must know
 
 1. **`grep -c '(\*)' portable/build-wasm/gen-browser/aliases.c` is 0** on a
-   clean build, and the `## Cast forwarders: a stale name typed unlike its body`
-   section has **disappeared from `gen-browser/manifest.md`** (the generator
-   emits the heading only when the table is non-empty). That heading vanishing
-   is the lane's deliverable, not a generator regression.
+   clean build, and the generator's own census line now reads
+   `- cast forwarders (latent indirect-call type mismatch): 0`. The
+   `## Cast forwarders: a stale name typed unlike its body` **table has
+   disappeared** from `gen-browser/manifest.md` (the generator emits the heading
+   only when the table is non-empty) — that heading vanishing is the lane's
+   deliverable, not a generator regression. The census line is the gate to
+   quote; the heading is not.
 2. **`sub_457970` is gone from the closure** — the alias is no longer
-   referenced by any object, so `gen_link.py` stops defining it. Expect the
-   alias count to drop by one more than the cast count.
+   referenced by any object, so `gen_link.py` stops defining it:
+   `function aliases (stale extern names)` is **262**, one fewer than before.
 3. The only file touched under `portable/` is `portable/tests/test_callback_types.c`,
    append-only, as the brief directs. `portable/tools/**` is PORT-A7's and was
    not touched.
