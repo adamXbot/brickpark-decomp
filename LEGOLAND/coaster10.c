@@ -151,6 +151,21 @@ extern float g_view_half_hi;                   /* 0x00829a60 */
 extern int g_stat_c_4dcbc8;                    /* 0x004dcbc8 */
 extern void Raster_SubmitPoly(int nverts, PolyJob* job); /* 0x0042a2f0 */
 
+/* PORT-M9: `shader` is a POINTER TO A TWO-ENTRY TABLE of span fillers indexed
+ * by `mode` -- coaster3d.c:1080 calls it `((SpanFiller)jt->shader[mode])(...)`,
+ * and schoolcar3.c:731 already spells its own as `job.shader = g_span_fillers`.
+ * The three jobs below were recovered as the raw .data addresses of those
+ * tables, which matches byte for byte (the original writes the immediate) but
+ * in the portable build is a raw x86 VA in linear memory: the table is read at
+ * whatever happens to live there.  Named for both builds; `&table` assembles to
+ * the same immediate on x86.  Declaring them also gives gen_link.py a POINTER
+ * type for the two words in each, so their entries are re-pointed (PORT-A7)
+ * instead of staying raw function addresses.  All five bodies are genuinely
+ * (int, int*, int, SortKey*, SpanEdge*), i.e. the slot's own type. */
+extern void* g_span_fillers_flat[2];  /* 0x004b5648 {Span_FillFlat, Span_FillFlatZ}  coastershade2.c:135/224 */
+extern void* g_span_fillers[2];       /* 0x004b5658 {Span_FillShade, Span_FillShadeZ} coastershade2.c:338/520 */
+extern void* g_span_fillers_track[2]; /* 0x004b5f50 {TrackShade_FillPoly, x2}         coaster13.c:628 */
+
 /* ------------------------------------------------------------------------- */
 // FUNCTION: LEGOLAND 0x0041e640
 void RouteNode_SetPending(RouteNode* node, int pending)
@@ -377,7 +392,7 @@ void CoasterModel_DrawPass1(CoasterMesh* model, void* texture, int mode)
     job.v[0] = &v[0];
     job.v[1] = &v[1];
     job.v[2] = &v[2];
-    job.shader = (void*)0x004b5648;
+    job.shader = g_span_fillers_flat;
     for (i = 0; i < model->nfaces1; i++) {
         const ModelFace* face = &model->faces1[i];
         const Vec3f* n;
@@ -472,7 +487,7 @@ void CoasterModel_DrawPass2(CoasterMesh* model, void* texture, int mode)
     job.v[0] = &v[0];
     job.v[1] = &v[1];
     job.v[2] = &v[2];
-    job.shader = (void*)0x004b5658;
+    job.shader = g_span_fillers;
     for (i = 0; i < model->nfaces2; i++) {
         const ModelFace* face = &model->faces2[i];
 
@@ -565,7 +580,7 @@ void CoasterModel_DrawPass3(CoasterMesh* model, void* texture, int mode)
     job.v[0] = &v[0];
     job.v[1] = &v[1];
     job.v[2] = &v[2];
-    job.shader = (void*)0x004b5f50;
+    job.shader = g_span_fillers_track;
     for (i = 0; i < model->nfaces3; i++) {
         const ModelFace* face = &model->faces3[i];
         const Vec3f* n;
