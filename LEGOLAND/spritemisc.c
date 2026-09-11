@@ -23,7 +23,16 @@ typedef struct SpriteRes {
 /* The owner object's vtable; slot +0x08 is its destructor (__stdcall). */
 typedef struct OwnerVtbl {
     char pad0[8];                                /* +0x00 */
+#ifndef LEGOLAND_PORTABLE
     void(__stdcall* Destroy)(struct Owner* self); /* +0x08 */
+#else
+    /* The owner is an IDirectDrawSurface and +0x08 is its COM Release, which
+     * returns the remaining refcount (gpu.c, sprite2.c and printlist.c all
+     * declare it `long`). x86 ignores EAX here; wasm type-checks the
+     * call_indirect, so the void spelling trapped the first time a cached-text
+     * sprite expired (scope PORT-B7, B1). */
+    long(__stdcall* Destroy)(struct Owner* self); /* +0x08 */
+#endif
 } OwnerVtbl;
 
 typedef struct Owner {
