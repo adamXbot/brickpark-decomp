@@ -256,17 +256,69 @@ trap. The whole sequence is reproducible from a cold page load, not a one-off.
 
 ## 5. Gates
 
-Run after the VC6 quiet window (started 13:13, gates from 13:58).
+Run after the integrator's VC6 quiet window (13:13–13:58).
 
-| file | `audit.py` | `relocs.py \| grep MISMATCH` |
+| file | `audit.py` | `[OK` rows | `[WIP` rows | REJECT/FAIL/COMPILE FAILED | `relocs.py \| grep MISMATCH` | `/W3` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `LEGOLAND/sweep3.c` | **PASS** | 26 | 0 | 0 | **empty** | clean |
+| `LEGOLAND/loaders.c` | **PASS** | 9 | 0 | 0 | **empty** | clean |
+| `LEGOLAND/coaster10.c` | **PASS** | 16 | 0 | 0 | **empty** | clean |
+| `LEGOLAND/sweep1.c` | **PASS** | 22 | 0 | 0 | **empty** | clean |
+| `LEGOLAND/coaster12.c` | **PASS** | 22 | 2 | 0 | **empty** | clean |
+
+The `[OK`/`[WIP` counts are the files' full marker sets
+(`grep -c '^// FUNCTION: LEGOLAND'` at `321abb20` gives 26/9/16/22/22 and two
+`WIP-FUNCTION` in coaster12), so nothing was lost or gained.
+
+### The relocation evidence, which is the whole argument for §3's "both builds"
+
+`relocs.py` per file, from the SUMMARY lines:
+
+| file | relocations | matched | mismatches | unresolved | what the unresolved are |
+| --- | --- | --- | --- | --- | --- |
+| `sweep3.c` | 22 | **22** | **0** | 0 | — |
+| `loaders.c` | 30 (GetInterface) / file-wide clean | **27** | **0** | 3 | the three `NameCompare("BOATING SCHOOL …")` string literals |
+| `coaster10.c` | 100 | **90** | **0** | 10 | `__real@4@…` floating-point literals |
+| `sweep1.c` | 31 | **31** | **0** | 0 | — |
+| `coaster12.c` | 44 | **36** | **0** | 8 | fp literals and one `$L664` jump table |
+
+Unresolved positions are literals and unannotated symbols, which the parallel
+contract says are fine and are never counted as address mismatches. The two
+functions that matter, run on their own:
+
+```
+$ relocs.py LEGOLAND/sweep3.c SetStandardCallbacks 0x00480cd0
+SUMMARY {... "matched": 5, "mismatches": 0, "relocations": 5, "unresolved": 0}
+
+$ relocs.py LEGOLAND/loaders.c GetInterface 0x0041b150
+UNRESOLVED ... symbol=??_C@_0BF@NLEJ@BOATING?5SCHOOL?5WATER?$AA@ : string literal
+UNRESOLVED ... symbol=??_C@_0P@DMMM@BOATING?5SCHOOL?$AA@         : string literal
+UNRESOLVED ... symbol=??_C@_0BH@PMNO@BOATING?5SCHOOL?5MERMAID?$AA@ : string literal
+SUMMARY {... "matched": 27, "mismatches": 0, "relocations": 30, "unresolved": 3}
+```
+
+`SetStandardCallbacks` had **zero** relocations before this lane — all five
+stores were immediates. It now has exactly five, and all five RESOLVE to the
+original's own target. `GetInterface`'s 27 matched are the 24 new callback
+relocations plus its three `NameCompare` calls. That is the condition the
+brief sets for replacing a literal in both builds, met site by site.
+
+### The two WIP bodies in coaster12.c are bit-identical
+
+`Raster_AddSpanRecord` is the body whose bound moved, so its residual was
+checked against the pre-lane file directly (`git show 321abb20:` swapped in,
+audited, swapped back):
+
+| | before | after |
 | --- | --- | --- |
-| `LEGOLAND/sweep3.c` | *(see §5.1)* | *(see §5.1)* |
-| `LEGOLAND/loaders.c` | | |
-| `LEGOLAND/coaster10.c` | | |
-| `LEGOLAND/sweep1.c` | | |
-| `LEGOLAND/coaster12.c` | | |
+| `0x00424050 GetTrackSegment` | `87i/232B orig=87i/232B mismatch=34` | **identical** |
+| `0x00423200 Raster_AddSpanRecord` | `61i/175B orig=61i/175B mismatch=35` | **identical** |
 
-`tools/progress.py --check`: *(see §5.1)*
+`tools/progress.py --check`: clean at **665/675 exports exact (98.5%), 3281
+exact, 42 WIP**. The report was regenerated and committed because the
+insertions moved line numbers; no marker changed. (`docs/PARALLEL_CONTRACT.md`
+tells lanes not to touch `LEGOLANDPROGRESS.HTML`; this lane's brief explicitly
+asked for the regeneration, so the integrator should know it is in the diff.)
 
 Build/test gates (run before the window closed, emcc and clang only):
 
