@@ -185,20 +185,83 @@ Note the forwarder is not merely mistyped, it is **wrong**: it calls the body
 with no argument, so even a type-correct trampoline would hand
 `LegoShop1_LoadResources` a null `elem`. The fix has to be the declaration.
 
-### B9-3: the next one, immediately behind it
+**B9-2 is CLOSED.** PORT-M7 merged into the base branch while this lane ran and
+took the closure's cast forwarders **72 -> 0**; `gen-browser/manifest.md` now
+says `cast forwarders (latent indirect-call type mismatch): 0` and
+`aliases.c:277` is a real forwarder that passes its argument:
 
-With those 26 table slots neutralised (a probe, not a fix), the load reaches
+```c
+void LegoShop1_Create(unsigned int a0) { LegoShop1_LoadResources(a0); }
+```
+
+Merged in (`537d97d3`), rebuilt clean, and the trap is gone. The park load now
+gets past `LLIDB_LoadData` on its own, with no probe.
+
+### B9-4: hard-coded function ADDRESSES in the recovered C — a third class
+
+This is what is actually in front of the park now, and it is neither of the
+other two classes. On the post-M7 build, with the keyword table repaired:
 
 ```
 RuntimeError: table index is out of bounds
-  PutObjOnMap   wasm-function[967]:0x90fa8   call_indirect (i32, i32) -> void
-  LevelKw_MAP   wasm-function[685]:0x721a6
+  PutObjOnMap         wasm-function[986]:0x929af   call_indirect (i32, i32) -> void
+  LevelKw_MAP         wasm-function[714]:0x74a40
+  LoadLevelDatabase   wasm-function[1045]:0x9df80
+  StartPark           wasm-function[566]:0x4455a
 ```
 
-`PutObjOnMap` calling a class's `cb_add(obj, pos)`. *Out of bounds*, not a
-signature mismatch, means the slot held a value past the end of a 1075-entry
-table — a raw x86 address, the §1 class again rather than the §4 class. Not
-chased further; it is behind B9-2 and belongs to the same two owners.
+**Out of bounds**, not a signature mismatch: the slot held a value past the end
+of a 1075-entry table. Walking `g_odf_head` in memory after the trap names it
+exactly — all three loaded classes carry raw x86 addresses in their callback
+slots:
+
+| class | `+0x8c` | `+0x90` | `+0x94` | `+0x98` |
+| --- | --- | --- | --- | --- |
+| LEGO SHOP 1 | (own) | `0x45fa80` | `0x480bb0` | (own) |
+| ENTRANCE 1 | `0x480b70` | `0x45fa80` | `0x480bb0` | `0x45efe0` |
+| PATH CONTROL | `0x480b70` | `0x45fa80` | `0x480bb0` | (own) |
+
+and the source is five lines:
+
+```c
+/* sweep3.c:162 */
+// FUNCTION: LEGOLAND 0x00480cd0
+void SetStandardCallbacks(CB* p)
+{
+    p->f0 = (void*)0x480b70;   /* pathobj2.c:243                        */
+    p->f1 = (void*)0x45fa80;   /* objmap.c:332   CalcBasicObjectCursor  */
+    p->f2 = (void*)0x480bb0;   /* objmap2.c:505  BasicObjectDCalcCursor */
+    p->f3 = (void*)0x45efe0;   /* AddBasicObject  <- PutObjOnMap's cb_add */
+    p->f4 = (void*)0x45f220;
+}
+```
+
+**These are integer literals in the code, not pointer words in `.data`.**
+`gen_link.py` never sees them and no amount of generator work can reach them —
+which is what makes this a third class, distinct from B9-1 (a `.data` pointer
+table the declaration is too small for) and B9-2 (a stale declaration typing a
+forwarder). The original is `mov dword ptr [ecx+0x98], 0x45efe0`, an immediate
+that IS the function address; the recovery spelled the immediate rather than the
+symbol, which matched perfectly and is unrepresentable on wasm, where a function
+"pointer" is a table index and 4,517,856 is not one.
+
+`SetStandardCallbacks` runs for **every ODF class**, and `PutObjOnMap` calls
+`cb_add` on the first perimeter object of every level, so this fires on any park
+load. It is the current frontier.
+
+**The whole class, swept**: 29 sites in three files.
+
+| file | sites | what | reached |
+| --- | --- | --- | --- |
+| `sweep3.c:164-168` | 5 | `SetStandardCallbacks`'s five defaults | **every ODF class, every level** |
+| `loaders.c:161-191` | 21 | `GetInterface`, the BOATING SCHOOL family's built-in GetInterfaces — the file's own comment says "referenced by address only (their bodies are other lanes')" | when a boating-school class loads |
+| `coaster10.c:380,475,568` | 3 | `job.shader = (void*)0x004b5648` — these are **`.data`** addresses, not `.text`, so a raw data pointer rather than a bad table index. Same recovery shape, different failure | coaster rendering |
+
+**Recipe**: the standard `#ifdef LEGOLAND_PORTABLE` pattern — declare the bodies
+with the slot's signature and take their address (`p->f3 = (void*)&AddBasicObject;`)
+in the portable arm, keeping the literal in the x86 arm. Taking a function's
+address on x86 compiles to exactly that immediate, so it is worth trying
+unguarded first and letting `audit.py`/`relocs.py` say whether the bytes moved.
 
 ### A7-2, localised: it is the MAP button, and it is `RenderFullMap`
 
@@ -358,9 +421,9 @@ map is empty.
 | **A7-1** | the park's map area does not render | PORT-B9 | **DIAGNOSED, not a shim defect.** The shim, `RenderView`, `RenderGroundLayer` and `PaintTileLayer` are all correct (§2, proved positively in §3). The map is 36,864 zero cells. Root cause is **B9-1** |
 | **B9-1** | `movie.c:239` declares the 93-pair level keyword table as one `const void*`, so 92 of its 93 keyword-string words keep raw x86 VAs; **no level keyword ever dispatches**, `MAP` never runs, `LoadBaseMap` never runs, the map is never filled | **PORT-A** (`gen_link.py` / `cdecl.py`), or a matching lane via the declaration | **new, and it is the park's root blocker.** Repaired live (§1) and the loader immediately runs. Two ways: declare the table properly in `movie.c` (a `{const char*, KeywordFn}` array of 93 — a matching-side change), or teach the generator that a *declared extent smaller than the emitted block* is a declaration to distrust rather than a licence to leave the tail raw. A7 §5's residue rule classifies all 188 tail words as "past the declared extent, therefore not described, therefore not a pointer" — right premise, wrong conclusion for a pointer table |
 | **B9-1a** | the same shape elsewhere: A7 §5's residue list is `g_level_db_sections 91`, `g_event_tick`, `g_report_setters`, `g_lt_action_handlers`, `g_track_desc_*` — `name_trap.py --at` reports them as "by callback table" | PORT-A | **new.** `g_level_db_sections` is proved live; the others are the same census row and should be checked the same way |
-| **B9-2** | `llidb_odf.c:294` `obj->fa4(obj->elem)` calls a `() -> void` cast forwarder. Reached on EVERY OC_USEDLL class because no `.dll` ships and `LoadLibraryExA` is refused. 26 of the manifest's 72 cast forwarders are this exact shape | **PORT-M7** | **new**, §4. `manifest.md`'s "Cast forwarders" table is the list; `interfaces.c:809` / `westtown.c:593` is the worked example |
-| **B9-3** | `PutObjOnMap`'s `cb_add(obj, pos)` gets a table index past the end of the table | PORT-A (B9-1's class) / PORT-M | **new**, §4, behind B9-2 |
-| **A7-2** | a toolbar click is a `call_indirect` type mismatch | PORT-M | **LOCALISED**: it is the **MAP** button, and it is `RenderFullMap` declared `(void)` (`mapscreen.c:103`/`:105`, `renderview.c:2935`) in a `void (*)(SpriteRec*)` slot (`sprite2.c:199`/`:253`). The other five toolbar buttons work. Recipe in §4 |
+| **B9-2** | `llidb_odf.c:294` `obj->fa4(obj->elem)` calls a `() -> void` cast forwarder. Reached on EVERY OC_USEDLL class because no `.dll` ships and `LoadLibraryExA` is refused | PORT-M7 | **CLOSED.** M7 merged mid-lane and took cast forwarders 72 -> 0; merged in at `537d97d3`, rebuilt clean, trap gone. Found independently here, from the other end — worth recording that the two lanes' evidence agrees |
+| **B9-4** | **hard-coded function ADDRESSES as integer literals in the recovered C** — `sweep3.c:164-168`'s `SetStandardCallbacks` writes five, and `p->f3 = (void*)0x45efe0` is `AddBasicObject`, the `cb_add` `PutObjOnMap` calls on the first perimeter object of every level. 29 sites in 3 files | a matching lane (PORT-M) | **new, and the CURRENT FRONTIER for the park**, §4. A third class: not a `.data` pointer table (B9-1) and not a stale declaration (B9-2) — these are literals in the CODE, so the generator can never see them. Recipe and the full 29-site sweep in §4 |
+| **A7-2** | a toolbar click is a `call_indirect` type mismatch | PORT-M | **still OPEN after M7** (M7 fixed `mapscreen.c`'s IconHandler, a different slot; `mapscreen.c:115`/`:117` still declare `RenderFullMap` `(void)`). **LOCALISED**: it is the **MAP** button, and it is `RenderFullMap` declared `(void)` (`mapscreen.c:103`/`:105`, `renderview.c:2935`) in a `void (*)(SpriteRec*)` slot (`sprite2.c:199`/`:253`). The other five toolbar buttons work. Recipe in §4 |
 | **A7-3** | the loader's one-byte host reads | PORT-B9 | **CLOSED as "do nothing"**, §5. Game-side (`levelkw.c:865` through the unbuffered `res.c:39`), 96.6% of calls, 0.55% of bytes, **0.08 ms of an 822 ms load** |
 | **B5** | profiles do not survive a page reload | PORT-B9 | **CLOSED**, §6 |
 | B3 | `while (KillSprite(x) == 0) ;` unguarded in four places | a matching lane | unchanged, not reached this lane |
