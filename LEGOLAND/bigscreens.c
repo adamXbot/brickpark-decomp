@@ -47,14 +47,32 @@ typedef struct Icon {
     } u20;
     char           pad24[4];  /* +0x24 */
     int          (*render)(struct Icon*);          /* +0x28 */
+#ifndef LEGOLAND_PORTABLE
     char         (*input)(struct Icon*, int);      /* +0x2c */
+#else   /* PORT-M8: see the IconInputFn note below */
+    char         (*input)(struct Icon*, int, int, int);      /* +0x2c */
+#endif
     void*          widget;    /* +0x30 */
     unsigned int   flags;     /* +0x34 */
     char*          help;      /* +0x38  GetString(help_id) */
     int            help_id;   /* +0x3c */
 } Icon;
 
+#ifndef LEGOLAND_PORTABLE
 typedef char (*IconInputFn)(Icon*, int);
+#else
+/* PORT-M8 (PORT-M7 §8.5): the last two-argument spelling of the icon-input
+ * slot in the tree.  The Icon +0x2c slot and g_icon_handler1/2 (0x006687bc /
+ * 0x006687c0) are called with FOUR arguments -- fpui.c:772/791
+ * `g_icon_handler2(0, g_mouse_btn_a, 0, 0)`, fpui.c CheckFocussedIcon through
+ * the +0x2c slot -- and every body this file registers is four-argument where
+ * it is DEFINED (screens3.c:1358/1383/1452/1473).  Nothing traps today
+ * because clang takes a function's wasm type from its definition and this
+ * file only takes addresses; the spelling is what a reader and every arity
+ * gate see.  Moved together with the +0x2c field and the four externs, in a
+ * portable arm, exactly as PORT-M7 moved mapscreen.c's IconHandler. */
+typedef char (*IconInputFn)(Icon*, int event, int dx, int dy);
+#endif
 
 /* The map header as this file sees it: the current level lives at +0x28. */
 typedef struct LevelMap {
@@ -152,10 +170,17 @@ extern void    NormaliseLevelsDone(void);        /* 0x0048b6d0 */
 extern void    LoadLevelMarkerSprites(void);     /* 0x0048b700 loads the table's sprites */
 extern void    ReferenceLevelMarkerSprites(void);            /* 0x0048b740 */
 extern void    SkipProgressScreen(void);         /* 0x0048bde0 level <= 5 */
+#ifndef LEGOLAND_PORTABLE
 extern char    ProgressLevelInput(Icon*, int);   /* 0x0048bb60 */
 extern char    ProgressAcceptInput(Icon*, int);  /* 0x0048bc20 */
 extern char    ProgressGoBackInput(Icon*, int);  /* 0x0048c020 */
 extern char    ProgressTutorialInput(Icon*, int);/* 0x0048c090 */
+#else   /* PORT-M8: defined four-argument in screens3.c:1358/1383/1452/1473 */
+extern char    ProgressLevelInput(Icon*, int, int, int);   /* 0x0048bb60 */
+extern char    ProgressAcceptInput(Icon*, int, int, int);  /* 0x0048bc20 */
+extern char    ProgressGoBackInput(Icon*, int, int, int);  /* 0x0048c020 */
+extern char    ProgressTutorialInput(Icon*, int, int, int);/* 0x0048c090 */
+#endif
 
 /* ---- the profile / saved-game list node (profiles.c) ------------------- */
 typedef struct Profile {
