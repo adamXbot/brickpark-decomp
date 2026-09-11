@@ -122,12 +122,239 @@ extern void CastleLevel1_Interact(void);    /* 0x00402d00 */
 extern void CastleLevel1_Interact(void* elem, int x, int y, void* sq, void* clip, int mode);   /* 0x00402d00 */
 #endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M7: the same treatment for the +0xac teardown slot (and the two
+ * +0xa8 handlers below it) that PORT-M3 gave screen.c and castleobj.c, for
+ * the 33 western-town / garden / water-works / log-flume classes this file
+ * registers.  sysmisc.c:664 calls +0xac as `d->dtor(d->dtor_arg)` and
+ * renderview.c:1130 calls +0xa8 as `cls->prerender(cls->ctx)`, one argument
+ * each; these bodies genuinely take none (westtown.c:384
+ * `void Bank_FreeResources(void)` is typical), which was free on x86 cdecl
+ * and is a call_indirect type mismatch on wasm.  An adapter of the slot's
+ * own type drops the argument, so the slot holds ONE wasm type.  The
+ * matched bodies are untouched. */
+extern void CastleLevel1_Destroy(void);
+static void ll_cb_ac_CastleLevel1_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    CastleLevel1_Destroy();
+}
+extern void Fort_Destroy(void);
+static void ll_cb_ac_Fort_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Fort_Destroy();
+}
+extern void Temple_Destroy(void);
+static void ll_cb_ac_Temple_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Temple_Destroy();
+}
+extern void GoldRush_Destroy(void);
+static void ll_cb_ac_GoldRush_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    GoldRush_Destroy();
+}
+extern void Catapult_Destroy(void);
+static void ll_cb_ac_Catapult_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Catapult_Destroy();
+}
+extern void Copters_Destroy(void);
+static void ll_cb_ac_Copters_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Copters_Destroy();
+}
+extern void SpaceTower_Destroy(void);
+static void ll_cb_ac_SpaceTower_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    SpaceTower_Destroy();
+}
+extern void SpinningBarrels_Destroy(void);
+static void ll_cb_ac_SpinningBarrels_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    SpinningBarrels_Destroy();
+}
+extern void Hedge_Destroy(void);
+static void ll_cb_ac_Hedge_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Hedge_Destroy();
+}
+extern void Flowers_Destroy(void);
+static void ll_cb_ac_Flowers_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Flowers_Destroy();
+}
+extern void WWEntrance_Destroy(void);
+static void ll_cb_ac_WWEntrance_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    WWEntrance_Destroy();
+}
+extern void WaterBlock_Destroy(void);
+static void ll_cb_ac_WaterBlock_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    WaterBlock_Destroy();
+}
+extern void Shower_Destroy(void);
+static void ll_cb_ac_Shower_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Shower_Destroy();
+}
+extern void Shower_Activate(void);
+static void ll_cb_a8_Shower_Activate(void* ll_elem)
+{
+    (void)ll_elem;
+    Shower_Activate();
+}
+extern void ElephantFountain_Destroy(void);
+static void ll_cb_ac_ElephantFountain_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    ElephantFountain_Destroy();
+}
+extern void ElephantFountain_Activate(void);
+static void ll_cb_a8_ElephantFountain_Activate(void* ll_elem)
+{
+    (void)ll_elem;
+    ElephantFountain_Activate();
+}
+extern void GeneralStore_Destroy(void);
+static void ll_cb_ac_GeneralStore_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    GeneralStore_Destroy();
+}
+extern void Sheriff_Destroy(void);
+static void ll_cb_ac_Sheriff_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Sheriff_Destroy();
+}
+extern void JailCell_Destroy(void);
+static void ll_cb_ac_JailCell_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    JailCell_Destroy();
+}
+extern void Bank_Destroy(void);
+static void ll_cb_ac_Bank_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Bank_Destroy();
+}
+extern void Saloon_Destroy(void);
+static void ll_cb_ac_Saloon_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Saloon_Destroy();
+}
+extern void Institute_Destroy(void);
+static void ll_cb_ac_Institute_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    Institute_Destroy();
+}
+extern void LegoShop1_Destroy(void);
+static void ll_cb_ac_LegoShop1_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LegoShop1_Destroy();
+}
+extern void LegoShop2_Destroy(void);
+static void ll_cb_ac_LegoShop2_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LegoShop2_Destroy();
+}
+extern void MediaShop_Destroy(void);
+static void ll_cb_ac_MediaShop_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    MediaShop_Destroy();
+}
+extern void LFEntrance_Destroy(void);
+static void ll_cb_ac_LFEntrance_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFEntrance_Destroy();
+}
+extern void LFTrack_Destroy(void);
+static void ll_cb_ac_LFTrack_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFTrack_Destroy();
+}
+extern void LFCorner1_Destroy(void);
+static void ll_cb_ac_LFCorner1_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFCorner1_Destroy();
+}
+extern void LFCorner2_Destroy(void);
+static void ll_cb_ac_LFCorner2_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFCorner2_Destroy();
+}
+extern void LFCorner3_Destroy(void);
+static void ll_cb_ac_LFCorner3_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFCorner3_Destroy();
+}
+extern void LFCorner4_Destroy(void);
+static void ll_cb_ac_LFCorner4_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFCorner4_Destroy();
+}
+extern void LFCsaw_Destroy(void);
+static void ll_cb_ac_LFCsaw_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFCsaw_Destroy();
+}
+extern void LFTunnel_Destroy(void);
+static void ll_cb_ac_LFTunnel_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFTunnel_Destroy();
+}
+extern void LFDrop_Destroy(void);
+static void ll_cb_ac_LFDrop_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFDrop_Destroy();
+}
+extern void LFHoldUp_Destroy(void);
+static void ll_cb_ac_LFHoldUp_Destroy(void* ll_elem)
+{
+    (void)ll_elem;
+    LFHoldUp_Destroy();
+}
+#endif
+
 // FUNCTION: LEGOLAND 0x00403080
 void CastleLevel1_GetInterfaces(RideElem* elem, RideDef* def)
 {
     if (NameCompare("CASTLE LEVEL 1", elem->name) == 0) {
         def->cb_create   = CastleLevel1_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = CastleLevel1_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_CastleLevel1_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = CastleLevel1_Tick;
         def->cb_add      = CastleLevel1_Add;
         def->cb_remove   = CastleLevel1_Remove;
@@ -164,7 +391,11 @@ void Fort_GetInterfaces(RideElem* elem, RideDef* def)
 {
     if (NameCompare("FORT", elem->name) == 0) {
         def->cb_create   = Fort_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = Fort_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_Fort_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = Fort_Tick;
         def->cb_activate = Fort_Activate;
         def->cb_interact = Fort_Interact;
@@ -201,7 +432,11 @@ void Temple_GetInterfaces(RideElem* elem, RideDef* def)
 {
     if (NameCompare("TEMPLE", elem->name) == 0) {
         def->cb_create   = Temple_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = Temple_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_Temple_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = Temple_Tick;
         def->cb_activate = Temple_Activate;
         def->cb_interact = Temple_Interact;
@@ -372,7 +607,11 @@ void GoldRush_GetInterfaces(RideElem* elem, RideDef* def)
 {
     if (NameCompare("GOLD RUSH", elem->name) == 0) {
         def->cb_create   = GoldRush_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = GoldRush_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_GoldRush_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = GoldRush_Tick;
         def->cb_activate = GoldRush_Activate;
         def->cb_interact = GoldRush_Interact;
@@ -418,7 +657,11 @@ void Catapult_GetInterfaces(RideElem* elem, RideDef* def)
 {
     if (NameCompare("CATAPULT", elem->name) == 0) {
         def->cb_create   = Catapult_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = Catapult_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_Catapult_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = Catapult_Tick;
         def->cb_activate = Catapult_Activate;
         def->cb_interact = Catapult_Interact;
@@ -471,7 +714,11 @@ void Copters_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_activate = Copters_Activate;
         def->cb_draw     = Copters_Draw;
         def->cb_interact = Copters_Interact;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = Copters_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_Copters_Destroy;   /* PORT-M7 */
+#endif
 #ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveCopters;
 #else
@@ -608,7 +855,11 @@ void SpaceTower_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_interact = SpaceTower_Interact;
         def->cb_remove   = SpaceTower_Remove;
         def->cb_add      = SpaceTower_Add;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = SpaceTower_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_SpaceTower_Destroy;   /* PORT-M7 */
+#endif
 #ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveSpaceTower;
 #else
@@ -658,7 +909,11 @@ void SpinningBarrels_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_interact = SpinningBarrels_Interact;
         def->cb_remove   = SpinningBarrels_Remove;
         def->cb_add      = SpinningBarrels_Add;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = SpinningBarrels_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_SpinningBarrels_Destroy;   /* PORT-M7 */
+#endif
         def->cb_draw     = SpinningBarrels_Draw;
 #ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveSpinningBarrels;
@@ -748,13 +1003,21 @@ void Garden_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add     = Hedge_Add;
         def->cb_remove  = Hedge_Remove;
         def->cb_draw    = Hedge_Draw;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy = Hedge_Destroy;
+#else
+        def->cb_destroy = ll_cb_ac_Hedge_Destroy;   /* PORT-M7 */
+#endif
     } else if (strcmp(elem->name, "FLOWERS") == 0) {
         def->cb_create  = Flowers_Create;
         def->cb_8c      = Flowers_Tick;
         def->cb_add     = Flowers_Add;
         def->cb_draw    = Flowers_Draw;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy = Flowers_Destroy;
+#else
+        def->cb_destroy = ll_cb_ac_Flowers_Destroy;   /* PORT-M7 */
+#endif
     }
 }
 
@@ -812,7 +1075,11 @@ void WaterWorks_GetInterfaces(RideElem* elem, RideDef* def)
 {
     if (NameCompare("WATER WORKS ENTRANCE", elem->name) == 0) {
         def->cb_create   = WWEntrance_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = WWEntrance_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_WWEntrance_Destroy;   /* PORT-M7 */
+#endif
         def->cb_add      = WWEntrance_Add;
         def->cb_remove   = WWEntrance_Remove;
     } else if (NameCompare("WATER WORKS WATER BLOCK", elem->name) == 0) {
@@ -820,7 +1087,11 @@ void WaterWorks_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_add      = WaterBlock_Add;
         def->cb_remove   = WaterBlock_Remove;
         def->cb_activate = WaterBlock_Activate;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = WaterBlock_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_WaterBlock_Destroy;   /* PORT-M7 */
+#endif
         def->cb_draw     = WaterBlock_Draw;
         def->cb_interact = WaterBlock_Interact;
         def->cb_90       = WaterBlock_Update;
@@ -838,18 +1109,34 @@ void WaterWorks_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_create   = Shower_Create;
         def->cb_add      = Shower_Add;
         def->cb_remove   = Shower_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = Shower_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_Shower_Destroy;   /* PORT-M7 */
+#endif
         def->cb_draw     = Shower_Draw;
         def->cb_interact = Shower_Interact;
+#ifndef LEGOLAND_PORTABLE
         def->cb_activate = Shower_Activate;
+#else
+        def->cb_activate = ll_cb_a8_Shower_Activate;   /* PORT-M7 */
+#endif
         def->cb_90       = Shower_Update;
     } else if (NameCompare("WATER WORKS ELEPHANT FOUNTAIN", elem->name) == 0) {
         def->cb_create   = ElephantFountain_Create;
         def->cb_add      = ElephantFountain_Add;
         def->cb_remove   = ElephantFountain_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = ElephantFountain_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_ElephantFountain_Destroy;   /* PORT-M7 */
+#endif
         def->cb_interact = ElephantFountain_Interact;
+#ifndef LEGOLAND_PORTABLE
         def->cb_activate = ElephantFountain_Activate;
+#else
+        def->cb_activate = ll_cb_a8_ElephantFountain_Activate;   /* PORT-M7 */
+#endif
         def->cb_90       = ElephantFountain_Update;
 #ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveElephantFountain;
@@ -1069,7 +1356,11 @@ void WesternTown_GetInterfaces(RideElem* elem, RideDef* def)
 {
     if (NameCompare("GENERAL STORE", elem->name) == 0) {
         def->cb_create   = GeneralStore_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = GeneralStore_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_GeneralStore_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = GeneralStore_Tick;
         def->cb_draw     = Shop_Draw;
         def->cb_activate = GeneralStore_Activate;
@@ -1077,7 +1368,11 @@ void WesternTown_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_interact = GeneralStore_Interact;
     } else if (NameCompare("SHERIFF", elem->name) == 0) {
         def->cb_create   = Sheriff_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = Sheriff_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_Sheriff_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = Sheriff_Tick;
         def->cb_draw     = Shop_Draw;
         def->cb_activate = Sheriff_Activate;
@@ -1085,7 +1380,11 @@ void WesternTown_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_interact = Sheriff_Interact;
     } else if (NameCompare("JAIL CELL", elem->name) == 0) {
         def->cb_create   = JailCell_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = JailCell_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_JailCell_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = JailCell_Tick;
         def->cb_draw     = Shop_Draw;
         def->cb_activate = JailCell_Activate;
@@ -1104,7 +1403,11 @@ void WesternTown_GetInterfaces(RideElem* elem, RideDef* def)
 #endif
     } else if (NameCompare("BANK", elem->name) == 0) {
         def->cb_create   = Bank_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = Bank_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_Bank_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = Bank_Tick;
         def->cb_draw     = Shop_Draw;
         def->cb_activate = Bank_Activate;
@@ -1112,7 +1415,11 @@ void WesternTown_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_interact = Bank_Interact;
     } else if (NameCompare("SALOON", elem->name) == 0) {
         def->cb_create   = Saloon_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = Saloon_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_Saloon_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = Saloon_Tick;
         def->cb_draw     = Shop_Draw;
         def->cb_activate = Saloon_Activate;
@@ -1120,7 +1427,11 @@ void WesternTown_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_interact = Saloon_Interact;
     } else if (NameCompare("EXPLORERS INSTITUTE", elem->name) == 0) {
         def->cb_create   = Institute_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = Institute_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_Institute_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = Institute_Tick;
         def->cb_draw     = Shop_Draw;
         def->cb_activate = Institute_Activate;
@@ -1130,14 +1441,22 @@ void WesternTown_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_create   = LegoShop1_Create;
         def->cb_add      = LegoShop1_Add;
         def->cb_remove   = LegoShop1_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LegoShop1_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LegoShop1_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = LegoShop1_Tick;
         def->cb_draw     = Shop_Draw;
         def->cb_activate = LegoShop1_Activate;
         def->cb_interact = LegoShop1_Interact;
     } else if (NameCompare("LEGO SHOP 2", elem->name) == 0) {
         def->cb_create   = LegoShop2_Create;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LegoShop2_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LegoShop2_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = LegoShop2_Tick;
         def->cb_draw     = Shop_Draw;
         def->cb_activate = LegoShop2_Activate;
@@ -1147,7 +1466,11 @@ void WesternTown_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_create   = MediaShop_Create;
         def->cb_add      = MediaShop_Add;
         def->cb_remove   = MediaShop_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = MediaShop_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_MediaShop_Destroy;   /* PORT-M7 */
+#endif
         def->cb_8c       = MediaShop_Tick;
         def->cb_draw     = Shop_Draw;
         def->cb_activate = MediaShop_Activate;
@@ -1283,7 +1606,11 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_remove   = LFEntrance_Remove;
         def->cb_activate = LFEntrance_Activate;
         def->cb_interact = LFEntrance_Interact;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFEntrance_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFEntrance_Destroy;   /* PORT-M7 */
+#endif
 #ifndef LEGOLAND_PORTABLE
         def->cb_save     = SaveLogFlume;
 #else
@@ -1305,7 +1632,11 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_94       = LFTrack_Update2;
         def->cb_add      = LFTrack_Add;
         def->cb_remove   = LFTrack_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFTrack_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFTrack_Destroy;   /* PORT-M7 */
+#endif
     } else if (NameCompare("LOG FLUME SPECIAL CORNER 1", elem->name) == 0) {
         def->cb_create   = LFCorner1_Create;
         def->cb_8c       = LFCorner1_Tick;
@@ -1315,7 +1646,11 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_94       = LFCorner1_Update2;
         def->cb_add      = LFCorner1_Add;
         def->cb_remove   = LFCorner1_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFCorner1_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFCorner1_Destroy;   /* PORT-M7 */
+#endif
     } else if (NameCompare("LOG FLUME SPECIAL CORNER 2", elem->name) == 0) {
         def->cb_create   = LFCorner2_Create;
         def->cb_8c       = LFCorner2_Tick;
@@ -1325,7 +1660,11 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_94       = LFCorner2_Update2;
         def->cb_add      = LFCorner2_Add;
         def->cb_remove   = LFCorner2_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFCorner2_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFCorner2_Destroy;   /* PORT-M7 */
+#endif
     } else if (NameCompare("LOG FLUME SPECIAL CORNER 3", elem->name) == 0) {
         def->cb_create   = LFCorner3_Create;
         def->cb_8c       = LFCorner3_Tick;
@@ -1335,7 +1674,11 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_94       = LFCorner3_Update2;
         def->cb_add      = LFCorner3_Add;
         def->cb_remove   = LFCorner3_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFCorner3_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFCorner3_Destroy;   /* PORT-M7 */
+#endif
     } else if (NameCompare("LOG FLUME SPECIAL CORNER 4", elem->name) == 0) {
         def->cb_create   = LFCorner4_Create;
         def->cb_8c       = LFCorner4_Tick;
@@ -1345,7 +1688,11 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_94       = LFCorner4_Update2;
         def->cb_add      = LFCorner4_Add;
         def->cb_remove   = LFCorner4_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFCorner4_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFCorner4_Destroy;   /* PORT-M7 */
+#endif
     } else if (NameCompare("LOG FLUME CSAW", elem->name) == 0) {
         def->cb_create   = LFCsaw_Create;
         def->cb_8c       = LFCsaw_Tick;
@@ -1355,7 +1702,11 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_94       = LFCsaw_Update2;
         def->cb_add      = LFCsaw_Add;
         def->cb_remove   = LFCsaw_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFCsaw_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFCsaw_Destroy;   /* PORT-M7 */
+#endif
     } else if (NameCompare("LOG FLUME TUNNEL", elem->name) == 0) {
         def->cb_create   = LFTunnel_Create;
         def->cb_8c       = LFTunnel_Tick;
@@ -1365,7 +1716,11 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_94       = LFTunnel_Update2;
         def->cb_add      = LFTunnel_Add;
         def->cb_remove   = LFTunnel_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFTunnel_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFTunnel_Destroy;   /* PORT-M7 */
+#endif
     } else if (NameCompare("LOG FLUME DROP", elem->name) == 0) {
         def->cb_create   = LFDrop_Create;
         def->cb_8c       = LFDrop_Tick;
@@ -1375,7 +1730,11 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_94       = LFDrop_Update2;
         def->cb_add      = LFDrop_Add;
         def->cb_remove   = LFDrop_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFDrop_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFDrop_Destroy;   /* PORT-M7 */
+#endif
     } else if (NameCompare("LOG FLUME HOLD UP", elem->name) == 0) {
         def->cb_create   = LFHoldUp_Create;
         def->cb_8c       = LFHoldUp_Tick;
@@ -1385,6 +1744,10 @@ void LogFlume_GetInterfaces(RideElem* elem, RideDef* def)
         def->cb_94       = LFHoldUp_Update2;
         def->cb_add      = LFHoldUp_Add;
         def->cb_remove   = LFHoldUp_Remove;
+#ifndef LEGOLAND_PORTABLE
         def->cb_destroy  = LFHoldUp_Destroy;
+#else
+        def->cb_destroy  = ll_cb_ac_LFHoldUp_Destroy;   /* PORT-M7 */
+#endif
     }
 }
