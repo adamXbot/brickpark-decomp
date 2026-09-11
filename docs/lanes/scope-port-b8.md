@@ -360,10 +360,12 @@ the next PORT-B lane**, and nothing else depends on it.
 
 | gate | result |
 | --- | --- |
-| wasm build from a CLEAN dir, all seven targets | builds |
-| wasm `ctest` | 16/16 |
+| wasm build, all seven targets | builds |
+| wasm `ctest` | **16/16** |
+| native `cmake -S portable -B portable/build && ninja` | builds |
 | `LEGOLAND/*.c` touched | **none** — no audit/relocs run needed |
-| page, front end, traps | 0 |
+| generated host traps | **0** |
+| page, front end, traps | **0**, 32-33 fps |
 
 **Build note for the next lane:** this machine ran at load average 90 during
 this lane (several agents building at once) and a `legoland_browser` link took
