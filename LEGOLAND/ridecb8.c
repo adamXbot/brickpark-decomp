@@ -1727,14 +1727,7 @@ extern DrawDesc g_balloonz_draw;    /* 0x00616028 */
 extern DrawDesc g_carousel_draw;    /* 0x006160a0 */
 
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: a +0xa0 draw handler, and that slot takes the object's base map
- * square as a 2-byte aggregate BY VALUE (renderview.c:304
- * `SpriteDesc* (*draw)(void* ctx, BPos base)`).  On x86 cdecl that is the same
- * pushed dword as this `unsigned short`; on wasm32 the aggregate is passed
- * INDIRECTLY -- a pointer to a shadow-stack temp -- at the same i32 arity, so
- * nothing warns and the body stamped an ADDRESS into the descriptor's square
- * field (PORT-M10 s1b).  Renamed for the portable build with a twin of the
- * slot's own shape exported over it. */
+/* PORT-M11: the same, for the +0xa0 slot's shape -- see above. */
 #define Balloonz_GetDrawDesc Balloonz_GetDrawDesc_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x0042b2a0
@@ -1758,14 +1751,7 @@ DrawDesc* Balloonz_GetDrawDesc(ShopElem* elem, BPosW base)
 #endif
 
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: a +0xa0 draw handler, and that slot takes the object's base map
- * square as a 2-byte aggregate BY VALUE (renderview.c:304
- * `SpriteDesc* (*draw)(void* ctx, BPos base)`).  On x86 cdecl that is the same
- * pushed dword as this `unsigned short`; on wasm32 the aggregate is passed
- * INDIRECTLY -- a pointer to a shadow-stack temp -- at the same i32 arity, so
- * nothing warns and the body stamped an ADDRESS into the descriptor's square
- * field (PORT-M10 s1b).  Renamed for the portable build with a twin of the
- * slot's own shape exported over it. */
+/* PORT-M11: the same, for the +0xa0 slot's shape -- see above. */
 #define Carousel_GetDrawDesc Carousel_GetDrawDesc_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x0042c550

@@ -485,12 +485,7 @@ void CastleLevel1_Remove(void* obj, MapSquare tile, void* ctx)
 #endif
 
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: this body is a +0x9c remove handler, and that slot passes the map
- * square as a 2-byte aggregate BY VALUE (objmap2.c:99), i.e. as a POINTER on
- * wasm32.  The matched body reads it as an `unsigned int`, which is the same
- * pushed dword on x86 and a shadow-stack address here, so the body is renamed
- * for the portable build (PORT-M3's trick) and a twin of the slot's own shape
- * is exported over it. */
+/* PORT-M11: the same, for the +0x9c slot's shape -- see above. */
 #define Fort_Remove Fort_Remove_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x00406880
@@ -508,12 +503,7 @@ void Fort_Remove(void* obj, MapSquare tile, void* ctx)
 #endif
 
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: this body is a +0x9c remove handler, and that slot passes the map
- * square as a 2-byte aggregate BY VALUE (objmap2.c:99), i.e. as a POINTER on
- * wasm32.  The matched body reads it as an `unsigned int`, which is the same
- * pushed dword on x86 and a shadow-stack address here, so the body is renamed
- * for the portable build (PORT-M3's trick) and a twin of the slot's own shape
- * is exported over it. */
+/* PORT-M11: the same, for the +0x9c slot's shape -- see above. */
 #define Temple_Remove Temple_Remove_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x00416e20
@@ -813,12 +803,7 @@ void GoldRush_Place(void* obj, Pos* pos)
 }
 
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: this body is a +0x9c remove handler, and that slot passes the map
- * square as a 2-byte aggregate BY VALUE (objmap2.c:99), i.e. as a POINTER on
- * wasm32.  The matched body reads it as an `unsigned int`, which is the same
- * pushed dword on x86 and a shadow-stack address here, so the body is renamed
- * for the portable build (PORT-M3's trick) and a twin of the slot's own shape
- * is exported over it. */
+/* PORT-M11: the same, for the +0x9c slot's shape -- see above. */
 #define GoldRush_Remove GoldRush_Remove_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x004076e0

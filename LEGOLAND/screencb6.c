@@ -206,9 +206,7 @@ void OctopusCafe_Add(RideElem* elem, Pos* pos)
 }
 
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: a +0xa0 draw handler, and that slot takes the base map square as a
- * 2-byte aggregate BY VALUE as well (renderview.c:304), so on wasm32 this body
- * was stamping a shadow-stack ADDRESS into the draw descriptor's `square`. */
+/* PORT-M11: the same, for the +0xa0 slot's shape -- see above. */
 #define Restaurant2_GetDrawDesc Restaurant2_GetDrawDesc_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x004304a0

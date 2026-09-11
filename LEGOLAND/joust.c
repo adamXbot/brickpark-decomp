@@ -626,11 +626,7 @@ void Joust_Remove(void* obj, RideTile tile, void* ctx)
 #endif
 
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: a +0x9c remove handler.  The slot hands the map square over as a
- * 2-byte aggregate BY VALUE (objmap2.c:99, called objmap2.c:1895), which is a
- * POINTER on wasm32; the matched body reads the same dword as an
- * `unsigned int` and takes its ADDRESS for the record lookup.  Renamed for the
- * portable build with a twin of the slot's own shape exported over it. */
+/* PORT-M11: the same, for the +0x9c slot's shape -- see above. */
 #define TempleSlide_Remove TempleSlide_Remove_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x00417280

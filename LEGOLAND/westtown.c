@@ -940,11 +940,7 @@ void JailCell_Add(ShopElem* elem, Pos* at)
 
 /* +0x9c -- drop this cell's record first, then the shared two steps. */
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: a +0x9c remove handler.  The slot passes the map square as a
- * 2-byte aggregate BY VALUE (objmap2.c:99, called objmap2.c:1895) -- a POINTER
- * on wasm32 -- and this body reads the dword as an `unsigned int` (and takes
- * its address for the record lookup).  Renamed for the portable build with a
- * twin of the slot's own shape exported over it. */
+/* PORT-M11: the same, for the +0x9c slot's shape -- see above. */
 #define JailCell_Remove JailCell_Remove_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x00438020

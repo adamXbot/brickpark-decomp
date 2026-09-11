@@ -1085,10 +1085,7 @@ void PottingShed_Add(void* o, Pos* p)
 }
 
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: a +0x9c remove handler.  That slot passes the map square as a
- * 2-byte aggregate BY VALUE (objmap2.c:99, called objmap2.c:1895) -- a POINTER
- * on wasm32 -- and the matched body reads the dword as an `unsigned int`.
- * Renamed for the portable build, with a twin of the slot's own shape over it. */
+/* PORT-M11: the same, for the +0x9c slot's shape -- see above. */
 #define PottingShed_Remove PottingShed_Remove_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x0043ced0
@@ -1121,10 +1118,7 @@ void PottingShed_Select(void)
 }
 
 #ifdef LEGOLAND_PORTABLE
-/* PORT-M11: a +0xa0 draw handler, and that slot takes the object's base map
- * square as a 2-byte aggregate BY VALUE too (renderview.c:304) -- so on wasm32
- * this body was stamping a shadow-stack ADDRESS into the draw descriptor's
- * `f0c` square instead of the cell.  Same rename, same reason. */
+/* PORT-M11: the same, for the +0xa0 slot's shape -- see above. */
 #define PottingShed_GetDrawDesc PottingShed_GetDrawDesc_vc6_body
 #endif
 // FUNCTION: LEGOLAND 0x0043d210
