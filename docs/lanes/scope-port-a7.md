@@ -236,6 +236,26 @@ kilobytes of `.rdata` literals (`GUID_NULL` is 16 bytes of GUID and several
 kilobytes of strings). Every one of the 1211 that a declaration calls a pointer
 is now re-pointed; the rest are not pointers and must not be touched.
 
+That is a measurement, not a hand-wave. `port-a7-residue.py` asks two questions
+of each residue word that do not use the fix at all — is its own address past
+the DECLARED extent of the object it sits in (so no declaration describes that
+storage), and are its four bytes printable ASCII:
+
+```
+residue words (the VALUE census): 959
+  past the declared extent of their object (swallowed literals): 958
+  four printable-ASCII bytes:                                    694
+  NEITHER (worth a human):                                         1
+    0x004b9560 = 0x00739c00 in g_path_3x3_masks (0x004b9558, declared 36)
+```
+
+**One** word in the whole residue sits inside a declared extent, and it is
+`extern const unsigned int g_path_3x3_masks[9]` (workorder4.c:50), a bitmask
+table used as `bits & g_path_3x3_masks[i]`. 0x00739c00 is a 3x3 path mask that
+happens to read as an address. The declaration says it is not a pointer and the
+generator leaves it alone, which is the whole argument for the declaration rule
+in one line.
+
 `gen/pointers.md` therefore reports, for the browser closure:
 
 ```
@@ -434,7 +454,8 @@ $PY portable/src/browser/closure_filter.py --gen /tmp/try \
 Scratch scripts (not committed, `port-a7-` prefixed): `port-a7-rawptr.py`
 (PORT-B8 §9 verbatim, the value census), `port-a7-globals-equiv.py` (§3, the
 address → value comparison — **run this on any change to the re-pointing
-rules**), `port-a7-gen.sh`, `port-a7-build-native.sh`, `port-a7-build-wasm.sh`.
+rules**), `port-a7-residue.py` (§5, what is left of the value census),
+`port-a7-gen.sh`, `port-a7-build-native.sh`, `port-a7-build-wasm.sh`.
 
 ---
 
@@ -442,11 +463,12 @@ rules**), `port-a7-gen.sh`, `port-a7-build-native.sh`, `port-a7-build-wasm.sh`.
 
 * `portable/cmake/tests.cmake` is **appended to only** (the `pointer_words`
   block at the end).
-* `portable/CMakeLists.txt` still has PORT-A2's gap: its `gen` command does not
-  DEPEND on `linkreport.py`, and it now also does not depend on anything that
-  would notice a `cdecl.py` change... it does, actually — `cdecl.py` is on the
-  DEPENDS list of both `gen` and `gen-browser`. Only `linkreport.py` is missing
-  from the `gen` one, and only the integrator may edit that file.
+* **No new build dependency is needed.** PORT-A2's gap in
+  `portable/CMakeLists.txt` is closed: its `gen` command already DEPENDS on
+  `gen_link.py`, `linkreport.py`, `cdecl.py` and `win32_imports.txt`, and
+  `browser.cmake`'s `gen-browser` on the same three plus `closure_filter.py`.
+  Both therefore re-run on this lane's `cdecl.py` change, which is what the
+  clean rebuilds confirmed.
 * `gen/pointers.md` is a new generated artifact next to `manifest.md` and
   `extents.md`. Nothing else reads it; the ctest reads `manifest.md`.
 * Nothing in this lane touches `LEGOLAND/*.c`, `portable/src/browser/**`,
