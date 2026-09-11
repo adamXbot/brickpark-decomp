@@ -233,6 +233,15 @@ For comparison, PORT-B9's state at hand-over was
 `RuntimeError: table index is out of bounds` in `PutObjOnMap` on the first
 perimeter object of the level.
 
+**A ride was BUILT**, which is the other half of the proof. Loading a level
+calls `PutObjOnMap` on the perimeter objects; *building* calls the same
+`cls->place(obj, pos)` from the build tick, so it is the live exercise of
+`sweep3.c`'s `+0x98` adapter rather than the loader's. On a fresh page load,
+after the park came up: path tool → two path squares placed → LEGOLAND menu →
+Space Tower Ride → click on the map, and the game answered with its own
+**"Your First Ride! That's great! You've built your first ride"** tutorial
+page. 7983 frames, `dead` null, `traps: []`.
+
 **Soak**: the park was then left running and driven for another ~8 minutes —
 **16880 frames, `dead` null, `traps: []`** — with five of the six toolbar
 buttons clicked (LEGOLAND, build, query, eraser, sliders), each changing the
