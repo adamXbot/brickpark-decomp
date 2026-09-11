@@ -906,7 +906,29 @@ static void ll_popup_info_setup(const HitInfo* key, int x, int y)
 }
 #define PopUpInfoSetUp(_key, _x, _y) ll_popup_info_setup(&(_key), (_x), (_y))
 #endif
+#ifndef LEGOLAND_PORTABLE
 extern int        sub_457970(int x, int y);                              /* 0x00457970  footprint clearance test (group 15) */
+#else
+/* PORT-M7: 0x00457970 is bubblecache.c's FootprintClearanceTest, and it takes
+ * the cell as a `Pos` BY VALUE, not as two ints. This is the one row of the 72
+ * whose two spellings are not a different ARITY but a different ABI: on x86
+ * `(int x, int y)` and `(Pos p)` push the same two dwords, so the original's
+ * two prototypes were literally the same call and nothing was ever wrong; on
+ * wasm32 an 8-byte aggregate is passed INDIRECTLY, so the stale prototype's
+ * (i32, i32) and the body's (i32 pointer) are incompatible and gen_link.py had
+ * to bridge them with a cast that handed a by-value x where a pointer was
+ * expected. Call it the way the body is written. Same shim shape as
+ * ll_popup_info_setup above. */
+extern int        FootprintClearanceTest(Pos p);                         /* 0x00457970 */
+static int ll_footprint_clearance_test(int x, int y)
+{
+    Pos p;
+    p.x = x;
+    p.y = y;
+    return FootprintClearanceTest(p);
+}
+#define sub_457970(_x, _y) ll_footprint_clearance_test((_x), (_y))
+#endif
 extern void       sub_475f40(void);                                      /* 0x00475f40 */
 /* The definition's real return type, for the portable build only: a stale
  * extern name whose signature disagrees with its body makes gen_link.py
