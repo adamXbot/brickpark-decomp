@@ -81,7 +81,13 @@ extern Vec3f g_half_step[];                     /* 0x00611658 */
 extern PieceDesc g_pieces[];                    /* 0x00828fe0 */
 extern Mat4 g_view_matrix;                      /* 0x008299fc */
 extern CoasterRec g_castle;                     /* 0x00829ae0 */
-extern void* g_span_cursor;                     /* 0x004b5b3c (schoolcar.c: g_cmd_write) */
+/* PORT-M10 (M9-3): 0x004b5b3c was `g_span_cursor` here and `g_cmd_write` in
+ * schoolcar.c:1191.  Settled on `g_cmd_write`: schoolcar.c:1226-1233 is the
+ * consumer and it REWINDS this word to `g_cmd_buf` (0x004dd870) at the end of
+ * every frame, so the word is that buffer's write pointer and belongs to the
+ * `g_cmd_buf` / `ZBuffer_RunCommand` family that names the record a COMMAND.
+ * "span" is what one command carries, not what the pointer is. */
+extern void* g_cmd_write;                       /* 0x004b5b3c */
 extern int   g_cmd_buf[];                       /* 0x004dd870, 0x6000 bytes; see Raster_AddSpanRecord */
 extern int g_span_count;                        /* 0x0060f908 */
 extern int g_span_overflow;                     /* 0x0060f90c */
@@ -604,7 +610,7 @@ void Raster_AddSpanRecord(int ne, int y, SortKey* keys, SpanEdge* edges)
     int keep;
 
     n = g_span_count;
-    cur = (char*)g_span_cursor;
+    cur = (char*)g_cmd_write;
     saved = cur;
     n++;
     g_span_count = n;
@@ -614,7 +620,7 @@ void Raster_AddSpanRecord(int ne, int y, SortKey* keys, SpanEdge* edges)
     /* PORT-M9: 0x004e3870 is the END of the command buffer this appends to --
      * schoolcar.c's Coaster3D_EndFrame names the pair, `g_cmd_buf` at
      * 0x004dd870 (0x6000 bytes) and `g_zbuffer` at 0x004e3870 right behind it,
-     * and our `g_span_cursor` is its `g_cmd_write`.  The original compares
+     * and this file's cursor is that same `g_cmd_write`.  The original compares
      * against that absolute VA, which only means "the end of the buffer"
      * because of where the linker put the two objects; in the portable build
      * they are separate C objects at unrelated linear addresses, so the raw
@@ -648,5 +654,5 @@ void Raster_AddSpanRecord(int ne, int y, SortKey* keys, SpanEdge* edges)
             dst += 8;
         } while (--n);
     }
-    g_span_cursor = *(char* volatile*)&saved + 8 + keep * 8;
+    g_cmd_write = *(char* volatile*)&saved + 8 + keep * 8;
 }
