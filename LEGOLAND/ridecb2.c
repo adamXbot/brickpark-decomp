@@ -244,7 +244,24 @@ typedef struct JcBoat {
  * boat quoting `id`, finds the station with that id, and re-runs the river
  * walk from its map square.  Takes the id as a 16-bit value (the caller only
  * loads dx, the callee only reads cx). */
+#ifndef LEGOLAND_PORTABLE
 extern void JungleCruise_RebuildRoute(BPosW id);             /* 0x004373c0 */
+#else
+/* PORT-M11, the same class but the other way round: here the DEFINITION is the
+ * scalar one (junglecruise.c:340 `int id`, and it masks the value with
+ * `(unsigned short)` itself), and the two other declarations agree with it
+ * (ridecb7.c:264, and the second call below passes an int `owner`).  So this
+ * by-value `BPosW` is the outlier, and it is the declaration that moves: on
+ * wasm32 it would pass a pointer to a shadow-stack temp where the body reads a
+ * value, with the same i32 arity and no warning anywhere (PORT-M10 s1b). */
+extern void JungleCruise_RebuildRoute(unsigned int id);      /* 0x004373c0 */
+#define JungleCruise_RebuildRoute(_i) \
+    JungleCruise_RebuildRoute(ll_jc_id(&(_i)))
+static __inline unsigned int ll_jc_id(const void* p)
+{
+    return *(const unsigned short*)p;
+}
+#endif
 
 extern JcStation*    g_jc_stations;    /* 0x00629c3c */
 extern JcWater*       g_jc_water;       /* 0x0062fd2c */

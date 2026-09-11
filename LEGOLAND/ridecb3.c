@@ -1162,8 +1162,29 @@ extern RestRec2* Restaurant2_FindRec(MapSquare* sq);                 /* 0x0042f9
  * rider's world position. */
 extern void Restaurant2_SeatCustomer(RiderNode* r, int which, int step); /* 0x0042fa90 */
 /* Start / stop the restaurant's sample, sourced at the packed map square. */
+#ifndef LEGOLAND_PORTABLE
 extern void Restaurant2_StartSound(unsigned short square);           /* 0x0042fb00 */
 extern void Restaurant2_StopSound(unsigned short square);            /* 0x0042fb60 */
+#else
+/* PORT-M11: the DEFINITION takes the packed map square as a 2-byte aggregate BY
+ * VALUE (audio5.c:120 `BPosW square` and ridemisc4.c:583 `RideTile tile`), which on x86 cdecl is the same pushed dword as the scalar
+ * spelling above -- so the byte gates never moved -- but on wasm32 the
+ * aggregate is passed INDIRECTLY, as a pointer to a shadow-stack temp, at the
+ * SAME i32 arity.  wasm-ld, linkreport and test_callback_types are all blind to
+ * that, so the callee silently reads an address as a square (PORT-M10 s1b).
+ * The square is packed at the call site; VC6 sees none of this. */
+typedef union LLSqW { unsigned short w; struct { unsigned char x, y; } b; } LLSqW;
+extern void Restaurant2_StartSound(LLSqW square);                    /* 0x0042fb00 */
+extern void Restaurant2_StopSound(LLSqW square);                     /* 0x0042fb60 */
+static __inline LLSqW ll_sqw(unsigned int v)
+{
+    LLSqW t;
+    t.w = (unsigned short)v;
+    return t;
+}
+#define Restaurant2_StartSound(_s) Restaurant2_StartSound(ll_sqw((unsigned int)(_s)))
+#define Restaurant2_StopSound(_s)  Restaurant2_StopSound(ll_sqw((unsigned int)(_s)))
+#endif
 
 extern RestRec2* g_r2_recs;        /* 0x00616148 the per-placement list */
 extern int       g_r2_path_dx[];   /* 0x004b685c the waiter's x steps */

@@ -552,8 +552,31 @@ void TempleSlide_Place(void* obj, Pos* pos)
  * the find helpers are handed.
  * ========================================================================== */
 
+#ifndef LEGOLAND_PORTABLE
 extern void StandardRemoveObject(void* obj, unsigned int tile, void* ctx);   /* 0x0045f220 */
 extern void RemoveAllBlokesFromRide(RideDef* cls, unsigned int tile);        /* 0x0048a2e0 */
+#else
+/* PORT-M11: both take the packed map square as a 2-byte aggregate BY VALUE --
+ * objmap2.c:983 `BPos bp` (and the ObjClass +0x9c slot at objmap2.c:99) and
+ * rides.c:400 `RideTile tile`.  On x86 cdecl that is the same pushed dword as
+ * this `unsigned int`, so the byte gates never moved; on wasm32 the aggregate
+ * is passed INDIRECTLY (a pointer to a shadow-stack temp) against the scalar's
+ * direct i32, with the same arity, so nothing in the link or the type tests
+ * can see it (PORT-M10 s1b).  `RideTile` is this file's own spelling of that
+ * square and the value is packed at the call site. */
+extern void StandardRemoveObject(void* obj, RideTile tile, void* ctx);       /* 0x0045f220 */
+extern void RemoveAllBlokesFromRide(RideDef* cls, RideTile tile);            /* 0x0048a2e0 */
+static __inline RideTile ll_ridetile(unsigned int v)
+{
+    RideTile t;
+    t.key = (unsigned short)v;
+    return t;
+}
+#define StandardRemoveObject(_o, _t, _c) \
+    StandardRemoveObject((_o), ll_ridetile((unsigned int)(_t)), (_c))
+#define RemoveAllBlokesFromRide(_c, _t) \
+    RemoveAllBlokesFromRide((_c), ll_ridetile((unsigned int)(_t)))
+#endif
 extern void UnSourceAndFadeAllSamplesFromSource(RideSoundSource* src, int fade); /* 0x00496c80 */
 
 /* Fade out whatever this ride was playing at one map square. The whole thing
@@ -573,6 +596,14 @@ static __inline void FadeSamplesAtMapSquare(int x, int y)
     UnSourceAndFadeAllSamplesFromSource(&src, -200);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0x9c remove handler.  The slot hands the map square over as a
+ * 2-byte aggregate BY VALUE (objmap2.c:99, called objmap2.c:1895), which is a
+ * POINTER on wasm32; the matched body reads the same dword as an
+ * `unsigned int` and takes its ADDRESS for the record lookup.  Renamed for the
+ * portable build with a twin of the slot's own shape exported over it. */
+#define Joust_Remove Joust_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00407ad0
 void Joust_Remove(void* obj, unsigned int tile, void* ctx)
 {
@@ -586,7 +617,22 @@ void Joust_Remove(void* obj, unsigned int tile, void* ctx)
     StandardRemoveObject(obj, tile, ctx);
     RemoveAllBlokesFromRide(((RideMapObj*)obj)->cls, tile);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Joust_Remove
+void Joust_Remove(void* obj, RideTile tile, void* ctx)
+{
+    Joust_Remove_vc6_body(obj, tile.key, ctx);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0x9c remove handler.  The slot hands the map square over as a
+ * 2-byte aggregate BY VALUE (objmap2.c:99, called objmap2.c:1895), which is a
+ * POINTER on wasm32; the matched body reads the same dword as an
+ * `unsigned int` and takes its ADDRESS for the record lookup.  Renamed for the
+ * portable build with a twin of the slot's own shape exported over it. */
+#define TempleSlide_Remove TempleSlide_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00417280
 void TempleSlide_Remove(void* obj, unsigned int tile, void* ctx)
 {
@@ -597,6 +643,13 @@ void TempleSlide_Remove(void* obj, unsigned int tile, void* ctx)
     StandardRemoveObject(obj, tile, ctx);
     RemoveAllBlokesFromRide(((RideMapObj*)obj)->cls, tile);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef TempleSlide_Remove
+void TempleSlide_Remove(void* obj, RideTile tile, void* ctx)
+{
+    TempleSlide_Remove_vc6_body(obj, tile.key, ctx);
+}
+#endif
 
 /* ==========================================================================
  * +0xa4 / +0xac -- LOAD AND FREE THE RIDE'S RESOURCES

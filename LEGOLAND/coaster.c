@@ -1512,7 +1512,26 @@ typedef struct SchoolRec {
     int           y;            /* +0x10 */
 } SchoolRec;
 
+#ifndef LEGOLAND_PORTABLE
 extern SchoolRec* GetSchoolRecord(int school);          /* 0x00412650 */
+#else
+/* PORT-M11: the DEFINITION takes the packed map square as a 2-byte aggregate BY
+ * VALUE (ridecb6.c:966 `Road_FindStartPiece(BPosW school)`), which on x86 cdecl is the same pushed dword as the scalar
+ * spelling above -- so the byte gates never moved -- but on wasm32 the
+ * aggregate is passed INDIRECTLY, as a pointer to a shadow-stack temp, at the
+ * SAME i32 arity.  wasm-ld, linkreport and test_callback_types are all blind to
+ * that, so the callee silently reads an address as a square (PORT-M10 s1b).
+ * The square is packed at the call site; VC6 sees none of this. */
+extern SchoolRec* GetSchoolRecord(MapPos school);       /* 0x00412650 */
+static __inline MapPos ll_mappos(unsigned int v)
+{
+    MapPos s;
+    s.x = (unsigned char)v;
+    s.y = (unsigned char)(v >> 8);
+    return s;
+}
+#define GetSchoolRecord(_s) GetSchoolRecord(ll_mappos((unsigned int)(_s)))
+#endif
 extern void* HeapAlloc_w(unsigned int n);               /* 0x0049e4ff */
 extern int   FindSchoolCarNear(SchoolCar* c, int x, int y);    /* 0x00401970 */
 extern void  SchoolCarManoeuvreC(SchoolCar* c);                  /* 0x00401080 */

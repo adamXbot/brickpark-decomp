@@ -437,7 +437,26 @@ extern void  BsWater_Relink(int x, int y, int* owner);            /* 0x0041bab0 
  * The callee reads only `cx`, but the caller pushes a full dword, so the
  * parameter is spelled `int` HERE (ridecb5.c declares the same function with
  * a BPosW by value for its own call sites).  DEFINED at the end of this file. */
+#ifndef LEGOLAND_PORTABLE
 extern void BoatingSchool_AddTake_I(int key, int amount);         /* 0x0041b0d0 */
+#else
+/* PORT-M11: the DEFINITION takes the packed map square as a 2-byte aggregate BY
+ * VALUE (ridecb6.c:935, at the end of this file, `BPosW key`), which on x86 cdecl is the same pushed dword as the scalar
+ * spelling above -- so the byte gates never moved -- but on wasm32 the
+ * aggregate is passed INDIRECTLY, as a pointer to a shadow-stack temp, at the
+ * SAME i32 arity.  wasm-ld, linkreport and test_callback_types are all blind to
+ * that, so the callee silently reads an address as a square (PORT-M10 s1b).
+ * The square is packed at the call site; VC6 sees none of this. */
+extern void BoatingSchool_AddTake_I(BPosW key, int amount);       /* 0x0041b0d0 */
+static __inline BPosW ll_bposw(unsigned int v)
+{
+    BPosW t;
+    t.w = (unsigned short)v;
+    return t;
+}
+#define BoatingSchool_AddTake_I(_k, _a) \
+    BoatingSchool_AddTake_I(ll_bposw((unsigned int)(_k)), (_a))
+#endif
 /* Lays a boat route between two map squares; returns the route record. */
 extern void* BoatingSchool_BuildRoute(int x0, int y0, int x1, int y1); /* 0x0041c8c0 */
 extern void  IncrementObjectCount(ObjDef* cls);                   /* 0x00480d40 */
@@ -447,7 +466,20 @@ extern void  IncrementObjectCount(ObjDef* cls);                   /* 0x00480d40 
  * a BPosW field to hand over (`mov dx,word ptr [esi] / push edx`) while
  * BsWater_Add has the int `owner` local (`mov eax,dword ptr [..] / push
  * eax`).  Both resolve to 0x0041caa0. */
+#ifndef LEGOLAND_PORTABLE
 extern void  BoatingSchool_RebuildRouteI(int key);                /* 0x0041caa0 */
+#else
+/* PORT-M11: the DEFINITION takes the packed map square as a 2-byte aggregate BY
+ * VALUE (ridecb6.c:1116 `BoatingSchool_RebuildRoute(BPosW key)`), which on x86 cdecl is the same pushed dword as the scalar
+ * spelling above -- so the byte gates never moved -- but on wasm32 the
+ * aggregate is passed INDIRECTLY, as a pointer to a shadow-stack temp, at the
+ * SAME i32 arity.  wasm-ld, linkreport and test_callback_types are all blind to
+ * that, so the callee silently reads an address as a square (PORT-M10 s1b).
+ * The square is packed at the call site; VC6 sees none of this. */
+extern void  BoatingSchool_RebuildRouteI(BPosW key);              /* 0x0041caa0 */
+#define BoatingSchool_RebuildRouteI(_k) \
+    BoatingSchool_RebuildRouteI(ll_bposw((unsigned int)(_k)))
+#endif
 
 /* =========================================================================
  * 0x0041b8e0 -- BsWater_Add (BOATING SCHOOL WATER cb_98).

@@ -1440,6 +1440,17 @@ void ZebraCrossing_SelectForPlacement(void)
  * instruction for instruction westtown.c's Shop_GetDrawDesc (0x0043a390)
  * over the SAME single shared block at 0x0082c6a0 -- so the driving school
  * and every western-town shop take turns with one descriptor. */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0xa0 draw handler, and that slot takes the object's base map
+ * square as a 2-byte aggregate BY VALUE (renderview.c:304
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)`).  On x86 cdecl that is the same
+ * pushed dword as this `unsigned short`; on wasm32 the aggregate is passed
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- at the same i32 arity, so
+ * nothing warns and the body stamped an ADDRESS into the descriptor's square
+ * field (PORT-M10 s1b).  Renamed for the portable build with a twin of the
+ * slot's own shape exported over it. */
+#define DrivingSchool_GetDrawDesc DrivingSchool_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00405ad0
 DrawDesc* DrivingSchool_GetDrawDesc(ShopElem* elem, unsigned short arg)
 {
@@ -1452,6 +1463,13 @@ DrawDesc* DrivingSchool_GetDrawDesc(ShopElem* elem, unsigned short arg)
     def->sprite->flags |= 0x2000;
     return &g_shop_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef DrivingSchool_GetDrawDesc
+DrawDesc* DrivingSchool_GetDrawDesc(ShopElem* elem, BPosW base)
+{
+    return DrivingSchool_GetDrawDesc_vc6_body(elem, base.w);
+}
+#endif
 
 /* =========================================================================
  * DRIVING SCHOOL PUMPS -- select, place and remove.
@@ -1708,6 +1726,17 @@ void Restaurant2_Add(void* obj, Pos* pos)
 extern DrawDesc g_balloonz_draw;    /* 0x00616028 */
 extern DrawDesc g_carousel_draw;    /* 0x006160a0 */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0xa0 draw handler, and that slot takes the object's base map
+ * square as a 2-byte aggregate BY VALUE (renderview.c:304
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)`).  On x86 cdecl that is the same
+ * pushed dword as this `unsigned short`; on wasm32 the aggregate is passed
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- at the same i32 arity, so
+ * nothing warns and the body stamped an ADDRESS into the descriptor's square
+ * field (PORT-M10 s1b).  Renamed for the portable build with a twin of the
+ * slot's own shape exported over it. */
+#define Balloonz_GetDrawDesc Balloonz_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0042b2a0
 DrawDesc* Balloonz_GetDrawDesc(ShopElem* elem, unsigned short arg)
 {
@@ -1720,7 +1749,25 @@ DrawDesc* Balloonz_GetDrawDesc(ShopElem* elem, unsigned short arg)
     def->sprite->flags |= 0x2000;
     return &g_balloonz_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Balloonz_GetDrawDesc
+DrawDesc* Balloonz_GetDrawDesc(ShopElem* elem, BPosW base)
+{
+    return Balloonz_GetDrawDesc_vc6_body(elem, base.w);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0xa0 draw handler, and that slot takes the object's base map
+ * square as a 2-byte aggregate BY VALUE (renderview.c:304
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)`).  On x86 cdecl that is the same
+ * pushed dword as this `unsigned short`; on wasm32 the aggregate is passed
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- at the same i32 arity, so
+ * nothing warns and the body stamped an ADDRESS into the descriptor's square
+ * field (PORT-M10 s1b).  Renamed for the portable build with a twin of the
+ * slot's own shape exported over it. */
+#define Carousel_GetDrawDesc Carousel_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0042c550
 DrawDesc* Carousel_GetDrawDesc(ShopElem* elem, unsigned short arg)
 {
@@ -1733,6 +1780,13 @@ DrawDesc* Carousel_GetDrawDesc(ShopElem* elem, unsigned short arg)
     def->sprite->flags |= 0x2000;
     return &g_carousel_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Carousel_GetDrawDesc
+DrawDesc* Carousel_GetDrawDesc(ShopElem* elem, BPosW base)
+{
+    return Carousel_GetDrawDesc_vc6_body(elem, base.w);
+}
+#endif
 
 /* Per-square record lookup / free, one pair per ride (ridecb1.c names the
  * BALLOONZ finder Balloonz_FindRec and documents its record). */

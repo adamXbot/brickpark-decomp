@@ -181,8 +181,14 @@ void RenderRAndDCheckBox(void)
  * at this address never reads them, and in cdecl the caller cleans them up.
  * On wasm the argument count is part of the function type, so the exported
  * name is this forwarder and the matched body keeps its own.  */
+/* PORT-M11: the second argument is the packed map square BY VALUE at the only
+ * call site (objmap2.c:207/491, `BPos bp`), not an int.  Nothing reads it here,
+ * so this was harmless -- but a scalar parameter against an indirect aggregate
+ * is exactly the shape that IS harmful elsewhere, and the sweep cannot tell
+ * the two apart, so the forwarder carries the caller's own shape. */
+typedef struct LLSquare { unsigned char x, y; } LLSquare;   /* objmap2.c's BPos */
 #undef ApplyConsTileMap
-void ApplyConsTileMap(int ll_a1, int ll_a2) { (void)ll_a1; (void)ll_a2; ApplyConsTileMap_vc6_body(); }
+void ApplyConsTileMap(void* ll_a1, LLSquare ll_a2) { (void)ll_a1; (void)ll_a2; ApplyConsTileMap_vc6_body(); }
 #endif
 
 #ifdef LEGOLAND_PORTABLE
@@ -190,8 +196,10 @@ void ApplyConsTileMap(int ll_a1, int ll_a2) { (void)ll_a1; (void)ll_a2; ApplyCon
  * at this address never reads them, and in cdecl the caller cleans them up.
  * On wasm the argument count is part of the function type, so the exported
  * name is this forwarder and the matched body keeps its own.  */
+/* PORT-M11: as ApplyConsTileMap above -- objmap2.c:208/1000 passes `BPos bp`
+ * by value, and StandardRemoveObject is the caller. */
 #undef ApplyDestrTileMap
-void ApplyDestrTileMap(int ll_a1, int ll_a2) { (void)ll_a1; (void)ll_a2; ApplyDestrTileMap_vc6_body(); }
+void ApplyDestrTileMap(void* ll_a1, LLSquare ll_a2) { (void)ll_a1; (void)ll_a2; ApplyDestrTileMap_vc6_body(); }
 #endif
 
 #ifdef LEGOLAND_PORTABLE

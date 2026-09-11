@@ -883,12 +883,37 @@ void MechanicsHut_Tick(RideElem* elem)
  * ObjDef pointer, the mask sprite and the one draw descriptor.
  * ========================================================================= */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  StandardRemoveObject(void* o, unsigned int bp, void* ctx); /* 0x0045f220 */
+#else
+/* PORT-M11: the definition (objmap2.c:983) and the ObjClass +0x9c slot it is
+ * stored in (objmap2.c:99) take the map square as a 2-byte aggregate BY VALUE.
+ * Same pushed dword as this `unsigned int` on x86 cdecl, a POINTER to a
+ * shadow-stack temp on wasm32, and the same i32 arity either way -- so the
+ * whole class is invisible to wasm-ld, linkreport and test_callback_types
+ * (PORT-M10 s1b).  `BPosW` is this file's own spelling of the square. */
+extern void  StandardRemoveObject(void* o, BPosW bp, void* ctx);        /* 0x0045f220 */
+static __inline BPosW ll_bposw(unsigned int v)
+{
+    BPosW t;
+    t.w = (unsigned short)v;
+    return t;
+}
+#define StandardRemoveObject(_o, _b, _c) \
+    StandardRemoveObject((_o), ll_bposw((unsigned int)(_b)), (_c))
+#endif
 extern void  SetEditCursorFootPrint(void* rect);             /* 0x0045f440 */
 extern void* LoadSprite(const char* name, int mode);         /* 0x00497ab0 */
 /* Evicts every mechanic the class has parked on one map square (the hut's
  * own version of RemoveAllBlokesFromRide; the potting shed calls it too). */
+#ifndef LEGOLAND_PORTABLE
 extern void  MechanicsHut_EvictRiders(RideObject* cls, unsigned int bp, int flag); /* 0x0043d7c0 */
+#else
+/* PORT-M11, the same class: the definition (ridemisc.c:93) takes `BPosW key`. */
+extern void  MechanicsHut_EvictRiders(RideObject* cls, BPosW bp, int flag); /* 0x0043d7c0 */
+#define MechanicsHut_EvictRiders(_c, _b, _f) \
+    MechanicsHut_EvictRiders((_c), ll_bposw((unsigned int)(_b)), (_f))
+#endif
 
 /* The class-wide state: the ObjDef, its build sprite's LLS, the mask sprite
  * and the one draw descriptor the +0xa0 slot hands back. */
@@ -937,12 +962,26 @@ void MechanicsHut_Add(void* o, Pos* p)
  * footprint, then throw out every mechanic filed against that square.
  * ========================================================================= */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0x9c remove handler.  That slot passes the map square as a
+ * 2-byte aggregate BY VALUE (objmap2.c:99, called objmap2.c:1895) -- a POINTER
+ * on wasm32 -- and the matched body reads the dword as an `unsigned int`.
+ * Renamed for the portable build, with a twin of the slot's own shape over it. */
+#define MechanicsHut_Remove MechanicsHut_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0043d2c0
 void MechanicsHut_Remove(RideMapObj* o, unsigned int bp, void* ctx)
 {
     StandardRemoveObject(o, bp, ctx);
     MechanicsHut_EvictRiders(o->cls, bp, 0);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef MechanicsHut_Remove
+void MechanicsHut_Remove(RideMapObj* o, BPosW bp, void* ctx)
+{
+    MechanicsHut_Remove_vc6_body(o, bp.w, ctx);
+}
+#endif
 
 /* =========================================================================
  * 0x0043d730 -- MechanicsHut_Destroy (MECHANICS HUT cb_ac): drop the mask
@@ -981,6 +1020,13 @@ void MechanicsHut_Select(void)
  * the next class asks for its descriptor.
  * ========================================================================= */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0xa0 draw handler, and that slot takes the object's base map
+ * square as a 2-byte aggregate BY VALUE too (renderview.c:304) -- so on wasm32
+ * this body was stamping a shadow-stack ADDRESS into the draw descriptor's
+ * `f0c` square instead of the cell.  Same rename, same reason. */
+#define MechanicsHut_GetDrawDesc MechanicsHut_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0043d780
 HutDrawDesc* MechanicsHut_GetDrawDesc(RideElem* elem, unsigned short bp)
 {
@@ -993,6 +1039,13 @@ HutDrawDesc* MechanicsHut_GetDrawDesc(RideElem* elem, unsigned short bp)
     def->sprite->flags |= 0x2000;
     return &g_hut_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef MechanicsHut_GetDrawDesc
+HutDrawDesc* MechanicsHut_GetDrawDesc(RideElem* elem, BPosW bp)
+{
+    return MechanicsHut_GetDrawDesc_vc6_body(elem, bp.w);
+}
+#endif
 
 
 /* =========================================================================
@@ -1031,12 +1084,26 @@ void PottingShed_Add(void* o, Pos* p)
     AddBasicObject(o, p);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0x9c remove handler.  That slot passes the map square as a
+ * 2-byte aggregate BY VALUE (objmap2.c:99, called objmap2.c:1895) -- a POINTER
+ * on wasm32 -- and the matched body reads the dword as an `unsigned int`.
+ * Renamed for the portable build, with a twin of the slot's own shape over it. */
+#define PottingShed_Remove PottingShed_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0043ced0
 void PottingShed_Remove(RideMapObj* o, unsigned int bp, void* ctx)
 {
     StandardRemoveObject(o, bp, ctx);
     MechanicsHut_EvictRiders(o->cls, bp, 1);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef PottingShed_Remove
+void PottingShed_Remove(RideMapObj* o, BPosW bp, void* ctx)
+{
+    PottingShed_Remove_vc6_body(o, bp.w, ctx);
+}
+#endif
 
 // FUNCTION: LEGOLAND 0x0043d1c0
 void PottingShed_Destroy(void)
@@ -1053,6 +1120,13 @@ void PottingShed_Select(void)
     SetEditCursorFootPrint(&g_edit_object->rect);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0xa0 draw handler, and that slot takes the object's base map
+ * square as a 2-byte aggregate BY VALUE too (renderview.c:304) -- so on wasm32
+ * this body was stamping a shadow-stack ADDRESS into the draw descriptor's
+ * `f0c` square instead of the cell.  Same rename, same reason. */
+#define PottingShed_GetDrawDesc PottingShed_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0043d210
 HutDrawDesc* PottingShed_GetDrawDesc(RideElem* elem, unsigned short bp)
 {
@@ -1065,6 +1139,13 @@ HutDrawDesc* PottingShed_GetDrawDesc(RideElem* elem, unsigned short bp)
     def->sprite->flags |= 0x2000;
     return &g_shed_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef PottingShed_GetDrawDesc
+HutDrawDesc* PottingShed_GetDrawDesc(RideElem* elem, BPosW bp)
+{
+    return PottingShed_GetDrawDesc_vc6_body(elem, bp.w);
+}
+#endif
 
 
 /* =========================================================================

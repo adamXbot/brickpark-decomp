@@ -240,8 +240,36 @@ extern void   AddBasicObject(void* obj, Pos* pos);                   /* 0x0045ef
 extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx);                   /* 0x0045efe0 */
 #define AddBasicObject(_a1, _a2) AddBasicObject((_a1), (_a2), 0)
 #endif
+#ifndef LEGOLAND_PORTABLE
 extern void   StandardRemoveObject(void* obj, unsigned int tile, void* ctx); /* 0x0045f220 */
 extern void   RemoveAllBlokesFromRide(RideObject* cls, unsigned int tile);   /* 0x0048a2e0 */
+#else
+/* PORT-M11: both of these take the packed map square as a 2-BYTE AGGREGATE BY
+ * VALUE.  StandardRemoveObject's definition is objmap2.c:983 (`BPos bp`) and
+ * that is also how the ObjClass +0x9c slot it is stored in is typed
+ * (objmap2.c:99, called at objmap2.c:1895); RemoveAllBlokesFromRide's is
+ * rides.c:400 (`RideTile tile`, a 2-byte union).  On x86 cdecl a 2-byte
+ * aggregate and an `unsigned int` are the same pushed dword -- which is why
+ * every byte gate has always been green on this line -- but on wasm32 the
+ * aggregate goes INDIRECT (a pointer to a shadow-stack temp) while the scalar
+ * goes direct, with the SAME i32 arity.  So wasm-ld, linkreport and
+ * test_callback_types are all blind to it and the callee reads a pointer value
+ * as a map square (PORT-M10 s1b).  The square is packed at the call site;
+ * VC6 never sees any of this. */
+extern void   StandardRemoveObject(void* obj, MapSquare tile, void* ctx);    /* 0x0045f220 */
+extern void   RemoveAllBlokesFromRide(RideObject* cls, MapSquare tile);      /* 0x0048a2e0 */
+static __inline MapSquare ll_square(unsigned int v)
+{
+    MapSquare s;
+    s.bx = (unsigned char)v;
+    s.by = (unsigned char)(v >> 8);
+    return s;
+}
+#define StandardRemoveObject(_o, _t, _c) \
+    StandardRemoveObject((_o), ll_square((unsigned int)(_t)), (_c))
+#define RemoveAllBlokesFromRide(_c, _t) \
+    RemoveAllBlokesFromRide((_c), ll_square((unsigned int)(_t)))
+#endif
 extern void   RenderItems_New(void);                                 /* 0x00442e90 */
 extern void   AddBlokeToRenderList(RenderList*, RiderNode*, int key);/* 0x00442f20 */
 extern void   RenderBlokeList(RenderList* list);                     /* 0x00442f70 */
@@ -433,26 +461,74 @@ void Temple_Place(void* obj, Pos* pos)
  * on that square.
  * ========================================================================== */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: this body is a +0x9c remove handler, and that slot passes the map
+ * square as a 2-byte aggregate BY VALUE (objmap2.c:99), i.e. as a POINTER on
+ * wasm32.  The matched body reads it as an `unsigned int`, which is the same
+ * pushed dword on x86 and a shadow-stack address here, so the body is renamed
+ * for the portable build (PORT-M3's trick) and a twin of the slot's own shape
+ * is exported over it. */
+#define CastleLevel1_Remove CastleLevel1_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00403030
 void CastleLevel1_Remove(void* obj, unsigned int tile, void* ctx)
 {
     StandardRemoveObject(obj, tile, ctx);
     RemoveAllBlokesFromRide(((RideElem*)obj)->data, tile);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef CastleLevel1_Remove
+void CastleLevel1_Remove(void* obj, MapSquare tile, void* ctx)
+{
+    CastleLevel1_Remove_vc6_body(obj, tile.bx | (tile.by << 8), ctx);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: this body is a +0x9c remove handler, and that slot passes the map
+ * square as a 2-byte aggregate BY VALUE (objmap2.c:99), i.e. as a POINTER on
+ * wasm32.  The matched body reads it as an `unsigned int`, which is the same
+ * pushed dword on x86 and a shadow-stack address here, so the body is renamed
+ * for the portable build (PORT-M3's trick) and a twin of the slot's own shape
+ * is exported over it. */
+#define Fort_Remove Fort_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00406880
 void Fort_Remove(void* obj, unsigned int tile, void* ctx)
 {
     StandardRemoveObject(obj, tile, ctx);
     RemoveAllBlokesFromRide(((RideElem*)obj)->data, tile);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Fort_Remove
+void Fort_Remove(void* obj, MapSquare tile, void* ctx)
+{
+    Fort_Remove_vc6_body(obj, tile.bx | (tile.by << 8), ctx);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: this body is a +0x9c remove handler, and that slot passes the map
+ * square as a 2-byte aggregate BY VALUE (objmap2.c:99), i.e. as a POINTER on
+ * wasm32.  The matched body reads it as an `unsigned int`, which is the same
+ * pushed dword on x86 and a shadow-stack address here, so the body is renamed
+ * for the portable build (PORT-M3's trick) and a twin of the slot's own shape
+ * is exported over it. */
+#define Temple_Remove Temple_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00416e20
 void Temple_Remove(void* obj, unsigned int tile, void* ctx)
 {
     StandardRemoveObject(obj, tile, ctx);
     RemoveAllBlokesFromRide(((RideElem*)obj)->data, tile);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Temple_Remove
+void Temple_Remove(void* obj, MapSquare tile, void* ctx)
+{
+    Temple_Remove_vc6_body(obj, tile.bx | (tile.by << 8), ctx);
+}
+#endif
 
 /* ==========================================================================
  * GOLD RUSH -- resources
@@ -736,6 +812,15 @@ void GoldRush_Place(void* obj, Pos* pos)
     AddPathTileGFX(&p, *(unsigned short*)g_path_tile_ptr);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: this body is a +0x9c remove handler, and that slot passes the map
+ * square as a 2-byte aggregate BY VALUE (objmap2.c:99), i.e. as a POINTER on
+ * wasm32.  The matched body reads it as an `unsigned int`, which is the same
+ * pushed dword on x86 and a shadow-stack address here, so the body is renamed
+ * for the portable build (PORT-M3's trick) and a twin of the slot's own shape
+ * is exported over it. */
+#define GoldRush_Remove GoldRush_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004076e0
 void GoldRush_Remove(void* obj, unsigned int tile, void* ctx)
 {
@@ -763,6 +848,13 @@ void GoldRush_Remove(void* obj, unsigned int tile, void* ctx)
     p.y = t->by + item->base_y - 2;
     RemoveRollerCoasterPath(&p);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef GoldRush_Remove
+void GoldRush_Remove(void* obj, MapSquare tile, void* ctx)
+{
+    GoldRush_Remove_vc6_body(obj, tile.bx | (tile.by << 8), ctx);
+}
+#endif
 
 /* ==========================================================================
  * +0xa8 -- THE PER-TICK RIDER STATE MACHINE
@@ -1638,8 +1730,20 @@ extern void SetPerson3DHeading(Person3D* p, int dir);                /* 0x004025
 extern int  SchoolCarBlockedAhead(SchoolCar* c);                     /* 0x00402490 */
 extern void SchoolCarAccelerate(SchoolCar* c);                       /* 0x004019c0 */
 extern int  SchoolCarMayEnterSquare(CarPos* to, CarPos* from);       /* 0x00402430 */
+#ifndef LEGOLAND_PORTABLE
 extern int  SchoolCarNextManoeuvreHorn(unsigned short school, CarPos* start, int ba); /* 0x00401f30 */
 extern int  SchoolCarNextManoeuvre(unsigned short school, CarPos* start, int ba); /* 0x00402150 */
+#else
+/* PORT-M11, the same class: both definitions (schoolcar2.c:547 and :469) take
+ * the driving school's map square as a `BPosW` BY VALUE -- a 2-byte union, so
+ * indirect on wasm32 against this `unsigned short`'s direct i32. */
+extern int  SchoolCarNextManoeuvreHorn(MapSquare school, CarPos* start, int ba); /* 0x00401f30 */
+extern int  SchoolCarNextManoeuvre(MapSquare school, CarPos* start, int ba);     /* 0x00402150 */
+#define SchoolCarNextManoeuvreHorn(_s, _p, _b) \
+    SchoolCarNextManoeuvreHorn(ll_square((unsigned int)(_s)), (_p), (_b))
+#define SchoolCarNextManoeuvre(_s, _p, _b) \
+    SchoolCarNextManoeuvre(ll_square((unsigned int)(_s)), (_p), (_b))
+#endif
 extern int  SchoolCarAtTarget(SchoolCar* c);                         /* 0x00402390 */
 extern void SchoolCarManoeuvreA(SchoolCar* c);                       /* 0x00401320 */
 extern void SchoolCarManoeuvreB(SchoolCar* c);                       /* 0x004015e0 */

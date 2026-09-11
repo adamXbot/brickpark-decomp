@@ -172,7 +172,19 @@ extern void BsWater_SelectForPlacement(void);                         /* 0x0041b
 extern void BsWater_CalcCursor(void* o, int sx, int sy);              /* 0x0041bd40  +0x90 ridecb6.c:347   */
 extern void BsWater_DrawSelection(void* elem, Pos* p);                /* 0x0041bfb0  +0x94 screencb.c:390  */
 extern void BsWater_Add(void* o, Pos* p);                             /* 0x0041b8e0  +0x98 ridecb6.c:480   */
+#ifndef LEGOLAND_PORTABLE
 extern void BoatingSchoolWater_Remove(void* o, unsigned int bp, void* ctx); /* 0x0041c130 +0x9c ridecb5.c:503 */
+#else
+/* PORT-M11: the DEFINITION takes the packed map square as a 2-byte aggregate BY
+ * VALUE (ridecb5.c:504 `BPosW bp`), which on x86 cdecl is the same pushed dword as the scalar
+ * spelling above -- so the byte gates never moved -- but on wasm32 the
+ * aggregate is passed INDIRECTLY, as a pointer to a shadow-stack temp, at the
+ * SAME i32 arity.  wasm-ld, linkreport and test_callback_types are all blind to
+ * that, so the callee silently reads an address as a square (PORT-M10 s1b).
+ * The square is packed at the call site; VC6 sees none of this. */
+typedef struct LLSquare { unsigned char x, y; } LLSquare;   /* objmap2.c:99's BPos -- the +0x9c slot's own shape */
+extern void BoatingSchoolWater_Remove(void* o, LLSquare sq, void* ctx); /* 0x0041c130 +0x9c ridecb5.c:503 */
+#endif
 
 extern void BoatingSchool_Create(void* elem);                         /* 0x00419d10  init  screencb.c:597  */
 extern void BoatingSchool_Destroy(void* elem);                        /* 0x00419ef0  +0xac screencb2.c:490 */
@@ -180,7 +192,18 @@ extern void BoatingSchool_SelectForPlacement(void);                   /* 0x0041a
 extern void BoatingSchool_Update(void* elem, int screen, int mode);   /* 0x0041a2f0  +0x90 screencb3.c:635 */
 extern void BoatingSchool_DrawSelection(void* elem, Pos* p);          /* 0x0041a3d0  +0x94 screencb2.c:1435*/
 extern void BoatingSchool_Add(void* o, Pos* pos);                     /* 0x0041a040  +0x98 ridecb5.c:281   */
+#ifndef LEGOLAND_PORTABLE
 extern void BoatingSchool_Remove(void* o, unsigned int bp, void* ctx);/* 0x0041a530  +0x9c ridecb8.c:380   */
+#else
+/* PORT-M11: the DEFINITION takes the packed map square as a 2-byte aggregate BY
+ * VALUE (ridecb8.c:381 `BPosW bp`), which on x86 cdecl is the same pushed dword as the scalar
+ * spelling above -- so the byte gates never moved -- but on wasm32 the
+ * aggregate is passed INDIRECTLY, as a pointer to a shadow-stack temp, at the
+ * SAME i32 arity.  wasm-ld, linkreport and test_callback_types are all blind to
+ * that, so the callee silently reads an address as a square (PORT-M10 s1b).
+ * The square is packed at the call site; VC6 sees none of this. */
+extern void BoatingSchool_Remove(void* o, LLSquare sq, void* ctx); /* 0x0041a530  +0x9c ridecb8.c:380 */
+#endif
 extern void BoatingSchool_Tick(void);                                 /* 0x0041a720  +0xa8 ridecb5.c:1236  */
 extern void BoatingSchool_Draw(void* elem, int x, int y, void* sq,
                                void* clip, int mode);                 /* 0x0041abd0  +0xb0 screencb.c:1341  */
@@ -193,7 +216,18 @@ extern void Mermaid_SelectForPlacement(void);                         /* 0x0041b
 extern void Mermaid_CalcCursor(void* o, int sx, int sy);              /* 0x0041b4c0  +0x90 ridecb8.c:578   */
 extern void Mermaid_CalcCursor2(void* o, int a);                      /* 0x0041b6d0  +0x94 ridecb8.c:1286  */
 extern void Mermaid_Add(void* o, Pos* p);                             /* 0x0041b2a0  +0x98 ridecb6.c:587   */
+#ifndef LEGOLAND_PORTABLE
 extern void BsMermaid_Remove(void* obj, unsigned int tile, void* ctx); /* 0x0041b6f0  +0x9c screencb.c:1423 */
+#else
+/* PORT-M11: the DEFINITION takes the packed map square as a 2-byte aggregate BY
+ * VALUE (screencb.c:1470 `BPosW tile`), which on x86 cdecl is the same pushed dword as the scalar
+ * spelling above -- so the byte gates never moved -- but on wasm32 the
+ * aggregate is passed INDIRECTLY, as a pointer to a shadow-stack temp, at the
+ * SAME i32 arity.  wasm-ld, linkreport and test_callback_types are all blind to
+ * that, so the callee silently reads an address as a square (PORT-M10 s1b).
+ * The square is packed at the call site; VC6 sees none of this. */
+extern void BsMermaid_Remove(void* obj, LLSquare sq, void* ctx); /* 0x0041b6f0  +0x9c screencb.c:1423 */
+#endif
 
 #ifdef LEGOLAND_PORTABLE
 /* PORT-M9: three of the twelve BOATING SCHOOL bodies take NO argument where
