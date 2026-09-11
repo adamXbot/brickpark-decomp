@@ -176,7 +176,7 @@ void Kill_FXList(FXEntry* list, int count)
 
 /* ---- money SFX --------------------------------------------------------- */
 
-extern FXEntry g_money_fx[];    /* 0x004b87a8 — 2 entries */
+extern FXEntry g_money_fx[2];   /* 0x004b87a8 — 2 entries (the count lines 187/195 pass) */
 extern int     g_money_fx_refs; /* 0x00667120 */
 
 /* Refcounted load of the two money effects. */

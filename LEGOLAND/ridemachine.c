@@ -52,8 +52,8 @@ typedef struct SlideRec {
 } SlideRec;
 typedef struct GoldRec { RideTile tile; char pad02[0x14-2]; void* pans[6]; } GoldRec;
 
-extern FXEntry g_spacetower_fx[];                        /* 0x004b7618 */
-extern FXEntry g_spider_fx[];                            /* 0x004b4d88 */
+extern FXEntry g_spacetower_fx[1];                       /* 0x004b7618  1 entry (mechrides.c:1144) */
+extern FXEntry g_spider_fx[1];                           /* 0x004b4d88  1 entry (mechrides.c:1058) */
 extern int rand(void);                                  /* 0x0049e4b2 */
 extern void SpiderRide_ReleaseSquare(RideTile*);          /* 0x00415a20 */
 extern void SpaceTower_ReleaseSquare(RideTile*);          /* 0x0043aa50 */

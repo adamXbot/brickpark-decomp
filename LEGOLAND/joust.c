@@ -692,7 +692,7 @@ extern void* GetLLSForLayer(Spr* sprite, int layer);         /* 0x00441ea0 */
 extern void* GetLLSForSprite(Spr* sprite);                   /* 0x00441e80 */
 extern void  LLSSetFrame(void* lls, int frame);              /* 0x0047d5a0 */
 
-extern FXEntry g_joust_fx[];         /* 0x004b4688  "Joust Horses.wav" */
+extern FXEntry g_joust_fx[1];        /* 0x004b4688  "Joust Horses.wav" (the count lines 707/753 pass) */
 extern Spr*    g_joust_sprite;       /* 0x004c1214  ObjDef->build_sprite */
 extern void*   g_joust_binv;         /* 0x004c1218  Zbuffers\joustride.bnv */
 extern void*   g_joust_zspr;         /* 0x004c1210  z_joust.lls (copy) */

@@ -30,7 +30,7 @@ extern void Kill_FXList(FXEntry* list, int count);   /* 0x00496e30 */
 
 /* The 0x17-entry game-map FX table; InitGameMap (0x00459850) loads it with
  * Load_FXList and stashes ElemID("CASTLE OBJ") alongside. */
-extern FXEntry g_map_fx[];   /* 0x004b9228 — 23 entries */
+extern FXEntry g_map_fx[23]; /* 0x004b9228 — 23 entries (the count line 40 passes) */
 
 /* Teardown is just the table release — the ElemID handle InitGameMap caches is
  * owned by the element bank and is not freed here. */

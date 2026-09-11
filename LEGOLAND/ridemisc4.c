@@ -126,9 +126,11 @@ extern RideDef* g_safari_def;             /* 0x004cbec4 */
 extern RideDef* g_copters_def;            /* 0x004c1198 */
 extern Pump* g_pump_list;                 /* 0x004cbea4 */
 extern JcStation* g_jc_stations;          /* 0x00629c3c */
-extern FXEntry g_plane_fx[];              /* 0x004b79d0 */
-extern FXEntry g_safari_fx[];             /* 0x004b4cb8 */
-extern FXEntry g_rest2_fx[];              /* 0x004b6968 */
+extern FXEntry g_plane_fx[2];             /* 0x004b79d0  2 entries (mechrides.c:1006); entry 0's
+                                           * `sample` slot is what ridesave.c:789 calls
+                                           * g_zoomer_loop_sample (0x004b79d8) */
+extern FXEntry g_safari_fx[1];            /* 0x004b4cb8  1 entry (mechrides.c:950) */
+extern FXEntry g_rest2_fx[3];             /* 0x004b6968  3 entries (screencb.c:265) */
 extern TowerSeatAnim g_tower_seat_anim[]; /* 0x004b7758; g_bloke_anim_ref is +4 view */
 
 extern void* HeapAlloc_w(unsigned size);                     /* 0x0049e4ff */

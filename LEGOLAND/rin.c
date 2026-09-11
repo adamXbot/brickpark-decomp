@@ -241,7 +241,7 @@ extern Anim3D*        g_anim_kind1b[6];        /* 0x0062fed4 */
 extern Anim3D*        g_anim_kind3[1];         /* 0x0062fef4 */
 
 extern char           g_gfx_name_buf[];        /* 0x006660b0 */
-extern char*          g_gfx_dirs[7];           /* 0x004b81c0: graphics, graphics,
+extern char*          g_gfx_dirs[8];           /* 0x004b81c0: graphics, graphics,
                                                 * small, masks, masks\small, icons,
                                                 * models */
 

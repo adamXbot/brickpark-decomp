@@ -80,7 +80,16 @@ typedef struct PowerEntry {
     char* name;    /* +0x00 */
     int   power;   /* +0x04 */
 } PowerEntry;
-extern PowerEntry g_power_table[];   /* 0x004b9340 */
+extern PowerEntry g_power_table[66]; /* 0x004b9340  65 names + the empty-string
+                                      * terminator the walk at line 142 stops on.
+                                      * Counted in the image: [64] is "Miniland
+                                      * Denmark" and [65] is {0x004d8bb0, 0} --
+                                      * a zeroed .data buffer, i.e. "" -- and the
+                                      * next named object (g_dir_bit_table) starts
+                                      * at 0x004b9550 = 0x004b9340 + 66*8.  The
+                                      * BOUND is what gives the object an extent,
+                                      * and without one all 65 name pointers stay
+                                      * RAW x86 VAs (PORT-B11 s3). */
 
 /* The LLIDB element an object descriptor points at; only its name matters. */
 typedef struct PowerName {

@@ -315,7 +315,7 @@ typedef struct FXEntry {
     int   pad4;     /* +0x04 */
     void* sample;   /* +0x08 */
 } FXEntry;
-extern FXEntry g_game_fx[];                                     /* 0x004b9228 */
+extern FXEntry g_game_fx[0x17];                                 /* 0x004b9228  23 entries (mapinit.c:44) */
 
 /* A sound source; kind 2 = a map square at (x,y). +0x04 is left alone. */
 typedef struct SoundSource {
