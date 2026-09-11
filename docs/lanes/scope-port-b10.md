@@ -25,37 +25,63 @@ class is open and is game-side (§4).
 
 Served `portable/build-wasm` on 8806 and opened
 `legoland.html?args=-nointro+WINDEBUG&beat=1000`. Every step is a page-hook
-call in GAME pixels; `llFrameHash()` after each. Hashes below are from the
-final build (`ll_font.c` as committed); they change if the face changes, which
-is the point of quoting the build.
+call in GAME pixels; `llFrameHash()` after each.
 
-A profile named `adam` already existed in slot 1, restored from IDBFS
-(PORT-B9's §"B5 is closed"), so the walk selects it rather than creating one.
-On a clean browser profile, replace step 2 with PORT-B7's
-`llClick(260,188); llType('adam'); llClick(505,345)`.
+**Start from a virgin IDBFS**, or the walk diverges at step 4: once a saved game
+exists, the profile's OK leads to the TITLE screen (which now has "Saved games"
+lit) instead of straight to the tutorial select, and every hash on the way
+changes with it. In the page console:
+
+```js
+for (const d of await indexedDB.databases())
+  indexedDB.deleteDatabase(d.name);       // "/gamedata/profiles"
+location.reload();
+```
+
+The `money=` column is `llPark().money`, i.e. `g_bricks`, i.e. the number the
+money bar prints. It is the load-bearing half of this table: the hashes say the
+frame changed, the money says the GAME did something.
 
 ```js
 // --- the front end -------------------------------------------------------
-await llMove(320, 240);            // 0xe14d86a0  the cursor and the game agree
-await llClick(260, 188);           // 0x6c7fbf0c  slot 1 "adam" lights
-await llClick(505, 345);           // 0x87948170  OK -> tutorial/progress screen
-await llClick(252, 362);           // 0x78b3699c  TUTORIAL level 1
-await llClick(577, 419);           // 0x09649e3c  "To the game.." -> BRIEFING p1
+await llMove(320, 240);      // 0x8ef2428c  the cursor and the game agree
+await llClick(260, 188);     // 0x50684f2d  slot 1 -> the name editor
+await llType('adam');        // 0x23d5edf9  read back live from g_temp_profile
+await llClick(505, 345);     // 0x87948170  OK -> the tutorial/progress screen
+await llClick(252, 362);     // 0xe59fe2c4  TUTORIAL level 1
+await llClick(577, 419);     // 0x99551094  "To the game.." -> BRIEFING p1
 // --- the Duty Manager's briefing (front-end screen 7, the notepad) -------
-await llClick(455, 445);           // 0xef24b4d6  the flashing arrow -> p2
-await llClick(577, 419);           // 0xc60e9981  Thumbs Up -> THE PARK
+await llClick(455, 445);     // 0x08b70513  the flashing arrow -> p2
+await llClick(577, 419);     // 0x2a6f7198  Thumbs Up -> THE PARK   money=1000
 // --- the park ------------------------------------------------------------
-await llClick(558, 243);           // 0x043bc320  close "You have a new object"
-await llClick( 53, 394);           // 0x59727f08  the flashing LEGOLAND button
-await llClick(558, 243);           // 0xe37466d8  close "Space Tower Ride"
-await llClick( 27, 156);           // 0xb7cbf474  pick the ride in the menu
-await llClick(330, 200);           // 0x5c575c80  BUILD IT -> "Your First Ride!"
-await llClick(577, 419);           // 0x6616602c  Thumbs Up -> back to the park
+await llClick(558, 243);     // 0xbce8c330  close "You have a new object"
+await llClick( 53, 394);     // 0x201fb5cd  the flashing LEGOLAND button
+await llClick(558, 243);     // 0xa09f9618  close "Space Tower Ride"  money=1030
+await llClick( 27, 156);     // 0x8d45f500  pick the ride in the menu
+await llClick(330, 200);     // 0x9eb191f8  BUILD IT -> "Your First Ride!"
+                             //                                       money=990
+await llClick(577, 419);     // 0xa2505fa9  Thumbs Up -> back to the park
 // --- paths (a DRAG, not a click: see §3) ---------------------------------
-await llClick( 40, 443);           // 0x4d339950  arm the PATH tool
-await llDrag(292, 296, 266, 232, 10);  // 0x1077fec5  a run of path
-await llDrag(222, 257, 245, 135, 14);  // 0x49823580  a second run, to the main path
+await llClick( 40, 443);     // 0xe8005f18  arm the PATH tool
+await llDrag(292, 296, 266, 232, 10);  // 0x51af50cc  a run of path
+await llDrag(222, 257, 245, 135, 14);  // 0x9a6c1564  a second run, to the main path
 ```
+
+**A caveat on the hashes, since this lane spent time on it.** They are
+reproducible *given the same IDBFS state and the same build* — the walk above
+was replayed from a wiped IndexedDB on the committed build and the eight
+front-end values came back identical. But several front-end screens carry LIVE
+ANIMATION: the advisor panel plays an AVI (`RenderAdvisorIcon`, screens3.c) and
+the flashing icons blink on a wall clock, so a hash taken 300 ms later on those
+screens differs, and any hash taken on a screen with a *bubble* up depends on
+where the cursor was. The values that hold session to session are the ones on
+still screens — `0x87948170` (tutorial select), `0xe59fe2c4`, `0x08b70513`
+(briefing p2) repeated across three separate sessions here. Treat the rest as
+"this is what it was", and treat `llPark()` as the assertion.
+
+The figures below are from the first pass, when the profile already existed;
+the replay from a virgin IDBFS reproduced every `llPark()` value in it
+(1000 -> 1030 -> 990, people 3, visitorLimit 3) and every fps within a tenth.
 
 | screen | what is on it | `llPark()` | fps | dead / traps |
 | --- | --- | --- | --- | --- |
