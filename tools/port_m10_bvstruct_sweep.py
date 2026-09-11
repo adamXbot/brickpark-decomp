@@ -446,4 +446,93 @@ def main():
         sys.exit(1)
 
 
+SELFTEST = {
+    # a FIXED pair: VC6 sees the scalar, the portable build sees the aggregate.
+    # Must NOT be reported -- without preprocessor awareness it always was, and
+    # the sweep could never reach 0 however many sites were fixed.
+    'a.c': """typedef struct BPos { unsigned char x, y; } BPos;
+typedef union BPosW { unsigned short w; BPos b; } BPosW;
+#ifndef LEGOLAND_PORTABLE
+extern void F(void* o, unsigned int t);   /* 0x00401000 */
+#else
+extern void F(void* o, BPosW t);          /* 0x00401000 */
+#endif
+""",
+    'b.c': """typedef struct BPos { unsigned char x, y; } BPos;
+// FUNCTION: LEGOLAND 0x00401000
+void F(void* o, BPos t) { (void)o; (void)t; }
+""",
+    # an UNFIXED pair: must be reported.
+    'c.c': """extern void G(void* o, unsigned int t);   /* 0x00402000 */
+""",
+    'd.c': """typedef struct BPos { unsigned char x, y; } BPos;
+// FUNCTION: LEGOLAND 0x00402000
+void G(void* o, BPos t) { (void)o; (void)t; }
+""",
+    # a body renamed for the portable build, exporting the SLOT's own shape:
+    # the wrapper is what the link sees, so this must NOT be reported either.
+    'e.c': """typedef struct BPos { unsigned char x, y; } BPos;
+typedef struct Cls {
+    void (*remove)(void* o, BPos sq);   /* +0x9c */
+} Cls;
+#ifdef LEGOLAND_PORTABLE
+#define H H_vc6_body
+#endif
+// FUNCTION: LEGOLAND 0x00403000
+void H(void* o, unsigned int sq) { (void)o; (void)sq; }
+#ifdef LEGOLAND_PORTABLE
+#undef H
+void H(void* o, BPos sq) { H_vc6_body(o, sq.x | (sq.y << 8)); }
+#endif
+void Install(Cls* c) { c->remove = H; }
+""",
+    # the same slot, a body that was NOT fixed: must be reported.
+    'f.c': """typedef struct BPos { unsigned char x, y; } BPos;
+typedef struct Cls2 {
+    void (*remove)(void* o, BPos sq);   /* +0x9c */
+} Cls2;
+// FUNCTION: LEGOLAND 0x00404000
+void J(void* o, unsigned int sq) { (void)o; (void)sq; }
+void Install2(Cls2* c) { c->remove = J; }
+""",
+}
+
+
+def selftest():
+    """Prove the three things this sweep claims it can do, on a tiny tree."""
+    import tempfile, io, contextlib
+    global ROOT
+    d = tempfile.mkdtemp(prefix='bvstruct-selftest-')
+    for name, body in SELFTEST.items():
+        open(os.path.join(d, name), 'w').write(body)
+    ROOT = d
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            main()
+    except SystemExit:
+        pass
+    out = buf.getvalue()
+    ok = True
+
+    def want(cond, what):
+        nonlocal ok
+        print('%-4s %s' % ('ok' if cond else 'FAIL', what))
+        ok = ok and cond
+
+    want('0x402000' in out, 'an unfixed decl/def pair is reported')
+    want('0x401000' not in out,
+         'a pair fixed with a portable ARM is not (preprocessor awareness)')
+    want('BODY J takes' in out, 'an unfixed body in an aggregate SLOT is reported')
+    want('BODY H takes' not in out,
+         'a body fixed with the _vc6_body rename is not (the wrapper is what links)')
+    want('`BPosW` (2B/' in out or 'BPosW' not in out,
+         'a nested union resolves to a size, not "size unknown"')
+    print()
+    print('selftest', 'PASSED' if ok else 'FAILED')
+    sys.exit(0 if ok else 1)
+
+
+if '--selftest' in sys.argv:
+    selftest()
 main()
