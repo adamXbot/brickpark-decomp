@@ -203,6 +203,20 @@ void TempleSlide_SelectForPlacement(void)
  * the sprite on the way out.
  * ========================================================================== */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the ObjDef +0xa0 DRAW slot is typed
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)` (renderview.c:304) and
+ * renderview.c:1238 calls it that way, so on wasm32 the 2-byte square goes
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- while this body's
+ * `unsigned short` is a direct i32.  Same arity, no wasm-ld warning: PORT-M10
+ * s1b's silent window, in the direction PORT-M11 s1b closed for eight other
+ * classes.  These ten were invisible to BOTH sweeps because the name stored in
+ * the slot (`Joust_A0`, ridesave.c:155) is not the name of the
+ * body, and the slot section pairs slot to body BY NAME.
+ * PORT-M3's `_vc6_body` rename: VC6 compiles the matched text unchanged and
+ * the portable build exports a wrapper of the slot's own shape over it. */
+#define Joust_GetDrawDesc Joust_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00408c50
 RideDrawDesc* Joust_GetDrawDesc(RideElem* elem, unsigned short arg)
 {
@@ -215,7 +229,28 @@ RideDrawDesc* Joust_GetDrawDesc(RideElem* elem, unsigned short arg)
     def->sprite->flags |= 0x2000;
     return &g_joust_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Joust_GetDrawDesc
+RideDrawDesc* Joust_GetDrawDesc(RideElem* elem, RideTile base)
+{
+    return Joust_GetDrawDesc_vc6_body(elem, base.key);
+}
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the ObjDef +0xa0 DRAW slot is typed
+ * `SpriteDesc* (*draw)(void* ctx, BPos base)` (renderview.c:304) and
+ * renderview.c:1238 calls it that way, so on wasm32 the 2-byte square goes
+ * INDIRECTLY -- a pointer to a shadow-stack temp -- while this body's
+ * `unsigned short` is a direct i32.  Same arity, no wasm-ld warning: PORT-M10
+ * s1b's silent window, in the direction PORT-M11 s1b closed for eight other
+ * classes.  These ten were invisible to BOTH sweeps because the name stored in
+ * the slot (`TempleSlide_A0`, ridesave.c:331) is not the name of the
+ * body, and the slot section pairs slot to body BY NAME.
+ * PORT-M3's `_vc6_body` rename: VC6 compiles the matched text unchanged and
+ * the portable build exports a wrapper of the slot's own shape over it. */
+#define TempleSlide_GetDrawDesc TempleSlide_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00417300
 RideDrawDesc* TempleSlide_GetDrawDesc(RideElem* elem, unsigned short arg)
 {
@@ -228,6 +263,13 @@ RideDrawDesc* TempleSlide_GetDrawDesc(RideElem* elem, unsigned short arg)
     def->sprite->flags |= 0x2000;
     return &g_ts_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef TempleSlide_GetDrawDesc
+RideDrawDesc* TempleSlide_GetDrawDesc(RideElem* elem, RideTile base)
+{
+    return TempleSlide_GetDrawDesc_vc6_body(elem, base.key);
+}
+#endif
 
 /* ==========================================================================
  * THE PER-PLACEMENT RECORD LISTS

@@ -43,6 +43,20 @@ extern int SaveGameWrite(const void* buf, unsigned int n);   /* 0x0047d760 */
 extern void* HeapAlloc_w(unsigned int size);                 /* 0x0049e4ff */
 extern int NameCompare(const char* a, const char* b);        /* 0x004aab90 (_stricmp) */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M12: the packed 2-byte map square the +0xa0 DRAW slot takes BY VALUE
+ * (renderview.c:304 `SpriteDesc* (*draw)(void* ctx, BPos base)`).  It is a
+ * 2-byte, 2-member aggregate, so wasm32 passes it INDIRECTLY while the
+ * `unsigned short` these declarations used to carry is direct -- the same
+ * i32 arity, so nothing warned.  See the bodies' notes in joust.c.
+ * VC6 never sees this type. */
+typedef struct LLDrawPos { unsigned char x; unsigned char y; } LLDrawPos;
+typedef union LLDrawSquare {
+    unsigned short key;
+    LLDrawPos      b;
+} LLDrawSquare;
+#endif
+
 /* ---- object class descriptor -------------------------------------------
  * The 0xd0-byte ObjDef of llidb_odf.c, seen from the ride DLL side: the
  * per-class callback slots at +0x8c..+0xbc and the live instance list at
@@ -103,7 +117,7 @@ extern void Joust_Add(void* obj, void* pos);   /* 0x004079e0 */
 #ifndef LEGOLAND_PORTABLE
 extern void Joust_A0(void);      /* 0x00408c50 */
 #else   /* PORT-M7: joust.c RideDrawDesc* Joust_GetDrawDesc(RideElem* elem, unsigned short arg) */
-extern void* Joust_A0(void* elem, unsigned short tile);   /* 0x00408c50 */
+extern void* Joust_A0(void* elem, LLDrawSquare tile);   /* 0x00408c50 */
 #endif
 int SaveJoust(void);
 int LoadJoust(RideElem* elem);
@@ -312,7 +326,7 @@ extern void TempleSlide_Add(void* obj, void* pos);   /* 0x004172d0 */
 #ifndef LEGOLAND_PORTABLE
 extern void TempleSlide_A0(void);      /* 0x00417300 */
 #else   /* PORT-M7: joust.c RideDrawDesc* TempleSlide_GetDrawDesc(RideElem* elem, unsigned short arg) */
-extern void* TempleSlide_A0(void* elem, unsigned short tile);   /* 0x00417300 */
+extern void* TempleSlide_A0(void* elem, LLDrawSquare tile);   /* 0x00417300 */
 #endif
 int SaveTempleSlide(void);
 int LoadTempleSlide(RideElem* elem);

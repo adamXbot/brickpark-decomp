@@ -72,6 +72,12 @@ OFFFIELD = re.compile(
     r'^\s*[^;{}]*?\b(?P<field>[A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*;'
     r'[^\n]*?/\*\s*(?:\[\d*\]\s*)?(?:->\s*)?\+(?P<off>0x[0-9a-fA-F]+)')
 # an assignment of a bare function name into a slot:  p->f4 = (void*)Standard...;
+# any extern declaration that carries the callee's address: the bridge from a
+# stale alias NAME to the address its body is marked with (PORT-M12).
+DECLADDR = re.compile(
+    r'^\s*extern\s+.*?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\([^;]*\)\s*;'
+    r'.*?/\*\s*(?P<addr>0x[0-9a-fA-F]{6,8})')
+
 SLOTSET = re.compile(
     r'(?:->|\.)(?P<field>[A-Za-z_]\w*)\s*=\s*(?:\(\s*[A-Za-z_][\w\s*]*\)\s*)?'
     r'(?P<fn>[A-Za-z_]\w*)\s*;')
@@ -344,16 +350,45 @@ def find_slot_hazards(files, text, live):
                 key = names.get(m.group('field'))
                 if key:
                     stored[key].add((m.group('fn'), f, i))
-    # every definition in the tree, by name, as the PORTABLE build sees it
-    bodies = {}
+    # every definition in the tree, by name AND by address, as the PORTABLE
+    # build sees it.
+    #
+    # PORT-M12: by name was not enough.  262 functions in this tree are
+    # DECLARED under a name that is not the name of their definition
+    # (gen_link's "function aliases (stale extern names)"), and a slot is
+    # filled with the declaration's name: `def->cb_draw = SpaceTower_Draw;`
+    # against `RideDrawDesc* SpaceTower_GetDrawDesc(...)` in mechrides.c.  For
+    # every one of those `bodies.get(fn)` returned None and the row was DROPPED
+    # -- silently, which is the one thing a gate may never do.  Eighteen stores
+    # of ten +0xa0 draw bodies were hiding behind exactly that, including the
+    # Space Tower's and all nine western-town shopfronts'.  The stored name is
+    # now resolved through its own declaration's /* 0xADDR */ comment and the
+    # body looked up by ADDRESS; the name path stays first so an unaliased
+    # store costs nothing.
+    bodies, bodies_addr = {}, {}
     for f in files:
         for addr, lno, name, args, sig in scan_file_bodies(f, text, live):
             bodies[name] = (f, lno, args, sig)
+            bodies_addr[addr.lower().replace('0x00', '0x')] = (f, lno, args,
+                                                               sig)
+    name_addr = collections.defaultdict(set)
+    for f in files:
+        for i, ln in enumerate(text[f].splitlines(), 1):
+            if i not in live[f]:
+                continue
+            m = DECLADDR.match(ln)
+            if m:
+                name_addr[m.group('name')].add(
+                    m.group('addr').lower().replace('0x00', '0x'))
     out = {}
     for field, decls in sorted(slots.items()):
         f0, i0, pos, tname, info = decls[0]
         for fn, sf, sl in sorted(stored.get(field, ())):
             b = bodies.get(fn)
+            if not b:
+                cand = [bodies_addr[a] for a in sorted(name_addr.get(fn, ()))
+                        if a in bodies_addr]
+                b = cand[0] if len(cand) == 1 else None
             if not b:
                 continue
             bf, bl, bargs, bsig = b
