@@ -29,6 +29,21 @@ extern int   g_render_b;       /* 0x00655a4c */
 extern void* g_render2_a;      /* 0x0062fef0 */
 extern int   g_render2_b;      /* 0x00655a50 */
 
+/* PORT-M9: the two render-list ARENAS the frame reset points the bump pointers
+ * at.  renderlist.c's header names them -- "list 1 : arena base 0x00630108,
+ * bump ptr @ 0x0062feec" and "list 2 : arena base 0x00638218, bump ptr @
+ * 0x0062fef0" -- but the recovery spelled the base as the raw immediate the
+ * original writes.  In the portable build that is a raw x86 VA: every frame in
+ * the park the bump allocator (blokelist.c:213, tinystubs.c:228/233) would walk
+ * and WRITE 16-byte items starting at linear address 0x00630108, which is
+ * whatever the generated closure happens to have laid out there.  Named for
+ * both builds -- `offset g_render_arena1` is the same immediate on x86 -- and
+ * the name is what gives the generator a block to allocate (it sizes an array
+ * of unknown extent by the gap to the next named address, which is exactly the
+ * arena). */
+extern unsigned char g_render_arena1[];  /* 0x00630108  render list 1 */
+extern unsigned char g_render_arena2[];  /* 0x00638218  render list 2 */
+
 extern int   g_colour_mode;    /* 0x00668088 */
 extern unsigned char g_palette_lut[]; /* 0x00814020 */
 
@@ -167,14 +182,14 @@ void UnAdjustBlokePosition(Bloke* p)
 // FUNCTION: LEGOLAND 0x00442e90
 void RenderItems_New(void)
 {
-    g_render_a = (void*)0x630108;
+    g_render_a = g_render_arena1;
     g_render_b = 0;
 }
 
 // FUNCTION: LEGOLAND 0x00443060
 void RenderItems2_New(void)
 {
-    g_render2_a = (void*)0x638218;
+    g_render2_a = g_render_arena2;
     g_render2_b = 0;
 }
 

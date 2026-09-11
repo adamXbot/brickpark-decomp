@@ -81,7 +81,8 @@ extern Vec3f g_half_step[];                     /* 0x00611658 */
 extern PieceDesc g_pieces[];                    /* 0x00828fe0 */
 extern Mat4 g_view_matrix;                      /* 0x008299fc */
 extern CoasterRec g_castle;                     /* 0x00829ae0 */
-extern void* g_span_cursor;                     /* 0x004b5b3c */
+extern void* g_span_cursor;                     /* 0x004b5b3c (schoolcar.c: g_cmd_write) */
+extern int   g_cmd_buf[];                       /* 0x004dd870, 0x6000 bytes; see Raster_AddSpanRecord */
 extern int g_span_count;                        /* 0x0060f908 */
 extern int g_span_overflow;                     /* 0x0060f90c */
 
@@ -607,7 +608,22 @@ void Raster_AddSpanRecord(int ne, int y, SortKey* keys, SpanEdge* edges)
     saved = cur;
     n++;
     g_span_count = n;
+#ifndef LEGOLAND_PORTABLE
     if ((unsigned)(cur + 0x10) > (unsigned)0x004e3870) {
+#else
+    /* PORT-M9: 0x004e3870 is the END of the command buffer this appends to --
+     * schoolcar.c's Coaster3D_EndFrame names the pair, `g_cmd_buf` at
+     * 0x004dd870 (0x6000 bytes) and `g_zbuffer` at 0x004e3870 right behind it,
+     * and our `g_span_cursor` is its `g_cmd_write`.  The original compares
+     * against that absolute VA, which only means "the end of the buffer"
+     * because of where the linker put the two objects; in the portable build
+     * they are separate C objects at unrelated linear addresses, so the raw
+     * bound is meaningless -- it either never fires (and the writes below run
+     * off the end of the buffer) or always fires (and no span is ever
+     * recorded).  The bound expressed from the buffer itself is the same number
+     * on x86 and the right one everywhere. */
+    if ((char*)cur + 0x10 > (char*)g_cmd_buf + 0x6000) {
+#endif
         g_span_overflow = 1;
         return;
     }

@@ -111,6 +111,38 @@ extern int Rand_Helper(int);        /* 0x004806a0 (unconfirmed name) */
 extern void* MemAlloc(int);         /* 0x0049e4ff */
 extern void  MemFree(void*);        /* 0x0049e4d0 */
 
+/* PORT-M9: the five standard class callbacks SetStandardCallbacks installs.
+ * The original writes each as an immediate (`mov dword ptr [ecx+0x98],
+ * 0x45efe0`) and the recovery spelled the immediate rather than the symbol --
+ * a perfect byte match that is unrepresentable on wasm, where a function
+ * "pointer" is a table index and 4,517,856 is not one.  Naming them is better
+ * for the decomp and costs nothing on x86: `&Name` assembles to the same
+ * immediate with a DIR32 relocation, and `tools/relocs.py` proves that
+ * relocation resolves to the original's own target.  Slot numbers are the
+ * ObjDef/ObjClass offsets (see loaders.c's IfaceTable).
+ * Parameter shapes are the ones the DEFINITIONS have (the second argument of
+ * StandardRemoveObject is the packed 2-byte map square by value, spelled
+ * `unsigned int` here as in goldrush.c/joust.c). */
+extern void SetEditObjectFromElem(void* elem);                       /* 0x00480b70  +0x8c  pathobj2.c:243  */
+extern void CalcBasicObjectCursor(void* o, int sx, int sy);          /* 0x0045fa80  +0x90  objmap.c:332    */
+extern void BasicObjectDCalcCursor(void* unused, Pos* pos);          /* 0x00480bb0  +0x94  objmap2.c:505   */
+extern void AddBasicObject(void* obj, Pos* pos, void* ctx);          /* 0x0045efe0  +0x98  objmap2.c:459   */
+extern void StandardRemoveObject(void* obj, unsigned int bp, void* ctx); /* 0x0045f220  +0x9c  objmap2.c:982 */
+
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M9: ObjClass +0x98 is called with TWO arguments -- mapobj.c's
+ * PutObjOnMap does `cls->place(obj, pos)` -- while AddBasicObject's definition
+ * takes a third that it never reads (its slot homes `bp`; see the note above
+ * objmap2.c:459).  On x86 cdecl the caller simply does not push it; a wasm
+ * `call_indirect` whose type is not the target's traps, so the portable build
+ * registers an adapter of the slot's own type.  The matched body is untouched.
+ * Same shape as PORT-M3's `ll_cb_*` statics in interfaces.c. */
+static void ll_cb_98_AddBasicObject(void* ll_obj, Pos* ll_pos)
+{
+    AddBasicObject(ll_obj, ll_pos, 0);
+}
+#endif
+
 #pragma intrinsic(strlen)
 
 /* -------------------------------------------------------------- functions -- */
@@ -161,11 +193,15 @@ unsigned int mystrlen(const char* s)
 // FUNCTION: LEGOLAND 0x00480cd0
 void SetStandardCallbacks(CB* p)
 {
-    p->f0 = (void*)0x480b70;
-    p->f1 = (void*)0x45fa80;
-    p->f2 = (void*)0x480bb0;
-    p->f3 = (void*)0x45efe0;
-    p->f4 = (void*)0x45f220;
+    p->f0 = (void*)SetEditObjectFromElem;
+    p->f1 = (void*)CalcBasicObjectCursor;
+    p->f2 = (void*)BasicObjectDCalcCursor;
+#ifndef LEGOLAND_PORTABLE
+    p->f3 = (void*)AddBasicObject;
+#else
+    p->f3 = (void*)ll_cb_98_AddBasicObject;   /* PORT-M9: the +0x98 slot's own type */
+#endif
+    p->f4 = (void*)StandardRemoveObject;
 }
 
 // FUNCTION: LEGOLAND 0x00480d10

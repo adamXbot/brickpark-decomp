@@ -153,42 +153,121 @@ typedef struct IfaceTable {
     void* cb_c0;             /* [13] -> +0xc0 */
 } IfaceTable;
 
+/* PORT-M9: the BOATING SCHOOL family's callbacks, by NAME.
+ *
+ * The original writes each as an immediate (`mov dword ptr [eax+0x20],
+ * 0x41b880`) and the recovery spelled the immediate rather than the symbol.
+ * That matches byte for byte and is unrepresentable on wasm, where a function
+ * "pointer" is a table index -- a raw x86 address in a slot is a `table index
+ * is out of bounds` trap the moment the slot is called.  Naming them is also
+ * what the decomp wants; `&Name` assembles to the same immediate on x86, with
+ * a DIR32 relocation `tools/relocs.py` resolves back to the original target.
+ *
+ * The parameter shapes below are the ones the DEFINITIONS have, spelled with
+ * `void*` where the real types are this file's neighbours'.  The packed 2-byte
+ * map square the remove handlers take BY VALUE is spelled `unsigned int`, as
+ * in goldrush.c/joust.c: both lower to one i32. */
+extern void BsWater_LoadResources(void* elem);                        /* 0x0041b830  init  ridecb8.c:1570  */
+extern void BsWater_SelectForPlacement(void);                         /* 0x0041b880  +0x8c ridecb8.c:1545  */
+extern void BsWater_CalcCursor(void* o, int sx, int sy);              /* 0x0041bd40  +0x90 ridecb6.c:347   */
+extern void BsWater_DrawSelection(void* elem, Pos* p);                /* 0x0041bfb0  +0x94 screencb.c:390  */
+extern void BsWater_Add(void* o, Pos* p);                             /* 0x0041b8e0  +0x98 ridecb6.c:480   */
+extern void BoatingSchoolWater_Remove(void* o, unsigned int bp, void* ctx); /* 0x0041c130 +0x9c ridecb5.c:503 */
+
+extern void BoatingSchool_Create(void* elem);                         /* 0x00419d10  init  screencb.c:597  */
+extern void BoatingSchool_Destroy(void* elem);                        /* 0x00419ef0  +0xac screencb2.c:490 */
+extern void BoatingSchool_SelectForPlacement(void);                   /* 0x0041a000  +0x8c ridecb8.c:1252  */
+extern void BoatingSchool_Update(void* elem, int screen, int mode);   /* 0x0041a2f0  +0x90 screencb3.c:635 */
+extern void BoatingSchool_DrawSelection(void* elem, Pos* p);          /* 0x0041a3d0  +0x94 screencb2.c:1435*/
+extern void BoatingSchool_Add(void* o, Pos* pos);                     /* 0x0041a040  +0x98 ridecb5.c:281   */
+extern void BoatingSchool_Remove(void* o, unsigned int bp, void* ctx);/* 0x0041a530  +0x9c ridecb8.c:380   */
+extern void BoatingSchool_Tick(void);                                 /* 0x0041a720  +0xa8 ridecb5.c:1236  */
+extern void BoatingSchool_Draw(void* elem, int x, int y, void* sq,
+                               void* clip, int mode);                 /* 0x0041abd0  +0xb0 screencb.c:1341  */
+extern int  SaveBoatingSchool(void);                                  /* 0x0041acf0  +0xbc ridecb8.c:96    */
+extern int  LoadBoatingSchool(void);                                  /* 0x0041aee0  +0xb8 ridecb6.c:197   */
+extern int  BoatingSchool_BestTake(void* cls, int working_only);       /* 0x0041b100  +0xc0 ridecb6.c:1187  */
+
+extern void Mermaid_LoadResources(void* elem);                        /* 0x0041b250  init  ridecb8.c:1263  */
+extern void Mermaid_SelectForPlacement(void);                         /* 0x0041b260  +0x8c ridecb8.c:1272  */
+extern void Mermaid_CalcCursor(void* o, int sx, int sy);              /* 0x0041b4c0  +0x90 ridecb8.c:578   */
+extern void Mermaid_CalcCursor2(void* o, int a);                      /* 0x0041b6d0  +0x94 ridecb8.c:1286  */
+extern void Mermaid_Add(void* o, Pos* p);                             /* 0x0041b2a0  +0x98 ridecb6.c:587   */
+extern void BsMermaid_Remove(void* obj, unsigned int tile, void* ctx); /* 0x0041b6f0  +0x9c screencb.c:1423 */
+
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M9: three of the twelve BOATING SCHOOL bodies take NO argument where
+ * their slot is called with the element pointer:
+ *   +0xa8 called as (elem) by renderview.c:1130
+ *   +0xb8 called as (elem) by savegame.c:1365
+ *   +0xbc called as (elem) by savegame.c:941
+ * Free on x86 cdecl (the caller pushes and the caller cleans up) and fatal for
+ * a wasm call_indirect, whose type must be the target's exactly.  The portable
+ * build registers an adapter of the slot's own type which drops the argument,
+ * exactly as PORT-M3 did for the .data-registered classes in interfaces.c.
+ * The matched bodies are untouched. */
+static void ll_cb_a8_BoatingSchool_Tick(void* ll_elem)
+{
+    (void)ll_elem;
+    BoatingSchool_Tick();
+}
+static int ll_cb_b8_LoadBoatingSchool(void* ll_elem)
+{
+    (void)ll_elem;
+    return LoadBoatingSchool();
+}
+static int ll_cb_bc_SaveBoatingSchool(void* ll_elem)
+{
+    (void)ll_elem;
+    return SaveBoatingSchool();
+}
+#endif
+
 /* The BOATING SCHOOL family's built-in GetInterfaces. The callbacks are
- * referenced by address only (their bodies are other lanes'). */
+ * referenced by name (PORT-M9; the bodies are other lanes'). */
 // FUNCTION: LEGOLAND 0x0041b150
 void GetInterface(LLElem* elem, IfaceTable* t)
 {
     if (NameCompare("BOATING SCHOOL WATER", elem->name) == 0) {
-        t->init  = (void (*)(LLElem*))0x41b830;
-        t->cb_8c = (void*)0x41b880;
-        t->cb_90 = (void*)0x41bd40;
-        t->cb_94 = (void*)0x41bfb0;
-        t->cb_98 = (void*)0x41b8e0;
-        t->cb_9c = (void*)0x41c130;
+        t->init  = (void (*)(LLElem*))BsWater_LoadResources;
+        t->cb_8c = (void*)BsWater_SelectForPlacement;
+        t->cb_90 = (void*)BsWater_CalcCursor;
+        t->cb_94 = (void*)BsWater_DrawSelection;
+        t->cb_98 = (void*)BsWater_Add;
+        t->cb_9c = (void*)BoatingSchoolWater_Remove;
         return;
     }
     if (NameCompare("BOATING SCHOOL", elem->name) == 0) {
-        t->init  = (void (*)(LLElem*))0x419d10;
-        t->cb_ac = (void*)0x419ef0;
-        t->cb_8c = (void*)0x41a000;
-        t->cb_90 = (void*)0x41a2f0;
-        t->cb_94 = (void*)0x41a3d0;
-        t->cb_98 = (void*)0x41a040;
-        t->cb_9c = (void*)0x41a530;
-        t->cb_a8 = (void*)0x41a720;
-        t->cb_b0 = (void*)0x41abd0;
-        t->cb_bc = (void*)0x41acf0;
-        t->cb_b8 = (void*)0x41aee0;
-        t->cb_c0 = (void*)0x41b100;
+        t->init  = (void (*)(LLElem*))BoatingSchool_Create;
+        t->cb_ac = (void*)BoatingSchool_Destroy;
+        t->cb_8c = (void*)BoatingSchool_SelectForPlacement;
+        t->cb_90 = (void*)BoatingSchool_Update;
+        t->cb_94 = (void*)BoatingSchool_DrawSelection;
+        t->cb_98 = (void*)BoatingSchool_Add;
+        t->cb_9c = (void*)BoatingSchool_Remove;
+#ifndef LEGOLAND_PORTABLE
+        t->cb_a8 = (void*)BoatingSchool_Tick;
+#else
+        t->cb_a8 = (void*)ll_cb_a8_BoatingSchool_Tick;   /* PORT-M9: the +0xa8 slot's own type */
+#endif
+        t->cb_b0 = (void*)BoatingSchool_Draw;
+#ifndef LEGOLAND_PORTABLE
+        t->cb_bc = (void*)SaveBoatingSchool;
+        t->cb_b8 = (void*)LoadBoatingSchool;
+#else
+        t->cb_bc = (void*)ll_cb_bc_SaveBoatingSchool;    /* PORT-M9: the +0xbc slot's own type */
+        t->cb_b8 = (void*)ll_cb_b8_LoadBoatingSchool;    /* PORT-M9: the +0xb8 slot's own type */
+#endif
+        t->cb_c0 = (void*)BoatingSchool_BestTake;
         return;
     }
     if (NameCompare("BOATING SCHOOL MERMAID", elem->name) == 0) {
-        t->init  = (void (*)(LLElem*))0x41b250;
-        t->cb_8c = (void*)0x41b260;
-        t->cb_90 = (void*)0x41b4c0;
-        t->cb_94 = (void*)0x41b6d0;
-        t->cb_98 = (void*)0x41b2a0;
-        t->cb_9c = (void*)0x41b6f0;
+        t->init  = (void (*)(LLElem*))Mermaid_LoadResources;
+        t->cb_8c = (void*)Mermaid_SelectForPlacement;
+        t->cb_90 = (void*)Mermaid_CalcCursor;
+        t->cb_94 = (void*)Mermaid_CalcCursor2;
+        t->cb_98 = (void*)Mermaid_Add;
+        t->cb_9c = (void*)BsMermaid_Remove;
     }
 }
 
