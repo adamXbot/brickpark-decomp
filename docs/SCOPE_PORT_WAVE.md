@@ -53,6 +53,8 @@
 
 > **PORT-M9 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-M9)** — B9-4, the third blocker class: function and data addresses written as INTEGER LITERALS in the recovered C, which the closure generator can never see. Notes `docs/lanes/scope-port-m9.md`
 
+> **PORT-B10 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-B10)** — PLAY the park: follow the tutorial end to end (briefing, path, ride, simulation) and report every screen, every defect and the park's frame rate. Host-shim side only. Notes `docs/lanes/scope-port-b10.md`
+
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
 portable build (`portable/`, see `portable/README.md`) compiles all 258 game
