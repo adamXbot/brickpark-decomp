@@ -305,11 +305,14 @@ allows. PORT-A9 owns `portable/tools/**`; nothing there was touched.)*
 
 | gate | result |
 | --- | --- |
-| `audit.py` on all 29 touched `LEGOLAND/*.c` | see the table below — **every row byte-identical to base**, 0 REJECT / FAIL / COMPILE FAILED |
+| `audit.py` on all 29 touched `LEGOLAND/*.c` | **29 × `PASS: 0 function(s) failed the extent gate`**, 106 `[OK]` rows mismatch=0, 0 REJECT / FAIL / COMPILE FAILED |
+| the 4 `[WIP]` rows among them | `RunAppraisalScreen` 7845, `StepSchoolCar` 72, `TempleSlide_Update` 18, `JungleCruise_Tick` 11 — **each re-measured on the base commit and identical to the digit**, so nothing this lane did moved a byte |
+| the VC6 VIEW of all 29 files, diffed against base | the only differences VC6 sees at all are the 15 array bounds and appraisalscreen.c's identifier rename (§2b, §3); the 14 files that carry §1's work are **byte-for-byte identical text** |
 | `relocs.py` on all 29 | **0 MISMATCH** |
-| `progress.py --check` | **3281 exact / 42 WIP** |
+| `relocs.py --all` tree-wide | **`"mismatches": 0`** over 254 files / 3281 functions / 28 290 relocations (26 663 matched, 1 627 unresolved string literals — the tree's standing baseline) |
+| `progress.py --check` | **3281 exact / 42 WIP**, 665/675 exports (report regenerated and committed) |
 | `portable/tools/extern_sweep.py` | clean — "the class is closed" |
-| `tools/port_m10_bvstruct_sweep.py` | **silent 0, slot 0** (21 and 22 before) |
+| `tools/port_m10_bvstruct_sweep.py` | **silent 0, slot 0** (21 and 22 before); exits 0, and `--selftest` PASSES its five assertions |
 | raw pointer words, declaration-independent | **122 → 31**, all CRT (§2d) |
 | `gen/pointers.md` | declared 7659, in no emitted block 0, **raw 0** |
 | wasm: `emcmake cmake` + `ninja` + the five extra targets | exit 0, no wasm-ld signature warning, "imported with more than one signature: 0" |
