@@ -81,14 +81,30 @@ typedef struct RideDef {
 } RideDef;
 
 /* ---- JOUST (0x00408db0) -------------------------------------------------- */
+#ifndef LEGOLAND_PORTABLE
 extern void Joust_A4(void);      /* 0x00407b50 */
+#else   /* PORT-M7: joust.c void Joust_LoadResources(RideElem* elem) */
+extern void Joust_A4(void* elem);   /* 0x00407b50 */
+#endif
 extern void Joust_AC(void);      /* 0x00408c00 */
 extern void Joust_8C(void);      /* 0x00408bc0 */
 extern void Joust_Update(void);  /* 0x00407c30 */
+#ifndef LEGOLAND_PORTABLE
 extern void Joust_B0(void);      /* 0x00408580 */
+#else   /* PORT-M7: joust.c void Joust_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode) */
+extern void Joust_B0(void* elem, int x, int y, void* sq, void* clip, int mode);   /* 0x00408580 */
+#endif
 extern void Joust_Remove(void);  /* 0x00407ad0 */
+#ifndef LEGOLAND_PORTABLE
 extern void Joust_Add(void);     /* 0x004079e0 */
+#else   /* PORT-M7: joust.c void Joust_Place(void* obj, Pos* pos) */
+extern void Joust_Add(void* obj, void* pos);   /* 0x004079e0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void Joust_A0(void);      /* 0x00408c50 */
+#else   /* PORT-M7: joust.c RideDrawDesc* Joust_GetDrawDesc(RideElem* elem, unsigned short arg) */
+extern void* Joust_A0(void* elem, unsigned short tile);   /* 0x00408c50 */
+#endif
 int SaveJoust(void);
 int LoadJoust(RideElem* elem);
 
@@ -266,14 +282,38 @@ int LoadJoust(RideElem* elem)
 }
 
 /* ---- TEMPLE SLIDE interfaces (0x00417a00) -------------------------------- */
+#ifndef LEGOLAND_PORTABLE
 extern void TempleSlide_A4(void);      /* 0x00417150 */
+#else   /* PORT-M7: joust.c void TempleSlide_LoadResources(RideElem* elem) */
+extern void TempleSlide_A4(void* elem);   /* 0x00417150 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void TempleSlide_AC(void);      /* 0x00417200 */
+#else   /* PORT-M7: joust.c void TempleSlide_FreeResources(RideElem* elem) */
+extern void TempleSlide_AC(void* elem);   /* 0x00417200 */
+#endif
 extern void TempleSlide_8C(void);      /* 0x00417240 */
+#ifndef LEGOLAND_PORTABLE
 extern void TempleSlide_A8(void);      /* 0x00417430 */
+#else   /* PORT-M7: joust.c void TempleSlide_Update(RideElem* elem) */
+extern void TempleSlide_A8(void* elem);   /* 0x00417430 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void TempleSlide_B0(void);      /* 0x00416fa0 */
+#else   /* PORT-M7: joust.c void TempleSlide_Draw(RideElem* elem, int x, int y, RideTile* sq, void* clip, int mode) */
+extern void TempleSlide_B0(void* elem, int x, int y, void* sq, void* clip, int mode);   /* 0x00416fa0 */
+#endif
 extern void TempleSlide_Remove(void);  /* 0x00417280 */
+#ifndef LEGOLAND_PORTABLE
 extern void TempleSlide_Add(void);     /* 0x004172d0 */
+#else   /* PORT-M7: joust.c void TempleSlide_Place(void* obj, Pos* pos) */
+extern void TempleSlide_Add(void* obj, void* pos);   /* 0x004172d0 */
+#endif
+#ifndef LEGOLAND_PORTABLE
 extern void TempleSlide_A0(void);      /* 0x00417300 */
+#else   /* PORT-M7: joust.c RideDrawDesc* TempleSlide_GetDrawDesc(RideElem* elem, unsigned short arg) */
+extern void* TempleSlide_A0(void* elem, unsigned short tile);   /* 0x00417300 */
+#endif
 int SaveTempleSlide(void);
 int LoadTempleSlide(RideElem* elem);
 
