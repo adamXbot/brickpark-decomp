@@ -515,12 +515,19 @@ arguments:
 
 and `interfaces.c:794,874` shows why: `extern void Bank_Activate(void);` then
 `def->cb_activate = Bank_Activate;` — the name's address goes into an
-object-definition table and is never called directly. Getting the declaration
-right therefore means deciding what the *slot* type is, which is PORT-M3's
-typed-callback pass continued rather than a return-type edit. 72 rows, mostly in
-`interfaces.c` and the ride/attraction files, one declaration each.
-**Recommend a PORT-M7 brief** with the generator's own manifest table as the work
-list and `portable/tests/test_callback_types.c` as the gate.
+object-definition table and is never called directly.
+
+**And here is the reason not to pick these off one at a time.** Today the
+forwarder is `() -> void`, which is also how the declaring file types the table
+slot, so the indirect call through the slot *succeeds* and the body simply reads
+a garbage argument. Correct the declaration alone and the forwarder becomes
+`(i32) -> void` while the slot stays `() -> void` — and the call that works
+today starts trapping. The declaration and the slot type have to move in the
+same commit, which is PORT-M3's typed-callback pass continued rather than a
+return-type edit. 72 rows, mostly in `interfaces.c` and the ride/attraction
+files. **Recommend a PORT-M7 brief** with the generator's own manifest table as
+the work list, `portable/tests/test_callback_types.c` as the compile-time gate
+and `name_trap.py --continue` on `legoland_headless` as the runtime one.
 
 ---
 
@@ -563,6 +570,7 @@ Tree-level:
 | `tools/progress.py --check` | **3281 exact / 42 WIP**, 665/675 exports (98.5%); the report is regenerated in this branch because 19 files' line numbers moved |
 | wasm: `ninja` + 5 extra targets + `ctest` | builds, **16/16** |
 | native: `ninja` + `legoland_tests` + `legoland_cbtypes` + `ctest` | builds, **10/10** |
+| `legoland_headless -nointro` under node, no `LL_TRAP_CONTINUE` | opens the window, enters the game loop, **no TRAP and no `unreachable`** (the repeated "cannot open output file" is the game's own `DebugPrintf`); it does not terminate, because the front end does not |
 | `grep -c '))&' gen-browser/aliases.c` | 82 → **72** |
 | both builds from a CLEAN directory (`rm -rf portable/build portable/build-wasm`) | wasm 16/16, native 10/10, 72 cast forwarders, the three addresses right -- so nothing above depends on a stale generated closure (A6 §10) |
 | `cdecl.py --overlaps` before vs after | 372 -> **369** pairs, 233 -> **231** touched by one function; the diff is exactly the three `pathmisc2.c` lines and nothing else |
