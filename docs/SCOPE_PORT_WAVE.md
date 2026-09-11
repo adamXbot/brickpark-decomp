@@ -44,6 +44,7 @@
 > `CurProfile` at 0x0080ffa0 is EIGHT (so the name editor never runs); both rows
 > twice-cited in the notes. Notes `docs/lanes/scope-port-b6.md`.
 > **PORT-M5 — Status: MERGED (2026-09-12) — five caller/definition names decided from the disassembly (ShowStepHint, ResetFreePlayTable, SaveFrontEndState, CloseActiveThemeButton, SetVidAnim); M3's three open slots closed (DrawBasicPath is an original mis-registration that cannot fire; coaster8.c detach was a wrong callee NAME — RouteSeat_ReleaseCar); sub_458930 is a bare fistp that ROUNDS: 95 of 111 float-to-int sites now LL_FISTP in portable arms, g_recip[30]=2185 corrected; the last three span fillers ported (asm stubs 6 -> 3, all unreachable); 37 files, audit 425 [OK] mismatch=0, relocs 0 tree-wide, 3281/42. Notes `docs/lanes/scope-port-m5.md`**
+> **PORT-B8 — Status: MERGED (2026-09-12) — B2 diagnosed with a host-call heartbeat (`?beat=`): both doors into the park spin in `KillLowMarkerSprites` because `g_low_markers`/`g_level_markers` carry RAW x86 addresses of strings swallowed inside A6's widened objects (1211 raw-VA words in 177 objects — PORT-A7's). Tutorial select and advert screens replayable; save/load of Profile1.txt works in-session (MEMFS, lost on reload). Notes `docs/lanes/scope-port-b8.md`**
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
