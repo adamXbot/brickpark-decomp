@@ -112,9 +112,30 @@ extern const char g_map_spanner_lls[]; /* 0x004b90b4 "mapSpanner.lls" */
 
 extern SpriteRec* LoadSprite(const char* name, int kind);          /* 0x00497ab0 */
 extern int        KillSprite(SpriteRec* s);                        /* 0x00497bd0 */
+#ifndef LEGOLAND_PORTABLE
 extern SpriteRec* CreateFunctionBasedSprite(void (*fn)(void), short w, short h);
                                                                    /* 0x004976c0 */
+#else
+/* PORT-M8: the slot this fills is sprite2.c's `((SpriteDrawFn)s->image)(s)`
+ * (0x00497b70 MakeSprite: `push esi; call dword ptr [esi+8]; add esp, 8`), so
+ * the callback takes the SPRITE.  bubblecache.c:150 already declares it that
+ * way; this file's `(void)` spelling is the stale one and it is what made a
+ * click on the park's MAP toolbar icon a `call_indirect` type mismatch
+ * (PORT-A7 §7 A7-2).  RenderFullMap (0x004567a0) really is parameterless --
+ * its prologue is `sub esp,0xf8; push ebp; push 0x4b5bfc; call ElemID`, it
+ * never reads the incoming dword -- so the body cannot be re-declared and the
+ * registration site gets PORT-M3 §5's adapter instead. */
+extern SpriteRec* CreateFunctionBasedSprite(void (*fn)(SpriteRec*), short w, short h);
+                                                                   /* 0x004976c0 */
+#endif
 extern void       RenderFullMap(void);                             /* 0x004567a0 */
+#ifdef LEGOLAND_PORTABLE
+static void ll_m8_render_full_map(SpriteRec* s)
+{
+    (void)s;
+    RenderFullMap();
+}
+#endif
 #ifndef LEGOLAND_PORTABLE
 extern void       MapScreenIconHandler(void);                      /* 0x00475080 */
 #else   /* PORT-M7: screens3.c char MapIconInput(Icon* p, int buttons, int a3, int a4) */
@@ -205,7 +226,11 @@ void RestoreIconHandlers(void)
 void InitMapScreen(void)
 {
     if (g_ms_ready == 0) {
+#ifndef LEGOLAND_PORTABLE
         g_ms_sprite = CreateFunctionBasedSprite(RenderFullMap, 640, 340);
+#else   /* PORT-M8: the slot is (SpriteRec*) -> void; the body takes nothing */
+        g_ms_sprite = CreateFunctionBasedSprite(ll_m8_render_full_map, 640, 340);
+#endif
         if (g_ms_sprite) {
             g_ms_marker = LoadSprite(g_map_spanner_lls, 0);
             g_ms_sprite->src_x = 0;
