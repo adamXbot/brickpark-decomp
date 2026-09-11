@@ -215,34 +215,40 @@ generalisation and not a behaviour change.
    name editor**: the slot-1 row becomes an entry field with the red close icon
    and the "Enter player details" tooltip.
 
-### The post-click hash, and why it is not the brief's number
+### The post-click hash: a two-state frame, and a lesson about hashes
 
-The click's frame hash is `0xdea21168`, not `0xdd2ac534`. That is a real
-difference and it is worth the integrator's attention, so it was measured
-rather than argued:
+The click's frame hash is `0xdea21168` or `0x5c300878`, not the `0xdd2ac534`
+the brief expects. That was chased to the end, because a changed frame is
+exactly what this lane could plausibly have broken, and the answer is that
+**the frame has two states and the closure is not what picks one**:
 
 * The **pre-A6 closure was rebuilt from `1a7b38a4`'s `gen_link.py`** into
-  `portable/build-wasm-base` and driven through the same gesture on :8798. It
-  gives `0x9d9b7c50` → `0x5c300878` — so neither build reproduces `0xdd2ac534`
-  here, and the integrator's number was taken on a different machine or a
-  slightly different gesture. The *before* hash is identical on both
-  (`0x43f6e154` with the pointer resting on slot 1), so the procedure is
-  reproducible.
-* The two post-click frames were compared **block by block** (16×12 grid of
-  40×40-pixel FNV hashes over the 640×480 canvas): **exactly one block differs**,
-  the one containing the name field's **text caret**, which the A6 closure draws
-  and the pre-A6 closure does not. Everything else on the screen is identical.
-* Two attribution probes, each a full rebuild of `legoland_browser`:
-  **(1)** A6 with `g_front` and `EditMode` suppressed → still `0xdea21168`, so
-  it is not those two. **(2)** A6 with cdecl's extents switched off entirely but
-  the per-word pointer-slot change kept → `0x5c300878`, i.e. **exactly the
-  pre-A6 frame**, so the caret comes from one of the newly merged records and
-  not from the pointer-slot change. Narrowing it to the single record is a
-  bisect over the 27 addresses with the same probe (`port-a6-make-suppressed.py`
-  in the scratchpad takes a skip list); it was not run to the end here.
+  `portable/build-wasm-base` and driven through the identical gesture on :8798.
+  Both builds give the identical *before* hash (`0x43f6e154` with the pointer
+  resting on slot 1) and both give **both** post-click values across repeated
+  trials: A6 gave `0xdea21168`, then `0x5c300878`, then `0xdea21168`; the
+  pre-A6 build gave `0x5c300878`, then `0xdea21168`.
+* Compared block by block (a 16x12 grid of 40x40-pixel FNV hashes over the
+  640x480 canvas), the two frames differ in **exactly one block**: the one
+  holding the name field's **text caret**. It is a blink, latched when the
+  editor opens and then stable for tens of seconds — which is what made it look
+  like a closure difference at first, because sampling the hash forty times over
+  twelve seconds inside one phase returns one value forty times.
+* Two attribution probes were built before that was understood and are recorded
+  for what they are worth: A6 with `g_front` and `EditMode` suppressed, and A6
+  with cdecl's extents off but the per-word pointer-slot change kept. Each
+  reproduced one of the two states. **Neither is evidence about the closure**,
+  and the tooling for them (`port-a6-make-suppressed.py`) is still the right way
+  to attribute a REAL frame difference to one record.
 
-So the page reaches PLAYER DETAILS with a working click, and the only pixels
-that changed are one more piece of the editor drawing itself.
+**So the page is unchanged by this lane**, which is the result this section is
+for: same load hash, same screens, same click, zero traps. And the lesson for
+the next lane, which is worth more than the measurement: *a single whole-frame
+hash is not a comparison between two builds unless the frame is known to have
+one state.* Sample a frame hash repeatedly ACROSS RELOADS, not just within one
+run, before reading anything into it — and when two hashes do differ, the 16x12
+block grid says WHERE, in one call, which is what turned "the closure changed
+the front end" into "a caret blinks".
 
 ## 6. The scanner fixes (PORT-M4 section 6, items 3–5)
 
@@ -419,12 +425,15 @@ centre first (the pointer is relative), then game (260,188), then click;
 2. **ctest counts change**: native 8 -> 9, wasm 14 -> 15. The new one is
    `cdecl_extents` and it is asset-free, so the CI row (`portable-wasm`, which
    has no `gamedata/`) gains a test rather than skipping one.
-3. **The post-click page hash is `0xdea21168`, not the `0xdd2ac534` in the
-   brief.** Section 5 has the measurement: one 40x40 block of the 640x480 frame
-   differs from the pre-A6 closure rebuilt here, and it is the name field's text
-   caret, which this closure draws and the old one does not. The pre-A6 closure
-   gives `0x5c300878` on this machine, so `0xdd2ac534` is not reproducible here
-   either and the two numbers should not be compared across machines.
+3. **The post-click page hash is `0xdea21168` OR `0x5c300878`, never the
+   `0xdd2ac534` in the brief — on either closure.** Section 5 has the
+   measurement: the two values differ in one 40x40 block, the name field's
+   blinking text caret, and the pre-A6 closure rebuilt here produces both of
+   them too. The brief's number is a third phase (or another machine's cursor).
+   **The post-click hash is not a usable gate as it stands**; the load hash
+   `0x9d9b7c50` is, and it matches exactly. If a gate is wanted for the editor,
+   it should hash a region that excludes the caret, or be taken from
+   `legoland_headless` where the tick count is deterministic.
 4. **`RES_LowRead` / `RES_LowSeek` are host imports wearing game names**
    (`0x4ab264` / `0x4ab104` are IAT thunks; `memdb.c:313` says `RES_LowSeek` is
    `SetFilePointer`). The scanner now classifies them `game-fn` instead of
