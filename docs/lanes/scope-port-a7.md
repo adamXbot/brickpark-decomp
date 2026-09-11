@@ -203,8 +203,27 @@ theme buttons. The centre, where the isometric park belongs, still holds the
 tutorial notepad backdrop; nothing repaints it, and the heartbeat ring settles
 into a two-`Blt`, two-`Lock`/`Unlock` frame (the front end's was ~25 blits), so
 very little is being drawn. **The game is in the park and the park is not being
-rendered.** No trap, no console line, 34 fps: it is the next blocker, and it is
-not in the closure (see §7 B7-1).
+rendered.** No trap, no console line, 34 fps.
+
+Three measurements the next lane should start from, all from the same run with
+`?trace=1`:
+
+* **The level DOES load.** Immediately after the click the host trace fills with
+  reads on volume handle 2 (`GRAPHICS2`, per PORT-A2's mount log) and a run of
+  `CreateSurface` calls at text-strip sizes (240x46, 224x19, 200x18 ...). The
+  assets are being fetched and surfaces made.
+* **It then stops, and stays stopped.** Sampled twice two seconds apart, the
+  300-line host ring is byte-identical: after the load there are **no** further
+  file or surface calls at all. The frame hash is the same `0x561128cd` 46
+  seconds later. This is a steady state, not a load still in flight.
+* **298 of the last 300 traced host calls are `ReadFile(2, 1 bytes)`** — the
+  loader reads this asset ONE BYTE AT A TIME through the shim. Harmless for
+  correctness, and a free win for whoever profiles the park.
+
+So the question for the next lane is not "did the level load" but "why does the
+frame draw the HUD and not the map" — and it is not in the closure: `raw pointer
+words` is 0, every declared pointer word is re-pointed, and nothing traps (§7
+A7-1).
 
 `?beat=3000` was on for the first run: the ring keeps printing ordinary frames
 straight through the click, which is the mechanical statement that
@@ -315,7 +334,8 @@ bound could be 9.
 | --- | --- | --- | --- |
 | **B2** | the park's two doors wedge in `KillLowMarkerSprites` | PORT-A7 | **CLOSED**, §1-§4 |
 | **B2a** | the same class in `g_fp_table` (135), `g_build_followups`, `g_lowlevel_ai`, `g_power_table`, `g_level_db_sections` | PORT-A7 | **CLOSED for every one that is a declared pointer**; the residue is string text (§5) |
-| **A7-1** | **the park does not RENDER.** Past the door the in-game HUD, money bar and toolbar all draw and the loop runs at 34 fps with no trap, but the map area keeps the previous screen's backdrop and the frame makes only 2 blits | a PORT-B lane | new, §4 row 5. Nothing in the closure: `raw pointer words` is 0 and no trap or console line is produced |
+| **A7-1** | **the park does not RENDER.** Past the door the in-game HUD, money bar and toolbar all draw and the loop runs at 34 fps with no trap, but the map area keeps the previous screen's backdrop and the frame makes only 2 blits. The level itself LOADS (GRAPHICS2 reads and a run of `CreateSurface`), then the host ring goes completely quiet and the frame hash is unchanged 46 s later | a PORT-B lane | new, §4 row 5. Nothing in the closure: `raw pointer words` is 0 and no trap or console line is produced |
+| A7-3 | the park's asset load does **298 of 300 traced host calls as `ReadFile(handle, 1 bytes)`** | a PORT-B lane | new, §4. A performance note, not a defect |
 | **A7-2** | **clicking a park toolbar icon kills the module**: `RuntimeError: function signature mismatch` at `wasm-function[1628]:0xf4ac8` <- `[1383]:0xd6275` <- `[1137]:0xad0fb` <- `[564]:0x6142a` <- `[40]:0x8e44`. `name_trap.py --at 0xf4ac8 --wasm portable/build-wasm/legoland.wasm` says the call site is `call_indirect (i32) -> void` and the slot was written at RUNTIME | a PORT-M lane (PORT-M3's class) | new. **Recipe**: build `legoland_browser_named` (browser.cmake already has it, `-g2`) and re-read the stack — the callers are numbers only because `legoland_browser` carries no name section |
 | B3 | `while (KillSprite(x) == 0) ;` is still unguarded in four places | a matching lane | unchanged; B2 no longer reaches it, but any sprite the archives cannot serve still hangs rather than degrading |
 | B4 | the main menu's Free-play bubble does not take a click | unknown | unchanged |
