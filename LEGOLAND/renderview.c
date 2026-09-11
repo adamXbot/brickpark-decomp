@@ -350,7 +350,24 @@ extern void GetTileBounds(Pos* tile, TileBounds* out);     /* 0x0045acc0 */
 extern void RenderGroundLayer(void);                       /* 0x00460e00 */
 extern void PrintBackground(int x, int y);                 /* 0x00464360 (empty stub) */
 extern void RenderViewCellProbe(Pos* tile);                /* 0x0045b170 (bare ret) */
+#ifndef LEGOLAND_PORTABLE
 extern int  GetBuildAnimFrame(ObjDef* def, BPos base);     /* 0x00450cf0 */
+#else
+/* PORT-M10: buildtick.c:175 DEFINES 0x00450cf0 as `(Obj*, short key)`.  On x86
+ * cdecl that is the same dword as this two-byte by-value BPos; on wasm32 clang
+ * passes a multi-member struct INDIRECTLY and a scalar DIRECTLY, and both still
+ * lower to ONE i32 parameter, so wasm-ld reports no signature mismatch and
+ * nothing traps.  The body then compares a shadow-stack ADDRESS against all
+ * 256 build-slot keys, never matches, leaves its index at 256 and reads
+ * `g_build_slots[256].timer` past the end of the array -- so the override
+ * frame handed to SetOverrideFrame is whatever follows the table, and a
+ * building under construction draws at an arbitrary build-animation frame
+ * (PARK-3: the Space Tower drawn as a squat block).  Same class as popup.c's
+ * AddObjectToBuildList; see docs/lanes/scope-port-m10.md §1. */
+extern int  GetBuildAnimFrame(ObjDef* def, unsigned short base); /* 0x00450cf0 */
+#define GetBuildAnimFrame(_d, _b) \
+    GetBuildAnimFrame((_d), (unsigned short)((_b).x | ((_b).y << 8)))
+#endif
 extern void SetOverrideFrame(int frame);                   /* 0x00464420 */
 extern void ClearOverrideFrame(void);                      /* 0x00464440 */
 extern int  GetBlink(void);                                /* 0x00499480 */
