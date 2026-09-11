@@ -127,7 +127,21 @@ extern void SetEditObjectFromElem(void* elem);                       /* 0x00480b
 extern void CalcBasicObjectCursor(void* o, int sx, int sy);          /* 0x0045fa80  +0x90  objmap.c:332    */
 extern void BasicObjectDCalcCursor(void* unused, Pos* pos);          /* 0x00480bb0  +0x94  objmap2.c:505   */
 extern void AddBasicObject(void* obj, Pos* pos, void* ctx);          /* 0x0045efe0  +0x98  objmap2.c:459   */
+#ifndef LEGOLAND_PORTABLE
 extern void StandardRemoveObject(void* obj, unsigned int bp, void* ctx); /* 0x0045f220  +0x9c  objmap2.c:982 */
+#else
+/* PORT-M11: the note above is right that `unsigned int` costs nothing on x86
+ * -- but it is not the shape the DEFINITION has, and on wasm32 that matters.
+ * objmap2.c:983 takes `BPos bp` by value, which is how the +0x9c slot itself
+ * is typed (objmap2.c:99), and a 2-byte aggregate is passed INDIRECTLY there:
+ * the callee receives a pointer to a shadow-stack temp, at the same i32 arity
+ * as this scalar, so nothing in the link or the type tests can see the
+ * difference (PORT-M10 s1b).  This declaration is address-taken only -- the
+ * line below stores it into the slot -- but it has to agree, or the slot is
+ * filled through a prototype that disagrees with the body. */
+typedef struct LLSquare { unsigned char x, y; } LLSquare;   /* objmap2.c's BPos */
+extern void StandardRemoveObject(void* obj, LLSquare bp, void* ctx); /* 0x0045f220  +0x9c  objmap2.c:982 */
+#endif
 
 #ifdef LEGOLAND_PORTABLE
 /* PORT-M9: ObjClass +0x98 is called with TWO arguments -- mapobj.c's

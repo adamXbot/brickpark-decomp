@@ -117,7 +117,7 @@ typedef struct ACMHeader {
 /* ---- globals ------------------------------------------------------------ */
 extern int      g_samples_ready;       /* 0x007988c0  sample system up */
 extern Sample*  g_playable_list;       /* 0x007988cc  head of live instances */
-extern FXEntry  g_joust_fx[];          /* 0x004b4688  "Joust Horses.wav" (joust.c) */
+extern FXEntry  g_joust_fx[1];         /* 0x004b4688  "Joust Horses.wav" (joust.c:707) */
 extern SpriteRec* g_sprites_head;      /* 0x0079a7c0 */
 
 extern int      g_vol_speech;          /* 0x0080ffc4  slider 0..100 */

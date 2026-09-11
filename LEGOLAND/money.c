@@ -173,7 +173,7 @@ typedef struct FXEntry {
  *   [0] "Coin drop for food stands or entrance.wav"
  *   [1] "Cash Register.wav"
  * so `which` is 0 for a small payment and 1 for a till ring. */
-extern FXEntry g_money_fx[];
+extern FXEntry g_money_fx[2];   /* 0x004b87a8 — 2 entries (audiomisc.c:187) */
 
 /* Where a sound is coming from. 16 bytes; PlayInstanceOfSample copies the whole
  * record into the playing instance at +0x0c as four dword moves

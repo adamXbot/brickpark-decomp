@@ -970,6 +970,15 @@ extern void*         g_jc_fish_jump;                          /* 0x0081cb6c */
 extern DrawDesc      g_shop_draw;                             /* 0x0082c6a0 */
 extern int           rand(void);                              /* 0x0049e4b2 (CRT) */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0xa0 draw handler, and that slot takes the base map square as a
+ * 2-byte aggregate BY VALUE (renderview.c:304).  On x86 cdecl that is the same
+ * pushed dword as this `unsigned short`; on wasm32 the aggregate arrives as a
+ * POINTER to a shadow-stack temp at the same i32 arity, so nothing warns and
+ * the `f->pos.w == arg` scan below could never match a fish (PORT-M10 s1b).
+ * Renamed for the portable build, with the slot's own shape over it. */
+#define JcMonkeyFish_GetDrawDesc JcMonkeyFish_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00434740
 DrawDesc* JcMonkeyFish_GetDrawDesc(RideElem* elem, unsigned short arg)
 {
@@ -1003,6 +1012,13 @@ DrawDesc* JcMonkeyFish_GetDrawDesc(RideElem* elem, unsigned short arg)
     g_shop_draw.f0c = arg;
     return &g_shop_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef JcMonkeyFish_GetDrawDesc
+DrawDesc* JcMonkeyFish_GetDrawDesc(RideElem* elem, BPosW base)
+{
+    return JcMonkeyFish_GetDrawDesc_vc6_body(elem, base.w);
+}
+#endif
 
 
 /* =========================================================================

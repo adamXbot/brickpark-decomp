@@ -35,8 +35,32 @@ extern void AddBasicObject(void* ll_obj, void* ll_pos, void* ll_ctx); /* 0x0045e
 #endif
 extern void Set_UserFlags(int x, int y, int flags); /* 0x00461730 */
 extern void KillMoneySFX(void); /* 0x00453930 */
+#ifndef LEGOLAND_PORTABLE
 extern void StandardRemoveObject(RideElem* elem, unsigned int square, void* cursor); /* 0x0045f220 */
 extern void RemoveAllBlokesFromRide(RideDef* def, unsigned int square); /* 0x0048a2e0 */
+#else
+/* PORT-M11: both definitions take the packed map square as a 2-byte aggregate
+ * BY VALUE -- objmap2.c:983 `BPos bp` (the shape the ObjClass +0x9c slot is
+ * typed with at objmap2.c:99) and rides.c:400 `RideTile tile`.  On x86 cdecl
+ * that is the same pushed dword as this `unsigned int`; on wasm32 it is a
+ * POINTER to a shadow-stack temp, at the same i32 arity, so no link warning
+ * and no trap -- the callee just reads an address as a square (PORT-M10 s1b).
+ * The square is packed at the call site and VC6 sees none of it. */
+typedef struct LLSquare { unsigned char x, y; } LLSquare;   /* objmap2.c's BPos */
+extern void StandardRemoveObject(RideElem* elem, LLSquare square, void* cursor); /* 0x0045f220 */
+extern void RemoveAllBlokesFromRide(RideDef* def, LLSquare square); /* 0x0048a2e0 */
+static __inline LLSquare ll_square(unsigned int v)
+{
+    LLSquare s;
+    s.x = (unsigned char)v;
+    s.y = (unsigned char)(v >> 8);
+    return s;
+}
+#define StandardRemoveObject(_e, _s, _c) \
+    StandardRemoveObject((_e), ll_square((unsigned int)(_s)), (_c))
+#define RemoveAllBlokesFromRide(_d, _s) \
+    RemoveAllBlokesFromRide((_d), ll_square((unsigned int)(_s)))
+#endif
 extern void StopMoneySFX(unsigned int* square); /* 0x004539a0 */
 #ifndef LEGOLAND_PORTABLE
 extern void PlayInstanceOfSample(void* sample, int a, int b, SoundSource* src); /* 0x00496d20 */
@@ -121,6 +145,12 @@ void JcMonkeyTree_Create(RideElem* elem)
     g_jc_tree_mask = LoadSprite("brijmask.lls", 1);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0xa0 draw handler, and that slot takes the base map square as a
+ * 2-byte aggregate BY VALUE as well (renderview.c:304), so on wasm32 this body
+ * was stamping a shadow-stack ADDRESS into the draw descriptor's `square`. */
+#define JcMonkeyTree_GetDrawDesc JcMonkeyTree_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00434040
 DrawDesc* JcMonkeyTree_GetDrawDesc(RideElem* elem, unsigned short square)
 {
@@ -131,6 +161,13 @@ DrawDesc* JcMonkeyTree_GetDrawDesc(RideElem* elem, unsigned short square)
     g_shop_draw.square = square;
     return &g_shop_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef JcMonkeyTree_GetDrawDesc
+DrawDesc* JcMonkeyTree_GetDrawDesc(RideElem* elem, LLSquare square)
+{
+    return JcMonkeyTree_GetDrawDesc_vc6_body(elem, square.x | (square.y << 8));
+}
+#endif
 
 // FUNCTION: LEGOLAND 0x00434080
 void JcMonkeyFish_Create(RideElem* elem)
@@ -168,6 +205,10 @@ void OctopusCafe_Add(RideElem* elem, Pos* pos)
     Set_UserFlags(pos->x, pos->y, 0);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: the same, for the +0xa0 slot's shape -- see above. */
+#define Restaurant2_GetDrawDesc Restaurant2_GetDrawDesc_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004304a0
 DrawDesc* Restaurant2_GetDrawDesc(RideElem* elem, unsigned short square)
 {
@@ -179,6 +220,13 @@ DrawDesc* Restaurant2_GetDrawDesc(RideElem* elem, unsigned short square)
     def->sprite->flags |= 0x2000;
     return &g_rest2_draw;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Restaurant2_GetDrawDesc
+DrawDesc* Restaurant2_GetDrawDesc(RideElem* elem, LLSquare square)
+{
+    return Restaurant2_GetDrawDesc_vc6_body(elem, square.x | (square.y << 8));
+}
+#endif
 
 // FUNCTION: LEGOLAND 0x00431120
 void Restaurant2_Destroy(void)
@@ -191,6 +239,13 @@ void Restaurant2_Destroy(void)
     KillSprite(g_rest2_fdoor_m1);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0x9c remove handler, and that slot passes the map square as a
+ * 2-byte aggregate BY VALUE (objmap2.c:99) -- a POINTER on wasm32 -- while this
+ * body reads it as an `unsigned int` and takes its ADDRESS for StopMoneySFX.
+ * Renamed for the portable build with a twin of the slot's shape over it. */
+#define FoodService_Remove FoodService_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004312c0
 void FoodService_Remove(RideElem* elem, unsigned int square, void* cursor)
 {
@@ -199,6 +254,13 @@ void FoodService_Remove(RideElem* elem, unsigned int square, void* cursor)
     RemoveAllBlokesFromRide(elem->data, square);
     StopMoneySFX(&square);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef FoodService_Remove
+void FoodService_Remove(RideElem* elem, LLSquare square, void* cursor)
+{
+    FoodService_Remove_vc6_body(elem, square.x | (square.y << 8), cursor);
+}
+#endif
 
 // FUNCTION: LEGOLAND 0x00436160
 int JungleCruise_BestValue(void* unused, int working_only)

@@ -176,15 +176,56 @@ ShopDrawDesc* Shop_GetDrawDesc(ShopElem* elem, unsigned short arg)
  * record and fades its sample first.
  * ========================================================================== */
 
+#ifndef LEGOLAND_PORTABLE
 extern void StandardRemoveObject(void* obj, unsigned int tile, void* ctx);  /* 0x0045f220 */
 extern void RemoveAllBlokesFromRide(ShopDef* cls, unsigned int tile);       /* 0x0048a2e0 */
+#else
+/* PORT-M11: both definitions take the packed map square as a 2-byte aggregate
+ * BY VALUE -- objmap2.c:983 `BPos bp` (the shape the ObjClass +0x9c slot is
+ * typed with, objmap2.c:99) and rides.c:400 `RideTile tile` -- and this file's
+ * own `ShopTile` (line 92) is that same 2-byte union.  On x86 cdecl the
+ * aggregate and this `unsigned int` are the same pushed dword, which is why
+ * the byte gates never saw it; on wasm32 the aggregate goes INDIRECT, as a
+ * pointer to a shadow-stack temp, against the scalar's direct i32 and at the
+ * same arity -- so nothing warns and the callee reads an address as a square
+ * (PORT-M10 s1b).  LegoShop1_Remove and LegoMedia_Remove already hold a real
+ * `ShopTile` and only pun it into a dword for these two calls, so the packing
+ * helper round-trips through the same 16 bits. */
+extern void StandardRemoveObject(void* obj, ShopTile tile, void* ctx);      /* 0x0045f220 */
+extern void RemoveAllBlokesFromRide(ShopDef* cls, ShopTile tile);           /* 0x0048a2e0 */
+static __inline ShopTile ll_shoptile(unsigned int v)
+{
+    ShopTile t;
+    t.key = (unsigned short)v;
+    return t;
+}
+#define StandardRemoveObject(_o, _t, _c) \
+    StandardRemoveObject((_o), ll_shoptile((unsigned int)(_t)), (_c))
+#define RemoveAllBlokesFromRide(_c, _t) \
+    RemoveAllBlokesFromRide((_c), ll_shoptile((unsigned int)(_t)))
+#endif
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0x9c remove handler.  The slot passes the map square as a
+ * 2-byte aggregate BY VALUE (objmap2.c:99, called objmap2.c:1895) -- a POINTER
+ * on wasm32 -- and this body reads the dword as an `unsigned int` (and takes
+ * its address for the record lookup).  Renamed for the portable build with a
+ * twin of the slot's own shape exported over it. */
+#define Shop_Remove Shop_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0043a3d0
 void Shop_Remove(void* obj, unsigned int tile, void* ctx)
 {
     StandardRemoveObject(obj, tile, ctx);
     RemoveAllBlokesFromRide(((ShopMapObj*)obj)->cls, tile);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Shop_Remove
+void Shop_Remove(void* obj, ShopTile tile, void* ctx)
+{
+    Shop_Remove_vc6_body(obj, tile.key, ctx);
+}
+#endif
 
 /* ==========================================================================
  * WHAT THE SLOT NAMES REALLY MEAN HERE
@@ -898,6 +939,10 @@ void JailCell_Add(ShopElem* elem, Pos* at)
 }
 
 /* +0x9c -- drop this cell's record first, then the shared two steps. */
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: the same, for the +0x9c slot's shape -- see above. */
+#define JailCell_Remove JailCell_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00438020
 void JailCell_Remove(void* obj, unsigned int tile, void* ctx)
 {
@@ -908,6 +953,13 @@ void JailCell_Remove(void* obj, unsigned int tile, void* ctx)
     StandardRemoveObject(obj, tile, ctx);
     RemoveAllBlokesFromRide(((ShopMapObj*)obj)->cls, tile);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef JailCell_Remove
+void JailCell_Remove(void* obj, ShopTile tile, void* ctx)
+{
+    JailCell_Remove_vc6_body(obj, tile.key, ctx);
+}
+#endif
 
 /* +0xa4. NOTE the quirk, reproduced: every other class in the lane ORs
  * 0x2000 into the BUILD SPRITE's flags (Spr +0x10) to arm the custom draw;

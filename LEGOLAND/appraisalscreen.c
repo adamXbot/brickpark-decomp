@@ -146,7 +146,15 @@ extern int   sub_498b40(void);                              /* 0x00498b40 */
 extern Sprite* g_backdrop;                                  /* 0x00810148 */
 extern int     g_report_open;                               /* 0x0081c038 */
 extern void*   g_focussed_icon;                             /* 0x006687d0 */
-extern int     g_num_visitors;                              /* 0x00832bd0 */
+/* PORT-M11: this file used to call 0x00832bd0 `g_num_visitors`, and it was the
+ * only one that did.  It is the park's total power GENERATION: power.c:170 is
+ * the only writer in the game (`g_power_supply += power`, once per generator
+ * the power sweep walks) and power.c:128, powerhelp.c:100, fpui2.c:198 and
+ * scrolltick.c:113 all declare the same address `g_power_supply`.  The real
+ * visitor count is g_visitor_count at 0x006661bc (goalstate.c:178,
+ * pathobj2.c:136, rides.c:161, simcore2.c:27, eventtick2.c:72).  An identifier
+ * is not a codegen lever, so this is renamed for both builds. */
+extern int     g_power_supply;                              /* 0x00832bd0 */
 extern int     g_appraisal_rank;                            /* 0x0083297c */
 extern int     g_appraisal_rank_bias;                       /* 0x00832b9c */
 
@@ -711,9 +719,9 @@ sect7:
         indent += 0x30;
         if (FLAGS & 0x200000) {
             total++;
-            line_ok = g_num_visitors >= g_goal[19];
+            line_ok = g_power_supply >= g_goal[19];
             if (line_ok) passed++; else failmask |= 0x400000;
-            BAR_LINE(sect7, 0x14b, g_num_visitors, g_goal[19], g_goal[20])
+            BAR_LINE(sect7, 0x14b, g_power_supply, g_goal[19], g_goal[20])
         }
         if (FLAGS & 0x400000) {
             nrun = 0;

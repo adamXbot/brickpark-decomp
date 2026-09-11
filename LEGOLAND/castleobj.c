@@ -630,6 +630,18 @@ extern int NameCompare(const char* a, const char* b);           /* 0x004aab90 (_
  * Defined below; the ObjDef slots take their addresses. */
 typedef void (*CtTick)(RideElem* elem);
 typedef void (*CtUpdate)(RideElem* elem, int a, int b);
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: the middle argument of the castle REMOVE row (+0x14, ObjDef +0x9c)
+ * is the packed map square BY VALUE, not an int: `Castle_Remove` (line 1503)
+ * and `CastleDummy_Remove` (line 996) both take `MapPos p`, and the ObjDef
+ * slot the thunk itself sits in is typed the same way (objmap2.c:99).  On x86
+ * cdecl a 2-byte struct and an int are the same pushed dword, so `CtUpdate`
+ * served for both; on wasm32 the struct is passed INDIRECTLY as a pointer to a
+ * shadow-stack temp while an int goes direct, at the SAME i32 arity -- so
+ * nothing warns and the square arrives as an address (PORT-M10 s1b).  The
+ * thunk must therefore FORWARD the aggregate rather than copy a dword. */
+typedef void (*CtRemove)(RideElem* elem, MapPos sq, int b);
+#endif
 typedef void (*CtAdd)(RideElem* elem, int a);
 
 int  CastleClassIndex(RideElem* elem);
@@ -637,7 +649,12 @@ void CtThunk_Tick(RideElem* elem);
 void CtThunk_Update(RideElem* elem, int a, int b);
 void CtThunk_Update2(RideElem* elem, int a);
 void CtThunk_Add(RideElem* elem, int a);
+#ifndef LEGOLAND_PORTABLE
 void CtThunk_Remove(RideElem* elem, int a, int b);
+#else
+/* PORT-M11: the +0x9c slot's own shape -- see CtRemove below. */
+void CtThunk_Remove(RideElem* elem, MapPos sq, int b);
+#endif
 
 /* ---- CASTLE OBJ --------------------------------------------------------- */
 extern void Castle_Create(void);                     /* 0x00424150 */
@@ -675,7 +692,12 @@ void Track_Tick(RideElem* elem);                     /* 0x00427940 */
 void Track_Update(RideElem* elem, int a, int b);     /* 0x00427b20 */
 void Track_Update2(RideElem* elem, MapRef* p);       /* 0x00427970 */
 void Track_Add(RideElem* elem, MapRef* node);          /* 0x00427bc0 */
+#ifndef LEGOLAND_PORTABLE
 void Track_Remove(RideElem* elem, int a, int b);     /* 0x004279f0 */
+#else
+/* PORT-M11: the CtIface +0x14 row's own shape -- see CtRemove below. */
+void Track_Remove(RideElem* elem, MapPos sq, int b);  /* 0x004279f0 */
+#endif
 
 /* ---- SQUARE_TRACK_HEIGHT / _0 / _PATH ----------------------------------- */
 void TrackH_Create(RideElem* elem);                  /* 0x00427ef0 */
@@ -961,11 +983,27 @@ void CtThunk_Update2(RideElem* elem, int a)
     ((CtAdd)g_ct_iface[CastleClassIndex(elem)].update2)(elem, a);
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: this thunk IS the ObjDef +0x9c handler for every castle class, so
+ * it receives the map square as a 2-byte aggregate by value (see CtRemove
+ * above) and must pass that same aggregate on to the row's own handler.  The
+ * matched body copies a dword, which on wasm32 is the shadow-stack address of
+ * the temp; renamed for the portable build, with a twin of the slot's own
+ * shape exported over it. */
+#define CtThunk_Remove CtThunk_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x0041ed50
 void CtThunk_Remove(RideElem* elem, int a, int b)
 {
     ((CtUpdate)g_ct_iface[CastleClassIndex(elem)].remove)(elem, a, b);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef CtThunk_Remove
+void CtThunk_Remove(RideElem* elem, MapPos sq, int b)
+{
+    ((CtRemove)g_ct_iface[CastleClassIndex(elem)].remove)(elem, sq, b);
+}
+#endif
 
 /* Remove by ROW rather than by element: the row supplies its own element and
  * the third argument is forced to 0. Both table reads are off one scaled
@@ -980,11 +1018,27 @@ void CastleClassRemoveByIndex(int index, int a)
  * The class implementations
  * ========================================================================== */
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: stored in ObjDef +0x9c directly (lines 829/848/867/886), so it is
+ * handed the map square as a 2-byte aggregate by value.  The body never reads
+ * it -- it tears down the one track node the module remembers -- so nothing was
+ * WRONG here, but the parameter must have the slot's shape for the sweep to be
+ * able to say so, and for wasm32's indirect-argument slot to line up. */
+#define Track_Remove Track_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004279f0
 void Track_Remove(RideElem* elem, int a, int b)
 {
     RemoveTrackNode(g_81cdec);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef Track_Remove
+void Track_Remove(RideElem* elem, MapPos sq, int b)
+{
+    (void)sq;
+    Track_Remove_vc6_body(elem, 0, b);
+}
+#endif
 
 // FUNCTION: LEGOLAND 0x00424820
 void CastleDummy_Update2(RideElem* elem, int a)

@@ -703,6 +703,7 @@ extern SchoolCar* g_school_cars;                              /* 0x004c10d4 */
 extern RideDef*   g_zebra_def;                                /* 0x0082c678 */
 extern RideDef*   g_roads_def;                                /* 0x0082c684 */
 
+#ifndef LEGOLAND_PORTABLE
 extern void  StandardRemoveObject(void* obj, unsigned int tile,
                                   EditCursorRec* ctx);        /* 0x0045f220 */
 /* The SAME routine declared a second time with a 16-bit `tile`: the road
@@ -711,6 +712,36 @@ extern void  StandardRemoveObject(void* obj, unsigned int tile,
  * parameter produces.  (ridecb6.c does the same for 0x0041b0d0.) */
 extern void StandardRemoveObject_W(void* obj, unsigned short tile, EditCursorRec* ctx); /* 0x0045f220 */
 extern void  RemoveAllBlokesFromRide(void* cls, unsigned int tile); /* 0x0048a2e0 */
+#else
+/* PORT-M11: the two scalar spellings above are x86 codegen levers -- on x86
+ * cdecl a `unsigned int`, a `unsigned short` and the 2-byte aggregate the
+ * DEFINITION takes (objmap2.c:983 `BPos bp`, and the ObjClass +0x9c slot at
+ * objmap2.c:99) are all the same pushed dword, so the byte gates were always
+ * green and the three names are three levers over one body.  On wasm32 there
+ * is only one right answer: the aggregate is passed INDIRECTLY, as a pointer
+ * to a shadow-stack temp, at the same i32 arity as the scalars -- so wasm-ld,
+ * linkreport and test_callback_types are all blind and a scalar caller hands
+ * the body an integer where it dereferences a pointer (PORT-M10 s1b).  Both
+ * levers collapse onto `BPosW`, which the third spelling
+ * (StandardRemoveObject_B, line 1415) already uses; RemoveAllBlokesFromRide
+ * (rides.c:400 `RideTile tile`) is the same 2-byte union. */
+extern void  StandardRemoveObject(void* obj, BPosW tile,
+                                  EditCursorRec* ctx);        /* 0x0045f220 */
+extern void  StandardRemoveObject_W(void* obj, BPosW tile, EditCursorRec* ctx); /* 0x0045f220 */
+extern void  RemoveAllBlokesFromRide(void* cls, BPosW tile);  /* 0x0048a2e0 */
+static __inline BPosW ll_bposw(unsigned int v)
+{
+    BPosW t;
+    t.w = (unsigned short)v;
+    return t;
+}
+#define StandardRemoveObject(_o, _t, _c) \
+    StandardRemoveObject((_o), ll_bposw((unsigned int)(_t)), (_c))
+#define StandardRemoveObject_W(_o, _t, _c) \
+    StandardRemoveObject_W((_o), ll_bposw((unsigned int)(_t)), (_c))
+#define RemoveAllBlokesFromRide(_c, _t) \
+    RemoveAllBlokesFromRide((_c), ll_bposw((unsigned int)(_t)))
+#endif
 extern void  DefaultCursor(EditCursorRec* c);                 /* 0x0045a390 */
 extern void  AddBricks(int n);                                /* 0x004578a0 */
 extern void  HeapFree_w(void* p);                             /* 0x0049e4d0 */
@@ -722,6 +753,14 @@ extern void  RetireSchoolCar(SchoolCar* car);                 /* 0x00401c60 */
 /* The 4x4 block one road record covers (0x004b4bf0). */
 static const Rect kRoadBlockRect = { 0, 0, 3, 3, 0 };
 
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M11: a +0x9c remove handler.  The slot hands the map square over as a
+ * 2-byte aggregate BY VALUE (objmap2.c:99, called objmap2.c:1895), which is a
+ * POINTER on wasm32, while this body compares it against `s->key.w` as an
+ * integer.  Renamed for the portable build with a twin of the slot's own shape
+ * exported over it. */
+#define DrivingSchool_Remove DrivingSchool_Remove_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00405940
 void DrivingSchool_Remove(void* obj, unsigned int tile, EditCursorRec* ctx)
 {
@@ -773,6 +812,13 @@ void DrivingSchool_Remove(void* obj, unsigned int tile, EditCursorRec* ctx)
     }
     RemoveAllBlokesFromRide(((RideDef**)obj)[3], tile);
 }
+#ifdef LEGOLAND_PORTABLE
+#undef DrivingSchool_Remove
+void DrivingSchool_Remove(void* obj, BPosW tile, EditCursorRec* ctx)
+{
+    DrivingSchool_Remove_vc6_body(obj, tile.w, ctx);
+}
+#endif
 
 
 /* =========================================================================

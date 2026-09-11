@@ -15,7 +15,11 @@ typedef struct FXEntry {
     int   pad4;     /* +0x04 */
     void* sample;   /* +0x08 */
 } FXEntry;
-extern FXEntry g_game_fx[];       /* 0x004b9228 */
+extern FXEntry g_game_fx[0x17];   /* 0x004b9228  23 entries -- the count
+                                   * Load_FXList is given at line 44; the
+                                   * BOUND is what lets the closure
+                                   * generator compute the object's extent
+                                   * (PORT-M11 / PORT-B11 s3) */
 
 extern const char kCastleObjName[]; /* 0x004b5c0c "CASTLE OBJ" */
 

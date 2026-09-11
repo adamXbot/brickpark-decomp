@@ -295,7 +295,18 @@ extern int          g_power_supply;          /* 0x00832bd0 (power.c) */
 extern int          g_power_unserved;        /* 0x00832bd8 (power.c) */
 
 extern MessageDef   g_messages[];            /* 0x004ba8e0 */
-extern NearOffset   g_near_offsets[];        /* 0x004bff28 */
+extern NearOffset   g_near_offsets[12];      /* 0x004bff28  12 entries -- the bound
+                                              * FindBrokenCellNear's loop reads
+                                              * (line 914).  The closure still tiles
+                                              * 4524 bytes into this object, because
+                                              * the next NAMED symbol is that far
+                                              * away: what is behind the 12 entries is
+                                              * the CRT's _matherr name table, which
+                                              * no LEGOLAND declaration covers and
+                                              * nothing in this port calls.  Those 31
+                                              * words are the whole of the raw-pointer
+                                              * residue after PORT-M11 (gen_link's,
+                                              * not a declaration's -- PORT-A). */
 
 /* The point-to-point flood fill's state (shared with bnvmove.c). */
 extern int          g_ptp_wave_count;        /* 0x00669250  nodes added this wave */

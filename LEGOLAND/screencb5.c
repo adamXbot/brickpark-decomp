@@ -421,7 +421,7 @@ extern int KillSprite(Spr* s);                                 /* 0x00497bd0 */
 #endif
 
 /* The entrance's one-entry FX table: {"turnstyles.wav", sample}. */
-extern FXEntry g_entrance_fx[];                                 /* 0x004b6668 */
+extern FXEntry g_entrance_fx[1];                                /* 0x004b6668  1 entry (the count lines 446/464 pass) */
 
 extern RideDef* g_entrance_def;                                 /* 0x006160f4 */
 extern Spr*     g_entrance_layers;                              /* 0x006160f0 */

@@ -539,7 +539,7 @@ extern JoustRec* g_joust_head;                               /* 0x004c1250 */
 extern ZSpr*     g_joust_zspr;                               /* 0x004c1210 */
 extern void*     g_joust_zspr2;                              /* 0x004c1240 */
 extern void*     g_joust_binv;                               /* 0x004c1218 */
-extern FXEntry   g_joust_fx[];                               /* 0x004b4688 */
+extern FXEntry   g_joust_fx[1];                              /* 0x004b4688  1 entry (joust.c:707) */
 
 extern JoustRec* Joust_FindRecord(RideTile volatile* tile);  /* 0x00407a20 */
 extern char      Joust_ByteIsSet(char v);                    /* 0x00407c20 */
