@@ -310,7 +310,11 @@ typedef struct RFile {
     int   pos;    /* +0x0c */
 } RFile;
 
-__declspec(dllimport) int __stdcall RES_LowSeek(int h, int off, int a, int b);   /* [0x4ab104] SetFilePointer */
+/* KERNEL32's SetFilePointer, called indirectly through the IAT, so it has to
+ * stay `dllimport`. This file's own comment has always said what [0x4ab104]
+ * is; scope PORT-M6 made the name match (it read `RES_LowSeek`). Types left
+ * as they were -- HANDOFF section 3. */
+__declspec(dllimport) int __stdcall SetFilePointer(int h, int off, int a, int b);   /* [0x4ab104] */
 
 // FUNCTION: LEGOLAND 0x00489d70
 int RES_SetFilePointer(RFile* f, int pos)
@@ -321,7 +325,7 @@ int RES_SetFilePointer(RFile* f, int pos)
         vol = f->vol;
         f->pos = pos;
         vol->cur = f;
-        RES_LowSeek(vol->handle, f->base + f->pos, 0, 0);
+        SetFilePointer(vol->handle, f->base + f->pos, 0, 0);
         return pos;
     }
     return -1;
