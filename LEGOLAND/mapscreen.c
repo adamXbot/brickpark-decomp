@@ -48,7 +48,19 @@ typedef struct ScrollMap {
     unsigned short view_h;  /* +0x12 */
 } ScrollMap;
 
+#ifndef LEGOLAND_PORTABLE
 typedef void (*IconHandler)(void);
+#else
+/* PORT-M7: the SLOT type, moved with MapScreenIconHandler's declaration below.
+ * 0x006687bc / 0x006687c0 are called as (icon, event, dx, dy) -> char by
+ * fpui.c:768/787 (CheckFocussedIcon), and every other file that declares them
+ * -- appraisal.c:136, appraisalscreen.c, screens2.c -- says so. The
+ * argument-less spelling here was invisible on x86, where the caller pushes
+ * four dwords and a callee that reads none of them costs nothing; on wasm the
+ * slot's type IS the call_indirect's type, so a four-argument call through a
+ * () -> void slot traps. Both halves have to move together (PORT-M6 4b). */
+typedef char (*IconHandler)(void* icon, int event, int dx, int dy);
+#endif
 
 /* ---- globals ------------------------------------------------------------ */
 
@@ -103,7 +115,11 @@ extern int        KillSprite(SpriteRec* s);                        /* 0x00497bd0
 extern SpriteRec* CreateFunctionBasedSprite(void (*fn)(void), short w, short h);
                                                                    /* 0x004976c0 */
 extern void       RenderFullMap(void);                             /* 0x004567a0 */
+#ifndef LEGOLAND_PORTABLE
 extern void       MapScreenIconHandler(void);                      /* 0x00475080 */
+#else   /* PORT-M7: screens3.c char MapIconInput(Icon* p, int buttons, int a3, int a4) */
+extern char       MapScreenIconHandler(void* icon, int event, int x, int y);   /* 0x00475080 */
+#endif
 extern int        PrintSprite(SpriteRec* s, int x, int y, int mode, BlitCtx* ctx);
                                                                    /* 0x004853a0 */
 extern int        GetNearestColour(int r, int g, int b);           /* 0x0044e6c0 */
