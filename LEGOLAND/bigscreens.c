@@ -900,8 +900,18 @@ extern int  RenderScriptEndIcon(Icon*);             /* 0x00443e30 */
 extern char PathIconInput(Icon*, int);              /* 0x00474fc0 */
 extern char QueryIconInput(Icon*, int);             /* 0x00475000 */
 extern char EraserIconInput(Icon*, int);            /* 0x00475040 */
+#ifndef LEGOLAND_PORTABLE
 extern char MapIconInput(Icon*, int);               /* 0x00475080 */
 extern char OptionsIconInput(Icon*, int);           /* 0x00475120 */
+#else   /* PORT-M10 (PORT-A8's A8-1, cluster B): both bodies are FOUR-argument
+         * -- screens3.c:707 OptionsIconInput and the MAP icon PORT-M8 already
+         * re-typed at its slot -- and uimisc3.c:372 / uimisc3.c:932 already
+         * call OptionsIconInput with four.  The same swap PORT-M8 made for the
+         * progress-screen icons above; the slot type at line 52 is already
+         * four-argument, so this is the last two-argument spelling in the file. */
+extern char MapIconInput(Icon*, int, int, int);     /* 0x00475080 */
+extern char OptionsIconInput(Icon*, int, int, int); /* 0x00475120 */
+#endif
 extern char LegolandThemeInput(Icon*, int);         /* 0x004751a0 */
 extern char WesternThemeInput(Icon*, int);          /* 0x004754b0 */
 extern char CastleThemeInput(Icon*, int);           /* 0x004753a0 */
