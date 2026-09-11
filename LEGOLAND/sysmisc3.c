@@ -512,7 +512,7 @@ typedef struct IDMPerformanceVtbl {
 } IDMPerformanceVtbl;
 struct IDMPerformance { IDMPerformanceVtbl* lpVtbl; };
 
-extern void*           g_music_sys;         /* 0x004bf774  music engine instance */
+extern int             g_music_sys; /* 0x004bf774  music ENABLED flag (startup.c:255 stores `-nomusic` == 0) */
 extern int             g_music_ready;       /* 0x0079a694  music system up */
 /* The thread the MIDI/DirectMusic pump runs on; killed outright rather than
  * signalled, which is why the loader cache has to be cleared afterwards. */

@@ -215,7 +215,7 @@ void* ConvertWAVToPCM(void* data, WaveFormatEx* fmt, unsigned long* len)
  *  Music thread
  * ========================================================================= */
 
-extern void* g_music_sys;                                    /* 0x004bf774  music engine instance */
+extern int   g_music_sys; /* 0x004bf774  music ENABLED flag (startup.c:255 stores `-nomusic` == 0) */
 extern void* g_music_thread;                                 /* 0x0079a698 */
 
 __declspec(dllimport) unsigned long __stdcall SuspendThread(void* thread);   /* [0x4ab100] */

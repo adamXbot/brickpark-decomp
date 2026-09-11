@@ -105,7 +105,7 @@ extern Sample*  g_playable_list;   /* 0x007988cc  head of live instances */
 extern int      g_sfx_master_db;   /* 0x007988a0  SFX master attenuation */
 extern IDSound* g_dsound;          /* 0x007cad40  IDirectSound */
 extern IDSBuffer* g_music_buf;     /* 0x007cad4c  music stream buffer */
-extern void*    g_music_sys;       /* 0x004bf774 */
+extern int      g_music_sys; /* 0x004bf774  music ENABLED flag (startup.c:255 stores `-nomusic` == 0) */
 extern int      g_music_ready;     /* 0x0079a694 */
 extern int      g_vol_speech;      /* 0x0080ffc4  slider 0..100 */
 extern int      g_vol_music;       /* 0x0080ffc8  slider 0..100 */

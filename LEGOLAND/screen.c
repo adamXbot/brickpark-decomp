@@ -1230,6 +1230,35 @@ static void* ll_cb_a0_DrawBasicPath(void* ll_ctx, unsigned short ll_base)
     LL_DEBUGBREAK();   /* unreachable: PATH CONTROL never sets flags & 0x400 */
     return 0;
 }
+
+/* PORT-M8: the +0xb0 slot's call site is printlist.c:641/660
+ * (DrawAndClearPrintList, 0x004859d0, `call dword ptr [edx + 0xb0]` at
+ * 0x00485ac3 and `[ecx + 0xb0]` at 0x00485b70, six pushes each):
+ *
+ *     owner->vtbl->DrawOver(owner, x, y, &ctx.n, clip, mode)
+ *
+ * 52 of the 59 `+0xb0` stores tree-wide are that six-argument shape; these
+ * two are `(elem, x, y, sq)` (ridecb9.c:1155 and :713), which
+ * this file's `extern void PottingShed_Draw();` spelling hides -- an empty
+ * parameter list says nothing, so no arity gate could see it.  Free on x86
+ * cdecl; a call_indirect type mismatch on wasm.  An adapter of the slot's
+ * own type drops the last two arguments.  The matched bodies are untouched. */
+extern void PottingShed_Draw(void* ll_elem, int ll_x, int ll_y, void* ll_sq);
+static void ll_cb_b0_PottingShed_Draw(void* ll_elem, int ll_x, int ll_y,
+                                      void* ll_sq, void* ll_clip, int ll_mode)
+{
+    (void)ll_clip;
+    (void)ll_mode;
+    PottingShed_Draw(ll_elem, ll_x, ll_y, ll_sq);
+}
+extern void MechanicsHut_Draw(void* ll_elem, int ll_x, int ll_y, void* ll_sq);
+static void ll_cb_b0_MechanicsHut_Draw(void* ll_elem, int ll_x, int ll_y,
+                                       void* ll_sq, void* ll_clip, int ll_mode)
+{
+    (void)ll_clip;
+    (void)ll_mode;
+    MechanicsHut_Draw(ll_elem, ll_x, ll_y, ll_sq);
+}
 #endif
 // FUNCTION: LEGOLAND 0x00452c20
 void SetCustomCallbacks(RideElem* elem)
@@ -1343,7 +1372,11 @@ void SetCustomCallbacks(RideElem* elem)
         def->cb_add = PottingShed_Add;
         def->cb_remove = PottingShed_Remove;
         def->cb_a8 = PottingShed_Tick;
+#ifndef LEGOLAND_PORTABLE
         def->cb_b0 = PottingShed_Draw;
+#else
+        def->cb_b0 = ll_cb_b0_PottingShed_Draw;   /* PORT-M8 */
+#endif
 #ifndef LEGOLAND_PORTABLE
         def->cb_ac = PottingShed_Destroy;
 #else
@@ -1356,7 +1389,11 @@ void SetCustomCallbacks(RideElem* elem)
         def->cb_add = MechanicsHut_Add;
         def->cb_remove = MechanicsHut_Remove;
         def->cb_a8 = MechanicsHut_Tick;
+#ifndef LEGOLAND_PORTABLE
         def->cb_b0 = MechanicsHut_Draw;
+#else
+        def->cb_b0 = ll_cb_b0_MechanicsHut_Draw;   /* PORT-M8 */
+#endif
 #ifndef LEGOLAND_PORTABLE
         def->cb_ac = MechanicsHut_Destroy;
 #else

@@ -288,7 +288,7 @@ typedef struct DMNotifyMsg {
 
 /* ---- globals ----------------------------------------------------------- */
 
-extern void*           g_music_sys;          /* 0x004bf774  music engine instance */
+extern int             g_music_sys; /* 0x004bf774  music ENABLED flag (startup.c:255 stores `-nomusic` == 0) */
 extern volatile int    g_music_disabled;     /* 0x007988bc */
 extern int             g_music_ready;        /* 0x0079a694  DMusicInitialised */
 extern IDSound*        g_dsound;             /* 0x007cad40  IDirectSound */

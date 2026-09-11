@@ -147,7 +147,14 @@ typedef struct TrackFit {
 } TrackFit;
 
 extern int g_span_vtx_stride;                       /* 0x004b5608 */
-extern void* g_span_vtx;                            /* 0x004b560c */
+/* PORT-M8: this is a COUNT, not a pointer.  Span_SetVertexBuf (0x0041f030)
+ * is called from Raster_ClipPoly (0x0041ef60) as
+ * `Span_SetVertexBuf(n + 1)` with `n` the vertex-index argument,
+ * the image initialises the word to 2, and every read below is
+ * `g_span_vtx` used as the inclusive bound of the per-vertex dword
+ * lerp.  Nothing dereferences it.  The `void*` spelling made the browser
+ * closure claim a pointer word (rejected on the value, gen/pointers.md). */
+extern int   g_span_vtx;                            /* 0x004b560c  dwords to lerp, minus one */
 extern PackedSquare g_joint_delta[4];               /* 0x004b5584 */
 extern PlaceRect g_joint_probe;                     /* 0x004b5570 */
 extern CoasterRoute* g_route_eval;                  /* 0x004d83b4 */
@@ -203,10 +210,11 @@ extern void* g_clip_ping[2];                        /* 0x004b5600 */
 extern void* g_clip_cursor;                         /* 0x004d87c4 */
 extern int g_clip_buf;                              /* 0x004d83c4 */
 
-/* Stores the raster vertex stride (sizeof PolyVtx = 0x1c) and the live
- * vertex pointer the span clippers walk. */
+/* Stores the raster vertex stride (sizeof PolyVtx = 0x1c) and the number of
+ * extra dwords per vertex the span clippers lerp (PORT-M8: the second word is
+ * a COUNT -- Raster_ClipPoly passes `n + 1` -- not a vertex pointer). */
 // FUNCTION: LEGOLAND 0x0041f030
-void Span_SetVertexBuf(void* v)
+void Span_SetVertexBuf(int v)
 {
     g_span_vtx_stride = 0x1c;
     g_span_vtx = v;
@@ -519,7 +527,7 @@ void* Raster_ClipPoly(void** v, int* count, int mask, int n)
         *count = 3;
         return v;
     }
-    Span_SetVertexBuf((void*)(n + 1));
+    Span_SetVertexBuf(n + 1);
     if ((mask & 3) < 3)
         flags = 1;
     if ((mask & 0xc) < 0xc)
@@ -867,7 +875,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                             k = 0;
                             *(void**)out_v = prev;
                             out_v = (char*)out_v + 4;
-                            if ((int)g_span_vtx >= 0) {
+                            if (g_span_vtx >= 0) {
                                 int* src = (int*)prev;
                                 /* reload homes each iter — orig sub ecx,eax + [esp+0x18] */
                                 int dest_home = (char*)dst - (char*)prev;
@@ -888,7 +896,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                                     }
                                     src++;
                                     k++;
-                                } while (k <= (int)g_span_vtx);
+                                } while (k <= g_span_vtx);
                             }
                             *(void**)out_v = dst;
                             out_v = (char*)out_v + 4;
@@ -908,7 +916,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                     t = na.f / s;
                     {
                         int k;
-                        if ((int)g_span_vtx >= 0) {
+                        if (g_span_vtx >= 0) {
                             int* src = (int*)nxt;
                             int delta = (char*)prev - (char*)nxt;
                             int dest = destrel;
@@ -926,7 +934,7 @@ int Span_ClipPlane(int n, void* in_v, void* out_v, void** cursor, void* plane_v)
                                 }
                                 src++;
                                 k++;
-                            } while (k <= (int)g_span_vtx);
+                            } while (k <= g_span_vtx);
                         }
                     }
                     *(void**)out_v = dst;

@@ -87,7 +87,7 @@ extern void HeapFree_w(void*);                           /* 0x0049e4d0 */
 extern long _lseek(int, long, int);                      /* 0x004a56c3 */
 extern int ShowHelpPopup(int);                           /* 0x0046d280 */
 extern int PrintSprite(void*, int, int, int, void*);      /* 0x004853a0 */
-extern void SetMenuHelp(int slot, void* text);            /* 0x00475fe0 */
+extern void SetMenuHelp(int slot, unsigned int text);     /* 0x00475fe0  PORT-M8: the slot holds a word, not a pointer (movie.c:218) */
 extern void RemoveNewObjectMarker(void*);                /* 0x00471ca0 */
 extern void** DetailImage_AllocSlot(void);               /* 0x00496f30 */
 extern int ResumeSinglyPausedSample(Sample*);            /* 0x00492910 */

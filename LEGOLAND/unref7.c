@@ -295,7 +295,7 @@ extern Pos          g_suggest_target;       /* 0x004bcec0  (.y at 0x004bcec4) */
 extern unsigned int g_llidb_capacity;       /* 0x006691a0  multiple of 0x100 */
 extern unsigned int g_llidb_count;          /* 0x006691a4 */
 extern LLElem**     g_llidb_pages;          /* 0x006691a8  256 elements per page */
-extern void*        g_music_sys;            /* 0x004bf774  music engine instance */
+extern int          g_music_sys; /* 0x004bf774  music ENABLED flag (startup.c:255 stores `-nomusic` == 0) */
 extern int          g_music_ready;          /* 0x0079a694 */
 extern IDMLoader*   g_dm_loader;            /* 0x007cacd8  IDirectMusicLoader */
 extern const GUID_  CLSID_DirectMusicSegment; /* 0x004ab9f0 */
