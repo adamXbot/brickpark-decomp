@@ -9,7 +9,7 @@
  * (frame size, saved registers, branch direction). */
 
 /* --- globals touched (addresses documented; names are ours) --------------- */
-extern void* g_music_sys;       /* 0x004bf774  music engine instance */
+extern int   g_music_sys; /* 0x004bf774  music ENABLED flag (startup.c:255 stores `-nomusic` == 0) */
 extern void* g_sample_sys;      /* 0x007988c0  sample source system */
 extern int   g_gardener_count;  /* 0x0079a8bc  active gardener count */
 extern int   g_mechanic_count;  /* 0x0079a8cc  active mechanic count */

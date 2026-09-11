@@ -132,7 +132,7 @@ extern int g_mechanic_count;                             /* 0x0079a8cc */
 extern int g_brick_lock;                                 /* 0x004b90fc */
 extern int g_bricks;                                     /* 0x004b90f8 */
 extern void* g_script_cur;                               /* 0x0066879c */
-extern void* g_music_sys;                                /* 0x004bf774 */
+extern int   g_music_sys; /* 0x004bf774  music ENABLED flag (startup.c:255 stores `-nomusic` == 0) */
 extern unsigned long g_music_thread_id;                  /* 0x007cad48 */
 extern void* g_music_thread;                             /* 0x0079a698 */
 extern int g_music_disabled;                             /* 0x007988bc */

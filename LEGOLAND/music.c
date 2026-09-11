@@ -114,7 +114,7 @@ typedef struct DMObjectDesc {
 #define BLEND_COMPOSEF      0x2022   /* DMUS_COMPOSEF_MODULATE|LONG|MEASURE */
 
 /* ---- globals ----------------------------------------------------------- */
-extern void*          g_music_sys;          /* 0x004bf774  music engine instance */
+extern int            g_music_sys; /* 0x004bf774  music ENABLED flag (startup.c:255 stores `-nomusic` == 0) */
 extern int            g_music_ready;        /* 0x0079a694  music system up */
 extern IDMLoader*     g_dm_loader;          /* 0x007cacd8  IDirectMusicLoader */
 extern IDMPerformance* g_dm_performance;    /* 0x007cacdc  IDirectMusicPerformance */

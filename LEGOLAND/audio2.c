@@ -173,7 +173,7 @@ typedef struct IDMBandVtbl {
 } IDMBandVtbl;
 struct IDMBand { IDMBandVtbl* lpVtbl; };
 
-extern void*          g_music_sys;         /* 0x004bf774  music engine instance */
+extern int            g_music_sys; /* 0x004bf774  music ENABLED flag (startup.c:255 stores `-nomusic` == 0) */
 extern int            g_music_ready;       /* 0x0079a694  music system up */
 extern IDMPerformance* g_dm_performance;   /* 0x007cacdc  IDirectMusicPerformance */
 extern const char     GUID_PerfMasterGrooveLevel[]; /* 0x004ab6d0 */

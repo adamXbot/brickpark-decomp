@@ -89,18 +89,29 @@ typedef struct CurProfile {
 
 extern CurProfile g_cur_profile;      /* 0x0080ffa0 */
 
-/* ---- the progress-screen level marker table @ 0x004beb88 --------------- */
+/* ---- the progress-screen level marker table @ 0x004beb80 --------------- */
+/* PORT-M8: this file used to frame the record EIGHT BYTES IN, at 0x004beb88,
+ * with its fields rotated to match.  Every field it reads (str_id, x, y, lit,
+ * dim) lands at the same address under either framing -- `g_level_markers[i].x`
+ * is `0x004beb8c + 28*i` both ways, so no byte moves -- but the rotated frame's
+ * two trailing name pointers belong to the NEXT record, and the tenth record's
+ * pair therefore fell on `g_progress_click_level` (0x004bec98, holding
+ * 0xffffffff) and the dword above it.  screens3.c:276 frames the same ten
+ * records from 0x004beb80 and its names line up: record 0's str_id is
+ * 0x004beb88 = 0x19 and the ten ids run 0x19..0x22.  Framed screens3.c's way
+ * the table is exactly 0x004beb80 .. 0x004bec98, g_progress_click_level
+ * follows it, and all twenty name pointers are real. */
 typedef struct LevelMarker {
-    int         str_id;    /* +0x00 help string */
-    int         x;         /* +0x04 */
-    int         y;         /* +0x08 */
-    Sprite*     lit;       /* +0x0c */
-    Sprite*     dim;       /* +0x10 */
-    const char* lit_name;  /* +0x14 */
-    const char* dim_name;  /* +0x18 */
+    const char* lit_name;  /* +0x00 */
+    const char* dim_name;  /* +0x04 */
+    int         str_id;    /* +0x08 help string */
+    int         x;         /* +0x0c */
+    int         y;         /* +0x10 */
+    Sprite*     lit;       /* +0x14 */
+    Sprite*     dim;       /* +0x18 */
 } LevelMarker;             /* 0x1c */
 
-extern LevelMarker g_level_markers[10];   /* 0x004beb88 .. 0x004beca0 */
+extern LevelMarker g_level_markers[10];   /* 0x004beb80 .. 0x004bec98  levels 6..15 */
 
 /* ---- globals ------------------------------------------------------------ */
 extern int     g_progress_resume;     /* 0x00798660 */

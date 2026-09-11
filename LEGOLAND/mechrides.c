@@ -839,11 +839,34 @@ extern void* BuildWalkPath(void* polyline);                  /* 0x00412100 */
  * consecutive slots of the block at 0x004c119c -- the per-copter cursors the
  * update walks. */
 extern const char* g_copters_spr_names[10];                  /* 0x004b4170 */
-extern void*  g_copters_poly0;                               /* 0x004b41c8 (6 pts) */
-extern void*  g_copters_poly1;                               /* 0x004b4208 (7 pts) */
-extern void*  g_copters_poly2;                               /* 0x004b4240 (6 pts) */
-extern void*  g_copters_poly3;                               /* 0x004b4270 (5 pts) */
-extern void*  g_copters_poly4;                               /* 0x004b4298 (4 pts) */
+
+/* PORT-M8: these five are goldrush.c's `PolyLine` ({count, pts}), NOT `void*`.
+ * The image lays the five out as [points][header] pairs and each header's
+ * second word is the address of the point array immediately below it:
+ *
+ *   0x004b41c8 = { 6, 0x004b4198 }   0x004b4198 .. 0x004b41c8 = 6 x {int,int}
+ *   0x004b4208 = { 7, 0x004b41d0 }   0x004b41d0 .. 0x004b4208 = 7 x {int,int}
+ *   0x004b4240 = { 6, 0x004b4210 }   0x004b4210 .. 0x004b4240 = 6 x {int,int}
+ *   0x004b4270 = { 5, 0x004b4248 }   0x004b4248 .. 0x004b4270 = 5 x {int,int}
+ *   0x004b4298 = { 4, 0x004b4278 }   0x004b4278 .. 0x004b4298 = 4 x {int,int}
+ *
+ * -- the same shape `g_goldrush_polyline` (0x004b4608 = { 5, ... }) already
+ * carries, and BuildWalkPath (0x00412100) is handed `&g_copters_polyN` here
+ * exactly as it is handed `&g_goldrush_polyline` there.  The `void*` spelling
+ * named the COUNT word and said nothing about the pointer word, so the
+ * browser closure left all five `pts` as RAW x86 addresses: every copter
+ * walk path was built from a number that means nothing in the rebuilt
+ * layout.  `&g_copters_poly0` is the only use, so no byte moves. */
+typedef struct PolyLine {
+    int   count;                 /* +0x00 */
+    Pos*  pts;                   /* +0x04 */
+} PolyLine;
+
+extern PolyLine g_copters_poly0;                             /* 0x004b41c8 (6 pts) */
+extern PolyLine g_copters_poly1;                             /* 0x004b4208 (7 pts) */
+extern PolyLine g_copters_poly2;                             /* 0x004b4240 (6 pts) */
+extern PolyLine g_copters_poly3;                             /* 0x004b4270 (5 pts) */
+extern PolyLine g_copters_poly4;                             /* 0x004b4298 (4 pts) */
 extern void*  g_copters_cur0;                                /* 0x004c1194 */
 extern void*  g_copters_cur1;                                /* 0x004c1190 */
 extern void*  g_copters_cur2;                                /* 0x004c1164 */

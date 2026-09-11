@@ -208,7 +208,14 @@ extern int     g_game_mode;          /* 0x008119b4 3 = a running park */
 extern void*   g_edit_object;        /* 0x008119b8 */
 extern Cursor  g_edit_cursor;        /* 0x007febc0 (export EditCursor) */
 extern unsigned int g_ui_flags;      /* 0x00813a40 */
-extern void*   g_menu_help[4];       /* 0x004bb18c */
+/* PORT-M8: the image initialises these four words to 100, 140, 200, 10000 --
+ * four numbers, not four text pointers -- so the array is not a `void*[4]`.
+ * SetMenuHelp (0x00475fe0, `mov [eax*4 + 0x4bb18c], ecx`) proves the
+ * address and the bound, and it is the only writer in the whole image;
+ * the only caller is tinystubs.c:311's clear loop, and nothing in the
+ * image READS the array at all, so what a set slot means is not decidable
+ * from the binary.  Declared as the words the image actually holds. */
+extern unsigned int g_menu_help[4];  /* 0x004bb18c  {100, 140, 200, 10000} */
 extern int     g_icons2_mode;        /* 0x00668e38 */
 extern FrontEndState g_front;        /* 0x0080ff80 {PopUp, Screen, ScreenMode} */
 extern int     g_screen_popup;       /* 0x0080ff80 pending front-end pop-up */
@@ -332,7 +339,7 @@ long          __stdcall AVIStreamGetFrameClose(void* pg);                       
 /* Bind one of the four menu help slots.  Out-of-range slots are silently
  * dropped, which is what lets tinystubs.c's ClearMenuHelp loop 0..3 blind. */
 // FUNCTION: LEGOLAND 0x00475fe0
-void SetMenuHelp(int slot, void* text)
+void SetMenuHelp(int slot, unsigned int text)
 {
     if (slot >= 0 && slot < 4)
         g_menu_help[slot] = text;
