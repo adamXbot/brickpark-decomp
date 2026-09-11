@@ -236,13 +236,37 @@ fps figure and a frozen picture — which is exactly the "the game ignores input
 report that PORT-B4 and PORT-B6 both chased. §2a's death banner is this lane's
 answer to that class of report.
 
-**There are almost certainly more.** `name_trap.py --at` lists 186 functions
-whose address a rebuilt global holds and whose type is not `(i32) -> void` at
-this one call site alone. The systematic form of the fix is PORT-M3's typed
-callback pass extended to the COM-shaped vtables the shim supplies: any slot the
-game declares in more than one file, where the declarations disagree, is a
-latent runtime trap. A sweep worth a lane: for every `__stdcall*` slot declared
-in two or more TUs, compare the return types.
+### B1a — and it is the ONLY one of its kind
+
+The obvious next question is how many more of these are waiting, and it has a
+cheap answer, because only a `void`-declared slot can trap this way: a slot
+declared `int`, `long` or `unsigned long` is `(…)->i32` whichever of the three
+a TU picked, and wasm cannot tell them apart. So:
+
+```
+$ grep -rn 'void\s*(\s*__stdcall\s*\*' LEGOLAND/*.c
+LEGOLAND/lifecycle.c:88:typedef void (__stdcall* MMTimeProc)(unsigned int id, ...
+LEGOLAND/spritemisc.c:26:    void(__stdcall* Destroy)(struct Owner* self); /* +0x08 */
+```
+
+**Two, and the other one is right.** `MMTimeProc` is WINMM's `timeSetEvent`
+callback; its only body is `MIDITimerTick` (music2.c 0x00480570), which is
+declared `void __stdcall` with the same five arguments, and `winmm.c`'s own
+`LLTimeProc` matches. So `spritemisc.c:26` is the whole of this class in the
+tree, and fixing it removes it.
+
+A wider sweep of every `__stdcall*` slot declared in two or more TUs
+(`port-b7-vtsweep.py`, scratch) finds three more disagreements and **all three
+are harmless on wasm32**: `IDSoundVtbl +0x04/+0x08` (lifecycle.c says `long`
+where audio3.c/input2.c/musicthread.c say `unsigned long`) and `SurfaceVtbl
++0x7c` `SetPalette` (spritemisc.c `int` vs rin.c `long`). Worth fixing for
+tidiness, not for correctness.
+
+That is the *declared* half. The other half — an indirect call through a slot
+the game fills with its own bodies — is PORT-M3's typed-callback pass, and at
+this one call site `name_trap.py --at` still lists 186 functions whose address a
+rebuilt global holds and whose type is not `(i32) -> void`. Those are candidates
+only; the real target here was the shim's, written into the vtable at runtime.
 
 ---
 
@@ -320,4 +344,7 @@ python3 portable/tools/name_trap.py --wasm portable/build-wasm/legoland_dbg.wasm
 Scratch scripts (not committed): `port-b7-serve.sh` (serve the build dir on a
 port of its own), `port-b7-headless.sh` (run `legoland_headless` under a
 wall-clock cap — the front end does not terminate), `port-b7-names.py` (map a
-`wasm-function[N]` to its name through `name_trap.Module`).
+`wasm-function[N]` to its name through `name_trap.Module`),
+`port-b7-vtsweep.py` (§4 B1a — every `__stdcall*` vtable slot declared in two or
+more TUs, grouped by struct and by +0xNN, with the return-type disagreements
+called out).
