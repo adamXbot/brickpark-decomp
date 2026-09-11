@@ -677,7 +677,12 @@ extern void LoadBoatingSchool();                              /* 0x0041aee0 */
 #else
 extern int LoadBoatingSchool(void);                              /* 0x0041aee0 */
 #endif
+#ifndef LEGOLAND_PORTABLE
 extern void BoatingSchool_BestTake();                              /* 0x0041b100 */
+#else   /* PORT-M10: ridecb6.c:1188 returns int, so this one is swapped and
+         * not completed like the rest of cluster A (see the block below). */
+extern int  BoatingSchool_BestTake(void* cls, int working_only);   /* 0x0041b100 */
+#endif
 extern void Mermaid_LoadResources();                              /* 0x0041b250 */
 extern void Mermaid_SelectForPlacement();                              /* 0x0041b260 */
 extern void Mermaid_Add();                              /* 0x0041b2a0 */
@@ -1259,6 +1264,50 @@ static void ll_cb_b0_MechanicsHut_Draw(void* ll_elem, int ll_x, int ll_y,
     (void)ll_mode;
     MechanicsHut_Draw(ll_elem, ll_x, ll_y, ll_sq);
 }
+#endif
+
+#ifdef LEGOLAND_PORTABLE
+/* PORT-M10 (closes PORT-A8's A8-1, cluster A).  The interface-table block
+ * above declares these class callbacks with an EMPTY parameter list
+ * (`extern void Foo ();` -- K&R, not `(void)`), which leaves the symbol with
+ * an empty wasm signature and makes every object that declares it disagree
+ * with the object that defines it.  Nothing traps today because this file only
+ * takes their ADDRESSES, but it is one call site away from being live and it
+ * is the last thing keeping `wasm_sig_conflict_detail` non-empty for screen.c.
+ *
+ * A K&R declaration is COMPLETED, not contradicted, by a later prototype with
+ * the same return type, so these lines add the body's arity without touching
+ * a single matched line above and without moving a VC6 byte (the whole block
+ * is inside the portable arm).  Parameters are spelled `void*`/`int` -- the
+ * i32 the body's real types lower to -- because no call is made through them
+ * here; the defining file keeps the real types.  Each row names the file that
+ * defines the body, which is the vote `wasm_sig_conflict_detail` reports.
+ *
+ * `BoatingSchool_BestTake` is NOT here: its body returns `int`, so its
+ * declaration has to be swapped rather than completed (see its line above). */
+extern void AddBasicPath(void* obj, void* pos);                       /* pathbuild.c   */
+extern void RemoveSoundObject(void* obj, void* pos, int c);           /* input2.c      */
+extern void BoatingSchool_Create(void* elem);                         /* screencb.c    */
+extern void BoatingSchool_Destroy(void* elem);                        /* screencb2.c   */
+extern void BoatingSchool_Add(void* obj, void* pos);                  /* ridecb5.c     */
+extern void BoatingSchool_Update(void* a, void* b, void* c);          /* screencb3.c   */
+extern void BoatingSchool_DrawSelection(void* elem, void* pos);       /* screencb2.c   */
+extern void BoatingSchool_Remove(void* obj, void* bp, void* ctx);     /* ridecb8.c     */
+extern void BoatingSchool_Draw(void* a, void* b, void* c,
+                               void* d, void* e, void* f);            /* screencb.c    */
+extern void BoatingSchoolWater_Remove(void* a, void* b, void* c);     /* ridecb5.c     */
+extern void Mermaid_LoadResources(void* elem);                        /* ridecb8.c     */
+extern void Mermaid_Add(void* obj, void* pos);                        /* ridecb6.c     */
+extern void Mermaid_CalcCursor(void* a, void* b, void* c);            /* ridecb8.c     */
+extern void Mermaid_CalcCursor2(void* a, void* b);                    /* ridecb8.c     */
+extern void BsMermaid_Remove(void* a, void* b, void* c);              /* screencb.c    */
+extern void BsWater_LoadResources(void* elem);                        /* ridecb8.c     */
+extern void BsWater_Add(void* obj, void* pos);                        /* ridecb6.c     */
+extern void BsWater_CalcCursor(void* a, void* b, void* c);            /* ridecb6.c     */
+extern void BsWater_DrawSelection(void* elem, void* pos);             /* screencb.c    */
+extern void MonkeyTree_Remove(void* obj, void* bp, void* ctx);        /* junglecruise.c*/
+extern void MonkeyFish_Remove(void* obj, void* bp, void* ctx);        /* junglecruise.c*/
+extern void JungleCruise_DrawSelection(void* elem, void* pos);        /* ridecb9.c     */
 #endif
 // FUNCTION: LEGOLAND 0x00452c20
 void SetCustomCallbacks(RideElem* elem)

@@ -418,7 +418,21 @@ typedef struct WorkOrder {
 extern ObjDef* g_sel_def;        /* 0x00667c58 class under the destroy cursor */
 extern Cursor  g_destroy_cursor; /* 0x00810160 */
 
+#ifndef LEGOLAND_PORTABLE
 extern void       FreeBuildSlotAt(BPos sq);                     /* 0x00450c00 */
+#else
+/* PORT-M10: pathmisc.c:99 DEFINES 0x00450c00 as `(unsigned short key)`.  On
+ * x86 cdecl that is the same dword as this two-byte by-value BPos; on wasm32
+ * clang passes a multi-member struct INDIRECTLY and a scalar DIRECTLY, and
+ * both still lower to ONE i32 parameter, so wasm-ld reports no signature
+ * mismatch and nothing traps -- the scan compares a shadow-stack ADDRESS
+ * against every slot key and silently frees nothing (the slot leaks and
+ * g_build_count is never decremented).  Same class as popup.c's
+ * AddObjectToBuildList; see docs/lanes/scope-port-m10.md §1. */
+extern void       FreeBuildSlotAt(unsigned short sq);           /* 0x00450c00 */
+#define FreeBuildSlotAt(_sq) \
+    FreeBuildSlotAt((unsigned short)((_sq).x | ((_sq).y << 8)))
+#endif
 extern void       ClearObjectUserFlags(MapObj* obj, Pos* pos);  /* 0x0045e850 */
 extern void       IncrementObjectCount(ObjDef* def);            /* 0x00480d40 */
 extern void       RemoveObjectFromMap(BPos sq);                 /* 0x0045f100 */

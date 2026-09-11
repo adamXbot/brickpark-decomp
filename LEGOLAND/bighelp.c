@@ -522,10 +522,24 @@ extern void    InitPopUpTools(void* a, void* b);                                
 extern char PU_GardenerInput(Icon*, int);   /* 0x004733f0 */
 extern char PU_MechInput(Icon*, int);       /* 0x00473460 */
 extern char PU_DeleteInput(Icon*, int);     /* 0x004731a0 */
+#ifndef LEGOLAND_PORTABLE
 extern char PU_CloseInput(Icon*, int);      /* 0x004730f0 */
 extern char PU_NextInput(Icon*, int);       /* 0x00473360 */
+#else   /* PORT-M10 (PORT-A8's A8-1, cluster B): uimisc.c:291 defines
+         * PU_CloseInput as (Icon*, int, short, short) and movie.c:263/375
+         * already calls it with four; PU_NextInput's matched body is renamed
+         * to PU_NextInput_vc6_body in the portable build (uimisc.c:2) and the
+         * exported symbol is the slot's four-argument shape. */
+extern char PU_CloseInput(Icon*, int, int, int);  /* 0x004730f0 */
+extern char PU_NextInput(Icon*, int, int, int);   /* 0x00473360 */
+#endif
 extern char PU_PrevInput(Icon*, int);       /* 0x004733b0 */
+#ifndef LEGOLAND_PORTABLE
 extern char PU_Delete2Input(Icon*, int);    /* 0x004734d0 */
+#else   /* PORT-M10: fpui5.c:300-310 renames the matched body and exports the
+         * slot's four-argument shape over it (PORT-M3's method). */
+extern char PU_Delete2Input(Icon*, int, int, int); /* 0x004734d0 */
+#endif
 extern char PU_ToolA(Icon*, int);           /* 0x00473310 */
 extern char PU_ToolB(Icon*, int);           /* 0x004731e0 */
 

@@ -1591,7 +1591,13 @@ extern void LFHoldUp_Interact(void);       /* 0x0040ffd0 */
 extern void LFHoldUp_Update(void);         /* 0x004100d0 */
 extern void LFHoldUp_Update2(void);        /* 0x00410100 */
 extern void LFHoldUp_Add(void);            /* 0x00410110 */
+#ifndef LEGOLAND_PORTABLE
 extern void LFHoldUp_Remove(void);         /* 0x00410160 */
+#else   /* PORT-M10: logflume.c:926 defines it (void*, void*, void*) -- the
+         * cb_remove slot's own shape, which every other remove handler in this
+         * table already carries. */
+extern void LFHoldUp_Remove(void*, void*, void*);  /* 0x00410160 */
+#endif
 extern void LFHoldUp_Destroy(void);        /* 0x0040ffa0 */
 
 // FUNCTION: LEGOLAND 0x00410d60

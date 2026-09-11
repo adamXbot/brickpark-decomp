@@ -121,7 +121,29 @@ extern int   GetObjCost(ObjDef* d);                             /* 0x00480da0 */
 extern int   GetBrickCount(void);                               /* 0x004578e0 */
 extern void  UseBricks(int n);                                  /* 0x004578c0 */
 extern void  PlayAppropriateBuildEffect(ObjDef* d, Pos* pos);   /* 0x00462d10 */
+#ifndef LEGOLAND_PORTABLE
 extern int   AddObjectToBuildList(ObjDef* d, BPos bp);          /* 0x00450b90 */
+#else
+/* PORT-M10: sweep1.c:302 DEFINES 0x00450b90 as `(int obj, short type)` and
+ * stores `(unsigned short)type` into the slot.  On x86 cdecl a two-byte
+ * by-value struct and a `short` are the same dword on the stack, so the two
+ * spellings are ABI-identical and every byte gate is green.  On wasm32 they
+ * are NOT: clang passes a by-value struct DIRECTLY only when it has a single
+ * element, so this two-member BPos goes INDIRECTLY -- a pointer to a byval
+ * temp on the shadow stack.  Both spellings still lower to exactly ONE i32
+ * parameter, so wasm-ld reports no signature mismatch, linkreport.py's
+ * conflict vote sees nothing, and nothing traps: sweep1.c stores the low half
+ * of a stack ADDRESS as the build slot's map tile, and from there the tile
+ * reaches ObjectIsBuilt -> PutObjOnMap -> the class's place handler, so the
+ * ride's instance record and its TowerRec carry an off-map square and
+ * EventTick_Link can never satisfy (PARK-1).  Declare the parameter the way
+ * the definition reads it and pack the tile at the call site; BPos.x is at
+ * +0x00 and .y at +0x01, so little-endian `x | (y << 8)` is the same 16 bits
+ * buildtick.c's BuildKey union reads back as {x, y}. */
+extern int   AddObjectToBuildList(ObjDef* d, unsigned short bp); /* 0x00450b90 */
+#define AddObjectToBuildList(_d, _bp) \
+    AddObjectToBuildList((_d), (unsigned short)((_bp).x | ((_bp).y << 8)))
+#endif
 extern int   ClassAllowsObjects(ObjDef* d);                     /* 0x0045eab0 */
 extern int   ClassNeedsPath(ObjDef* d);                         /* 0x0045eaf0 */
 extern void  AddObjectToMapByCursor(ObjElem* obj, Pos* pos, unsigned int flags); /* 0x0045e080 */
