@@ -250,6 +250,10 @@ they are written every single frame, so 16880 clean frames is the evidence
 that `g_render_arena1`/`2` are now real blocks and not arbitrary linear
 memory. The sixth button (MAP) is A7-2 — see §6.
 
+**Scrolling the level** with the cursor at each screen edge draws terrain in
+every direction (non-black 99.5% on an empty quarter of the map), still no
+trap. The whole sequence is reproducible from a cold page load, not a one-off.
+
 ## 5. Gates
 
 Run after the VC6 quiet window (started 13:13, gates from 13:58).
