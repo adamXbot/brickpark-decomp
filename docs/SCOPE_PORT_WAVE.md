@@ -44,6 +44,7 @@
 > `CurProfile` at 0x0080ffa0 is EIGHT (so the name editor never runs); both rows
 > twice-cited in the notes. Notes `docs/lanes/scope-port-b6.md`.
 > **PORT-M5 — Status: MERGED (2026-09-12) — five caller/definition names decided from the disassembly (ShowStepHint, ResetFreePlayTable, SaveFrontEndState, CloseActiveThemeButton, SetVidAnim); M3's three open slots closed (DrawBasicPath is an original mis-registration that cannot fire; coaster8.c detach was a wrong callee NAME — RouteSeat_ReleaseCar); sub_458930 is a bare fistp that ROUNDS: 95 of 111 float-to-int sites now LL_FISTP in portable arms, g_recip[30]=2185 corrected; the last three span fillers ported (asm stubs 6 -> 3, all unreachable); 37 files, audit 425 [OK] mismatch=0, relocs 0 tree-wide, 3281/42. Notes `docs/lanes/scope-port-m5.md`**
+> **PORT-M6 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-M6)** — the game-side items filed since PORT-M5: A6 §7's front-end/park overlap hazards, B6's two defect findings (`SetVidAnim(NULL)`, `OpenMovie`'s `pfile`), the `RES_LowRead`/`RES_LowSeek` rename, and the void-declared-slot / cast-forwarder close-out. Notes `docs/lanes/scope-port-m6.md`
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
