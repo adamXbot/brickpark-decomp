@@ -26,9 +26,14 @@ typedef struct RFile {
 /* kernel32 SetFilePointer / ReadFile. The original calls these indirectly
  * through the IAT ("call dword ptr [0x4ab104]"), so they must be declared
  * dllimport — a plain extern compiles to a direct rel32 call and will not
- * match. Same symbol names as LEGOLAND/sweep4.c. */
-__declspec(dllimport) int __stdcall RES_LowSeek(int h, int off, int a, int b);              /* [0x4ab104] */
-__declspec(dllimport) int __stdcall RES_LowRead(int h, void* buf, int n, int* got, int ov); /* [0x4ab264] */
+ * match; the relocation targets the same thunk either way, which is why the
+ * names could be corrected (scope PORT-M6: they were `RES_LowSeek` /
+ * `RES_LowRead`, our own names for two KERNEL32 imports that data2.c,
+ * coaster7.c and unref3.c already spell correctly) without a byte moving.
+ * The PARAMETER TYPES are unchanged -- an extern's types are a caller-side
+ * codegen lever (HANDOFF section 3). Same symbol names as LEGOLAND/sweep4.c. */
+__declspec(dllimport) int __stdcall SetFilePointer(int h, int off, int a, int b);              /* [0x4ab104] */
+__declspec(dllimport) int __stdcall ReadFile(int h, void* buf, int n, int* got, int ov); /* [0x4ab264] */
 
 // FUNCTION: LEGOLAND 0x00489cf0
 int RES_ReadFile(RFile* f, void* buf, int count)
@@ -42,7 +47,7 @@ int RES_ReadFile(RFile* f, void* buf, int count)
     v = f->vol;
     if (f != v->cur) {
         v->cur = f;
-        RES_LowSeek(v->handle, f->pos + f->base, 0, 0);
+        SetFilePointer(v->handle, f->pos + f->base, 0, 0);
     }
 
     if (count > f->size - f->pos)
@@ -50,7 +55,7 @@ int RES_ReadFile(RFile* f, void* buf, int count)
     if (count == 0)
         return 0;
 
-    RES_LowRead(v->handle, buf, count, &got, 0);
+    ReadFile(v->handle, buf, count, &got, 0);
     f->pos += got;
     return got;
 }

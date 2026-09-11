@@ -23,8 +23,10 @@ typedef struct RFile {
 
 extern void* RES_OpenFileFromVolume(void* vol, void* rec);
 extern void  RES_FreeFile(void* f);                       /* 0x0049e4d0 */
-extern int __stdcall RES_LowSeek(int h, int off, int a, int b);          /* [0x4ab104] */
-extern int __stdcall RES_LowRead(int h, void* buf, int n, int* got, int ov); /* [0x4ab264] */
+/* KERNEL32 SetFilePointer / ReadFile. Declared, never called in this TU;
+ * scope PORT-M6 renamed them from `RES_LowSeek` / `RES_LowRead`. */
+extern int __stdcall SetFilePointer(int h, int off, int a, int b);          /* [0x4ab104] */
+extern int __stdcall ReadFile(int h, void* buf, int n, int* got, int ov); /* [0x4ab264] */
 
 int RES_CloseVolume(RVol* v);   /* fwd (called by RES_CloseFile) */
 

@@ -650,7 +650,20 @@ extern int          g_popup_ref;      /* 0x007fdec8  PopUpInfo.ref (packed cell)
 extern QDef*        g_query_class;    /* 0x00667c58  castleobj.c QueryClass */
 extern QueryCursor  g_query_cursor;   /* 0x00810160  castleobj.c QueryCursor
                                        *             (objmap2.c g_destroy_cursor) */
+#ifndef LEGOLAND_PORTABLE
 extern QueryBlock   g_query_block;    /* 0x00811564 */
+#else
+/* g_query_block is the 8 bytes at +0x1404 of the query cursor, and the
+ * `saved = g_query_cursor` / `g_query_cursor = saved` pair around the probe
+ * copies the WHOLE 0x1834-byte block -- the two bytes ranges overlap. As two
+ * extern objects clang may sink the 6196-byte copy past the two stores below
+ * it, which would snapshot the NEW cell and restore it, leaving the query
+ * block holding the probe's cell instead of the caller's (PORT-M6 measured a
+ * same-storage store/load pair being folded at -O2; the copy happens to stay
+ * in program order at -O3 today, so this is latent, not live). Addressing the
+ * block through the record makes it one object; the VC6 arm is untouched. */
+#define g_query_block (*(QueryBlock*)&g_query_cursor.raw[0x1404]) /* 0x00811564 */
+#endif
 
 extern void BuildCursorPtr(QueryCursor* c, int a, int b);   /* 0x0045f5f0 */
 extern int  CursorIsValid(QueryCursor* c);                  /* 0x0045f4b0 */

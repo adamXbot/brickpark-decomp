@@ -9,9 +9,23 @@ typedef struct SimTuning { int a, b, rest[9]; } SimTuning;        /* 0x2c-byte r
 
 extern int         g_game_mode;                    /* 0x008119b4  2 = front-end screens */
 extern CurProfile  g_cur_profile;                  /* 0x0080ffa0 */
+#ifndef LEGOLAND_PORTABLE
 extern int         g_vol_speech;                   /* 0x0080ffc4  CurProfile +0x24, slider 0..100 */
 extern int         g_vol_music;                    /* 0x0080ffc8  CurProfile +0x28 */
 extern int         g_vol_sfx;                      /* 0x0080ffcc  CurProfile +0x2c */
+#else
+/* The three volumes live INSIDE g_cur_profile, and ResetCurProfileDefaults
+ * memsets the whole 0x110-byte record and then stores them. As four separate
+ * extern objects that is an overlap hazard: clang has them as distinct
+ * objects, so it may sink the memset past the three stores and zero the
+ * volumes (PORT-M6 measured the shape -- a store through one name is folded
+ * into a load of the other across the same storage at -O2). One declaration
+ * per byte range removes the question; the addresses are unchanged and so are
+ * the VC6 bytes, which compile the #ifndef arm. */
+#define g_vol_speech (*(int*)&g_cur_profile.bytes[0x24])   /* 0x0080ffc4 */
+#define g_vol_music  (*(int*)&g_cur_profile.bytes[0x28])   /* 0x0080ffc8 */
+#define g_vol_sfx    (*(int*)&g_cur_profile.bytes[0x2c])   /* 0x0080ffcc */
+#endif
 extern SimTuning   g_sim_tuning[6];                /* 0x00832824  (bigsim.c sees it as g_map_ai.cat[k]+0x14; movie3.c calls the reset ResetSimTuning) */
 extern char        g_level_end_sequence1[0x100];   /* 0x00832998 */
 extern char        g_level_end_sequence2[0x100];   /* 0x00832a98 */

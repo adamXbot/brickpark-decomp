@@ -138,7 +138,18 @@ extern Icon*   LoadSpriteIcon(const char* name, int mode, int x, int y, int grou
 extern char*   GetString(int id);                                      /* 0x00498f50 */
 extern void    NewPrintCent(const char* text, int font, WinRect rc, char white); /* 0x00491d60 */
 extern int     PrintSprite(Sprite* s, int x, int y, int mode, BlitCtx* ctx); /* 0x004853a0 */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00498920 is `int PauseCurrentTrack(void)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void    ResetFrontEnd(void);                                    /* 0x00498920 */
+#else
+extern int     ResetFrontEnd(void);                                    /* 0x00498920 */
+#endif
 extern void    InitOptionSamples(void);                                /* 0x00492830 */
 /* 0x00499380 (not exported): pause the game timer (returns 1 if already). */
 extern int     PauseGameTimer(void);                                   /* 0x00499380 */

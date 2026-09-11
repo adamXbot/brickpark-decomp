@@ -140,7 +140,18 @@ extern void HeapFree_w(void* pointer);
 extern int IsFavouriteFood(RideBloke* bloke, void* elem);
 extern int IsFavouriteAttraction(RideBloke* bloke, void* elem);
 /* 0x00482df0 is simcore2.c's AdjustMood. */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00482df0 is simcore2.c:111 `int AdjustMood(Bloke*, int, int)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void ApplyMoodEvent(RideBloke* bloke, int event, int amount); /* 0x00482df0 */
+#else
+extern int ApplyMoodEvent(RideBloke* bloke, int event, int amount); /* 0x00482df0 */
+#endif
 extern void IncrementBlokeCounter(RideObject* item, int index);
 int CalculateRideCode(int trait, RideObject* item, int visits);
 void RemoveBlokeFromRide(RideObject* item, RiderNode* rider);

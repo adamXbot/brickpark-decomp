@@ -135,7 +135,18 @@ extern void       PrintScreenMode8(void);                          /* 0x00490410
 extern void       PrintScreenMode6(void);                          /* 0x0048c100 */
 extern void       ProcessScreenPopup(void);                        /* 0x0048fc00 */
 
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00498920 is music's `int PauseCurrentTrack(void)` (gamemain.c already guards the same name). The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void       ResetFrontEnd(void);                             /* 0x00498920 */
+#else
+extern int        ResetFrontEnd(void);                             /* 0x00498920 */
+#endif
 extern void       KillCurrentScreen(void);                         /* 0x004585c0 */
 extern void       InitListProfiles(void);                          /* 0x0048c260 */
 extern void       DeletePlayableSamples(int all);                  /* 0x00492b90 */

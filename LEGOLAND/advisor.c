@@ -304,7 +304,28 @@ void FreeAdvisorClip(AdvisorClip* clip)
 
 /* Start (or clear) the current advisor clip; opens a GETFRAME on the BMI.
  * The game's own name, from RenderAdvisorIcon's debug breadcrumb (file
- * header); screens3.c has always declared it `SetVidAnim`. */
+ * header); screens3.c has always declared it `SetVidAnim`.
+ *
+ * A SHIPPED BUG, NOT A RECOVERY ERROR (scope PORT-M6).  `clip->stop` is read
+ * with no null test and `if (clip)` is tested three statements later, and the
+ * original does exactly that -- the dereference precedes the test in the
+ * instruction stream:
+ *   0x00443dc1  mov esi, [esp+8]            ; esi = clip
+ *   0x00443dc6  xor edi, edi
+ *   0x00443dc8..0x00443dda                  ; the four stores, unconditional
+ *   0x00443de0  mov eax, [esi+0x20]         ; <-- clip->stop, UNGUARDED
+ *   0x00443de5  je  0x443ded
+ *   0x00443e08  cmp esi, edi                ; <-- if (clip), three later
+ *   0x00443e10  je  0x443e23
+ * `InitAdvisorMovies` ends with `SetVidAnim(g_ad_blink)` and `g_ad_blink` is 0
+ * whenever AD_Blink.avi did not load, so as shipped that is an access
+ * violation on Windows.  The instruction stream is what the gates check, so
+ * the test stays where the author put it in the VC6 arm; the portable arm
+ * hoists it, because on wasm the read at offset 0x20 of address 0 succeeds and
+ * clang then uses it to PROVE clip != NULL and folds the later `if (clip)`
+ * away, calling AVIStreamGetFrameOpen with the word at address 0x1c
+ * (docs/lanes/scope-port-b6.md G1; it is why avifil32.c's
+ * AVIStreamGetFrameOpen never follows its argument). */
 // FUNCTION: LEGOLAND 0x00443dc0
 void SetVidAnim(AdvisorClip* clip)
 {
@@ -312,7 +333,11 @@ void SetVidAnim(AdvisorClip* clip)
     g_advisor_b = 0;
     g_advisor_c = 0;
     g_advisor_d = 0;
+#ifndef LEGOLAND_PORTABLE
     if (clip->stop)
+#else
+    if (clip && clip->stop)
+#endif
         clip->stop(clip);
     if (g_advisor_clip) {
         AVIStreamGetFrameClose(g_advisor_clip->getframe);

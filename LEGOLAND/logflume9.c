@@ -98,8 +98,21 @@ extern EditCursorRec g_lf_geom_cursor_a;    /* 0x004c4468 */
 extern EditCursorRec g_lf_geom_cursor_b;    /* 0x004c5ca0 */
 extern EditCursorRec g_lf_place_cursor_a;   /* 0x004ca5b0 */
 extern EditCursorRec g_lf_place_cursor_b;   /* 0x004c1260 */
+#ifndef LEGOLAND_PORTABLE
 extern int           g_lf_commit_a;         /* 0x004cbde0 */
 extern int           g_lf_commit_b;         /* 0x004c2a90 */
+#else
+/* 0x004cbde0 is g_lf_place_cursor_a + 0x1830 and 0x004c2a90 is
+ * g_lf_place_cursor_b + 0x1830 -- i.e. each "commit" word IS that cursor's
+ * `next` member. LFTrack_CommitPlacement clears both through these names and
+ * then writes the SAME word through `cur->next`, where `cur` provably points
+ * at g_lf_place_cursor_a; as distinct objects clang is free to order the two
+ * stores either way, and the order it chose would decide whether the second
+ * preview cursor is chained or zeroed. One spelling per word in the portable
+ * build (PORT-M6); the VC6 arm is the shipped one. */
+#define g_lf_commit_a (*(int*)&g_lf_place_cursor_a.next)   /* 0x004cbde0 */
+#define g_lf_commit_b (*(int*)&g_lf_place_cursor_b.next)   /* 0x004c2a90 */
+#endif
 
 /* ---- engine ------------------------------------------------------------ */
 #ifndef LEGOLAND_PORTABLE
