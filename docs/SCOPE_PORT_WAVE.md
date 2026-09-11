@@ -54,6 +54,8 @@
 
 > **PORT-M9 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-M9)** — B9-4, the third blocker class: function and data addresses written as INTEGER LITERALS in the recovered C, which the closure generator can never see. Notes `docs/lanes/scope-port-m9.md`
 
+> **PORT-B10 — Status: MERGED (2026-09-12) — THE TUTORIAL IS PLAYABLE: briefing dismissed, the Space Tower built for 40 bricks (g_bricks 1030 -> 990), a run of path dragged, ~25,000 frames with no trap; Save Game -> page reload -> Load Game restores the ride and paths (IDBFS); 34.67 fps = 97.1% of FlipPrimary's own 28 ms ceiling. Shim: proportional bitmap font (the briefing was clipped at 460 px), the money-bar glyph box (1030 read as 1A3A), SelectFont table off by one; llDrag/llPark/llAscii/llCrop. Open (all game-side): PARK-1 the LINK goal never satisfies so no visitors arrive; PARK-2 a panel bubble never erased; PARK-3 the Space Tower renders as a squat block; PARK-4 Lego.TTF is shipped — a TrueType rasteriser would give real metrics. Notes `docs/lanes/scope-port-b10.md`**
+
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
 portable build (`portable/`, see `portable/README.md`) compiles all 258 game
