@@ -130,7 +130,18 @@ extern void  ResumeCurrentTrack(void);                      /* 0x00498b00 */
 extern int ResumeCurrentTrack(void);                      /* 0x00498b00 */
 #endif
 extern void  SetInGameIconHandlers(void);                   /* 0x00474880 */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00498b40 is narration2.c:622 `int PumpNarration(void)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void  sub_498b40(void);                              /* 0x00498b40 */
+#else
+extern int   sub_498b40(void);                              /* 0x00498b40 */
+#endif
 
 extern Sprite* g_backdrop;                                  /* 0x00810148 */
 extern int     g_report_open;                               /* 0x0081c038 */

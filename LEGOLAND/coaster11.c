@@ -170,7 +170,18 @@ extern int CalcMoveLine(Pos from, Pos to, void* path); /* 0x00480740 */
 extern int NewDirForAction(Bloke* b, unsigned char dir); /* 0x004833d0 */
 void BsRoute_Trace(int x, int y, int x1, int y1, BPosW* owner, int* ok); /* 0x0041c940 */
 extern float RouteNode_GetAcceleration(RouteNode* n); /* 0x0041e7e0 */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x0041f4e0 is coastershade2.c:798 `int Romberg_Evaluate(RombergFn, PhysOps*, float, float, PhysVec*)` -- the same row PORT-M2 section 4 fixed in coaster10.c. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void Span_EvalRange(void (*fn)(float, RouteCarSample*), void* ops, float a, float dt, RouteCarSample* out); /* 0x0041f4e0 */
+#else
+extern int  Span_EvalRange(void (*fn)(float, RouteCarSample*), void* ops, float a, float dt, RouteCarSample* out); /* 0x0041f4e0 */
+#endif
 extern char g_span_eval_ops[];                      /* 0x004d8270 */
 extern float g_mass_hist[];                         /* 0x004d829c */
 extern int g_mass_hist_i;                           /* 0x004d83c0 */

@@ -391,7 +391,18 @@ extern void  ShowHelpString(int id);                          /* 0x0046d230 */
 extern void  UpdateHelpBar(void);
 /* 0x0048faf0 / 0x00498b40 / 0x00498cf0 / 0x00492b50 (not exported). */
 extern void  RenderScreen(void);
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00498b40 is narration2.c:622 `int PumpNarration(void)` (this declaration also had no address comment -- HANDOFF section 3). The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void  sub_498b40(void);
+#else
+extern int   sub_498b40(void);                               /* 0x00498b40 */
+#endif
 extern int   IsNarrationPlaying(void);                        /* 0x00498cf0 */
 extern void  KillPlayableSample(void* s);
 
@@ -515,7 +526,18 @@ extern void  ResumeGameTimer(void);                           /* 0x004993c0 */
 extern int   PlayInstanceOfSample(void* sample, int a, int b, void* src); /* 0x00496d20 */
 extern int   PrintSprite(Sprite* s, int x, int y, int mode, BlitCtx* ctx); /* 0x004853a0 */
 extern void  SetEditObject(void* obj);                       /* 0x004816e0 */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00498920 is `int PauseCurrentTrack(void)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void  ResetFrontEnd(void);                            /* 0x00498920 */
+#else
+extern int   ResetFrontEnd(void);                            /* 0x00498920 */
+#endif
 extern void  RestoreIconHandlers(void);                      /* 0x004562e0 */
 extern int   TestMenu(Menu* m);                              /* 0x00475710 */
 extern void  SetIconSprite(Icon* p, Sprite* s);              /* 0x0046d680 */

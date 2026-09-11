@@ -368,7 +368,18 @@ __declspec(dllimport) int __stdcall ReadFile(int h, void* buf, unsigned int n,
 
 /* 0x00420530 is a null-checked SetCurrentDirectoryA wrapper (schoolcar.c
  * calls it Sub_420530 and passes exactly these two strings). */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00420530 is coastertiny.c:188 `int CoasterModel_SetDirectory(const char*)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void SetWorkingDirectory(const char* path);              /* 0x00420530 */
+#else
+extern int  SetWorkingDirectory(const char* path);              /* 0x00420530 */
+#endif
 extern void* AllocZeroed(unsigned int size, int a, void* tag, int c); /* 0x004775b0 */
 extern void Free_w(void* p);                                    /* 0x004775d0 */
 extern char g_alloc_tag[];                                      /* 0x004d8bb0 */

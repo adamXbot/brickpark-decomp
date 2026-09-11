@@ -95,7 +95,18 @@ typedef struct LocSet {
 
 typedef struct Anim3D Anim3D;
 
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00485fc0 is tri3d.c:371 `void Render_SetPixelFormat(int)`; the result is discarded at data2.c:159. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void*    InitRasterBuffer(int mode);                                   /* 0x00485fc0 */
+#else
+extern void     InitRasterBuffer(int mode);                                   /* 0x00485fc0 */
+#endif
 extern void*    GetModelContext(void);                                        /* 0x00443710 (0x665e8c) */
 extern LocSet*  LoadLocSet(const char* file, const char* dir);                /* 0x0043f990 */
 extern void     LoadLocTextures(LocSet* set, const char* dir);                /* 0x00443720 */

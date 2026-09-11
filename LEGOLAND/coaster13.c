@@ -176,7 +176,18 @@ extern void  Coaster3D_SetCarClipDepth(void);                             /* 0x0
 extern void  Coaster3D_DrawModel(void* mesh, void* tex, const Vec3f* pos,
                                  const Mat3* rot, int mode);              /* 0x00420e90 */
 extern void  Mat3_ToMat4(const Mat3* src, Mat4* dst);                     /* 0x00426490 */
+/* The definition's real return type, for the portable build only: a stale
+ * extern name whose signature disagrees with its body makes gen_link.py
+ * bridge the two with a CAST, the cast call lowers to `call_indirect`, and
+ * binaryen's directize pass turns a constant-index call_indirect into an
+ * invalid DIRECT call -- the module then fails validation hundreds of
+ * functions away (scope PORT-M2 section 4). 0x00426460 is coaster12.c:257 `float* Mat3_FromMat4Transpose(float*, const float*)`. The VC6 arm is the
+ * shipped spelling and its bytes cannot move: cdecl discards EAX here. */
+#ifndef LEGOLAND_PORTABLE
 extern void  Mat4_ToMat3(Mat3* dst, const Mat4* src);                     /* 0x00426460 */
+#else
+extern float* Mat4_ToMat3(Mat3* dst, const Mat4* src);                    /* 0x00426460 */
+#endif
 extern void  MatIdentity(Mat4* m);                                        /* 0x004260f0 */
 extern void  MatMul(const Mat4* a, const Mat4* b, Mat4* out);             /* 0x00426120 */
 extern void* g_wheel_a;                                                   /* 0x00616000 */
