@@ -236,7 +236,17 @@ extern int     g_rep_line_count;     /* 0x0079887c */
 extern int     g_rep_page;           /* 0x004bf670 1-based first line */
 extern char*   g_rep_lines[];        /* 0x007cafa0 the report line table */
 extern const char kFmtIntervals[];   /* 0x004bf678 "Intervals\\%s" */
+#ifndef LEGOLAND_PORTABLE
 extern const void* g_level_db_sections; /* 0x004bb6f8 93 {keyword, handler} pairs */
+#else
+/* The portable closure classifies pointer words from the declared type
+ * (scope PORT-A7): as a lone `const void*` only word 0 of this 744-byte
+ * .rdata table was a pointer, the other 92 keyword strings kept their raw
+ * x86 addresses, no keyword ever matched and LoadBaseMap never ran (scope
+ * PORT-B9, B9-1). levelkw.c:402 is the same record. */
+typedef struct LlKeywordEntry { const char* keyword; void* handler; } LlKeywordEntry;
+extern const LlKeywordEntry g_level_db_sections[93]; /* 0x004bb6f8 */
+#endif
 
 /* ---- externs ------------------------------------------------------------ */
 
