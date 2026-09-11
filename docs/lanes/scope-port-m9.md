@@ -233,6 +233,14 @@ For comparison, PORT-B9's state at hand-over was
 `RuntimeError: table index is out of bounds` in `PutObjOnMap` on the first
 perimeter object of the level.
 
+**Soak**: the park was then left running and driven for another ~8 minutes —
+**16880 frames, `dead` null, `traps: []`** — with five of the six toolbar
+buttons clicked (LEGOLAND, build, query, eraser, sliders), each changing the
+frame and none trapping. That matters for §3's render arenas in particular:
+they are written every single frame, so 16880 clean frames is the evidence
+that `g_render_arena1`/`2` are now real blocks and not arbitrary linear
+memory. The sixth button (MAP) is A7-2 — see §6.
+
 ## 5. Gates
 
 Run after the VC6 quiet window (started 13:13, gates from 13:58).
@@ -271,18 +279,22 @@ today** and nothing can be checked. If a future lane finds the call site, this
 slot needs the M3 treatment. Recorded in the `not named above` comment of the
 PORT-M9 section of `test_callback_types.c`.
 
-**M9-2 — `g_render_arena2` is gap-sized to 320 bytes (20 items).** The two
-arenas are symmetrical in the original (`0x630108` and `0x638218`, `0x8110`
-apart), but `rin.c:230` declares `g_fpu_cw_saved` at `0x00638358` — only `0x140`
-past arena 2's base — so the gap tiling stops there and the generated block is
-`unsigned int g_render_arena2[80]`. Arena 1 gets `[8192]` (32768 bytes). If the
-frame ever bump-allocates more than 20 items into list 2 the portable build
-overruns the block. I did **not** guess an explicit extent; the honest bound is
-unknown from the image alone (`.bss` carries no size). Owner: PORT-A /
-`gen_link.py` (or a lane that can read the arena's true capacity out of the
-allocator's own checks, if it has any — `tinystubs.c:228` does not bounds-check).
-Note this is strictly better than before: the previous behaviour was writing to
-raw linear address `0x00638218`.
+**M9-2 — the two render arenas are gap-sized, and asymmetrically: 2048 items
+vs 20.** `gen_link` emits `g_render_arena1[8192]` (32768 bytes, to
+`g_outfitB_pal1` at `0x00638108`) and `g_render_arena2[80]` (320 bytes, to
+`g_fpu_cw_saved` at `0x00638358`). The neighbours make that asymmetry
+*plausible* rather than obviously wrong — `0x638110..0x638218` is
+`g_outfitA_pal1`'s 264-byte palette, so arena 1 genuinely cannot run past
+`0x638108` — but nothing proves it: **no code in the tree bounds-checks either
+arena.** `tinystubs.c:228/233` and `blokelist.c:213` bump and return, and the
+count at `0x00655a4c`/`0x00655a50` is only ever incremented and reset, never
+compared. The original relied on `.bss` being big enough, and `.bss` carries no
+size in the image, so I did **not** guess an explicit extent. If list 2 ever
+takes more than 20 items in one frame the portable build writes past the block.
+Owner: PORT-A / `gen_link.py`. Note this is strictly better than before, where
+the arena base was the raw literal and every frame in the park wrote render
+items to linear address `0x00630108`; 16880 clean frames (§4) say the current
+sizes hold for ordinary play.
 
 **M9-3 — one address, two names: `0x004b5b3c`.** `coaster12.c:84` calls it
 `g_span_cursor`, `schoolcar.c:1191` calls it `g_cmd_write`. Both are right
@@ -295,7 +307,23 @@ declared it there.
 **M9-4 — PORT-B9's site count for `loaders.c` was 21; it is 24.** Lines 171‑182
 are twelve stores, not nine. All 24 are fixed.
 
-**A7-2 is still open and is NOT this lane's file.** PORT-B9 localised it: the
+**A7-2 is still open and is NOT this lane's file — re-confirmed on this build.**
+After the park loaded, clicking the MAP button at game (278, 446) kills the
+loop at frame 17829:
+
+```
+RuntimeError: function signature mismatch
+  wasm-function[1654]:0xf6c2d      (MakeSprite)
+  wasm-function[1408]:0xd836c      (MakeSpriteDrawable)
+  wasm-function[1163]:0xaf231      (PrintSprite)
+  wasm-function[570]:0x61bde       (GameFrame)
+```
+
+the same four-frame shape PORT-B9 reported, and the other five toolbar buttons
+(LEGOLAND, build, query, eraser, sliders) all work with no trap. (These offsets
+are from the optimised `legoland.wasm`, so `name_trap.py --at` cannot decode
+them — it wants `legoland_headless_debug`'s `-O0` module. B9 already named the
+site; this lane only reproduced it.) PORT-B9 localised it: the
 MAP toolbar button traps because `mapscreen.c:103`/`:105` declare
 `CreateFunctionBasedSprite`'s hook and `RenderFullMap` as `(void)` where
 `sprite2.c:199`/`:253` define and call the slot as `void (*)(SpriteRec*)`.
