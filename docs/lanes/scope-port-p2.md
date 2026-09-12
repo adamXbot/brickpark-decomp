@@ -160,6 +160,7 @@ during input, not from a quiet soak.
 | --- | --- | --- | --- |
 | **P2-1** | **BLOCKER** | the map scroll clamp is 475 px too tight on every edge; Lesson 2 is unwinnable and Lessons 3-5 unreachable | **PORT-M** (a game declaration: one name, two addresses) |
 | **P2-2** | **BLOCKER** | the LEGOLAND theme button is lost permanently to a race between the side panel's animation and MAP mode; nothing can be built for the rest of the level | **PORT-B / PORT-M** — needs a lane; the race is named, the mechanism is not settled |
+| **P2-5** | **HIGH — a CLASS, 17 instances** | P2-1 is not alone: **17 names are declared at two different addresses** across the recovered sources, and in every one of them one side of the game is silently reading the other side's object | **PORT-M**, as a sweep |
 | **P2-3** | note | Lessons 2-5 are gated on finishing Lesson 1, so no P2/P3 walk can start at its own lesson | original game behaviour — recorded so the next lane does not lose time to it |
 | **P2-4** | note | the bottom autoscroll strip is `y > 472`, under the interface panel | original game behaviour (`MouseScrollMap`, the map header's own margins) |
 
@@ -336,6 +337,67 @@ builder writes through one name and the show/hide pass reads through the other.
 may also be original behaviour that a human player never hit because a human
 cannot click the MAP button 1.3 s after the LEGOLAND button by accident —
 that is the first thing to settle, and it cannot be settled from here.
+
+### P2-5 — the same class, sixteen more times
+
+P2-1 was found by following one symptom back. Having found it, the class is
+cheap to enumerate, and it is not a one-off. Group every
+`extern <type> NAME;  /* 0xADDR */` in `LEGOLAND/*.c` by NAME and print the
+names that carry more than one address:
+
+```python
+DECL = re.compile(r"^\s*extern\s+[^;{}]*?\b(\w+)\s*(?:\[[^\]]*\])*\s*;"
+                  r"[ \t]*/\*[ \t]*(0x[0-9a-fA-F]{6,8})", re.M)
+```
+
+(The `[ \t]*` before the comment is load-bearing: with `\s*` the pattern
+crosses newlines and pairs each `extern` with the address comment of the NEXT
+declaration, which invents three false hits in `blokeanim.c` — its comments sit
+ABOVE their declarations. Those three were checked by hand and agree with
+`data2.c`.)
+
+**2675 externs carry an address comment; 17 names carry two addresses.** For
+each, the address `gen_link` actually binds is the one under "bound to" — read
+off `globals.c`'s block comments and `.set` alias directives — and every
+translation unit in the "**loses**" column is, in the portable build, reading
+and writing the wrong object:
+
+| name | bound to | and so these lose | what the loser is |
+| --- | --- | --- | --- |
+| `g_view_left` | `0x008299ac` | `scrolltick.c:28` (wants `0x004b95f4`) | **P2-1**, the scroll clamp |
+| `g_view_top` | `0x008299b0` | `scrolltick.c:29` (`0x004b95f8`) | P2-1 |
+| `g_view_right` | `0x008299b4` | `scrolltick.c:30` (`0x004b95fc`) | P2-1 |
+| `g_view_bottom` | `0x008299b8` | `scrolltick.c:31` (`0x004b9600`) | P2-1 |
+| `g_avi_open_count` | `0x00665f48` (advisor's tally) | `movie.c:232` (`0x00668f98`) | **the FMV player's own open count** — `movie.c:12` says `AVIFileInit()` is called the first time any movie is open and `AVIFileExit()` when the count falls to 0. Lesson 3's reward for the two shops is `FMV "Spider.avi"`, so this is on the path P2 could not reach; **check it first** |
+| `g_ui_flags` | `0x00813a40` | `logflume2.c:1330`, `screencb6.c:82`, `unref4.c:89` (`0x008003e8`) | the log flume and the screen callbacks read the in-game UI flag word instead of their own |
+| `g_popup` | `0x007fdea4` | `fpui2.c:1443` (`0x007fdec0`) | `0x007fdec0` is +0x1c INSIDE the 376-byte `PopUpUI` (`extents.md`), so `fpui2.c` gets the struct's head where it wants a member — an interior alias the name collision defeats |
+| `g_snd_click` | `0x004b92c0` | `fpui4.c:315` (`0x004b929c`) | a different sample handle: one UI file plays the wrong click |
+| `g_road_tiles` | `0x004cbeac` | `roads.c:187` (`0x004b4c08`) | the road builder's own tile table |
+| `g_tile_sprites` | `0x00805f60` | `coaster.c:1976` (`0x0082c680`) | the coaster's sprite table |
+| `g_screen` | `0x004bcbf4` (`g_game`) | `printlist.c:247` (`0x00668078`) | the depth-sorted print list's screen pointer |
+| `g_view` | `0x007fffc4` (`EditCursor+5124`) | `sysmisc2.c:162` (`0x004bcbf4`, `g_game`) | the mirror image of the row above — two files, two meanings, one name |
+| `g_frame_ticks` | `0x006681fc` | `schoolcar.c:1190` (`0x0060f910`) | the driving school's own tick |
+| `g_lls_accept_on_report` | `0x004bf694` | `screens3.c:295` (`0x004bef70`) | front-end accept flag |
+| `g_carousel_zspr` | `0x006160b8` | `ridecb3.c:307`, `screencb2.c:200`, `screencb6.c:112` (`0x006160c0`) | adjacent ride-callback sprite slots |
+| `g_carousel_bnv` | `0x0061608c` | `screencb2.c:202`, `screencb6.c:113` (`0x00616090`) | as above |
+| `g_bz_bnv` | `0x00616010` | `screencb2.c:258`, `screencb6.c:108` (`0x00616018`) | as above |
+
+Two things to say about this table before anyone acts on it.
+
+**It is a lower bound.** It only sees externs whose address comment is on the
+same line; PORT-M4 drove "externs without a readable address comment" down to
+2, so coverage is near-total, but a name that is declared in one file with a
+comment and in another without one is invisible to it.
+
+**Not every row is necessarily a defect.** Some may be a descriptive name
+honestly reused for two different objects in code that is never reached — the
+four `unref3.c` rows under `g_view_*` are on the winning side and `unref4.c`
+is unreferenced — in which case the fix is a rename rather than a repoint. But
+each row is a place where one translation unit's reads land on another's
+memory, silently, with no byte-gate, relocation, signature or trap signal, and
+P2-1 shows what one of them costs. **This is a sweep PORT-M should own, and it
+is worth a permanent check in the same family as `extern_sweep.py` and
+`bvstruct_sweep.py`.**
 
 ### P2-3 — the lessons are gated (not a defect, recorded for the next lane)
 
