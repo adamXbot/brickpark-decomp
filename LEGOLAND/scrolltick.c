@@ -24,15 +24,30 @@ extern int g_scroll_x;          /* 0x00667cb4  8.8 fixed point */
 extern int g_scroll_y;          /* 0x00667cb8  8.8 fixed point */
 
 /* The eight view-geometry values at 0x004b95f4.. are all used at half value,
- * so the scroll clamp reads them as a block and halves each one. */
-extern int g_view_left;         /* 0x004b95f4 */
-extern int g_view_top;          /* 0x004b95f8 */
-extern int g_view_right;        /* 0x004b95fc */
-extern int g_view_bottom;       /* 0x004b9600 */
-extern int g_view_w;            /* 0x004b9604 */
-extern int g_view_h;            /* 0x004b9608 */
-extern int g_view_ox;           /* 0x004b960c */
-extern int g_view_oy;           /* 0x004b9610 */
+ * so the scroll clamp reads them as a block and halves each one.  They are
+ * SHIPPED CONSTANTS in .data (950.0 / 950.0 / 950.0 / 950.0 / 360.0 / 360.0 /
+ * 300.0 / 300.0 in 8.8, i.e. 243200 x4, 92160 x2, 76800 x2), and nothing in
+ * the game ever writes them: this block is the SLACK the clamp allows past
+ * each map edge, not a view rectangle.
+ *
+ * They were called `g_view_left/top/right/bottom/w/h/ox/oy` until PORT-M15.
+ * coaster3d.c / coaster10.c / unref3.c use those four names for a DIFFERENT
+ * object -- the coaster's 3D clip rect in .bss at 0x008299ac, which
+ * Coaster3D_SetupView publishes from lpConfig's view rect -- so the closure
+ * generator emitted one object for each colliding name and this file read the
+ * coaster's zeroed rect.  With hl == 0 the first edge clamp settles on
+ * d == 0 and the view stops 475 px (243200 >> 1, in 8.8) short of the east
+ * edge on every map (PORT-P3 section 3.1 measured it three times).  The names
+ * here are the ones that moved, because these are the slack and those are
+ * really a view. */
+extern int g_scroll_slack_left;   /* 0x004b95f4 */
+extern int g_scroll_slack_top;    /* 0x004b95f8 */
+extern int g_scroll_slack_right;  /* 0x004b95fc */
+extern int g_scroll_slack_bottom; /* 0x004b9600 */
+extern int g_scroll_slack_w;      /* 0x004b9604 */
+extern int g_scroll_slack_h;      /* 0x004b9608 */
+extern int g_scroll_slack_ox;     /* 0x004b960c */
+extern int g_scroll_slack_oy;     /* 0x004b9610 */
 
 /* The map header carries the view/window extent the clamp needs at +0x10/+0x12
  * (tile units), so give this file its own view of it. */
@@ -286,14 +301,14 @@ void ClampScrollToMap(int vw, int vh, int pad_x, int pad_y)
     int east, west, south_w, south;
     int x, y, d;
 
-    hl  = g_view_left   >> 1;
-    ht  = g_view_top    >> 1;
-    hr  = g_view_right  >> 1;
-    hb  = g_view_bottom >> 1;
-    hox = g_view_ox     >> 1;
-    hoy = g_view_oy     >> 1;
-    hh  = g_view_h      >> 1;
-    hw  = g_view_w      >> 1;
+    hl  = g_scroll_slack_left   >> 1;
+    ht  = g_scroll_slack_top    >> 1;
+    hr  = g_scroll_slack_right  >> 1;
+    hb  = g_scroll_slack_bottom >> 1;
+    hox = g_scroll_slack_ox     >> 1;
+    hoy = g_scroll_slack_oy     >> 1;
+    hh  = g_scroll_slack_h      >> 1;
+    hw  = g_scroll_slack_w      >> 1;
     GetTileDimensions(&tx, &ty);
 
     tx <<= 7;
