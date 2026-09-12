@@ -90,4 +90,4 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 
 | # | status | commit |
 | --- | --- | --- |
-| — | list drafted; policy not yet agreed | — |
+| — | policy agreed 2026-09-13; `LL_FAITHFUL` CMake option added; first batch Q1–Q4, Q6, Q7 + the two reachable crash guards (gameframe.c:1231, screencb.c:96) briefed to PORT-Q1 | — |
