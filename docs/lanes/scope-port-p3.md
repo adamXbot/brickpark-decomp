@@ -152,7 +152,7 @@ figure — see §0.)
 | --- | --- | --- | --- | --- |
 | **P3-1** | **blocker** | **The map view clamps ~475 px short of every edge, so the north-east of both tutorial maps — including the MECHANIC'S HUT the lessons tell you to click — can never be brought on screen.** `scrolltick.c`'s `ClampScrollToMap` reads its four slack values `g_view_left/top/right/bottom` (0x004b95f4..0x004b9600, shipped **243200** each) as **0**, because `coaster3d.c`/`coaster10.c` declare the same four NAMES at 0x008299ac..0x008299b8 and gen_link emitted those (zeroed) ones. | §3.1 | **PORT-M** (rename one set), PORT-A confirms the extent fallout |
 | **P3-2** | **blocker** | **No gardener and no mechanic can ever be hired.** `fpui2.c` declares `g_popup` at **0x007fdec0**; `bighelp.c` and `popup.c` declare the same name at **0x007fdea4**. gen_link emits one object, at 0x007fdea4, so every `g_popup` field `PopUpInfoSetUp` touches is **0x1c (28 bytes) low**. `InitPopUpInfo` stores the shed/hut class elements at +0x10c/+0x110; `PopUpInfoSetUp` compares against +0xf0/+0xf4, which read 0 — so the "this is a hut, hire someone" arm never fires. It also stomps three pointer fields. | §3.2 | **PORT-M** |
-| **P3-3** | high | **Fifteen more names are declared at two different addresses**, tree-wide, including `g_snd_click` (whose winner is *neither* spelling — it aliases `g_game_fx`), `g_ui_flags`, `g_frame_ticks`, `g_tile_sprites` (coaster.c loses), `g_view`, `g_screen`, `g_road_tiles`, `g_lls_accept_on_report` (screens3.c loses — the tutorial screen's own Accept sprite). | §3.3, the sweep script | **PORT-M / PORT-A** |
+| **P3-3** | high | **Fifteen more names are declared at two different addresses**, tree-wide, including `g_ui_flags`, `g_frame_ticks`, `g_tile_sprites` (coaster.c loses), `g_view`, `g_screen`, `g_road_tiles`, `g_lls_accept_on_report` (screens3.c loses — the tutorial screen's own Accept sprite). | §3.3, the sweep script | **PORT-M / PORT-A** |
 | P3-4 | medium | `llLink(name)` / `llPad(name)` answer `found: true, insts: []` for a class that IS placed (`MECHANICS HUT`, `ENTRANCE 1`, `FLOWERS`): they match on the ODF *element* name while the placed instance carries the display name ("Mechanic's Hut", "Park Entrance"). `llCellAt` shows the object perfectly. A probe limitation, not a game defect, but it reads as one. | §3.4 | PORT-B (page probes) |
 | P3-5 | low | The lesson-4 objective panel clips its last line: the INTRO text ends "...Click the LEGOLAND menu when you're" with "done." missing. The PROMPT (four lines) fits. Not measured against the original's box. | screenshot `p3-l4-*`; text in `ObjList4.txt` | undecided — needs the original |
 | P3-6 | info | The QUERY readout on a damaged ride draws the ride thumbnail and a wrench badge but no damage number or bar, while the script says "click on a ride to find out **how much** damage it has". May be faithful. | `p3-l4-query-panel.png` | undecided |
@@ -296,29 +296,49 @@ The fix has to be the declaration.
 **2675 names, 17 declared at more than one address.** Winner = the address
 gen_link actually emitted (from `globals.c` / `aliases.c`).
 
-| name | winner | losing spelling(s) | note |
+| name | winner (gen_link) | losing spelling(s) | note |
 | --- | --- | --- | --- |
-| `g_view_left/top/right/bottom` | 0x008299ac.. | `scrolltick.c` 0x004b95f4.. | **P3-1** |
-| `g_popup` | 0x007fdea4 | `fpui2.c` 0x007fdec0 | **P3-2** |
-| `g_snd_click` | 0x004b9228 (`g_game_fx`) | `fpui4.c` 0x004b929c **and** the other seven files' 0x004b92c0 | neither spelling wins; every UI click sample plays from the FX table's base |
-| `g_ui_flags` | 0x00813a40 (`g_cursor`) | `logflume2.c`/`screencb6.c`/`unref4.c` 0x008003e8 | the flume and one screen callback read the cursor's flags |
-| `g_tile_sprites` | 0x00805f60 | `coaster.c` 0x0082c680 | the coaster's tile sprites are the map's |
-| `g_frame_ticks` | 0x006681fc | `schoolcar.c` 0x0060f910 | the school car's timing |
-| `g_view` | 0x007febc0 (`EditCursor`) | `buildtick.c`/`eventtick.c` 0x007fffc4, `sysmisc2.c` 0x004bcbf4 | three spellings, none is the winner's own |
-| `g_screen` | 0x004bcbf4 (`g_game`) | `printlist.c` 0x00668078 | |
-| `g_road_tiles` | 0x004cbeac | `roads.c` 0x004b4c08 | |
-| `g_lls_accept_on_report` | 0x004bf694 | `screens3.c` 0x004bef70 | the tutorial screen's own Accept sprite name |
-| `g_avi_open_count` | 0x00665f48 | `movie.c` 0x00668f98 | |
-| `g_carousel_bnv` | 0x0061608c | `screencb2.c`/`screencb6.c` 0x00616090 | +4 |
-| `g_carousel_zspr` | 0x006160b8 | `ridecb3.c`/`screencb2.c`/`screencb6.c` 0x006160c0 | +8 |
-| `g_bz_bnv` | 0x00616010 | `screencb2.c`/`screencb6.c` 0x00616018 | +8 |
+| `g_view_left/top/right/bottom` | 0x008299ac.. (own definitions) | `scrolltick.c` 0x004b95f4.. | **P3-1** — the clamp reads the coaster's zeroed clip rect |
+| `g_popup` | 0x007fdea4 (alias of `g_info_icon_g`) | `fpui2.c` 0x007fdec0 | **P3-2** — every field 0x1c low |
+| `g_ui_flags` | 0x00813a40 (alias of `g_cursor`) | `logflume2.c`, `screencb6.c`, `unref4.c` 0x008003e8 | the flume and a screen callback read the cursor's flags |
+| `g_tile_sprites` | 0x00805f60 (own) | `coaster.c` 0x0082c680 | the coaster's tile sprites are the map's |
+| `g_view` | 0x007fffc4 (`EditCursor`+0x1404) | `sysmisc2.c` 0x004bcbf4 | two of three spellings win |
+| `g_screen` | 0x004bcbf4 (alias of `g_game`) | `printlist.c` 0x00668078 | |
+| `g_road_tiles` | 0x004cbeac (alias of `g_road_list`) | `roads.c` 0x004b4c08 | |
+| `g_frame_ticks` | 0x006681fc (own) | `schoolcar.c` 0x0060f910 | the school car's timing |
+| `g_snd_click` | 0x004b92c0 (`g_game_fx`+0x98) | `fpui4.c` 0x004b929c | one UI click plays FX entry 12 instead of 11 |
+| `g_lls_accept_on_report` | 0x004bf694 (own) | `screens3.c` 0x004bef70 | the tutorial screen's own Accept sprite name |
+| `g_avi_open_count` | 0x00665f48 (own) | `movie.c` 0x00668f98 | |
+| `g_carousel_bnv` | 0x0061608c (own) | `screencb2.c`, `screencb6.c` 0x00616090 | +4 shear |
+| `g_carousel_zspr` | 0x006160b8 (own) | `ridecb3.c`, `screencb2.c`, `screencb6.c` 0x006160c0 | +8 shear |
+| `g_bz_bnv` | 0x00616010 (own) | `screencb2.c`, `screencb6.c` 0x00616018 | +8 shear |
+
+A winner that is an ALIAS carries its offset (`g_snd_click` is
+`g_game_fx+0x98` = 0x004b92c0, not the array's base) — a check that names an
+alias by its target alone reads these wrong.
+
+The sweep, in full — every address comment in the tree is already there to
+check against, and no VC6 gate can see any of this because the bytes are
+identical:
+
+```python
+DECL = re.compile(
+    r'^\s*extern\s+[^;()]*?\b(\w+)\s*(?:\[[^\]]*\])*\s*;\s*/\*\s*(0x00[0-9a-fA-F]{6})')
+addrs = defaultdict(set); where = defaultdict(list)
+for fn in sorted(os.listdir('LEGOLAND')):
+    if fn.endswith('.c'):
+        for i, line in enumerate(open('LEGOLAND/' + fn), 1):
+            m = DECL.match(line)
+            if m:
+                addrs[m.group(1)].add(m.group(2).lower())
+                where[m.group(1)].append((fn, i, m.group(2).lower()))
+bad = {n: v for n, v in addrs.items() if len(v) > 1}      # 17 of 2675
+```
 
 Some are certainly benign (the `unref*.c` entries agree with the winner). The
 four small-delta ride ones (`g_carousel_*`, `g_bz_bnv`) are the same shear
-shape as `g_popup`, one struct spelled from two bases. The sweep is nine lines
-of regex and belongs in the round gate beside `bvstruct_sweep.py` — every
-address comment in the tree is already there to check it against, and the VC6
-gates cannot see any of this because the bytes are identical.
+shape as `g_popup`: one struct spelled from two bases. This belongs in the
+round gate beside `bvstruct_sweep.py`.
 
 ### 3.4 P3-4 — `llLink`/`llPad` miss classes that are placed
 
