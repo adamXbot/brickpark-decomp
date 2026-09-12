@@ -525,13 +525,30 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
  * plus a CALL to __allshr even when the shift count is a constant, so the
  * `imul` / `shrd eax,edx,16` pair the original uses cannot be reached from C.
  * SetPersonRotation and TransformVectorsL in math3d.c are asm for the same
- * reason.  r = (a * b) >> 16, all three 16.16 lvalues. */
+ * reason.  r = (a * b) >> 16, all three 16.16 lvalues.
+ *
+ * PORT-M17 -- WHY THE MULTIPLIER IS READ THROUGH LL_ASINT IN THE PORTABLE ARM,
+ * and it is the whole of P1-6 ("sixty live visitors and not one is drawn").
+ * `mov ecx, b` takes b's 32 BITS.  Every multiplier these three macros are
+ * handed here -- fx, fy, fz, ydep, zb -- is declared `float` and has already
+ * been overwritten IN PLACE by TOFIX with a 16.16 INTEGER, so its storage holds
+ * 29295 (0.447), 65536 (1.0) or a y-depth weight and its float VALUE is a
+ * denormal around 4e-41.  Spelling the portable arm `LL_FMUL16((a), (b))` makes
+ * C convert that VALUE, and `(int)4.1e-41` is 0: every vertex of every
+ * minifigure was multiplied by zero, so all three corners of all 79 triangles
+ * collapsed onto (ox, oy), `crs1 - crs2` came out 0 rather than negative, the
+ * back-face test rejected the lot and not one pixel was ever written.  The
+ * sc[] bounding box went the same way, which is why `ox`/`oy` read back as
+ * exactly 0x500000/0x5a0000 (their `(hi - lo) >> 1` term was 0).  LL_ASINT is
+ * `*(int*)&(x)`: on an int lvalue it is the identity, on a float lvalue it is
+ * `mov ecx`.  `a` is an int lvalue at every call site and is left alone; pass a
+ * float as `a` and it needs the same treatment. */
 #ifndef LEGOLAND_PORTABLE
 #define FMUL(r, a, b) \
     __asm { mov  eax, a } __asm { mov  ecx, b } __asm { imul ecx } \
     __asm { shrd eax, edx, 16 } __asm { mov  r, eax }
 #else
-#define FMUL(r, a, b) ((r) = LL_FMUL16((a), (b)))
+#define FMUL(r, a, b) ((r) = LL_FMUL16((a), LL_ASINT(b)))
 #endif
 
 /* d[n] = (s[n] * m) >> 16 for two ARRAY locals, byte offset n. */
@@ -542,7 +559,8 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
     __asm { lea  edx, d } __asm { mov  [edx+n], eax }
 #else
 #define FMULA(d, s, n, m) \
-    (*(int*)((char*)(d) + (n)) = LL_FMUL16(*(int*)((char*)(s) + (n)), (m)))
+    (*(int*)((char*)(d) + (n)) = \
+        LL_FMUL16(*(int*)((char*)(s) + (n)), LL_ASINT(m)))   /* PORT-M17 */
 #endif
 
 /* p[n] = (p[n] * m) >> 16 through a POINTER local, byte offset n. */
@@ -553,7 +571,8 @@ extern void    DrawFlatTexTri(Vertex2D* a, Vertex2D* b, Vertex2D* c);    /* 0x00
     __asm { mov  edx, p } __asm { mov  [edx+n], eax }
 #else
 #define FMULP(p, n, m) \
-    (*(int*)((char*)(p) + (n)) = LL_FMUL16(*(int*)((char*)(p) + (n)), (m)))
+    (*(int*)((char*)(p) + (n)) = \
+        LL_FMUL16(*(int*)((char*)(p) + (n)), LL_ASINT(m)))    /* PORT-M17 */
 #endif
 
 /* float -> 16.16 in place.  Render3DPerson leaves the x87 in round-to-nearest
