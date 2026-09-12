@@ -45,7 +45,17 @@ extern void  ObjDefFinalize(LLElem* elem, void* obj);        /* 0x00480aa0 */
  * path. The definition is `(const char*, ...)`; the fixed two-parameter
  * spelling here is what this translation unit was compiled with and pushes the
  * same two dwords, so it stays. */
+#ifndef LEGOLAND_PORTABLE
 extern void  ODFError(const char* fmt, char* name);          /* 0x0047f870 */
+#else
+/* wasm32: `DebugPrintf`'s body (sysstubs.c:158) is `(const char*, ...)`, so its
+ * second wasm parameter is the ADDRESS of the varargs buffer, not the name
+ * pointer. Both spellings are (i32, i32) -> void, so nothing in the link can
+ * see the difference -- it is PORT-M20's Spider Ride defect one argument
+ * shorter, and harmless today only because that body is empty. PORT-A11, gated
+ * by portable/tools/variadic_sweep.py. */
+extern void  ODFError(const char* fmt, ...);                 /* 0x0047f870 */
+#endif
 
 typedef struct Anim { void* frames; int count; char pad[0xc]; int type; } Anim; /* frames@0, count@4, type@0x14 */
 typedef struct Spr  { char pad[8]; Anim* hdr; char pad2[4]; unsigned int flags; } Spr; /* hdr@8, flags@0x10 */

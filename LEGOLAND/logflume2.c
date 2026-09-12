@@ -1167,7 +1167,17 @@ void LFTrack_DrawNormal(LFPiece* p, int mode)
  * That is the original behaviour and is reproduced.
  * ========================================================================= */
 
+#ifndef LEGOLAND_PORTABLE
 extern void DebugPrint(const char* msg);                         /* 0x0049e5c5 */
+#else
+/* 0x0049e5c5 is the CRT's `printf`, which is variadic: on wasm32 that is one
+ * parameter MORE than this spelling claims (the varargs buffer's address).
+ * gen_link's CRT forwarder does bridge this particular shape -- it declares
+ * libc's real prototype so clang builds the empty buffer (PORT-A4 §1) -- but the
+ * declaration is still a false claim about the callee, and the claim is what
+ * variadic_sweep.py gates. PORT-A11. */
+extern void DebugPrint(const char* msg, ...);                    /* 0x0049e5c5 */
+#endif
 extern char g_lf_link_warning[];                                 /* 0x004b48e0 */
 
 // FUNCTION: LEGOLAND 0x00409040
