@@ -79,7 +79,12 @@ extern FXEntry g_fountain_fx[5]; /* 0x004b8710 */
 extern int g_edit_changed; /* 0x008119b0 */
 extern RideDef* g_edit_object; /* 0x008119b8 */
 extern char g_edit_cursor; /* 0x007febc0 */
-extern unsigned int g_ui_flags; /* 0x008003e8 */
+/* 0x008003e8 == g_edit_cursor.flags (ridecb8.c:337 puts Cursor.flags at
+ * +0x1828, and 0x007febc0 + 0x1828 == 0x008003e8; ridecb8.c writes the same
+ * `|= 8` through the record).  It was spelled `g_ui_flags` here until
+ * PORT-M15 -- that name belongs to GamePad at 0x00813a40, which the export
+ * table names and gameframe.c tests for 0x20/0x400/0x1000. */
+extern unsigned int g_edit_cursor_flags; /* 0x008003e8 */
 extern RideDef* g_jc_def; /* 0x0081cb60 */
 extern RideDef* g_jc_tree_cls; /* 0x0081cb70 */
 extern RideDef* g_jc_fish_cls; /* 0x0081cb74 */
@@ -184,7 +189,7 @@ void JcMonkeyTree_SelectForPlacement(void)
     g_edit_changed = 1;
     g_edit_object = g_jc_tree_cls;
     DefaultCursor(&g_edit_cursor);
-    g_ui_flags |= 8;
+    g_edit_cursor_flags |= 8;
     SetEditCursorFootPrint(&g_jc_tree_cls->footprint);
 }
 
@@ -194,7 +199,7 @@ void JcMonkeyFish_SelectForPlacement(void)
     g_edit_changed = 1;
     g_edit_object = g_jc_fish_cls;
     DefaultCursor(&g_edit_cursor);
-    g_ui_flags |= 8;
+    g_edit_cursor_flags |= 8;
     SetEditCursorFootPrint(&g_jc_fish_cls->footprint);
 }
 
@@ -282,7 +287,7 @@ void JcWater_SelectForPlacement(void)
     g_edit_object = g_jc_water_cls;
     g_jc_water_cls->footprint = kJcWaterRect;
     DefaultCursor(&g_edit_cursor);
-    g_ui_flags |= 8;
+    g_edit_cursor_flags |= 8;
     SetEditCursorFootPrint(&g_edit_object->footprint);
 }
 

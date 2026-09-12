@@ -292,7 +292,14 @@ extern IconInputFn g_icon_handler2;       /* 0x006687c0 */
 
 /* Sprite names (.rdata; only the addresses are load-bearing). */
 extern const char g_lls_tutorial_bk[];          /* 0x004bef88 "TutorialBK.lls" */
-extern const char g_lls_accept_on_report[];     /* 0x004bef70 "Accept_on_Report.lls" */
+/* The TUTORIAL screen's own copy, in the tutorial/registration literal pool
+ * ("GoBack_on_Tut.lls" 0x004bef5c, this, "TutorialBK.lls" 0x004bef88,
+ * "Accept_On_Reg.lls" 0x004bef9c) and spelled with a LOWER-CASE "on".  The
+ * report screen's copy is a SECOND literal, "Accept_On_Report.lls" with an
+ * upper-case "On" at 0x004bf694, beside Rep_Hint1/2.lls -- read straight out
+ * of the image.  Both were called `g_lls_accept_on_report`, which merged two
+ * distinct strings into one object; mapscreen2.c:132 keeps the bare name. */
+extern const char g_lls_accept_on_report_tut[]; /* 0x004bef70 "Accept_on_Report.lls" */
 extern const char g_lls_goback_on_tut[];        /* 0x004bef5c "GoBack_on_Tut.lls" */
 
 extern Icon* g_script_end_icon;           /* 0x00668eb8 */
@@ -1515,7 +1522,7 @@ void InitTutorialScreen(void)
     g_progress_is_low = 1;
     if (g_progress_resume == 0) {
         LoadLowMarkerSprites();
-        p = LoadSpriteIcon(g_lls_accept_on_report, 4, 0x20a, 0x16c, 0x23);
+        p = LoadSpriteIcon(g_lls_accept_on_report_tut, 4, 0x20a, 0x16c, 0x23);
         p->help_id = 0x262;
         p->help = GetString(0x262);
         p->flags |= 0x6002;

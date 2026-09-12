@@ -1187,7 +1187,13 @@ int MemScratchInit(void)
 extern int          g_frame_abandoned;          /* 0x0060f90c */
 extern int          g_60f914;                   /* 0x0060f914 */
 extern int          g_frame_cmds;               /* 0x0060f908 */
-extern unsigned int g_frame_ticks;              /* 0x0060f910 */
+/* The RDTSC elapsed low dword of the coaster's own 3D frame, beside
+ * g_frame_cmds (0x0060f908), g_frame_abandoned (0x0060f90c) and the z-buffer
+ * polygon counter g_zb_polys (0x0060f900).  Spelled `g_frame_ticks` until
+ * PORT-M15: that name is the export table's `LastFrameMS` at 0x006681fc, the
+ * GAME's frame-time tick scale, which blitmisc.c, pathtile2.c and sysmisc.c
+ * declare under it (FlipPrimary's 28 ms spin). */
+extern unsigned int g_zb_frame_ticks;           /* 0x0060f910 */
 extern int*         g_cmd_write;                /* 0x004b5b3c */
 extern int          g_cmd_buf[];                /* 0x004dd870 */
 extern unsigned int g_zbuffer[];                /* 0x004e3870 */
@@ -1246,7 +1252,7 @@ void Coaster3D_EndFrame(void)
 #else
     t = ll_rdtsc() - t;
 #endif
-    g_frame_ticks = t;
+    g_zb_frame_ticks = t;
 }
 
 /* ==========================================================================
@@ -1419,7 +1425,7 @@ void Coaster3D_SampleStats(void)
     g_stat_h_610604[g_stat_index & 0x3f] = g_stat_c_615f68;
     g_stat_h_6100f8[g_stat_index & 0x3f] = g_stat_c_4dcbc8;
     g_stat_h_60fdf8[g_stat_index & 0x3f] = g_stat_c_4d83bc;
-    g_stat_h_60fef8[g_stat_index & 0x3f] = g_frame_ticks;
+    g_stat_h_60fef8[g_stat_index & 0x3f] = g_zb_frame_ticks;
     g_stat_h_60fbf8[g_stat_index & 0x3f] = g_stat_c_615fc4;
     g_stat_h_6101f8[g_stat_index & 0x3f] = g_stat_c_615fc8;
     g_stat_h_60fcf8[g_stat_index & 0x3f] = g_stat_c_615fcc;
@@ -1437,7 +1443,7 @@ void Coaster3D_SampleStats(void)
     g_stat_c_615f68 = 0;
     g_stat_c_4dcbc8 = 0;
     g_stat_c_4d83bc = 0;
-    g_frame_ticks = 0;
+    g_zb_frame_ticks = 0;
     g_stat_c_615fc4 = 0;
     g_stat_c_615fc8 = 0;
     g_stat_c_615fcc = 0;

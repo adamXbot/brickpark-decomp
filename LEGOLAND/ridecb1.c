@@ -1150,7 +1150,11 @@ extern void*      g_carousel_matte1;  /* 0x0061606c  Carousel Entrance Matte.lls
 extern void*      g_carousel_matte2;  /* 0x00616070  Carousel Entrance Matte2.lls */
 extern int        g_carousel_pivot_x; /* 0x00616078 */
 extern int        g_carousel_pivot_y; /* 0x0061607c */
-extern SpriteObj* g_carousel_zspr;    /* 0x006160b8  z_Carousel.lls */
+/* The SCALAR slot Carousel_Create writes z_Carousel.lls into (screencb2.c:767)
+ * -- not element [0] of the class z-sprite table at 0x006160c0, which
+ * screencb2.c / screencb6.c / ridecb3.c call `g_carousel_zspr`.  Spelled with
+ * the table's name here until PORT-M15. */
+extern SpriteObj* g_carousel_zspr_s;  /* 0x006160b8  z_Carousel.lls */
 
 /* =========================================================================
  * 0x0042bcf0 -- CAROUSEL, cb_b0.
@@ -1344,7 +1348,7 @@ void Carousel_Draw(RideElem* elem, int x, int y, MapSquare* sq,
             DrawBand(here, n, 0x0d);
             DrawBand(here, n, 0x0e);
 
-            *(short*)*(g_carousel_zspr->lls_holder) = rec->frame;
+            *(short*)*(g_carousel_zspr_s->lls_holder) = rec->frame;
 
             for (r = item->riders; r; r = r->next) {
                 if (*(unsigned short*)sq == r->ride_id) {

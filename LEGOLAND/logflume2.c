@@ -1327,7 +1327,12 @@ void LFDrop_Place(LFPiece* parent)
 typedef struct EditCursorRec EditCursorRec;
 
 extern EditCursorRec g_edit_cursor;     /* 0x007febc0 */
-extern unsigned int  g_ui_flags;        /* 0x008003e8 */
+/* 0x008003e8 == g_edit_cursor.flags (ridecb8.c:337 puts Cursor.flags at
+ * +0x1828, and 0x007febc0 + 0x1828 == 0x008003e8; ridecb8.c writes the same
+ * `|= 8` through the record).  It was spelled `g_ui_flags` here until
+ * PORT-M15 -- that name belongs to GamePad at 0x00813a40, which the export
+ * table names and gameframe.c tests for 0x20/0x400/0x1000. */
+extern unsigned int  g_edit_cursor_flags;        /* 0x008003e8 */
 extern int           g_cursor_mode;     /* 0x008119b0 */
 extern RideDef*      g_cursor_def;      /* 0x008119b8 */
 extern int           g_lf_tool_a;       /* 0x004cbdd8 */
@@ -1348,7 +1353,7 @@ void LFPiece_TickCommon(RideDef* def, Footprint* fp)
     g_cursor_mode = 1;
     g_cursor_def = def;
     DefaultCursor(&g_edit_cursor);
-    g_ui_flags |= 8;
+    g_edit_cursor_flags |= 8;
     BuildCursorPtr(&g_edit_cursor, 0x8f8, 0);
     SetEditCursorFootPrint(fp);
     /* The original stores these in a, b, c, d order; a chained assignment

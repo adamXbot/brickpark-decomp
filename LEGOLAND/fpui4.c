@@ -313,7 +313,12 @@ extern void SetEditObject(void* def);                             /* 0x004816e0 
 /* Drop this class's entry from the "new objects" preview strip. */
 extern void RemoveNewObjectMarker(void* def);                     /* 0x00471ca0 */
 
-extern void* g_snd_click;        /* 0x004b929c  the UI click sample */
+/* 0x004b929c is g_game_fx[9].sample == "Click01.wav" (FXEntry is 12 bytes
+ * from 0x004b9228; 0x004b929c - 0x004b9228 == 0x74 == 9*12 + 8).  fpui3.c:345
+ * and screens3.c:236 both already call it `g_snd_close`; it was spelled
+ * `g_snd_click` here until PORT-M15, which is the name seven other files give
+ * g_game_fx[12].sample == "Button04.wav" at 0x004b92c0. */
+extern void* g_snd_close;        /* 0x004b929c */
 extern void* g_snd_denied;       /* 0x004b92d8  "you cannot afford that" */
 
 // FUNCTION: LEGOLAND 0x00470000
@@ -330,7 +335,7 @@ char BuildObjectIconInput(Icon* p, int ev, short dx, short dy)
                 elem->type_flags &= ~0x20000;
                 RemoveNewObjectMarker(p->data);
             }
-            PlayInstanceOfSample(g_snd_click, 0, 1, 0);
+            PlayInstanceOfSample(g_snd_close, 0, 1, 0);
         } else {
             PlayInstanceOfSample(g_snd_denied, 0, 1, 0);
         }

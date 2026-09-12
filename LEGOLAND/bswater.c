@@ -270,8 +270,15 @@ extern void SetBlokePositionFromBNV(void* bin, CBloke* b, const char* name,
 extern int  sprintf(char* dst, const char* fmt, ...);                      /* 0x0049e573 (CRT) */
 
 extern RideObject* g_carousel_item;    /* 0x006160bc the class payload */
-extern void*       g_carousel_bnv;     /* 0x0061608c the carousel .bnv bundle */
-extern SpriteObj*  g_carousel_zspr;    /* 0x006160b8 z_Carousel.lls */
+/* screencb2.c's Carousel_Create stores each of the carousel's four "table"
+ * resources under a SCALAR name FIRST and then copies it into the class table
+ * (screencb2.c:768-770, 767 and the prose at :788): 0x0061608c is the scalar
+ * `g_carousel_run_s` and 0x00616090 is `g_carousel_bnv[0]`; 0x006160b8 is the
+ * scalar `g_carousel_zspr_s` and 0x006160c0 is `g_carousel_zspr[0]`.  Both
+ * were spelled with the TABLE name here until PORT-M15, which made one object
+ * out of each scalar/table pair. */
+extern void*       g_carousel_run_s;   /* 0x0061608c the carousel .bnv bundle */
+extern SpriteObj*  g_carousel_zspr_s;  /* 0x006160b8 z_Carousel.lls */
 extern char        g_carousel_path[];  /* 0x004b64cc "BlokeBox??" */
 extern char        g_fmt_02d[];        /* 0x004b4704 "%02d" */
 
@@ -314,12 +321,12 @@ void Carousel_TickInstance(CarouselRec* rec)
     while (r) {
         if (rec->square == r->ride_id && r->bloke->pose == 1) {
             sprintf(&g_carousel_path[8], g_fmt_02d, r->bloke->seat);
-            SetBlokePositionFromBNV(g_carousel_bnv, r->bloke, g_carousel_path,
+            SetBlokePositionFromBNV(g_carousel_run_s, r->bloke, g_carousel_path,
                                     rec->frame, -1617853.25f, -1618109.0f, 0);
         }
         r = r->next;
     }
-    *(short*)*(g_carousel_zspr->lls_holder) = rec->frame;
+    *(short*)*(g_carousel_zspr_s->lls_holder) = rec->frame;
 }
 
 /* =========================================================================

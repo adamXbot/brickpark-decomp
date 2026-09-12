@@ -102,7 +102,13 @@ extern void  HeapFree_w(void* p);                                       /* 0x004
 /* ---- globals ------------------------------------------------------------ */
 extern unsigned char g_report_state[];      /* 0x00665ff8 */
 extern AdvisorBmi    g_advisor_bmi;         /* 0x004b7d70 */
-extern int           g_avi_open_count;      /* 0x00665f48 — advisor's open tally */
+/* The advisor module's OWN AVIFile open tally, in the advisor globals block
+ * (g_advisor_clip 0x00665f5c, _pose_clip 0x00665f60, _c 0x00665f64,
+ * _a 0x00665f68, _b 0x00665f6c).  movie.c:232 has a second, independent tally
+ * at 0x00668f98, among its g_mva_* block; both were called
+ * `g_avi_open_count`, so the two modules shared one counter and each could
+ * see the other's AVIFileInit as already done. */
+extern int           g_advisor_avi_open_count; /* 0x00665f48 */
 extern AdvisorClip*  g_advisor_clip;        /* 0x00665f5c */
 extern int           g_advisor_a;           /* 0x00665f68 */
 extern int           g_advisor_b;           /* 0x00665f6c */
@@ -153,10 +159,10 @@ AdvisorClip* LoadAdvisorMovie(const char* path)
     int           h;
     AdvisorClip*  clip;
 
-    if (g_avi_open_count == 0)
+    if (g_advisor_avi_open_count == 0)
         AVIFileInit();
     if (AVIFileOpenA(&pfile, path, 0, 0) != 0) {
-        if (g_avi_open_count == 0)
+        if (g_advisor_avi_open_count == 0)
             AVIFileExit();
         return 0;
     }
@@ -178,7 +184,7 @@ AdvisorClip* LoadAdvisorMovie(const char* path)
     }
     if (!video) {
         AVIFileRelease(pfile);
-        if (g_avi_open_count == 0)
+        if (g_advisor_avi_open_count == 0)
             AVIFileExit();
         return 0;
     }
@@ -186,7 +192,7 @@ AdvisorClip* LoadAdvisorMovie(const char* path)
     if (!clip) {
         AVIStreamRelease(video);
         AVIFileRelease(pfile);
-        if (g_avi_open_count == 0)
+        if (g_advisor_avi_open_count == 0)
             AVIFileExit();
         return 0;
     }
@@ -199,7 +205,7 @@ AdvisorClip* LoadAdvisorMovie(const char* path)
     clip->video = video;
     clip->stop = 0;
     clip->tick = 0;
-    g_avi_open_count++;
+    g_advisor_avi_open_count++;
     return clip;
 }
 
@@ -298,7 +304,7 @@ void FreeAdvisorClip(AdvisorClip* clip)
     if (clip->video)
         AVIStreamRelease(clip->video);
     HeapFree_w(clip);
-    if (--g_avi_open_count == 0)
+    if (--g_advisor_avi_open_count == 0)
         AVIFileExit();
 }
 

@@ -30,7 +30,7 @@
  *      bit 4       the block also carries a ZEBRA CROSSING
  *
  * `rot` is a quarter turn 0..3.  Everything else comes out of one table,
- * g_road_tiles at 0x004b4c08: FIFTEEN rows of FOUR unsigned shorts, indexed
+ * g_road_tile_codes at 0x004b4c08: FIFTEEN rows of FOUR unsigned shorts, indexed
  * [piece][quarter turn].  A table word is packed (tileset << 8) | slot and is
  * resolved against the road class's TSM record array (0x0082c67c -- the
  * 8-byte {LLElem* entry, void* loaded} records LLIDB_LoadTSMData builds) as
@@ -183,8 +183,15 @@ extern TsmRec*  g_road_tsm;                 /* 0x0082c67c */
  * "DSCHOOL LIGHTS"). */
 extern ObjDef*  g_dschool_cls;              /* 0x0082c684 */
 /* [piece][quarter turn]; the "TILES FOR DSCHOOL" string sits immediately
- * after it at 0x004b4c80, which is what pins the table's extent. */
-extern unsigned short g_road_tiles[15][4];  /* 0x004b4c08 */
+ * after it at 0x004b4c80, which is what pins the table's extent.
+ *
+ * Spelled `g_road_tiles` until PORT-M15.  That name belongs to the live road
+ * RECORD LIST at 0x004cbeac, which coaster.c / ridecb8.c / screencb.c /
+ * screencb2.c / screencb4.c declare under it and ridecb5.c / ridecb6.c /
+ * roads2.c call `g_road_list`.  This is the shipped (tileset << 8) | slot
+ * lookup table in .data, a different object entirely, so it is named for what
+ * its words are. */
+extern unsigned short g_road_tile_codes[15][4];  /* 0x004b4c08 */
 
 extern RoadBlock* Road_FindAt(int x, int y);                   /* 0x004125a0 */
 extern void  RemovePathSquare(Pos* p);                         /* 0x00481c90 */
@@ -255,143 +262,143 @@ void Road_SetTile(int x, int y, int shape, int rot)
     }
     switch (shape & 0xf) {
     case 1:
-        tiles[0][0] = g_road_tiles[2][rot];
-        tiles[0][1] = g_road_tiles[4][rot];
-        tiles[0][2] = g_road_tiles[5][rot];
-        tiles[0][3] = g_road_tiles[3][rot];
-        tiles[1][0] = g_road_tiles[0][rot];
-        tiles[1][1] = g_road_tiles[1][rot];
-        tiles[1][2] = g_road_tiles[1][rm2];
-        tiles[1][3] = g_road_tiles[0][rm2];
-        tiles[2][0] = g_road_tiles[0][rot];
-        tiles[2][1] = g_road_tiles[1][rot];
-        tiles[2][2] = g_road_tiles[1][rm2];
-        tiles[2][3] = g_road_tiles[0][rm2];
-        tiles[3][0] = g_road_tiles[0][rot];
-        tiles[3][1] = g_road_tiles[1][rot];
-        tiles[3][2] = g_road_tiles[1][rm2];
-        tiles[3][3] = g_road_tiles[0][rm2];
+        tiles[0][0] = g_road_tile_codes[2][rot];
+        tiles[0][1] = g_road_tile_codes[4][rot];
+        tiles[0][2] = g_road_tile_codes[5][rot];
+        tiles[0][3] = g_road_tile_codes[3][rot];
+        tiles[1][0] = g_road_tile_codes[0][rot];
+        tiles[1][1] = g_road_tile_codes[1][rot];
+        tiles[1][2] = g_road_tile_codes[1][rm2];
+        tiles[1][3] = g_road_tile_codes[0][rm2];
+        tiles[2][0] = g_road_tile_codes[0][rot];
+        tiles[2][1] = g_road_tile_codes[1][rot];
+        tiles[2][2] = g_road_tile_codes[1][rm2];
+        tiles[2][3] = g_road_tile_codes[0][rm2];
+        tiles[3][0] = g_road_tile_codes[0][rot];
+        tiles[3][1] = g_road_tile_codes[1][rot];
+        tiles[3][2] = g_road_tile_codes[1][rm2];
+        tiles[3][3] = g_road_tile_codes[0][rm2];
         break;
     case 7:
-        tiles[0][0] = g_road_tiles[2][rot];
-        tiles[0][1] = g_road_tiles[4][rot];
-        tiles[0][2] = g_road_tiles[5][rot];
-        tiles[0][3] = g_road_tiles[3][rot];
-        tiles[1][0] = g_road_tiles[0][rot];
-        tiles[1][1] = g_road_tiles[1][rot];
-        tiles[1][2] = g_road_tiles[1][rm2];
-        tiles[1][3] = g_road_tiles[0][rm2];
-        tiles[2][0] = g_road_tiles[0][rot];
-        tiles[2][1] = g_road_tiles[1][rot];
-        tiles[2][2] = g_road_tiles[1][rm2];
-        tiles[2][3] = g_road_tiles[0][rm2];
-        tiles[3][0] = g_road_tiles[3][rm2];
-        tiles[3][1] = g_road_tiles[5][rm2];
-        tiles[3][2] = g_road_tiles[4][rm2];
-        tiles[3][3] = g_road_tiles[2][rm2];
+        tiles[0][0] = g_road_tile_codes[2][rot];
+        tiles[0][1] = g_road_tile_codes[4][rot];
+        tiles[0][2] = g_road_tile_codes[5][rot];
+        tiles[0][3] = g_road_tile_codes[3][rot];
+        tiles[1][0] = g_road_tile_codes[0][rot];
+        tiles[1][1] = g_road_tile_codes[1][rot];
+        tiles[1][2] = g_road_tile_codes[1][rm2];
+        tiles[1][3] = g_road_tile_codes[0][rm2];
+        tiles[2][0] = g_road_tile_codes[0][rot];
+        tiles[2][1] = g_road_tile_codes[1][rot];
+        tiles[2][2] = g_road_tile_codes[1][rm2];
+        tiles[2][3] = g_road_tile_codes[0][rm2];
+        tiles[3][0] = g_road_tile_codes[3][rm2];
+        tiles[3][1] = g_road_tile_codes[5][rm2];
+        tiles[3][2] = g_road_tile_codes[4][rm2];
+        tiles[3][3] = g_road_tile_codes[2][rm2];
         break;
     case 3:
-        tiles[0][0] = g_road_tiles[14][rot];
-        tiles[0][1] = g_road_tiles[0][rp1];
-        tiles[0][2] = g_road_tiles[0][rp1];
-        tiles[0][3] = g_road_tiles[0][rp1];
-        tiles[1][0] = g_road_tiles[0][rot];
-        tiles[1][1] = g_road_tiles[11][rot];
-        tiles[1][2] = g_road_tiles[12][rot];
-        tiles[1][3] = g_road_tiles[8][rp1];
-        tiles[2][0] = g_road_tiles[0][rot];
-        tiles[2][1] = g_road_tiles[13][rot];
-        tiles[2][2] = g_road_tiles[10][rot];
-        tiles[2][3] = g_road_tiles[8][rm1];
-        tiles[3][0] = g_road_tiles[0][rot];
-        tiles[3][1] = g_road_tiles[8][rot];
-        tiles[3][2] = g_road_tiles[8][rm2];
-        tiles[3][3] = g_road_tiles[9][rot];
+        tiles[0][0] = g_road_tile_codes[14][rot];
+        tiles[0][1] = g_road_tile_codes[0][rp1];
+        tiles[0][2] = g_road_tile_codes[0][rp1];
+        tiles[0][3] = g_road_tile_codes[0][rp1];
+        tiles[1][0] = g_road_tile_codes[0][rot];
+        tiles[1][1] = g_road_tile_codes[11][rot];
+        tiles[1][2] = g_road_tile_codes[12][rot];
+        tiles[1][3] = g_road_tile_codes[8][rp1];
+        tiles[2][0] = g_road_tile_codes[0][rot];
+        tiles[2][1] = g_road_tile_codes[13][rot];
+        tiles[2][2] = g_road_tile_codes[10][rot];
+        tiles[2][3] = g_road_tile_codes[8][rm1];
+        tiles[3][0] = g_road_tile_codes[0][rot];
+        tiles[3][1] = g_road_tile_codes[8][rot];
+        tiles[3][2] = g_road_tile_codes[8][rm2];
+        tiles[3][3] = g_road_tile_codes[9][rot];
         break;
     case 4:
-        tiles[0][0] = g_road_tiles[9][rm2];
-        tiles[0][1] = g_road_tiles[11][rot];
-        tiles[0][2] = g_road_tiles[11][rm2];
-        tiles[0][3] = g_road_tiles[9][rm1];
-        tiles[1][0] = g_road_tiles[1][rp1];
-        tiles[1][1] = g_road_tiles[1][rp1];
-        tiles[1][2] = g_road_tiles[1][rp1];
-        tiles[1][3] = g_road_tiles[1][rp1];
-        tiles[2][0] = g_road_tiles[1][rm1];
-        tiles[2][1] = g_road_tiles[1][rm1];
-        tiles[2][2] = g_road_tiles[1][rm1];
-        tiles[2][3] = g_road_tiles[1][rm1];
-        tiles[3][0] = g_road_tiles[0][rm1];
-        tiles[3][1] = g_road_tiles[0][rm1];
-        tiles[3][2] = g_road_tiles[0][rm1];
-        tiles[3][3] = g_road_tiles[0][rm1];
+        tiles[0][0] = g_road_tile_codes[9][rm2];
+        tiles[0][1] = g_road_tile_codes[11][rot];
+        tiles[0][2] = g_road_tile_codes[11][rm2];
+        tiles[0][3] = g_road_tile_codes[9][rm1];
+        tiles[1][0] = g_road_tile_codes[1][rp1];
+        tiles[1][1] = g_road_tile_codes[1][rp1];
+        tiles[1][2] = g_road_tile_codes[1][rp1];
+        tiles[1][3] = g_road_tile_codes[1][rp1];
+        tiles[2][0] = g_road_tile_codes[1][rm1];
+        tiles[2][1] = g_road_tile_codes[1][rm1];
+        tiles[2][2] = g_road_tile_codes[1][rm1];
+        tiles[2][3] = g_road_tile_codes[1][rm1];
+        tiles[3][0] = g_road_tile_codes[0][rm1];
+        tiles[3][1] = g_road_tile_codes[0][rm1];
+        tiles[3][2] = g_road_tile_codes[0][rm1];
+        tiles[3][3] = g_road_tile_codes[0][rm1];
         break;
     case 5:
-        tiles[0][0] = g_road_tiles[9][rm2];
-        tiles[0][1] = g_road_tiles[11][rot];
-        tiles[0][2] = g_road_tiles[11][rot];
-        tiles[0][3] = g_road_tiles[9][rm1];
-        tiles[1][0] = g_road_tiles[11][rot];
-        tiles[1][1] = g_road_tiles[11][rot];
-        tiles[1][2] = g_road_tiles[11][rot];
-        tiles[1][3] = g_road_tiles[11][rot];
-        tiles[2][0] = g_road_tiles[11][rot];
-        tiles[2][1] = g_road_tiles[11][rot];
-        tiles[2][2] = g_road_tiles[11][rot];
-        tiles[2][3] = g_road_tiles[11][rot];
-        tiles[3][0] = g_road_tiles[9][rp1];
-        tiles[3][1] = g_road_tiles[11][rot];
-        tiles[3][2] = g_road_tiles[11][rot];
-        tiles[3][3] = g_road_tiles[9][rot];
+        tiles[0][0] = g_road_tile_codes[9][rm2];
+        tiles[0][1] = g_road_tile_codes[11][rot];
+        tiles[0][2] = g_road_tile_codes[11][rot];
+        tiles[0][3] = g_road_tile_codes[9][rm1];
+        tiles[1][0] = g_road_tile_codes[11][rot];
+        tiles[1][1] = g_road_tile_codes[11][rot];
+        tiles[1][2] = g_road_tile_codes[11][rot];
+        tiles[1][3] = g_road_tile_codes[11][rot];
+        tiles[2][0] = g_road_tile_codes[11][rot];
+        tiles[2][1] = g_road_tile_codes[11][rot];
+        tiles[2][2] = g_road_tile_codes[11][rot];
+        tiles[2][3] = g_road_tile_codes[11][rot];
+        tiles[3][0] = g_road_tile_codes[9][rp1];
+        tiles[3][1] = g_road_tile_codes[11][rot];
+        tiles[3][2] = g_road_tile_codes[11][rot];
+        tiles[3][3] = g_road_tile_codes[9][rot];
         break;
     case 6:
-        tiles[0][0] = g_road_tiles[2][rot];
-        tiles[0][1] = g_road_tiles[4][rot];
-        tiles[0][2] = g_road_tiles[5][rot];
-        tiles[0][3] = g_road_tiles[3][rot];
-        tiles[1][0] = g_road_tiles[0][rot];
-        tiles[1][1] = g_road_tiles[1][rot];
-        tiles[1][2] = g_road_tiles[1][rm2];
-        tiles[1][3] = g_road_tiles[0][rm2];
-        tiles[2][0] = g_road_tiles[0][rot];
-        tiles[2][1] = g_road_tiles[1][rot];
-        tiles[2][2] = g_road_tiles[1][rm2];
-        tiles[2][3] = g_road_tiles[0][rm2];
-        tiles[3][0] = g_road_tiles[14][rm1];
-        tiles[3][1] = g_road_tiles[0][rm1];
-        tiles[3][2] = g_road_tiles[0][rm1];
-        tiles[3][3] = g_road_tiles[0][rm1];
+        tiles[0][0] = g_road_tile_codes[2][rot];
+        tiles[0][1] = g_road_tile_codes[4][rot];
+        tiles[0][2] = g_road_tile_codes[5][rot];
+        tiles[0][3] = g_road_tile_codes[3][rot];
+        tiles[1][0] = g_road_tile_codes[0][rot];
+        tiles[1][1] = g_road_tile_codes[1][rot];
+        tiles[1][2] = g_road_tile_codes[1][rm2];
+        tiles[1][3] = g_road_tile_codes[0][rm2];
+        tiles[2][0] = g_road_tile_codes[0][rot];
+        tiles[2][1] = g_road_tile_codes[1][rot];
+        tiles[2][2] = g_road_tile_codes[1][rm2];
+        tiles[2][3] = g_road_tile_codes[0][rm2];
+        tiles[3][0] = g_road_tile_codes[14][rm1];
+        tiles[3][1] = g_road_tile_codes[0][rm1];
+        tiles[3][2] = g_road_tile_codes[0][rm1];
+        tiles[3][3] = g_road_tile_codes[0][rm1];
         break;
     default:
-        tiles[0][0] = g_road_tiles[0][rot];
-        tiles[0][1] = g_road_tiles[1][rot];
-        tiles[0][2] = g_road_tiles[1][rm2];
-        tiles[0][3] = g_road_tiles[0][rm2];
-        tiles[1][0] = g_road_tiles[0][rot];
-        tiles[1][1] = g_road_tiles[1][rot];
-        tiles[1][2] = g_road_tiles[1][rm2];
-        tiles[1][3] = g_road_tiles[0][rm2];
-        tiles[2][0] = g_road_tiles[0][rot];
-        tiles[2][1] = g_road_tiles[1][rot];
-        tiles[2][2] = g_road_tiles[1][rm2];
-        tiles[2][3] = g_road_tiles[0][rm2];
-        tiles[3][0] = g_road_tiles[0][rot];
-        tiles[3][1] = g_road_tiles[1][rot];
-        tiles[3][2] = g_road_tiles[1][rm2];
-        tiles[3][3] = g_road_tiles[0][rm2];
+        tiles[0][0] = g_road_tile_codes[0][rot];
+        tiles[0][1] = g_road_tile_codes[1][rot];
+        tiles[0][2] = g_road_tile_codes[1][rm2];
+        tiles[0][3] = g_road_tile_codes[0][rm2];
+        tiles[1][0] = g_road_tile_codes[0][rot];
+        tiles[1][1] = g_road_tile_codes[1][rot];
+        tiles[1][2] = g_road_tile_codes[1][rm2];
+        tiles[1][3] = g_road_tile_codes[0][rm2];
+        tiles[2][0] = g_road_tile_codes[0][rot];
+        tiles[2][1] = g_road_tile_codes[1][rot];
+        tiles[2][2] = g_road_tile_codes[1][rm2];
+        tiles[2][3] = g_road_tile_codes[0][rm2];
+        tiles[3][0] = g_road_tile_codes[0][rot];
+        tiles[3][1] = g_road_tile_codes[1][rot];
+        tiles[3][2] = g_road_tile_codes[1][rm2];
+        tiles[3][3] = g_road_tile_codes[0][rm2];
         break;
     }
     if (shape & 0x10) {
         if (rot < 2) {
-            tiles[1][0] = g_road_tiles[6][rot];
-            tiles[1][1] = g_road_tiles[7][rot];
-            tiles[1][2] = g_road_tiles[7][rot];
-            tiles[1][3] = g_road_tiles[6][rm2];
+            tiles[1][0] = g_road_tile_codes[6][rot];
+            tiles[1][1] = g_road_tile_codes[7][rot];
+            tiles[1][2] = g_road_tile_codes[7][rot];
+            tiles[1][3] = g_road_tile_codes[6][rm2];
         } else {
-            tiles[2][0] = g_road_tiles[6][rot];
-            tiles[2][1] = g_road_tiles[7][rot];
-            tiles[2][2] = g_road_tiles[7][rot];
-            tiles[2][3] = g_road_tiles[6][rm2];
+            tiles[2][0] = g_road_tile_codes[6][rot];
+            tiles[2][1] = g_road_tile_codes[7][rot];
+            tiles[2][2] = g_road_tile_codes[7][rot];
+            tiles[2][3] = g_road_tile_codes[6][rm2];
         }
     }
     switch (rot) {

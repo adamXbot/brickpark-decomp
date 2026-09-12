@@ -244,7 +244,13 @@ extern Cell**        g_map_rows;            /* 0x00801400 */
 
 extern BlitCtx       g_hit_ctx;             /* 0x004bdd00 */
 extern int           g_blit_hit;            /* 0x007feb14 */
-extern DDSurface*    g_screen;              /* 0x00668078 */
+/* blitmisc.c:118's own name for 0x00668078 -- the surface it Restores and
+ * polls with GetFlipStatus(DDGFS_ISFLIPDONE), one slot past g_primary
+ * (0x00668070) and one before g_draw_surface (0x0066807c), both of which this
+ * file's siblings also declare.  It was spelled `g_screen` here until
+ * PORT-M15; that name belongs to the config pointer at 0x004bcbf4 (the export
+ * table's `lpConfig`), which five other files declare under it. */
+extern DDSurface*    g_surface_78;           /* 0x00668078 */
 extern int           g_screen_depth;        /* 0x00668088 */
 extern ClipRect      g_clip;                /* 0x004bdea0 */
 
@@ -521,13 +527,13 @@ int GetSprite(SpriteHandle* out, SpriteRec* s)
         h = g_maphdr->screen_h;
         out->h = h;
         rect.bottom = h;
-        out->surface = g_screen;
-        surf = g_screen;
+        out->surface = g_surface_78;
+        surf = g_surface_78;
         rc = surf->vtbl->Lock(surf, &rect, &desc, 1, 0);
         if (rc == 0x887601c2) {
-            surf = g_screen;
+            surf = g_surface_78;
             surf->vtbl->Restore(surf);
-            surf = g_screen;
+            surf = g_surface_78;
             rc = surf->vtbl->Lock(surf, &rect, &desc, 1, 0);
         }
         if (rc != 0)
