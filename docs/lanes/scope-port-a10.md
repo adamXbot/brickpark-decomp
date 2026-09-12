@@ -20,13 +20,13 @@
    and `ObjDef +0x04` is **not** a complete placed-instance list — "Park
    Entrance" has an empty chain and 120 cells on the map. New `llFind(name)`,
    `llClasses()` and `llMapObjects()`.
-3. **P3-7 is worse than "throttled to 1 Hz" and the fix is cheaper than an
-   oscillator.** A hidden tab does not slow down, it *stalls*: seven host calls
-   in 43 seconds. The whole main loop is one `setTimeout` chain and Chrome's
-   background budget kills the chain. Delivering the 0/1 ms yields as
-   **MessageChannel** messages — not timers, so no budget — took the page from
-   **0.5 fps to 35.8 fps** in a hidden background tab, with no AudioContext, no
-   user gesture, no Worker and no library. `?awake=0` turns it off.
+3. **P3-7 is sharper than "throttled to 1 Hz" and the fix is cheaper than an
+   oscillator.** A hidden tab runs at full rate for **thirty seconds** and then
+   drops to exactly **0.50 fps**, flat, indefinitely: the whole main loop is one
+   `setTimeout` chain and Chrome's background budget kills the chain. Delivering
+   the 0/1 ms yields as **MessageChannel** messages — not timers, so no budget —
+   holds **35.8 fps** straight through that cliff, with no AudioContext, no user
+   gesture, no Worker and no library. `?awake=0` turns it off.
 
 ---
 
@@ -263,18 +263,35 @@ generated loader implements as
 _emscripten_sleep = function (ms) { let innerFunc = () => new Promise(resolve => setTimeout(resolve, ms)) ... }
 ```
 
-so **the game's entire main loop is one `setTimeout` chain**. Chrome's
-background budget applies to chains, and in a hidden tab on this page a chain of
-`setTimeout(..., 0)` ran its first ~7 links instantly and then stopped dead. The
-`?beat=1000` heartbeat is unambiguous:
+so **the game's entire main loop is one `setTimeout` chain**, and Chrome's
+background budget applies to chains.
 
-```
-BEAT t=59493  last=dinput.GetDeviceState calls=49 total=29909 since_yield=0ms
-BEAT t=102493 last=winmm.timeGetTime     calls=7  total=29916 since_yield=0ms
-```
+It does not apply immediately, which is why this is easy to miss and why a first
+look can say "the hidden tab is fine". Frames presented per 10 s window, fresh
+load, `?awake=0`, hidden background tab, nothing polling it:
 
-**Seven host calls in 43 seconds**, with `since_yield` still reading 0 ms because
-from inside the wasm no time has passed at all. Not 1 Hz — stalled.
+| window (s) | frames | fps |
+| --- | --- | --- |
+| 0–10 | 336 | 33.6 |
+| 10–20 | 335 | 33.5 |
+| 20–31 | 335 | 33.5 |
+| **31–41** | **5** | **0.50** |
+| 41–51 | 5 | 0.50 |
+| 51–61 | 5 | 0.50 |
+| ... 61–121, every window | 5 | 0.50 |
+
+**Full rate for ~30 seconds, then exactly five wake-ups per ten seconds,
+flat, for as long as you leave it.** The `?beat=1000` heartbeat says the same
+thing from inside the wasm — one line at `t=59493`, the next at `t=102493`,
+**seven host calls in the 43 seconds between them** — with `since_yield` still
+reading 0 ms, because from the game's point of view no time has passed at all.
+
+Two traps for anyone re-measuring this. The first is the 30-second delay: a
+measurement that runs for twenty seconds sees nothing wrong. The second is that
+**driving the tab from a debugger un-throttles it** — a run polled every few
+seconds with `javascript_tool` recovers to 33 fps and stays there, so the
+numbers above come from an in-page sampler that was started, left alone, and
+read once at the end.
 
 ### 3b. The three candidates, measured in the same hidden tab
 
@@ -294,13 +311,36 @@ every call while the tab is visible — goes to the real `setTimeout`, unchanged
 Longer timers are deliberately left alone: they are real waits (the 5 s profile
 flush, `MessageBoxA`'s pause) and hurrying them would change behaviour.
 
+A hopped call still gets a handle (a negative one, so it cannot collide with a
+real timer id) and `clearTimeout` still cancels it. Nothing in the yield path
+cancels a sleep, but a substituted `setTimeout` that quietly cannot be cleared is
+a trap for whatever is added next, and the bookkeeping is two lines.
+
 The patch is installed in the shell's own script block, which runs before
 `{{{ SCRIPT }}}`, so the module's `setTimeout` lookup finds it.
 
-**Measured: 0.5 fps -> 35.8 fps in a hidden background tab**, which is the
-game's own ceiling (`FlipPrimary` spins until 28 ms have passed = 35.71 fps).
-`llStats().traps` stayed 0 and `llStats().dead` null across the session, and the
-whole lesson-1 walk in §2 was driven in a hidden tab at 35.7 fps.
+**Measured, same protocol, same tab, `?awake=1` (the default):**
+
+| window (s) | frames | fps |
+| --- | --- | --- |
+| 0–10 | 358 | 35.8 |
+| 10–20 | 357 | 35.7 |
+| 20–30 | 357 | 35.7 |
+| **30–41** | **378** | **35.7** |
+| 41–51 | 357 | 35.7 |
+| 51–61 | 357 | 35.7 |
+| 61–71 | 357 | 35.7 |
+| 71–81 | 357 | 35.7 |
+| 81–91 | 357 | 35.7 |
+
+3266 frames in 92 s, on a tab that had by then been hidden for two and a half
+minutes — and `llAwake()` reported **46570 hops against 2 real timers**, which is
+the other half of the claim: the yield is essentially the only thing being
+substituted. Flat through the 30-second cliff and past it, at the game's own
+ceiling
+(`FlipPrimary` spins until 28 ms have passed = 35.71 fps). `llStats().traps`
+stayed 0 and `llStats().dead` null, and the whole lesson-1 walk in §2 was driven
+in a hidden tab at 35.7 fps. **0.50 fps -> 35.8 fps, a factor of 71.**
 
 ### 3d. The trade-off, stated plainly
 
@@ -331,7 +371,7 @@ driver with no gesture available gets the same 35.8 fps.
 | addresses with incompatible sizes | unsurfaced | **5**, all ruled on |
 | gen_link manifest rows | — | `+ names with conflicting addresses` and a section |
 | page probes | 23 | **27** (`llFind`, `llClasses`, `llMapObjects`, `llAwake`) |
-| hidden-tab fps | 0.5 | **35.8** |
+| hidden-tab fps (after the 30 s cliff) | 0.50 | **35.8** |
 
 ## 5. Files touched
 
