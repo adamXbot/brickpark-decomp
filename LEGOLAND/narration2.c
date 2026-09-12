@@ -426,7 +426,12 @@ int NarrRingA_Available(void)
     int avail = (g_narr_b - g_narr_a) & 0xffff;
 
     if (cur == 0) {
+#ifdef LEGOLAND_PORTABLE
+        /* PORT-B12: overlapping copy, same class as input.c's type ring. */
+        memmove(g_narr_queue, g_narr_queue + 1, 19 * sizeof(int));
+#else
         memcpy(g_narr_queue, g_narr_queue + 1, 19 * sizeof(int));
+#endif
         g_narr_queue[19] = 0;
         if (g_narr_c)
             g_narr_c--;

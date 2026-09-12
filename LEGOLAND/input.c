@@ -365,7 +365,16 @@ void UpdateControllerFromKeyboardData(Controller* c)
     c->buttons &= ~0x7f8;
     ch = GetTypedChar();
     if (ch != 0) {
+#ifdef LEGOLAND_PORTABLE
+        /* PORT-B12: source and destination overlap. VC6's forward byte copy
+         * happens to shift the ring; LLVM inlines the constant-size copy as
+         * wide loads/stores that assume no overlap and duplicates 3 of the
+         * 19 bytes, which doubled every ~7th typed character and killed every
+         * cheat (each is matched at a fixed tail offset). */
+        memmove(g_type_buf, g_type_buf + 1, 19);
+#else
         memcpy(g_type_buf, g_type_buf + 1, 19);
+#endif
         g_type_buf[19] = ch;
         if (strnicmp(":THEME", &g_type_buf[14], 6) == 0) {
             SetTheme(0);
