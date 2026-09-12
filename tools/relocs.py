@@ -2,18 +2,40 @@
 """Check COFF relocation identities that normalized instruction matching hides.
 
     python3 tools/relocs.py LEGOLAND/pathmisc2.c NewMechanicOrder 0x004995d0
-    python3 tools/relocs.py LEGOLAND/pathmisc2.c          # every exact body in one file
+    python3 tools/relocs.py LEGOLAND/pathmisc2.c          # every body in one file
     python3 tools/relocs.py --all --json /tmp/sl_results.json
+    python3 tools/relocs.py --all --no-wip      # exact bodies only, as before
     python3 tools/relocs.py --self-test
 
-Compiles once per source with audit.py's wrapper and /O2 /Gy /Gd. Only
-FUNCTION markers are swept. Does not edit sources or existing match tools.
+Compiles once per source with audit.py's wrapper and /O2 /Gy /Gd.
+
+An exact (`// FUNCTION:`) body is checked POSITION BY POSITION: its bytes are
+known to match, so relocation i of ours must name the same address as operand i
+of the original, and a disagreement is a `MISMATCH` line. That is the gate.
+
+A WIP (`// WIP-FUNCTION:`) body cannot be checked that way -- its instructions
+do not line up with the original's -- but it can still be checked as a SET:
+every address the original body names must be named somewhere in ours, and vice
+versa. Those differences print as `WIPRELOC ... MISSING/EXTRA` lines, never as
+`MISMATCH`, so the integration gate (`relocs.py --all | grep MISMATCH`) is
+unchanged by them; they are a lead for a matching lane, not a failure. P5-1 is
+why: `CheckWorkerOnMouseStatus` read `g_input.mouse_a.MASK` (0x00813a4c) where
+the original reads the cursor Y (0x00813a48), a same-sized global in a WIP body,
+which every byte gate passed and no relocation check even looked at. The
+original has no relocation table, so its side is read out of the operands (a
+32-bit displacement or immediate inside the image, and every direct branch that
+leaves the body); a literal that happens to look like an address is therefore
+reported as MISSING, and `--no-wip` turns the whole pass off.
+
 Exit status: 0 = all resolved positions agree, 1 = mismatches, 2 = incomplete
 (unresolved positions or skipped functions), 3 = both mismatch and incomplete.
-An unresolved position is never counted as an address mismatch.
+An unresolved position is never counted as an address mismatch, and a WIP set
+difference is counted in neither: it cannot change the exit status.
 """
 import argparse
 from collections import Counter
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -27,7 +49,8 @@ import capstone
 
 from audit import annotated
 from match import (ROOT, IMAGE_BASE, CL_WRAPPER, load_exe, rva2off,
-                   obj_function_code, true_extent, compiled_body, compare)
+                   obj_function_code, true_extent, compiled_body, compare,
+                   _branch_target)
 
 MD = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
 MD.detail = True
@@ -389,6 +412,215 @@ def check_relocations(coff, function, address, original, compiled, local, refere
     return dict(counts), rows
 
 
+def image_span(sections):
+    """(first mapped virtual address, one past the last) of this image.
+
+    The floor matters: a bit-mask immediate of 0x00400000 is the image BASE, not
+    an address, and the PE header below the first section is never referenced.
+    """
+    return (IMAGE_BASE + min(va for va, _, _, _ in sections),
+            IMAGE_BASE + max(va + max(vsz, raw) for va, vsz, _, raw in sections))
+
+
+# An immediate operand of a bitwise instruction is a mask, not an address
+# (`or dword ptr [esp + 0x48], 0x800000`). Displacements are still read.
+_MASKING = ('and', 'or', 'xor', 'test', 'shl', 'shr', 'sar', 'rol', 'ror', 'bt')
+# Switch dispatch: VC6 emits the jump table and the byte case-index table into
+# the function's own COMDAT, just past the code, so the original's copies sit
+# immediately after the original body and ours are local $L symbols.
+_TABLE_WINDOW = 512
+
+
+def original_references(body, address, size, span):
+    """{address: (operand, kind)} for what the ORIGINAL body names outside itself.
+
+    A linked body carries no relocation table, so the references are recovered
+    from the operands: a 32-bit displacement or immediate whose value lands
+    inside the image, and every direct call/branch whose target leaves the
+    body. Branches within the body are labels, not references.
+
+    `kind` is what the operand says the target is, which is how the unresolvable
+    classes are told apart from a real name: `float` (an x87 instruction's
+    absolute operand), `table` (an indexed read just past the body -- a switch
+    table in the same COMDAT), `code` (a direct call/jmp) or `data`.
+    """
+    floor, limit = span
+    end = address + size
+    out = {}
+    for insn in body:
+        where = f'0x{insn.address:08x}: {insn.mnemonic} {insn.op_str}'
+        target = _branch_target(insn)
+        if target is not None:
+            if not address <= target < end:
+                out.setdefault(target, (where, 'code'))
+            continue
+        indexed = any(op.type == capstone.x86.X86_OP_MEM
+                      and (op.mem.base or op.mem.index) for op in insn.operands)
+        for offset, width, immediate in (
+                (insn.disp_offset, insn.disp_size, False),
+                (insn.imm_offset, insn.imm_size, True)):
+            if width != 4 or offset <= 0 or offset + 4 > insn.size:
+                continue
+            if immediate and insn.mnemonic.startswith(_MASKING):
+                continue
+            value = struct.unpack_from('<I', insn.bytes, offset)[0]
+            if not floor <= value < limit:
+                continue
+            if insn.mnemonic.startswith('f'):
+                kind = 'float'
+            elif indexed and not immediate and end <= value < end + _TABLE_WINDOW:
+                kind = 'table'
+            else:
+                kind = 'data'
+            out.setdefault(value, (where, kind))
+    return out
+
+
+def literal_bytes(coff, symbol):
+    """The bytes of the string or float literal a symbol points at, or None.
+
+    The linker places a literal wherever it likes, so its address cannot be
+    derived -- but its CONTENT can be compared against the original's, which is
+    what makes a literal reference checkable at all here.
+    """
+    index = symbol['section']
+    if index <= 0 or index > len(coff.sections):
+        return None
+    data = coff.sections[index - 1]['code']
+    start = symbol['value']
+    if start >= len(data):
+        return None
+    if symbol['name'].startswith(('$SG', '??_C')):
+        end = data.find(b'\0', start)
+        return data[start:end + 1] if end >= start else None
+    digits = symbol['name'].rsplit('@', 1)[-1]
+    if re.fullmatch(r'[0-9a-fA-F]+', digits) and not len(digits) % 2:
+        return data[start:start + len(digits) // 2] or None
+    return None
+
+
+def our_references(coff, function, address, compiled, local, reference, size=0):
+    """What OUR body names: ({address: symbol}, unresolved, literals, tables).
+
+    Position is not used: a WIP body's instructions do not line up with the
+    original's. A relocation against a label inside the body -- or against
+    anything else that resolves inside the original's extent, such as a
+    recursive call -- is our own code, not a reference. An unresolved relocation
+    is not claimed as an address either, but a string or float literal's CONTENT
+    is returned so the original's copy can still be recognised, and a local
+    code/jump-table symbol is counted so the original's switch tables can be.
+    """
+    section = coff.sections[function['section'] - 1]
+    start = function['value']
+    end = compiled[-1].address + compiled[-1].size if compiled else 0
+    out, unresolved, literals, tables = {}, 0, [], 0
+    for offset, symidx, typ in section['relocs']:
+        if typ == 0 or not start <= offset < start + end:
+            continue
+        symbol = coff.symbols.get(symidx)
+        if symbol is None:
+            unresolved += 1
+            continue
+        addend = struct.unpack_from('<i', section['code'], offset)[0]
+        base, reason = symbol_address(symbol, local, reference, function,
+                                      address, end, addend)
+        if base is None:
+            unresolved += 1
+            content = literal_bytes(coff, symbol)
+            if content:
+                literals.append(content)
+            elif symbol['name'].startswith(('$L', '$T', '.text')):
+                tables += 1
+            continue
+        if reason == 'label in aligned function':
+            continue
+        value = (base + addend) & 0xffffffff
+        if address <= value < address + size:
+            continue
+        out.setdefault(value, symbol['name'])
+    return out, unresolved, literals, tables
+
+
+def exe_bytes(data, sections, address, count):
+    off = rva2off(sections, address - IMAGE_BASE)
+    return None if off is None else data[off:off + count]
+
+
+def account_for(missing, theirs, literals, tables, data, sections):
+    """The subset of `missing` that our body's UNRESOLVABLE references explain.
+
+    A literal is matched by content: if the original holds our exact string or
+    float bytes at the address it names, that reference is the same literal at a
+    different place, not a different object. A switch table is matched by class
+    and counted, because its contents are code addresses that cannot agree.
+    Each of ours explains at most one of the original's.
+    """
+    pool, left, out = list(literals), tables, set()
+    for value in missing:
+        kind = theirs[value][1]
+        if kind == 'table' and left:
+            left -= 1
+            out.add(value)
+            continue
+        for i, content in enumerate(pool):
+            if exe_bytes(data, sections, value, len(content)) == content:
+                pool.pop(i)
+                out.add(value)
+                break
+    return out
+
+
+def inspect_wip_function(coff, name, address, data, sections, local, reference):
+    """Set-compare the addresses a WIP body names against the original's.
+
+    The bytes of a WIP body are known NOT to match, so there is nothing to gate
+    here; the output is a lead. Both extents are the same ones the byte gates
+    use: the original's by control flow (`true_extent`), ours by our own first
+    unjumped `ret` (`compiled_body` with no target count).
+    """
+    result = dict(name=name, address=address, status='wip_checked', counts={},
+                  rows=[], wip=True)
+    try:
+        function = coff.function(name)
+        code = obj_function_code(coff.path, function['name'])
+        count, size = true_extent(data, sections, address - IMAGE_BASE)
+        if count is None:
+            raise ValueError('original extent is unknown')
+        off = rva2off(sections, address - IMAGE_BASE)
+        original = list(MD.disasm(data[off:off + size], address))
+        compiled, _ = compiled_body(list(MD.disasm(code, 0)), None)
+        theirs = original_references(original, address, size, image_span(sections))
+        ours, unresolved, literals, tables = our_references(
+            coff, function, address, compiled, local, reference, size)
+        missing = sorted(set(theirs) - set(ours))
+        accounted = account_for(missing, theirs, literals, tables, data, sections)
+        result.update(instructions=count, bytes=size)
+        for value in missing:
+            if value in accounted:
+                continue
+            where, kind = theirs[value]
+            result['rows'].append(dict(status='wipreloc', kind='MISSING',
+                                       original=value, ours=None, symbol=None,
+                                       reason=f'{where} [{kind}]'))
+        for value in sorted(set(ours) - set(theirs)):
+            result['rows'].append(dict(status='wipreloc', kind='EXTRA',
+                                       original=None, ours=value,
+                                       symbol=ours[value],
+                                       reason='named by our body only'))
+        result['counts'] = {
+            'wip_references_ours': len(ours),
+            'wip_references_original': len(theirs),
+            'wip_references_shared': len(set(ours) & set(theirs)),
+            'wip_references_missing': len(missing) - len(accounted),
+            'wip_references_accounted': len(accounted),
+            'wip_references_extra': len(set(ours) - set(theirs)),
+            'wip_unresolved': unresolved,
+        }
+    except (ValueError, struct.error, IndexError) as exc:
+        result.update(status='wip_skipped', reason=str(exc))
+    return result
+
+
 def inspect_function(coff, name, address, data, sections, local, reference):
     result = dict(name=name, address=address, status='checked', counts={}, rows=[])
     try:
@@ -416,6 +648,19 @@ def inspect_function(coff, name, address, data, sections, local, reference):
 
 def print_result(path, result):
     prefix = f'{path} {result["name"]} 0x{result["address"]:08x}'
+    if result.get('wip'):
+        # Never the word MISMATCH: the integration gate greps for it and a WIP
+        # set difference is a lead, not a failed gate.
+        if result['status'] == 'wip_skipped':
+            print(f'WIPSKIPPED {prefix}: {result["reason"]}', flush=True)
+        for row in result['rows']:
+            if row['kind'] == 'MISSING':
+                print(f'WIPRELOC {prefix} MISSING original=0x{row["original"]:08x} '
+                      f'(the original reads it at {row["reason"]})', flush=True)
+            else:
+                print(f'WIPRELOC {prefix} EXTRA ours=0x{row["ours"]:08x} '
+                      f'symbol={row["symbol"]}: {row["reason"]}', flush=True)
+        return
     if result['status'] != 'checked':
         print(f'SKIPPED {prefix}: {result["reason"]}', flush=True)
     for row in result['rows']:
@@ -554,8 +799,76 @@ def self_test():
             pass
         else:
             raise AssertionError('unsupported relocation accepted')
+        wip_self_test(coff, function, address, linked, original, compiled, local)
     annotation_self_test()
     print('PASS: COFF identity/addend/operand/decoration/unresolved regression checks')
+
+
+def wip_self_test(coff, function, address, linked, original, compiled, local):
+    """The WIP set comparison, on the same synthetic body (no binary needed)."""
+    span = (0x401000, 0x600010)   # Covers every operand this body names.
+    theirs = original_references(original, address, len(linked), span)
+    # Absolute displacements, a 32-bit immediate, an indirect call's import slot
+    # and the direct call's external target; the `0xc` immediate is below the
+    # image and the `ret` names nothing.
+    assert set(theirs) == {0x500008, 0x4ffffc, 0x401104, 0x500000, 0x60000c,
+                           0x4b0000, 0x4ab000}, sorted(theirs)
+    # A branch that stays inside the body is a label, not a reference.
+    inner = list(MD.disasm(bytes.fromhex('eb 00 c3'), address))
+    assert original_references(inner, address, 3, span) == {}
+    # A bitwise immediate is a mask, and the image base is not an address.
+    mask = list(MD.disasm(bytes.fromhex('81 4c 24 48 00004000'), address))
+    assert original_references(mask, address, 8, span) == {}
+    # A switch table just past the body, reached through an index register.
+    table = list(MD.disasm(bytes.fromhex('ff 24 85 30104000'), address))
+    assert original_references(table, address, 8, span)[0x401030][1] == 'table'
+    ours, unresolved, literals, tables = our_references(
+        coff, function, address, compiled, local, {})
+    assert unresolved == 1 and set(ours) == set(theirs) - {0x4b0000}, sorted(ours)
+    assert literals == [] and tables == 0
+
+    wrong = dict(local, g_base={0x500004})
+    ours, _, _, _ = our_references(coff, function, address, compiled, wrong, {})
+    assert set(theirs) - set(ours) == {0x500008, 0x4ffffc, 0x4b0000}
+    assert set(ours) - set(theirs) == {0x500004, 0x50000c}
+    # 0x500000 is in both sets by coincidence (g_base-4 == the wrong g_base):
+    # the set test is strictly weaker than the positional one, which reports
+    # all four of this object's wrong positions.
+    assert 0x500000 in set(ours) & set(theirs)
+
+    # A reference that resolves inside the original's own extent is our code --
+    # a recursive call -- and is not a reference. Without this a self-call reads
+    # back as EXTRA (the original's is a label we dropped on its side).
+    inside, _, _, _ = our_references(coff, function, address, compiled, local, {},
+                                    0x200)
+    assert 0x401104 not in inside and 0x401104 in ours
+
+    # A literal is accounted for by CONTENT, at whatever address the linker
+    # happened to give the original's copy; a switch table by class and count.
+    fake = bytes(0x200) + b'hello\0'
+    parts = [(0x1000, 0x100, 0x200, 0x100)]
+    theirs = {0x401000: ('push 0x401000', 'data'),
+              0x401040: ('jmp dword ptr [eax*4 + 0x401040]', 'table')}
+    assert account_for([0x401000, 0x401040], theirs, [b'hello\0'], 1,
+                       fake, parts) == {0x401000, 0x401040}
+    assert account_for([0x401000, 0x401040], theirs, [b'world\0'], 0,
+                       fake, parts) == set()
+    assert literal_bytes(coff, dict(name='$SG1', section=0, value=0)) is None
+
+    result = dict(name='Test', address=address, status='wip_checked', wip=True,
+                  counts={}, rows=[
+                      dict(status='wipreloc', kind='MISSING', original=0x813a48,
+                           ours=None, symbol=None, reason='0x004706dd: mov eax, x'),
+                      dict(status='wipreloc', kind='EXTRA', original=None,
+                           ours=0x813a4c, symbol='_g_cursor',
+                           reason='named by our body only')])
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        print_result('LEGOLAND/test.c', result)
+    printed = out.getvalue()
+    # The integration gate greps for MISMATCH. A WIP lead must never trip it.
+    assert 'MISMATCH' not in printed and printed.count('WIPRELOC') == 2, printed
+    assert '0x00813a48' in printed and '0x00813a4c' in printed
 
 
 def main():
@@ -564,8 +877,10 @@ def main():
     ap.add_argument('src', nargs='?')
     ap.add_argument('func', nargs='?')
     ap.add_argument('addr', nargs='?')
-    ap.add_argument('--all', action='store_true', help='sweep all exact FUNCTION markers')
+    ap.add_argument('--all', action='store_true', help='sweep every marker')
     ap.add_argument('--json', metavar='PATH', help='also save full results as JSON')
+    ap.add_argument('--no-wip', action='store_true',
+                    help='skip the WIP set comparison (exact bodies only)')
     ap.add_argument('--self-test', action='store_true', help='run synthetic regression checks')
     args = ap.parse_args()
     if args.self_test:
@@ -580,19 +895,27 @@ def main():
     data, sections = load_exe()
     root = Path(ROOT)
     reference = reference_addresses(root)
+    def markers(path):
+        """(name, VA, is_wip) for every bound marker we are asked to check."""
+        return [(name, int(va, 16), bool(wip)) for name, va, wip in annotated(path)
+                if not (wip and args.no_wip)]
+
     if args.all:
-        sources = {p: [(name, int(va, 16)) for name, va, wip in annotated(p) if not wip]
-                   for p in sorted((root / 'LEGOLAND').glob('*.c'))}
+        sources = {p: markers(p) for p in sorted((root / 'LEGOLAND').glob('*.c'))}
     elif args.func:
         address = int(args.addr, 16)
         if address < IMAGE_BASE:
             address += IMAGE_BASE
-        sources = {Path(args.src).resolve(): [(args.func, address)]}
-    else:
-        # One source file: every exact marker in it (the integration gate's
-        # per-file form; compiles the file once).
         src = Path(args.src).resolve()
-        sources = {src: [(name, int(va, 16)) for name, va, wip in annotated(src) if not wip]}
+        # The marker decides which check applies, so that naming one function
+        # behaves exactly as the sweep does on it.
+        wip = any(name == args.func and flag for name, _, flag in markers(src))
+        sources = {src: [(args.func, address, wip)]}
+    else:
+        # One source file: every marker in it (the integration gate's per-file
+        # form; compiles the file once).
+        src = Path(args.src).resolve()
+        sources = {src: markers(src)}
     env = dict(os.environ, ALPHATEAM_VC6_ROOT=str(root / 'toolchain'))
     results, totals = [], Counter()
     # Unique per process AND per invocation, safe alongside audit/matching jobs.
@@ -616,11 +939,13 @@ def main():
                 local = source_addresses(source)
             except (OSError, ValueError, struct.error) as exc:
                 totals['files_failed'] += 1
-                current = [dict(name=n, address=a, status='skipped', reason=str(exc),
-                                counts={}, rows=[]) for n, a in functions]
+                current = [dict(name=n, address=a, wip=w, counts={}, rows=[],
+                                status='wip_skipped' if w else 'skipped',
+                                reason=str(exc)) for n, a, w in functions]
             else:
-                current = [inspect_function(coff, n, a, data, sections, local, reference)
-                           for n, a in functions]
+                current = [(inspect_wip_function if w else inspect_function)(
+                    coff, n, a, data, sections, local, reference)
+                    for n, a, w in functions]
             for result in current:
                 result['file'] = label
                 results.append(result)
@@ -630,15 +955,24 @@ def main():
                     totals['functions_with_hits'] += 1
                 if result['counts'].get('unresolved'):
                     totals['functions_with_unresolved'] += 1
+                if (result['counts'].get('wip_references_missing')
+                        or result['counts'].get('wip_references_extra')):
+                    totals['wip_functions_with_differences'] += 1
                 print_result(label, result)
     for key in ('files_failed', 'functions_checked', 'functions_skipped',
                 'functions_with_hits', 'functions_with_unresolved', 'relocations',
-                'matched', 'mismatches', 'unresolved'):
+                'matched', 'mismatches', 'unresolved', 'functions_wip_checked',
+                'functions_wip_skipped', 'wip_functions_with_differences',
+                'wip_references_missing', 'wip_references_extra'):
         totals.setdefault(key, 0)
     print('SUMMARY ' + json.dumps(dict(totals), sort_keys=True))
     if args.json:
         Path(args.json).write_text(json.dumps(dict(summary=dict(totals), functions=results),
                                               indent=2) + '\n')
+    # WIP counts are deliberately absent from both bits: the set comparison is
+    # a lead for a matching lane, and a round must not start failing its gate
+    # because a WIP body it never touched names one address more than the
+    # original does.
     return int(bool(totals['mismatches'])) | (2 * int(bool(
         totals['unresolved'] or totals['functions_skipped'])))
 
