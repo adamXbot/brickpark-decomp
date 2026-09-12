@@ -70,6 +70,9 @@ CarPos RotateByHeading(int fwd, int side, int dir)
     case 3: r.x = fwd;   r.y = side;  break;
     case 5: r.x = -side; r.y = fwd;   break;
     case 7: r.x = -fwd;  r.y = -side; break;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    default: r.x = 0; r.y = 0; break;   /* QUIRKS.md Q20: diagonal headings returned the frame's garbage */
+#endif
     }
     return r;                   /* uninitialised on 2 / 4 / 6 -- the original */
 }

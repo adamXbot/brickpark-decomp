@@ -94,11 +94,22 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 | Q2 | not a defect | see row; reverted after measuring |
 | Q3 | left, no visible effect | the only caller discards the return value |
 | Q4 | fixed (PORT-Q1) | `llGdi().objs.live` fixed 4→4 vs faithful 4→6 |
-| Q5 | awaiting decision | — |
+| Q5 | **fixed (PORT-Q2)** | save at 28 visitors, reload, load: fixed settles at people 30 / count 30 / ghosts 0 (sim 2042→2757); faithful 60 / 30 / ghosts 30. **A `.sav` round trip now differs from the shipped game** (policy rule 2): the visitor counter is restored to the number of blokes in the save |
 | Q6 | left, no asset | the port ships no `.sgt` music at all |
 | Q7 | fixed (PORT-Q1), browser A/B owed | seed 0; next free-play lane builds a Boating School |
 | Q8, Q9, Q11, Q14 | awaiting decision | — |
-| Q10, Q12, Q13, Q15–Q22 | not yet briefed | — |
-| G1 `gameframe.c:1231`, G2 `screencb.c` (two cursor calcs) | guarded (PORT-Q1) | by construction; rest of class B not yet briefed |
+| Q10 | fixed (PORT-Q2), by inspection | `nfree`/`freeidx` reset at the top of case 0, per rider |
+| Q12 | fixed (PORT-Q2), by inspection | the second call counts `g_bs_mermaid_cls` |
+| Q13 | fixed (PORT-Q2), by inspection | `v[1]` (top), as the x uses `v[0]` and every other flume origin in the file is `(v[0], v[1])` |
+| Q15 | fixed (PORT-Q2), by inspection | the else-arm is the other three theme buttons' (screens3.c:810) verbatim |
+| Q16 | fixed (PORT-Q2), by inspection | `g_bz_layers->flags |= 0x2000` — the sprite's +0x10, as `OctopusCafe_Create` does for the same flag |
+| Q17 | fixed (PORT-Q2), by inspection | the second copy's arm paints at `(px + halfw, py + halfh)` like every other draw in that copy |
+| Q18 | fixed (PORT-Q2) | corner 6 emitted; free-play figures stand where they stood (`docs/lanes/q2-figures-ab.png`, left fixed / right faithful) — no visible regression |
+| Q19 | fixed (PORT-Q2), by inspection | cleared on a successful drop; `RenderWorkerOnMouse` is behind `g_drag_lock` (gameframe.c:718) and rin.c:576 only skips the selected bloke while `g_selection_lock` |
+| Q20 | fixed (PORT-Q2) | `default:` returns (0, 0); callers only pass cardinal headings |
+| Q21 | fixed (PORT-Q2), by inspection | the mirror disjunct, as the other seven elbows |
+| Q22 | fixed (PORT-Q2), by inspection | `i--` after the removal |
+| G1 `gameframe.c:1231`, G2 `screencb.c` (two cursor calcs) | guarded (PORT-Q1) | by construction |
+| class B, the rest | in progress (PORT-Q3, integrator) | — |
 
-Policy agreed 2026-09-13; `LL_FAITHFUL` CMake option on `legoland_core`. Notes: `docs/lanes/scope-port-q1.md`.
+Policy agreed 2026-09-13; `LL_FAITHFUL` CMake option on `legoland_core`. Notes: `docs/lanes/scope-port-q1.md`, `scope-port-q2.md`.

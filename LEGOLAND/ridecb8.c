@@ -410,7 +410,11 @@ void BoatingSchool_Remove(MapObj* o, BPosW bp, Cursor* ctx)
     obj.cls = g_bs_water_cls;
     IncrementObjectCount(g_bs_water_cls);
     /* ORIGINAL BUG: the mermaid class is meant here. */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    IncrementObjectCount(g_bs_mermaid_cls);   /* QUIRKS.md Q12 */
+#else
     IncrementObjectCount(g_bs_water_cls);
+#endif
 
     w = g_bs_water;
     while (w) {

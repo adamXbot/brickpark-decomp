@@ -1850,8 +1850,13 @@ void LFPiece_SetShape(LFPiece* piece, LFPiece** nb)
         break;
     case 0x41:
         /* the copy-paste bug: the second disjunct repeats the first. */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if ((nb[3]->fwd && nb[0]->fwd && !nb[3]->back && !nb[0]->back) ||
+            (!nb[3]->fwd && !nb[0]->fwd && nb[3]->back && nb[0]->back))   /* QUIRKS.md Q21: the mirror, as every other elbow */
+#else
         if ((nb[3]->fwd && nb[0]->fwd && !nb[3]->back && !nb[0]->back) ||
             (nb[3]->fwd && nb[0]->fwd && !nb[3]->back && !nb[0]->back))
+#endif
             LFRoute_Join(3, 0, nb, piece);
         else if (!nb[0]->back && !nb[3]->fwd)
             LFPiece_SpliceBetween(nb[3], nb[0], piece);

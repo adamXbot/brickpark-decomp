@@ -386,6 +386,9 @@ typedef struct TerrainObj {
 
 /* ---- other globals ------------------------------------------------------- */
 extern Bloke*   g_people_head;      /* 0x0066b574 */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+extern int      g_visitor_count;    /* 0x006661bc  QUIRKS.md Q5 */
+#endif
 extern Bloke*   g_bloke_base;       /* 0x0066b57c */
 extern LLElem*  g_extra_elems[];    /* 0x007fd660 */
 extern int      g_extra_elem_count; /* 0x007fdb84 */
@@ -1172,10 +1175,17 @@ int LoadGame(const char* path)
     progress_tick();
     if (!SaveGameRead(&count, 4))
         goto fail;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    {
+        int ll_restored = 0;
+#endif
     while (count-- != 0) {
         if (!SaveGameRead(&num, 4))
             goto fail;
         b = (Bloke*)((char*)g_bloke_base + num * 172);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        ll_restored++;
+#endif
         b->next = g_people_head;
         g_people_head = b;
         if (!SaveGameRead(&g_bs, 0x124))
@@ -1271,6 +1281,14 @@ int LoadGame(const char* path)
                                         an->f04->f20[0], b->person->f84);
         }
     }
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        /* QUIRKS.md Q5 (PORT-M18 §3): the save format has no field for
+         * g_visitor_count and BeginParkLoad's ClearBlokeList zeroed it, so
+         * SpawnVisitor topped the restored park up from zero and every load
+         * added g_visitor_limit ghost visitors. Count what was restored. */
+        g_visitor_count = ll_restored;
+    }
+#endif
 
     /* ---- BLK 5..8 -------------------------------------------------------- */
     if (!SkipMeasuredBlock())

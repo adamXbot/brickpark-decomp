@@ -567,6 +567,10 @@ void Restaurant1_Tick(RideElem* elem)
         if (b->state == 0) {
             switch (b->action) {
             case 0:
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+                nfree = 0;            /* QUIRKS.md Q10: per rider, not per tick */
+                freeidx = 0;
+#endif
                 tx -= 6;
                 b->flags62 |= 8;
                 ty <<= 8;

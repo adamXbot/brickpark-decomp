@@ -702,7 +702,11 @@ void Balloonz_Create(RideElem* elem)
     def->flags |= 0x420;
     g_bz_layers = g_bz_def->sprite;
     /* ORIGINAL BUG: the build sprite was meant here, not the ObjDef. */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    g_bz_layers->flags |= 0x2000;     /* QUIRKS.md Q16: the sprite's +0x10, as OctopusCafe_Create does */
+#else
     g_bz_def->flags |= 0x2000;
+#endif
     g_bz_base_m1 = LoadSprite("Ballbasem1.lls", 1);
     g_bz_base_m2 = LoadSprite("Ballbasem2.lls", 1);
     g_bz_base_m3 = LoadSprite("Ballbasem3.lls", 1);

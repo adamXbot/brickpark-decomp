@@ -515,6 +515,9 @@ void RemoveNewObjectMarker(void* def)
                 g_newobj.def[j - 1] = g_newobj.def[j];
             }
             g_newobj.count--;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+            i--;                      /* QUIRKS.md Q22: re-examine the slot that slid into the hole */
+#endif
             if (g_newobj.sel >= g_newobj.count)
                 g_newobj.sel = g_newobj.count - 1;
             if (g_newobj.count == 0 && g_popup_state == 2)

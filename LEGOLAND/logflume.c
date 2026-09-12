@@ -2656,7 +2656,11 @@ void LFEntrance_Remove(RideElem* elem, BPosW sq, void* c)
                     struct { int coord; int origin; } axis_y;
                     int* pyc = &axis_y.coord;
                     *pyc = p->sq.b.y;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+                    axis_y.origin = g_lf_footprint.v[1];   /* QUIRKS.md Q13: the TOP edge, as x uses the LEFT (v[0]) and every other flume origin (v[0], v[1]) */
+#else
                     axis_y.origin = g_lf_footprint.v[2];
+#endif
                     cur.x = p->sq.b.x + g_lf_footprint.v[0];
                     cur.y = axis_y.coord + axis_y.origin;
                 }

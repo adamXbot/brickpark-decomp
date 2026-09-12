@@ -1289,7 +1289,14 @@ place:
             r = SetMechanicsOrderAtPostion(g_worker_on_mouse, cell.x, cell.y);
         }
         if (r)
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        {
+            g_worker_on_mouse = 0;    /* QUIRKS.md Q19: the drop succeeded; nothing reads the stale pointer (RenderWorkerOnMouse is behind g_drag_lock) */
             goto tail;
+        }
+#else
+            goto tail;
+#endif
 fail:
         g_drag_lock = 1;
     }

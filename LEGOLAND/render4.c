@@ -452,7 +452,11 @@ void PaintTileLayer(Pos* scroll, WinRect* view)
                 if (t != 0) {
                     if ((cell->flags & 3) && (cell->flags & 8) && cell->obj != 0) {
                         if (cell->obj->def->draw == 0)
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+                            PrintSpriteXY(g_tile_sprites[t], px + state.halfw, py + halfh);   /* QUIRKS.md Q17: the second cell of the diamond step */
+#else
                             PrintSpriteXY(g_tile_sprites[t], px, py);
+#endif
                     } else {
                         int x2 = px + state.halfw;
 

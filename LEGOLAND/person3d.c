@@ -1209,7 +1209,11 @@ void Draw3DPersonModel(Person3D* p)
     box[5].x = fr->bmax.x; box[5].y = fr->bmin.y; box[5].z = fr->bmax.z;
     /* ORIGINAL BUG: corner 6 should be (bmax.x, bmax.y, bmin.z); the shipped
      * code repeats corner 3, so the model box is short one corner. */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    box[6].x = fr->bmax.x; box[6].y = fr->bmax.y; box[6].z = fr->bmin.z;   /* QUIRKS.md Q18 */
+#else
     box[6].x = fr->bmin.x; box[6].y = fr->bmax.y; box[6].z = fr->bmax.z;
+#endif
     box[7].x = fr->bmax.x; box[7].y = fr->bmax.y; box[7].z = fr->bmax.z;
 
     TransformVectorsL(light, light, mt, 1);

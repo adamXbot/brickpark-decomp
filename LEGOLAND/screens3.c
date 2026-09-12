@@ -940,8 +940,18 @@ char AdventureThemeInput(Icon* p, int buttons, int a3, int a4)
                 SetIconSprite(p, g_theme_adv_on);
                 g_theme_closed[3] = 0;
             } else {
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+                /* QUIRKS.md Q15: restore the previous menu like the other three
+                 * theme buttons do (screens3.c:810). */
+                g_menu_index = prev_menu;
+                if (prev_menu != 5) {
+                    g_object_list_mode = prev_mode;
+                    TestMenu(&g_menus[prev_menu]);
+                }
+#else
                 g_object_list_mode = prev_mode;
                 TestMenu(&g_menus[g_menu_index]);
+#endif
             }
         } else {
             CloseActiveThemeButton();
