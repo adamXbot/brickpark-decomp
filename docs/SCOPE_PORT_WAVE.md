@@ -66,6 +66,9 @@
 
 > **PORT-M14 — Status: MERGED (2026-09-12) — the eraser removing the ride from a pad square is the game's own rule, correctly ported: RefreshObjList paves the one-cell RING as real path (AddPathSquare, owned by nothing) but the footprint INTERIOR gets path graphics only and stays the ride's (flags 0x90, owner = the ride); HandleMapClick promotes on flags & 0x88, so an interior click destroys the ride (with a 7x6 outline cursor warning first), a ring click does nothing, a hand-laid square erases only itself. Measured live; relocs --all 0; page probes llSel/llCellAt/llPad added. Notes `docs/lanes/scope-port-m14.md`**
 
+
+> **PORT-P3 — Status: MERGED (2026-09-12) — Lessons 4 and 5 played to objective 3/9 and 1/9 (no coaster or flume in any tutorial: those start at game level 2, ObjList7); ~60,000 frames, 0 traps, 33.9 fps. NEW CLASS P3-3: 17 global names declared at TWO ADDRESSES in different files (gen_link keeps one): P3-1 g_view_left/top/right/bottom (scrolltick.c 0x004b95f4 vs coaster3d/coaster10 0x008299ac) — the view clamps ~475 px short, the mechanic's hut is unreachable; P3-2 g_popup (fpui2.c 0x007fdec0 vs bighelp/popup 0x007fdea4) — PopUpInfoSetUp reads 0x1c low, no worker can ever be hired. P3-4 llLink/llPad false negatives (PORT-B). Replays p3-lesson4/5.js incl. a profile unlock recipe and a cell<->screen inverter. Notes `docs/lanes/scope-port-p3.md`**
+
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
 portable build (`portable/`, see `portable/README.md`) compiles all 258 game
