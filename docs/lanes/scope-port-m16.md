@@ -303,6 +303,7 @@ screen with Lesson 2 lit. Zero traps, `dead` null. Building works.
 | --- | --- |
 | `$PY tools/audit.py LEGOLAND/fpui2.c` | 14 rows, all `[OK]`, `mismatch=0`, `PASS: 0 function(s) failed` — rows identical to base (`PopUpInfoSetUp` 192i/664B = orig) |
 | `$PY tools/relocs.py LEGOLAND/fpui2.c \| grep MISMATCH` | empty (14 functions checked) |
+| `$PY tools/relocs.py --all \| grep MISMATCH` | empty tree-wide |
 | `$PY tools/progress.py --check` | `3281 exact functions total; 42 WIP` — report regenerated and committed (line numbers moved) |
 | `portable/tools/extern_sweep.py` | `0 multi-address extern statement(s) — the class is closed` |
 | `portable/tools/bvstruct_sweep.py` | `0 unaccepted silent site(s), 1 silent, 5 noisy` (unchanged) |
