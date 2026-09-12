@@ -117,6 +117,18 @@ Quick check without CMake: compile the file with
 
 ---
 
+**Integrator build recipe (2026-09-12).** The default ninja target builds only
+the libraries: before `ctest`, build `legoland_linkcheck legoland_tests` in
+`portable/build` (native: configure WITHOUT `-DCMAKE_BUILD_TYPE=Release` —
+clang `-O3` on macOS lowers a memset loop in schoolcar5.c to a
+`memset_pattern16` libcall, which the closure generator turns into a conflicting
+trap stub) and `legoland_linkcheck legoland_tests legoland_headless
+legoland_headless_debug legoland_shimtest legoland_pathtest legoland_browser` in
+`portable/build-wasm` (Release, `-DLL_ILP32=ON`). Otherwise `raw_words` and
+`pointer_words` fail for want of the closure's manifest and nine tests are Not
+Run. Always `rm -rf` both build dirs first: a stale object in CMakeFiles has
+fooled gen_link before.
+
 **Port wave integrated (2026-09-11, all three lanes on main).** The browser
 page `portable/build-wasm/legoland.html` links and runs the game's own WinMain
 under ASYNCIFY: version block, mutex, DirectDrawCreate, window, the CD check
