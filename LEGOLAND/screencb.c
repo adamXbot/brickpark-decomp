@@ -399,6 +399,10 @@ void BsWater_DrawSelection(RideElem* elem, Pos* p)
 
     st = g_bs_stations;
     c = MapCellAtRef(p);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!c)                       /* QUIRKS.md G2: hovering the map border */
+        return;
+#endif
     p->x = c->key.b.x;
     p->y = c->key.b.y;
     sq.c[0] = (unsigned char)p->x;
@@ -484,6 +488,10 @@ void JcWater_DrawSelection(RideElem* elem, Pos* p)
 
     st = g_jc_stations;
     c = MapCellAtRef(p);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!c)                       /* QUIRKS.md G2: hovering the map border */
+        return;
+#endif
     p->x = c->key.b.x;
     p->y = c->key.b.y;
     sq.c[0] = (unsigned char)p->x;

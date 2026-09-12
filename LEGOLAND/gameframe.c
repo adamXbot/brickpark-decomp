@@ -1228,10 +1228,19 @@ void HandleMapClick(void)
                         c = &g_map_rows[pos.y][pos.x];
                     else
                         c = 0;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+                    /* QUIRKS.md G1: a click whose cell is off the map leaves c
+                     * NULL; the shipped game faults (on wasm32 it reads linear
+                     * memory 0). Skip the removal quietly. */
+                    if (c) {
+#endif
                     g_sel_def = c->obj->def;        /* ORIGINAL BUG: c is NULL when the cell is off the map */
                     if (g_query_extra == 0)
                         RemoveObjectPathTiles(g_sel_def, &pos);
                     RemObjFromMap(g_sel_def, g_sel_def->inst, g_sel_bpos, &g_query_cursor);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+                    }
+#endif
                 }
             }
         }

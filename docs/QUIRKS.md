@@ -27,7 +27,7 @@ add a handful more found by playing. None of them may be fixed in the VC6 text
 | # | where | what the player sees | fix shape | risk |
 | --- | --- | --- | --- | --- |
 | Q1 | `popup2.c:81` `DrawPopUpExtra` | the pop-up **control bar's caption box is the wrong width**: `n*20 + 0x7a` uses the vertical line pitch where the horizontal cell pitch `0x20` belongs; for a 0-line pop-up the caption overhangs the OK icon by 9 px | one constant in a portable arm (`n*0x20 + ...`), confirm against the strip's own walk | low |
-| Q2 | `popup2.c:48` `DrawPopUpExtra` | the pop-up **footer's two corner tiles are swapped** (bottom-right art at the left end, bottom-left at the right) | swap `[8]`/`[6]` in the footer row, portable arm | low |
+| Q2 | `popup2.c:48` `DrawPopUpExtra` | ~~footer corner tiles swapped~~ **not a defect**: the `.lls` NAMES are swapped, not the paint — `[8]` is the 0xbc-wide left piece, `[6]` the narrow right one; painting "by name" leaves the footer's middle unpainted (PORT-Q1 measured it) | none | — |
 | Q3 | `misc3.c:1019` pop-up placement | when the pop-up's y is kept, the function still **returns the clamp limit, not y** — callers that use the return value position a second element off the pop-up | return `g_popup_y`, portable arm; needs a check of the two callers | low |
 | Q4 | `misc3.c:1054` `MeasurePopUpTitle`/`MeasurePopUpBody` | **every pop-up resize leaks a GDI memory DC** (PORT-B13 made the shim survive it; the game still leaks) | `DeleteDC(dc)` before each return, portable arm | none (shim already tolerant) |
 | Q5 | `savegame.c` BLK4 (PORT-M18 §3) | **every load adds `visitorLimit` ghost visitors** on top of the restored chain — the visitor counter is not in the save and is never restored | one tally + one store in a portable arm; changes what a `.sav` round trip produces (policy rule 2) | medium |
@@ -88,6 +88,17 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 
 ## Status
 
-| # | status | commit |
+| # | status | commit / evidence |
 | --- | --- | --- |
-| — | policy agreed 2026-09-13; `LL_FAITHFUL` CMake option added; first batch Q1–Q4, Q6, Q7 + the two reachable crash guards (gameframe.c:1231, screencb.c:96) briefed to PORT-Q1 | — |
+| Q1 | fixed (PORT-Q1) | caption centred in the free span; A/B crop `docs/lanes/q1-delete-strip-ab.png` |
+| Q2 | not a defect | see row; reverted after measuring |
+| Q3 | left, no visible effect | the only caller discards the return value |
+| Q4 | fixed (PORT-Q1) | `llGdi().objs.live` fixed 4→4 vs faithful 4→6 |
+| Q5 | awaiting decision | — |
+| Q6 | left, no asset | the port ships no `.sgt` music at all |
+| Q7 | fixed (PORT-Q1), browser A/B owed | seed 0; next free-play lane builds a Boating School |
+| Q8, Q9, Q11, Q14 | awaiting decision | — |
+| Q10, Q12, Q13, Q15–Q22 | not yet briefed | — |
+| G1 `gameframe.c:1231`, G2 `screencb.c` (two cursor calcs) | guarded (PORT-Q1) | by construction; rest of class B not yet briefed |
+
+Policy agreed 2026-09-13; `LL_FAITHFUL` CMake option on `legoland_core`. Notes: `docs/lanes/scope-port-q1.md`.

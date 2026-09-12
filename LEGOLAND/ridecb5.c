@@ -298,7 +298,14 @@ void BoatingSchool_Add(void* o, Pos* pos)
     st->bx = (unsigned char)((unsigned char)pos->x + (unsigned char)g_bs_dock_b.left + 2);
     st->by = (unsigned char)((unsigned char)pos->y + (unsigned char)g_bs_dock_b.top + 2);
     st->route = 0;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    /* QUIRKS.md Q7: seeded to 9999 the tick handler never reaches its turn-
+     * round at exactly 100 and a new school never animates until a save/load
+     * rewrites the record with 0. Start where a loaded record starts. */
+    st->frame = 0;
+#else
     st->frame = 0x270f;
+#endif
     st->backwards = 0;
     st->count = 0;
     st->take = 5;

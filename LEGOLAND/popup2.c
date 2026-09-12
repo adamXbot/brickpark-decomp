@@ -345,7 +345,16 @@ void DrawPopUpExtra(void)
     Format(buf, g_fmt_s, GetString(0xa2));
     box.left = g_popup_x + 0xc;
     box.top = y + 6;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    /* QUIRKS.md Q1: the shipped width is n*20 + 0x7a -- the VERTICAL line
+     * pitch reused where the horizontal cell pitch (0x20) belongs, so for n = 0
+     * the caption box overhangs the OK icon by 9 px. The caption belongs in the
+     * strip's free span: from px + 0xc to just short of the OK gadget, which
+     * the same function has just placed at x - 0x4b. */
+    box.right = g_cb_icon_ok->x - 3;
+#else
     box.right = box.left + n * 20 + 0x7a;
+#endif
     box.bottom = box.top + 0x1b;
     PrintCachedText(buf, box.left, box.top, box.right - box.left,
                     box.bottom - box.top, 1, 5, 0xff0000, 0xffffff);

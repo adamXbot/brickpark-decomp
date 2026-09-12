@@ -1032,6 +1032,9 @@ typedef struct WinRect {
 } WinRect;
 
 __declspec(dllimport) void* __stdcall CreateCompatibleDC(void* dc);            /* [0x4ab094] */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+__declspec(dllimport) int   __stdcall DeleteDC(void* dc);                      /* [0x4ab0a4]  QUIRKS.md Q4 */
+#endif
 __declspec(dllimport) int   __stdcall DrawTextA(void* dc, const char* s, int n,
                                                 WinRect* rc, unsigned int fmt); /* [0x4ab2ac] */
 extern void* SelectFont(void* dc, int font);                                   /* 0x00454b40 */
@@ -1069,7 +1072,16 @@ int MeasurePopUpTitle(const char* s, int a, int b, int w, int step, int font)
     rc.right = w;
     SelectFont(dc, font);
     DrawTextA(dc, s, strlen(s), &rc, 0x401);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    /* QUIRKS.md Q4: the shipped function never releases the memory DC. */
+    {
+        int steps = (rc.right - rc.left - w + 0x1f) >> 5;
+        DeleteDC(dc);
+        return steps;
+    }
+#else
     return (rc.right - rc.left - w + 0x1f) >> 5;
+#endif
 }
 
 /* -------------------------------------------------------------------------
@@ -1122,5 +1134,8 @@ int MeasurePopUpBody(const char* s, int h0, int dh, int w, int dw, int font)
             h0++;
         }
     } while (t > h);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    DeleteDC(dc);                 /* QUIRKS.md Q4 */
+#endif
     return h0;
 }
