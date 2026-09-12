@@ -27,7 +27,7 @@ to the exact moment it turns black.**
 | --- | --- | --- | --- |
 | **2** | objective 1 of 5 | **ENDLEVEL — every objective, the level ends and lesson 3 lights** | — |
 | **3** | objectives 1–6 of 8 | **ENDLEVEL — every objective, TWICE, on two cold runs** | — |
-| **5** | objectives 1–5 of 9 | **objectives 1–13 of 19**, including `NEEDGARDENERS 0` and `LINK "BOATING SCHOOL"` | the `LOOPCOMPOSITE` water loop (a build puzzle, not a defect — §5.4) |
+| **5** | objectives 1–5 of 9 | **objectives 1–18 of 19**, including `NEEDGARDENERS 0`, `LINK "BOATING SCHOOL"`, the water `LOOPCOMPOSITE` and the Western theme | the last `NEEDIN` — the Spinning Barrels Ride is 13x17 cells and the goal rectangle has no room for it without demolishing the park's paths (a build puzzle, not a defect — §5.4) |
 
 `llStats().dead` was `null` and `traps` `[]` in every frame of every session
 below, fps 35.4–35.8 throughout, and `llPark().ghosts` was **0** in every park
