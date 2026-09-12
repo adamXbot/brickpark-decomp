@@ -3132,7 +3132,24 @@ extern void   ScreenToMapRef(Offset* screen, Pos* out, int z);/* 0x0045be90 */
 extern int ScreenToMapRef(Offset* screen, Pos* out, int z);/* 0x0045be90 */
 #endif
 extern void   HeapFree_w(void* p);                           /* 0x0049e4d0 */
+#ifndef LEGOLAND_PORTABLE
 extern int    sprintf_w(char* dst, const char* fmt, int v);  /* 0x0049e573 */
+#else
+/* PORT-M20. 0x0049e573 IS `sprintf`, and every other file in the tree spells
+ * it `Format(char*, const char*, ...)`. On x86 the two prototypes are the
+ * same call -- cdecl pushes the dword either way, and the original at
+ * 0x004164a9 does exactly `push eax / push "%02d" / push &name[6] / call
+ * 0x49e573`. On wasm32 they are NOT: a variadic callee takes a POINTER to a
+ * varargs buffer as its third parameter, so the fixed `int` prototype handed
+ * the SEAT NUMBER where the callee reads a va_list, and every "%02d" BNV path
+ * name below -- "manbox<seat>", "BlokeBox<seat>", "manBox<seat>" -- came out
+ * "...00". No such object exists in the .bnv, GetObjectFromName returns 0,
+ * GetZSkew divides 0 by 0 and the rider's 3D person gets a NaN ydepth and an
+ * all-zero rotation matrix; Draw3DPersonModel then divides by a zero z
+ * extent. Both wasm signatures are (i32,i32,i32)->i32, so wasm-ld, the link
+ * census and name_trap.py are all blind to it. Declare it as what it is. */
+extern int    sprintf_w(char* dst, const char* fmt, ...);    /* 0x0049e573 */
+#endif
 extern void   GetTileDimensions(int* out_w, int* out_h);     /* 0x00460540 */
 extern short  Get_XScroll(void);                             /* 0x004615f0 */
 extern short  Get_YScroll(void);                             /* 0x00461600 */
