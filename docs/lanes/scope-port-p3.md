@@ -192,8 +192,13 @@ the scroll pair:
 
 | map | `g_scroll_x` | `g_scroll_y` | `view_w<<8` | `2*y - vw` (the clamp with slack 0) |
 | --- | --- | --- | --- | --- |
-| FOUR.MAP | **-29696** | 67072 | 163840 | **-29696** exact |
-| FIVE.MAP | **-5120** | 79360 | 163840 | **-5120** exact |
+| FOUR.MAP, panel closed | **-29696** | 67072 | 163840 (640) | **-29696** exact |
+| FOUR.MAP, side panel open | **1280** | 67072 | 132864 (519) | **1280** exact |
+| FIVE.MAP, panel closed | **-5120** | 79360 | 163840 (640) | **-5120** exact |
+
+(The side panel narrows the viewport to 0x207 = 519 and `UpdateSidePanelScroll`
+shifts the origin by 0x7900 to compensate, so the clamped WORLD edge is the
+same in both rows: x + vw = 134144 either way.)
 
 That is edge clamp 1 of `ClampScrollToMap` — `d = x - 2y - hl + vw`, pushed
 until `d <= 0` — settling exactly on `hl == 0`. With the shipped 243200 the
