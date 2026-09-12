@@ -153,13 +153,20 @@ void SetTheme(int theme)
 /* ---------------------------------------------------- positional placement */
 
 /* The game record at 0x004bcbf4 seen through its viewport size (bigrender.c
- * calls the same object g_map, fpui3.c g_scroll_map). */
+ * calls the same object g_map, fpui3.c g_scroll_map).
+ *
+ * Spelled `g_view` until PORT-M15.  Naming 0x004bcbf4 after the fields a TU
+ * reads is the tree's deliberate habit -- g_map, g_level_map, g_game,
+ * g_screencfg, g_map_cfg, g_scroll_map, g_level_cfg and lpConfig are all this
+ * one pointer -- but `g_view` collided with a different object: buildtick.c and
+ * eventtick.c use it for 0x007fffc4, which ridecb8.c:561 names
+ * `g_edit_cursor_origin` (== g_edit_cursor.origin). */
 typedef struct ViewCfg {
     char           pad00[0x10];
     unsigned short view_w;      /* +0x10 */
     unsigned short view_h;      /* +0x12 */
 } ViewCfg;
-extern ViewCfg* g_view;         /* 0x004bcbf4 */
+extern ViewCfg* g_view_cfg;         /* 0x004bcbf4 */
 
 /* dx * 4 clamped to the DirectSound pan range [-10000, +10000]. */
 extern int PanFromOffset(int dx);        /* 0x00496570 (internal) */
@@ -197,21 +204,21 @@ int SetSampleScreenPos(Sample* s, int x, int y)
     int pan;
     int vol;
 
-    p.x = x - (g_view->view_w >> 1);
-    p.y = y - (g_view->view_h >> 1);
+    p.x = x - (g_view_cfg->view_w >> 1);
+    p.y = y - (g_view_cfg->view_h >> 1);
     pan = PanFromOffset(p.x);
 
-    if (p.x < -g_view->view_w >> 1)
-        p.x += g_view->view_w >> 1;
-    else if (p.x > g_view->view_w >> 1)
-        p.x -= g_view->view_w >> 1;
+    if (p.x < -g_view_cfg->view_w >> 1)
+        p.x += g_view_cfg->view_w >> 1;
+    else if (p.x > g_view_cfg->view_w >> 1)
+        p.x -= g_view_cfg->view_w >> 1;
     else
         p.x = 0;
 
-    if (p.y < -g_view->view_h >> 1)
-        p.y += g_view->view_h >> 1;
-    else if (p.y > g_view->view_h >> 1)
-        p.y -= g_view->view_h >> 1;
+    if (p.y < -g_view_cfg->view_h >> 1)
+        p.y += g_view_cfg->view_h >> 1;
+    else if (p.y > g_view_cfg->view_h >> 1)
+        p.y -= g_view_cfg->view_h >> 1;
     else
         p.y = 0;
 

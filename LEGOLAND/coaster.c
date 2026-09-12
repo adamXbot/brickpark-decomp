@@ -1974,7 +1974,13 @@ typedef struct Config {
     unsigned short horizon;     /* +0x22 */
 } Config;
 
-extern TileSprites* g_tile_sprites;                     /* 0x0082c680 */
+/* The DRIVING SCHOOL's loaded "DSCHOOL LIGHTS" tile-sprite set -- ridecb8.c's
+ * own name for 0x0082c680 (LoadDrivingSchool stores it there after looking the
+ * element up, beside g_roads_def at 0x0082c684).  It was spelled
+ * `g_tile_sprites` here until PORT-M15; that name is the export table's
+ * `TileSpriteArray` at 0x00805f60, the MAP's 2048-slot sprite table, and the
+ * collision gave the traffic lights the map's tiles. */
+extern TileSprites* g_roads_data;                       /* 0x0082c680 */
 extern Config*      lpConfig;                           /* 0x004bcbf4 */
 extern int          g_light_timer;                      /* 0x004b4c04 */
 extern int          g_light_ns;                         /* 0x004cbeb0 */
@@ -1991,8 +1997,8 @@ extern void SortSprite(void* sprite, int x, int y, int key, int mode, void* ctx)
  * expansions share ONE set of frame homes, as the original does. */
 #define LIGHT_OFFSET(IDX)                                                  \
     k = (unsigned char)(IDX) * 4;                                          \
-    off.x = *(int*)((char*)g_tile_sprites->w + k) >> 1;                    \
-    off.y = *(int*)((char*)g_tile_sprites->h + k) >> 1;                    \
+    off.x = *(int*)((char*)g_roads_data->w + k) >> 1;                    \
+    off.y = *(int*)((char*)g_roads_data->h + k) >> 1;                    \
     AdjustOffsetForViewMode(&off)
 
 #define LIGHT_BOUNDS(TX, TY)                                               \
@@ -2000,7 +2006,7 @@ extern void SortSprite(void* sprite, int x, int y, int key, int mode, void* ctx)
     pos.y = (TY);                                                          \
     GetTileBounds(&pos, &out)
 
-#define LIGHT_SPRITE   (*(void**)((char*)g_tile_sprites->sprite + k))
+#define LIGHT_SPRITE   (*(void**)((char*)g_roads_data->sprite + k))
 
 // FUNCTION: LEGOLAND 0x00414440
 void DrawTrafficLights(void)

@@ -1414,7 +1414,18 @@ void BuildObjInfoList(void)
 /* ---- the pop-up info request -------------------------------------------- */
 /* The pop-up record @ 0x007fdec0 .. 0x007fdfc0 (bighelp.c's PopUpUI from
  * its +0x1c): the request PopUpInfoSetUp fills, the state ResetInfoStruct
- * clears and the class elements it compares against. */
+ * clears and the class elements it compares against.
+ *
+ * PORT-M15: this view used to be spelled `g_popup`, which is also what
+ * bighelp.c and popup.c call the SAME record from its real base 0x007fdea4.
+ * One name, two bases: the closure generator emits one object and every field
+ * below then lands 0x1c low, so `elem_shed`/`elem_hut` read the zeros at
+ * 0x007fdf94/0x007fdf98 instead of the pointers InitPopUpInfo wrote at
+ * 0x007fdfb0/0x007fdfb4, the "this is a hut, hire someone" arm never fires
+ * and NO GARDENER OR MECHANIC CAN EVER BE HIRED (PORT-P3 section 3.2).
+ * bighelp.c's own InitPopUpInfo proves it is one record: its relocations
+ * reach 0x007fdea4+0x0 AND 0x007fdea4+0x1c (= this base) in one body.
+ * Renamed so each base carries its own name; the offsets are unchanged. */
 typedef struct PopUpInfo {
     int       type;       /* +0x00 0x007fdec0 0x103 object, 0x306..0x308 workers */
     void*     obj;        /* +0x04 0x007fdec4 */
@@ -1440,7 +1451,7 @@ typedef struct PopUpInfo {
     void*     elem_path;  /* +0xf8 0x007fdfb8 */
     void*     elem_entr;  /* +0xfc 0x007fdfbc */
 } PopUpInfo;
-extern PopUpInfo g_popup;               /* 0x007fdec0 */
+extern PopUpInfo g_popup_info;               /* 0x007fdec0 */
 extern void*     g_sample_hire;         /* 0x004b92e4 */
 extern void*     g_sample_fire;         /* 0x004b9308 */
 /* A placed object / a worker as the pop-up reads it. */
@@ -1498,7 +1509,7 @@ static __inline Cell* MapCellAtPos(Pos* p)
  * copies its record; 0x307 hires, 0x308 fires — a mechanic on a job first
  * has the job's cell unflagged and the order freed). `ref` packs the cell;
  * the by-value `pos` slots are reused as the hire position. */
-/* The class element is deliberately read back through the global ('g_popup.cls->elem',
+/* The class element is deliberately read back through the global ('g_popup_info.cls->elem',
  * not 'cls->elem') AFTER both stores, and that spelling is load-bearing. The original
  * stores cls then cell then loads the element, so the load has to come last in the
  * source (VC6 will not sink a load through a pointer past stores to a global). But
@@ -1506,7 +1517,7 @@ static __inline Cell* MapCellAtPos(Pos* p)
  * the load into the dying esi ('mov esi,[esi+0xc4]'); that takes ce out of the
  * allocation pool, the shared constant zero of the 'obj == 0' guard lands in eax
  * instead of ecx, and the gardener arm needs an extra 'xor ecx,ecx' before
- * 'mov cl,[edi+4]' - 193 instructions and 8 diffs. Re-reading g_popup.cls keeps the
+ * 'mov cl,[edi+4]' - 193 instructions and 8 diffs. Re-reading g_popup_info.cls keeps the
  * base in the global's web, VC6 forwards the just-stored value (no reload), no
  * coalescing happens, and the original's rotation (edx=elem_shed, eax=elem, ecx=zero)
  * comes back exactly. */
@@ -1523,33 +1534,33 @@ void PopUpInfoSetUp(int type, PopUpObj* obj, int ref, Pos pos)
 
     cell = MapCellAt(cx, cy);
     ResetInfoStruct();
-    g_popup.active = 1;
-    g_popup.resize = 1;
-    g_popup.pos = pos;
-    g_popup.cellpos = w;
-    g_popup.type = type;
-    g_popup.obj = obj;
-    g_popup.ref = ref;
+    g_popup_info.active = 1;
+    g_popup_info.resize = 1;
+    g_popup_info.pos = pos;
+    g_popup_info.cellpos = w;
+    g_popup_info.type = type;
+    g_popup_info.obj = obj;
+    g_popup_info.ref = ref;
     switch (type) {
     case 0x306:
-        g_popup.kind = type;
-        g_popup.worker = obj;
-        g_popup.w_f1c = obj->rec->f1c;
-        g_popup.w_f20 = obj->rec->f20;
+        g_popup_info.kind = type;
+        g_popup_info.worker = obj;
+        g_popup_info.w_f1c = obj->rec->f1c;
+        g_popup_info.w_f20 = obj->rec->f20;
         return;
     case 0x103:
         if (obj == 0)
             return;
-        if (obj == g_popup.elem_path || obj == g_popup.elem_entr)
+        if (obj == g_popup_info.elem_path || obj == g_popup_info.elem_entr)
             break;
         cls = obj->u.cls;
-        e = g_popup.elem_shed;
-        g_popup.cls = cls;
-        g_popup.cell = cell;
-        ce = g_popup.cls->elem;
+        e = g_popup_info.elem_shed;
+        g_popup_info.cls = cls;
+        g_popup_info.cell = cell;
+        ce = g_popup_info.cls->elem;
         if (ce == e) {
-            g_popup.active = 0;
-            g_popup.kind = 0xa;
+            g_popup_info.active = 0;
+            g_popup_info.kind = 0xa;
             pos.x = cell->bx;
             pos.y = cell->by;
             if (!CanHireGardener())
@@ -1557,9 +1568,9 @@ void PopUpInfoSetUp(int type, PopUpObj* obj, int ref, Pos pos)
             GenerateGardener(&pos, 1);
             return;
         }
-        if (ce == g_popup.elem_hut) {
-            g_popup.active = 0;
-            g_popup.kind = 0x14;
+        if (ce == g_popup_info.elem_hut) {
+            g_popup_info.active = 0;
+            g_popup_info.kind = 0x14;
             pos.x = cell->bx;
             pos.y = cell->by;
             if (!CanHireMechanic())
@@ -1567,7 +1578,7 @@ void PopUpInfoSetUp(int type, PopUpObj* obj, int ref, Pos pos)
             GenerateMechanic(&pos, 1);
             return;
         }
-        g_popup.kind = 0x103;
+        g_popup_info.kind = 0x103;
         return;
     case 0x307:
         if (obj->u.kind == 5)

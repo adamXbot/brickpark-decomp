@@ -691,7 +691,10 @@ extern void SetBlokePositionFromBNV(void* bin, Bloke* b, const char* name,
                                     int flag);                       /* 0x00484a70 */
 
 extern BalloonzRec* g_bz_recs;     /* 0x00616060 the per-placement list */
-extern void*        g_bz_bnv;      /* 0x00616010 the wheel's .bnv bundle */
+/* The SCALAR slot Balloonz_Create writes "Zbuffers\\balloonz.bnv" into
+ * (screencb2.c:693 `g_bz_bnv0`), which it then copies to `g_bz_bnv[0]` at
+ * 0x00616018.  Spelled with the table's name here until PORT-M15. */
+extern void*        g_bz_bnv0;     /* 0x00616010 the wheel's .bnv bundle */
 extern void*        g_bz_ridezspr; /* 0x00616040 the z-sprite riders take */
 extern SpriteObj*   g_bz_zspr;     /* 0x0081cde8 the wheel's own depth sprite */
 
@@ -942,7 +945,7 @@ void Balloonz_Tick(RideElem* elem)
                 b->person->driven = 1;
                 b->person->depth = GetUnitDepth(-1617692.375f, -1617904.25f);
                 sprintf(name + 5, "%02d", b->seat);
-                SetBlokePositionFromBNV(g_bz_bnv, b, name, 0,
+                SetBlokePositionFromBNV(g_bz_bnv0, b, name, 0,
                                         -1617692.375f, -1617904.25f, 0);
                 b->action++;
                 break;
@@ -950,7 +953,7 @@ void Balloonz_Tick(RideElem* elem)
             case 10:
                 cars.c[b->seat] = 2;
                 sprintf(name + 5, "%02d", b->seat);
-                SetBlokePositionFromBNV(g_bz_bnv, b, name, frame + half * 24,
+                SetBlokePositionFromBNV(g_bz_bnv0, b, name, frame + half * 24,
                                         -1617692.375f, -1617904.25f, 0);
                 if (--b->f58 == 0)
                     b->action++;
@@ -958,7 +961,7 @@ void Balloonz_Tick(RideElem* elem)
 
             case 11:
                 sprintf(name + 5, "%02d", b->seat);
-                SetBlokePositionFromBNV(g_bz_bnv, b, name, frame + half * 24,
+                SetBlokePositionFromBNV(g_bz_bnv0, b, name, frame + half * 24,
                                         -1617692.375f, -1617904.25f, 0);
                 b->action++;
                 cars.c[b->seat] = 3;
@@ -967,7 +970,7 @@ void Balloonz_Tick(RideElem* elem)
 
             case 12:
                 sprintf(name + 5, "%02d", b->seat);
-                SetBlokePositionFromBNV(g_bz_bnv, b, name, frame + half * 24,
+                SetBlokePositionFromBNV(g_bz_bnv0, b, name, frame + half * 24,
                                         -1617692.375f, -1617904.25f, 0);
                 if (unloading == 1) {
                     idx = (char)Balloonz_CarAtPlatform(frame, half);
