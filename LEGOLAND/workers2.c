@@ -239,7 +239,17 @@ extern WSprite*      g_nomoney_sprite;       /* 0x007fdeb0 */
 typedef struct CursorState {
     int           flags;        /* +0x00  0x813a40 */
     Pos           point;        /* +0x04  0x813a44  cursor point (screen) */
-    int           y2;           /* +0x0c  0x813a4c */
+    int           mouse_a_mask; /* +0x0c  0x813a4c  bighelp.c's g_input.mouse_a.MASK:
+                                 * the Controller bit the left button is bound
+                                 * to, written once by SetupControllers and a
+                                 * constant 1 for the whole session.  It is NOT
+                                 * a second cursor Y -- an earlier pass named it
+                                 * `y2` and CheckWorkerOnMouseStatus's vertical
+                                 * range test read it instead of `point.y`
+                                 * (+0x08), which made `1 < 0x20` true on every
+                                 * drop and glued a carried worker to the cursor
+                                 * for ever (P5-1).  Nothing in this file reads
+                                 * it; the field exists to hold the layout. */
     unsigned char buttons;      /* +0x10  0x813a50  bit 2 = worker drop */
     unsigned char pad11[0x0f];  /* +0x11..0x1f */
     unsigned char state;        /* +0x20  0x813a60  bit 2 = cancel */
@@ -1232,7 +1242,9 @@ void CheckWorkerOnMouseStatus(WorkOrder* o)
         }
         if (g_hit_type == 0x10a || g_hit_type == 2)
             goto fail;
-        if (g_cursor.y2 < 0x20 || g_cursor.y2 >= 0x174)
+        /* 0x004706dd reads 0x00813a48 -- `point.y`, the cursor Y -- and holds
+         * it in eax across both compares.  See the note on mouse_a_mask. */
+        if (g_cursor.point.y < 0x20 || g_cursor.point.y >= 0x174)
             goto fail;
         if (g_cursor.point.x < ((MapHdr*)g_map)->origin_x + 9)
             goto fail;
