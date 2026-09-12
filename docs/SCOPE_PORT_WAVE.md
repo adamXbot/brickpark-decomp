@@ -72,6 +72,8 @@
 
 > **PORT-P1 — Status: MERGED (2026-09-12) — FREE PLAY WORKS END TO END: the title screen's Free bubble (not the advert screen) -> four-theme picker -> FreePlayTest.txt park; nine ride/shop types built and rendered, all four theme menus, query/path/eraser, MAP, OPTIONS, SAVE (759 KB), page reload, LOAD — the park returns complete; 35.0 fps with 60 visitors; 0 traps over ~60,000 frames. Findings: P1-4 HIGH a stray store sets 0x400 on g_theme_icon[0] on most toolbar clicks (0x007fdd70 framed twice — the dual-address class, PORT-M15); P1-5 HIGH every ~7th typed character is doubled by the press latch (cheats can never fire; PORT-B); P1-6 MED sixty visitors, none drawn in free play (render lane, confirm vs the tutorial); P1-7 MED one save/load doubles the bloke chain 30 -> 60; HaveCurrentProfile is really g_level_done[5]. Free play, the picker and the themes are gated on profile bytes (original rules); the blank money bar is the brick lock. Replays p1-00..05. Notes `docs/lanes/scope-port-p1.md`**
 
+> **PORT-B12 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-B12)** — P1-5 (the doubled typed character) and P1-6 (visitors not drawn in free play). Notes `docs/lanes/scope-port-b12.md`
+
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
 portable build (`portable/`, see `portable/README.md`) compiles all 258 game
