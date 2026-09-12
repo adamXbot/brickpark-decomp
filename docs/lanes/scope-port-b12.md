@@ -285,17 +285,66 @@ non-null face table, `depth == sy + 45`. Ruled out on the shim side:
   the terrain, the buildings, the banners and the entrance all appear.
 * no trap all session: `llStats().dead` null, `traps` `[]`.
 
-### 3.5 So it is `Draw3DPersonModel`, and here is where to look
+### 3.5 And `Draw3DPersonModel` never reaches its vertex loops
 
-`Draw3DPersonModel` (person3d.c:1092, x86 `0x00440a30`) is the **63.3% WIP
-body** (648/1023 instructions) and is the only thing between §3.3 and pixels.
-The first place to look is its portable arms, because they are hand-written
-replacements for the original's inline asm and they are all in the geometry:
-`FMUL` / `FMULA` / `FMULP` / **`TOFIX`** / `SHADE` (person3d.c:529-596) and
-the `ll_nrm` local (person3d.c:1133, 1414, 1482). `TOFIX` is what turns the
-0.447 isometric foreshortening and the three scales into 16.16 through
-`LL_FISTP`; **a model whose scale comes out 0 rasterises to nothing, silently**,
-which is exactly the symptom — no trap, no pixels, healthy inputs.
+One more measurement narrows it a great deal further. `Draw3DPersonModel`
+(person3d.c:109-117) copies **every vertex** of every person it draws into two
+plain .bss scratch arrays — `g_xverts` (x86 `0x00643ee8`, three ints per
+vertex) and `g_vert_key` (`0x00641004`, one key per vertex) — and rewrites
+them for each of the persons it is called with, every frame. So diff the whole
+static-data region between two frames and look for the churn:
+
+| scan | changed words per frame | runs of >= 16 contiguous words |
+| --- | --- | --- |
+| 0 .. 3.3 MB | 244 | `2413008` (46), `2413196` (19), `151456` (19) |
+| 0 .. 6.0 MB | 739 | `2413008` (24), `2413108` (31) |
+| 0 .. 3.3 MB, **all blokes hidden** | 515 | `151508` (19) — the 2413xxx runs are **gone** |
+
+(The highest address any recovered global resolves to in this build is
+`3050464`, so 0..6 MB covers all of static data; everything above ~11 MB is the
+allocator's.) The one person-dependent block, at `2413008`, holds values like
+`6979, 6966, 10990, 6966` — 8.8 fixed-point walking positions
+(`b->fx >> 8` is the cell, printlist.c:455), i.e. the bloke AI's own state, not
+vertices. **No array anywhere in static data receives per-vertex data.**
+
+Put with §3.3 — `Render3DPerson` **is** entered, and its geometry consumer is
+**never** reached — the failure is at one of the two early-outs between them
+(rin.c:546-554), and one of those has already been cleared:
+
+```c
+r = g_clip_rect; r.right--; r.bottom--;
+if (!IntersectRect(&r, &v, &r)) return;      /* fine: shim side is alias-safe,
+                                                and v is on-screen for 2-3 */
+OffsetRect(&r, -p->sx, -p->sy);
+if (!GetVideoSurface(&vs)) return;           /* <-- the remaining candidate */
+```
+
+**`GetVideoSurface` (surface.c:310) returns 0 whenever `g_video_locked == 0`**
+— it is documented in the sources as "every rasteriser can call this as its
+'can I draw?' test". So the hypothesis to test first is that **the video
+surface is not locked while `DrawAndClearPrintList` walks the list**, in which
+case every 3D person silently returns and every SPRITE still draws, because
+sprites go through `PrintSprite` -> `RenderSprite`, which does its own
+Push/Pop around each blit. That is exactly the symptom: a fully drawn park with
+no people in it, no trap, and healthy person records.
+
+`g_video_locked` is a GAME global (surface.c / gpu.c / blitmisc.c write it;
+`PushRenderingStatusAndLockVideoSurface` / `PopRenderingStatus` at
+0x00463fc0 / 0x004641f0 are the pair) and it cannot be sampled mid-frame from
+the console, so this needs one host-side trace or one `LL_DBG_TABLE` row and a
+trap-free read from inside the walk — a ten-minute job for the next lane.
+`g_video_locked` IS already in `main.c`'s table (`llAddrs().g_video_locked`,
+`2069156` here); it reads 0 between frames, which says nothing either way.
+
+The **second** candidate, if the surface turns out to be locked, is
+`Draw3DPersonModel` itself (person3d.c:1092, the 1023-instruction WIP body at
+63.3%) bailing before its vertex copy — and its portable arms are the place to
+look, because they are hand-written replacements for the original's inline asm
+and they are all in the geometry: `FMUL` / `FMULA` / `FMULP` / **`TOFIX`** /
+`SHADE` (person3d.c:529-596) and the `ll_nrm` local (person3d.c:1133, 1414,
+1482). `TOFIX` is what turns the 0.447 isometric foreshortening and the three
+scales into 16.16 through `LL_FISTP`; a model whose scale comes out 0
+rasterises to nothing, silently.
 
 **Still owed, and cheap: the same probe on the TUTORIAL park.** PORT-M10's
 merge note says blokes walk the paths there. If they do not draw there either
