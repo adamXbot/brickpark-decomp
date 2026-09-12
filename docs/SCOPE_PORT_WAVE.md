@@ -66,6 +66,11 @@
 
 > **PORT-M14 — Status: MERGED (2026-09-12) — the eraser removing the ride from a pad square is the game's own rule, correctly ported: RefreshObjList paves the one-cell RING as real path (AddPathSquare, owned by nothing) but the footprint INTERIOR gets path graphics only and stays the ride's (flags 0x90, owner = the ride); HandleMapClick promotes on flags & 0x88, so an interior click destroys the ride (with a 7x6 outline cursor warning first), a ring click does nothing, a hand-laid square erases only itself. Measured live; relocs --all 0; page probes llSel/llCellAt/llPad added. Notes `docs/lanes/scope-port-m14.md`**
 
+> **PORT-P1 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-P1)** — play FREE
+> PLAY end to end in the browser build and record what breaks. A TESTING lane:
+> it fixes nothing. Replays in `portable/src/browser/replays/p1-*.js`, findings
+> in `docs/lanes/scope-port-p1.md`.
+
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
 portable build (`portable/`, see `portable/README.md`) compiles all 258 game
