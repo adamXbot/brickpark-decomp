@@ -412,22 +412,39 @@ def check_relocations(coff, function, address, original, compiled, local, refere
     return dict(counts), rows
 
 
-def image_limit(sections):
-    """One past the highest virtual address this image maps."""
-    return IMAGE_BASE + max(va + max(vsz, raw) for va, vsz, _, raw in sections)
+def image_span(sections):
+    """(first mapped virtual address, one past the last) of this image.
+
+    The floor matters: a bit-mask immediate of 0x00400000 is the image BASE, not
+    an address, and the PE header below the first section is never referenced.
+    """
+    return (IMAGE_BASE + min(va for va, _, _, _ in sections),
+            IMAGE_BASE + max(va + max(vsz, raw) for va, vsz, _, raw in sections))
 
 
-def original_references(body, address, size, limit):
-    """{address: operand} for everything the ORIGINAL body names outside itself.
+# An immediate operand of a bitwise instruction is a mask, not an address
+# (`or dword ptr [esp + 0x48], 0x800000`). Displacements are still read.
+_MASKING = ('and', 'or', 'xor', 'test', 'shl', 'shr', 'sar', 'rol', 'ror', 'bt')
+# Switch dispatch: VC6 emits the jump table and the byte case-index table into
+# the function's own COMDAT, just past the code, so the original's copies sit
+# immediately after the original body and ours are local $L symbols.
+_TABLE_WINDOW = 512
+
+
+def original_references(body, address, size, span):
+    """{address: (operand, kind)} for what the ORIGINAL body names outside itself.
 
     A linked body carries no relocation table, so the references are recovered
     from the operands: a 32-bit displacement or immediate whose value lands
     inside the image, and every direct call/branch whose target leaves the
-    body. Branches within the body are labels, not references. A 32-bit literal
-    that happens to fall inside the image range is indistinguishable from an
-    address here -- that is the price of the set comparison, and it can only
-    produce a MISSING line, never a wrong MISMATCH.
+    body. Branches within the body are labels, not references.
+
+    `kind` is what the operand says the target is, which is how the unresolvable
+    classes are told apart from a real name: `float` (an x87 instruction's
+    absolute operand), `table` (an indexed read just past the body -- a switch
+    table in the same COMDAT), `code` (a direct call/jmp) or `data`.
     """
+    floor, limit = span
     end = address + size
     out = {}
     for insn in body:
@@ -435,30 +452,68 @@ def original_references(body, address, size, limit):
         target = _branch_target(insn)
         if target is not None:
             if not address <= target < end:
-                out.setdefault(target, where)
+                out.setdefault(target, (where, 'code'))
             continue
-        for offset, width in ((insn.disp_offset, insn.disp_size),
-                              (insn.imm_offset, insn.imm_size)):
+        indexed = any(op.type == capstone.x86.X86_OP_MEM
+                      and (op.mem.base or op.mem.index) for op in insn.operands)
+        for offset, width, immediate in (
+                (insn.disp_offset, insn.disp_size, False),
+                (insn.imm_offset, insn.imm_size, True)):
             if width != 4 or offset <= 0 or offset + 4 > insn.size:
                 continue
+            if immediate and insn.mnemonic.startswith(_MASKING):
+                continue
             value = struct.unpack_from('<I', insn.bytes, offset)[0]
-            if IMAGE_BASE <= value < limit:
-                out.setdefault(value, where)
+            if not floor <= value < limit:
+                continue
+            if insn.mnemonic.startswith('f'):
+                kind = 'float'
+            elif indexed and not immediate and end <= value < end + _TABLE_WINDOW:
+                kind = 'table'
+            else:
+                kind = 'data'
+            out.setdefault(value, (where, kind))
     return out
 
 
-def our_references(coff, function, address, compiled, local, reference):
-    """({address: symbol}, unresolved count) for OUR body's relocations.
+def literal_bytes(coff, symbol):
+    """The bytes of the string or float literal a symbol points at, or None.
+
+    The linker places a literal wherever it likes, so its address cannot be
+    derived -- but its CONTENT can be compared against the original's, which is
+    what makes a literal reference checkable at all here.
+    """
+    index = symbol['section']
+    if index <= 0 or index > len(coff.sections):
+        return None
+    data = coff.sections[index - 1]['code']
+    start = symbol['value']
+    if start >= len(data):
+        return None
+    if symbol['name'].startswith(('$SG', '??_C')):
+        end = data.find(b'\0', start)
+        return data[start:end + 1] if end >= start else None
+    digits = symbol['name'].rsplit('@', 1)[-1]
+    if re.fullmatch(r'[0-9a-fA-F]+', digits) and not len(digits) % 2:
+        return data[start:start + len(digits) // 2] or None
+    return None
+
+
+def our_references(coff, function, address, compiled, local, reference, size=0):
+    """What OUR body names: ({address: symbol}, unresolved, literals, tables).
 
     Position is not used: a WIP body's instructions do not line up with the
-    original's. A relocation against a label inside the body is our own code,
-    not a reference, and an unresolved one (a string or float literal, a jump
-    table) is not claimed either.
+    original's. A relocation against a label inside the body -- or against
+    anything else that resolves inside the original's extent, such as a
+    recursive call -- is our own code, not a reference. An unresolved relocation
+    is not claimed as an address either, but a string or float literal's CONTENT
+    is returned so the original's copy can still be recognised, and a local
+    code/jump-table symbol is counted so the original's switch tables can be.
     """
     section = coff.sections[function['section'] - 1]
     start = function['value']
     end = compiled[-1].address + compiled[-1].size if compiled else 0
-    out, unresolved = {}, 0
+    out, unresolved, literals, tables = {}, 0, [], 0
     for offset, symidx, typ in section['relocs']:
         if typ == 0 or not start <= offset < start + end:
             continue
@@ -471,11 +526,48 @@ def our_references(coff, function, address, compiled, local, reference):
                                       address, end, addend)
         if base is None:
             unresolved += 1
+            content = literal_bytes(coff, symbol)
+            if content:
+                literals.append(content)
+            elif symbol['name'].startswith(('$L', '$T', '.text')):
+                tables += 1
             continue
         if reason == 'label in aligned function':
             continue
-        out.setdefault((base + addend) & 0xffffffff, symbol['name'])
-    return out, unresolved
+        value = (base + addend) & 0xffffffff
+        if address <= value < address + size:
+            continue
+        out.setdefault(value, symbol['name'])
+    return out, unresolved, literals, tables
+
+
+def exe_bytes(data, sections, address, count):
+    off = rva2off(sections, address - IMAGE_BASE)
+    return None if off is None else data[off:off + count]
+
+
+def account_for(missing, theirs, literals, tables, data, sections):
+    """The subset of `missing` that our body's UNRESOLVABLE references explain.
+
+    A literal is matched by content: if the original holds our exact string or
+    float bytes at the address it names, that reference is the same literal at a
+    different place, not a different object. A switch table is matched by class
+    and counted, because its contents are code addresses that cannot agree.
+    Each of ours explains at most one of the original's.
+    """
+    pool, left, out = list(literals), tables, set()
+    for value in missing:
+        kind = theirs[value][1]
+        if kind == 'table' and left:
+            left -= 1
+            out.add(value)
+            continue
+        for i, content in enumerate(pool):
+            if exe_bytes(data, sections, value, len(content)) == content:
+                pool.pop(i)
+                out.add(value)
+                break
+    return out
 
 
 def inspect_wip_function(coff, name, address, data, sections, local, reference):
@@ -497,14 +589,19 @@ def inspect_wip_function(coff, name, address, data, sections, local, reference):
         off = rva2off(sections, address - IMAGE_BASE)
         original = list(MD.disasm(data[off:off + size], address))
         compiled, _ = compiled_body(list(MD.disasm(code, 0)), None)
-        theirs = original_references(original, address, size, image_limit(sections))
-        ours, unresolved = our_references(coff, function, address, compiled,
-                                         local, reference)
+        theirs = original_references(original, address, size, image_span(sections))
+        ours, unresolved, literals, tables = our_references(
+            coff, function, address, compiled, local, reference, size)
+        missing = sorted(set(theirs) - set(ours))
+        accounted = account_for(missing, theirs, literals, tables, data, sections)
         result.update(instructions=count, bytes=size)
-        for value in sorted(set(theirs) - set(ours)):
+        for value in missing:
+            if value in accounted:
+                continue
+            where, kind = theirs[value]
             result['rows'].append(dict(status='wipreloc', kind='MISSING',
                                        original=value, ours=None, symbol=None,
-                                       reason=theirs[value]))
+                                       reason=f'{where} [{kind}]'))
         for value in sorted(set(ours) - set(theirs)):
             result['rows'].append(dict(status='wipreloc', kind='EXTRA',
                                        original=None, ours=value,
@@ -514,7 +611,8 @@ def inspect_wip_function(coff, name, address, data, sections, local, reference):
             'wip_references_ours': len(ours),
             'wip_references_original': len(theirs),
             'wip_references_shared': len(set(ours) & set(theirs)),
-            'wip_references_missing': len(set(theirs) - set(ours)),
+            'wip_references_missing': len(missing) - len(accounted),
+            'wip_references_accounted': len(accounted),
             'wip_references_extra': len(set(ours) - set(theirs)),
             'wip_unresolved': unresolved,
         }
@@ -708,8 +806,8 @@ def self_test():
 
 def wip_self_test(coff, function, address, linked, original, compiled, local):
     """The WIP set comparison, on the same synthetic body (no binary needed)."""
-    limit = 0x600010   # Covers every operand this body names.
-    theirs = original_references(original, address, len(linked), limit)
+    span = (0x401000, 0x600010)   # Covers every operand this body names.
+    theirs = original_references(original, address, len(linked), span)
     # Absolute displacements, a 32-bit immediate, an indirect call's import slot
     # and the direct call's external target; the `0xc` immediate is below the
     # image and the `ret` names nothing.
@@ -717,18 +815,45 @@ def wip_self_test(coff, function, address, linked, original, compiled, local):
                            0x4b0000, 0x4ab000}, sorted(theirs)
     # A branch that stays inside the body is a label, not a reference.
     inner = list(MD.disasm(bytes.fromhex('eb 00 c3'), address))
-    assert original_references(inner, address, 3, limit) == {}
-    ours, unresolved = our_references(coff, function, address, compiled, local, {})
+    assert original_references(inner, address, 3, span) == {}
+    # A bitwise immediate is a mask, and the image base is not an address.
+    mask = list(MD.disasm(bytes.fromhex('81 4c 24 48 00004000'), address))
+    assert original_references(mask, address, 8, span) == {}
+    # A switch table just past the body, reached through an index register.
+    table = list(MD.disasm(bytes.fromhex('ff 24 85 30104000'), address))
+    assert original_references(table, address, 8, span)[0x401030][1] == 'table'
+    ours, unresolved, literals, tables = our_references(
+        coff, function, address, compiled, local, {})
     assert unresolved == 1 and set(ours) == set(theirs) - {0x4b0000}, sorted(ours)
+    assert literals == [] and tables == 0
 
     wrong = dict(local, g_base={0x500004})
-    ours, _ = our_references(coff, function, address, compiled, wrong, {})
+    ours, _, _, _ = our_references(coff, function, address, compiled, wrong, {})
     assert set(theirs) - set(ours) == {0x500008, 0x4ffffc, 0x4b0000}
     assert set(ours) - set(theirs) == {0x500004, 0x50000c}
     # 0x500000 is in both sets by coincidence (g_base-4 == the wrong g_base):
     # the set test is strictly weaker than the positional one, which reports
     # all four of this object's wrong positions.
     assert 0x500000 in set(ours) & set(theirs)
+
+    # A reference that resolves inside the original's own extent is our code --
+    # a recursive call -- and is not a reference. Without this a self-call reads
+    # back as EXTRA (the original's is a label we dropped on its side).
+    inside, _, _, _ = our_references(coff, function, address, compiled, local, {},
+                                    0x200)
+    assert 0x401104 not in inside and 0x401104 in ours
+
+    # A literal is accounted for by CONTENT, at whatever address the linker
+    # happened to give the original's copy; a switch table by class and count.
+    fake = bytes(0x200) + b'hello\0'
+    parts = [(0x1000, 0x100, 0x200, 0x100)]
+    theirs = {0x401000: ('push 0x401000', 'data'),
+              0x401040: ('jmp dword ptr [eax*4 + 0x401040]', 'table')}
+    assert account_for([0x401000, 0x401040], theirs, [b'hello\0'], 1,
+                       fake, parts) == {0x401000, 0x401040}
+    assert account_for([0x401000, 0x401040], theirs, [b'world\0'], 0,
+                       fake, parts) == set()
+    assert literal_bytes(coff, dict(name='$SG1', section=0, value=0)) is None
 
     result = dict(name='Test', address=address, status='wip_checked', wip=True,
                   counts={}, rows=[
