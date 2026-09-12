@@ -1,6 +1,6 @@
 # Scope PORT-P4 — PLAY lessons 2, 3 and 5 again, on the M15 + M16 + memmove tree
 
-> **PORT-P4 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-P4)** — branch
+> **PORT-P4 — Status: DONE (2026-09-12)** — branch
 > `scope/PORT-P4`, cut from the PORT-M16 merge (`be436d48`). A PLAY lane:
 > nothing in `LEGOLAND/*.c` is touched. `portable/src/browser/main.c` and
 > `index.html` gain READ-ONLY probes (named globals and four page hooks) and
@@ -80,7 +80,7 @@ Two API notes for the next lane:
 | # | sev | what | evidence | owner |
 | --- | --- | --- | --- | --- |
 | **P4-1** | **BLOCKER** | **No bloke can be clicked, anywhere, so no worker can be picked up, put down or queried.** `Render3DPerson` (rin.c:534) is the game's only hit path for people: it publishes `g_hit_info.type` 0x306/0x307/0x308 **only if `g_raster_hit` came back set from `Draw3DPersonModel`**. That body never paints (PORT-B12's P1-6), so the type is never published. Lesson 2 objective 2 ("pick the Gardeners up and put them outside the hedges") and lesson 5 objective 6 (`NEEDGARDENERS 0`) are both unreachable. **P1-6 is a gameplay blocker, not a cosmetic one.** | §2 | **the render/matching lane that owns P1-6** (`LEGOLAND/person3d.c:1092`) |
-| **P4-2** | **HIGH** | **Lesson 3 stops at objective 7 of 8: after the Spider Ride is GIVEn, the LEGOLAND side panel will not offer it — and has also lost the Space Tower Ride and the Small Power Station, both of which were built FROM that panel minutes earlier.** The panel offers exactly Flowers, Pine Tree, Small Fountain, LEGO Clothes Shop, LEGO Toy Shop; `llClasses()` shows all eight classes loaded, the Spider with the same class flags (0x480666) as the two shops that ARE offered. The final objective also needs a SECOND power station, so the level cannot end. | §3 | **a front-panel / UI lane** (`fpui2.c`/`fpui3.c`'s object-list builder) — same family as PORT-P1's P1-3/P1-4 |
+| **P4-2** | **HIGH** | **Lesson 3 stops at objective 7 of 8: after the Spider Ride is GIVEn, the LEGOLAND side panel will not offer it — and has also lost the Space Tower Ride and the Small Power Station, both of which were built FROM that panel minutes earlier.** The panel offers exactly Flowers, Pine Tree, Small Fountain, LEGO Clothes Shop, LEGO Toy Shop; `llClasses()` shows all eight classes loaded, the Spider with the same class flags (0x480666) as the two shops that ARE offered. The final objective also needs a SECOND power station, so the level cannot end. **Control**: in lesson 5 a Small Power Station is built and the panel still offers it, and a class GIVEn mid-level appears — so this is not "built once, gone". | §3.4 | **a front-panel / UI lane** (`fpui2.c`/`fpui3.c`'s object-list builder) — same family as PORT-P1's P1-3/P1-4 |
 | **P4-3** | medium | **Three different TEXT BOXES fill with solid black, and stay that way.** The money readout's box (a band at game x 220..430, y 8..30, 63.6% black in its core columns, **unchanged by a MAP in/out round trip** that redraws the whole screen), the objective help bubble (75.9% black, held for 9 s and then redrawn clean), and the body panel of the object info pop-up. Each is a box the game fills and then prints into; the print lands (the pop-up's "Repair cost: 0" / "Scrap value: 5" are legible ON the black), so it is the FILL that is wrong, not the text. Neither bar is black at level load. | §4.3 | a render / GDI-text lane (PORT-B's `ll_font.c` / `gdi32.c`) — **unclassified**; the cheap first test is whether `SetBkMode(TRANSPARENT)` is honoured |
 | P4-4 | info (harness) | **The page's canvas collapses to 0x0 CSS pixels when the Browser pane is small**, and `llPoint` divides by `r.width`, so EVERY game pixel maps to the same 2x2 rect and the driver silently clicks one spot. This lane lost three page loads to it before noticing. A `resize_window` to >= ~820x760 fixes it. | §5 | PORT-B (the page) |
 | P4-5 | info (harness) | `?awake=1` keeps the GAME awake in a hidden pane but not the DRIVER: `llMove`/`llClick` sleep through `setTimeout`, which Chrome clamps to ~1 Hz, so one `llClick` costs **3.2 s** instead of 0.81 s. `P4.fast()` swaps in MessageChannel-pumped equivalents. | §5 | PORT-B (the page), or every play lane |
@@ -286,13 +286,31 @@ The final objective needs a **second** Small Power Station, so the level cannot
 be ended either way. **Lesson 3 therefore finishes 6 of its 8 player
 objectives.**
 
+**The obvious explanation is ruled out by a control in lesson 5.** "A class
+leaves the panel once one has been built" would account for the Space Tower and
+the first power station (though not for the Spider, which was never built). It
+is wrong: in lesson 5 the same `Small Power Station` was armed, built
+(money 593 -> 558, cell flags 0x80 at (2,12)) and the panel re-enumerated
+immediately afterwards —
+
+```
+before:  Flowers | Hedge | Small Power Station | Boating School Entrance
+after:   Flowers | Hedge | Small Power Station | Boating School Entrance
+```
+
+— unchanged. Lesson 5's panel also picks up a class GIVEn mid-level (the
+Boating School Entrance, 90) correctly. So whatever lesson 3's panel is doing
+is specific, not a general rule, and the lesson-5 park is the A side of the A/B
+whoever takes this should start from.
+
 **Not fully classified.** It was observed in one cold run (re-checked four ways
-within it); a second cold run is owed, and the right owner is a lane that can
-read the object-list builder rather than drive it. It is the same family as
-PORT-P1's P1-3 ("the LEGOLAND tab hides itself") and P1-4 (a stray store setting
-0x400 on a panel icon), and PORT-M16 has already shown once that a lost icon in
-this module was a pointer landing in the wrong slot rather than anything
-temporal — so **check the icon slots before assuming the list is short**.
+within it, plus the lesson-5 control); a second cold run of lesson 3 is owed,
+and the right owner is a lane that can read the object-list builder rather than
+drive it. It is the same family as PORT-P1's P1-3 ("the LEGOLAND tab hides
+itself") and P1-4 (a stray store setting 0x400 on a panel icon), and PORT-M16
+has already shown once that a lost icon in this module was a pointer landing in
+the wrong slot rather than anything temporal — so **check the icon slots before
+assuming the list is short**.
 
 ---
 
