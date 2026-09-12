@@ -66,10 +66,23 @@
 
 > **PORT-M14 — Status: MERGED (2026-09-12) — the eraser removing the ride from a pad square is the game's own rule, correctly ported: RefreshObjList paves the one-cell RING as real path (AddPathSquare, owned by nothing) but the footprint INTERIOR gets path graphics only and stays the ride's (flags 0x90, owner = the ride); HandleMapClick promotes on flags & 0x88, so an interior click destroys the ride (with a 7x6 outline cursor warning first), a ring click does nothing, a hand-laid square erases only itself. Measured live; relocs --all 0; page probes llSel/llCellAt/llPad added. Notes `docs/lanes/scope-port-m14.md`**
 
-> **PORT-P1 — Status: IN PROGRESS (claimed 2026-09-12 by PORT-P1)** — play FREE
-> PLAY end to end in the browser build and record what breaks. A TESTING lane:
-> it fixes nothing. Replays in `portable/src/browser/replays/p1-*.js`, findings
-> in `docs/lanes/scope-port-p1.md`.
+> **PORT-P1 — Status: DONE (2026-09-12) — FREE PLAY IS PLAYABLE END TO END:
+> picker, park, four theme menus, one of every buildable kind placed and
+> rendering, map, options, save, full page reload, load back — 35.0 fps with a
+> full park (94–98% of the 35.71 flip ceiling) and ZERO traps over ~60,000
+> frames. A TESTING lane: it fixes nothing. Two real defects — P1-4 any toolbar
+> or menu click flag-0x400s `g_theme_icon[0]`, so the LEGOLAND build menu is
+> permanently lost mid-game (always index 0 whichever theme is open: a stray
+> store, PORT-A/PORT-M); P1-5 roughly every 7th typed character is doubled in
+> the cheat ring, which kills every cheat and with it the only route to
+> RunAppraisalScreen (PORT-B, the dinput press latch). Open: P1-6 sixty live
+> visitors, eleven on screen, none drawn; P1-7 one save/load doubles the bloke
+> chain. Three things that look broken are the game's own rules and must NOT be
+> reported: free play is gated on `level_done[5]`, the picker on
+> `g_profile_unlocked[200]`, the theme tabs on `g_profile_themes[4]` (and the
+> blank money bar is the free-play brick lock). Also: Chrome throttles a hidden
+> tab after ~21 s and it looks exactly like a wedge. Replays
+> `portable/src/browser/replays/p1-*.js`, notes `docs/lanes/scope-port-p1.md`**
 
 This wave is NOT matching work. The matching phase is at its practical end
 (3281 exact / 42 WIP, 81.9% exact, every game function has a C body). The
