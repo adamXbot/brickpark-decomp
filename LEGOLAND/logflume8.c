@@ -375,7 +375,14 @@ extern int  LFPiece_CursorFits(LFPiece* p);                      /* 0x00409140 *
 extern void LFPiece_ReverseRoute(LFPiece* p);                    /* 0x00409110 */
 extern void LFPiece_LinkBefore(LFPiece* a, LFPiece* b);           /* 0x00409040 */
 extern void LFPiece_LinkAfter(LFPiece* a, LFPiece* b);            /* 0x00409080 */
+#ifndef LEGOLAND_PORTABLE
 extern void DebugPrint(const char* msg);                         /* 0x0049e5c5 */
+#else
+/* As logflume2.c: 0x0049e5c5 is the variadic `printf`, so its wasm signature
+ * carries the varargs buffer pointer this spelling does not mention. PORT-A11,
+ * gated by portable/tools/variadic_sweep.py. */
+extern void DebugPrint(const char* msg, ...);                    /* 0x0049e5c5 */
+#endif
 extern char g_lf_both_msg[];                                     /* 0x004b48e4 */
 
 /* For each occupied neighbour: force our matching end onto a straight

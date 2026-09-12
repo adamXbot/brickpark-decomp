@@ -3132,7 +3132,19 @@ extern void   ScreenToMapRef(Offset* screen, Pos* out, int z);/* 0x0045be90 */
 extern int ScreenToMapRef(Offset* screen, Pos* out, int z);/* 0x0045be90 */
 #endif
 extern void   HeapFree_w(void* p);                           /* 0x0049e4d0 */
+#ifndef LEGOLAND_PORTABLE
 extern int    sprintf_w(char* dst, const char* fmt, int v);  /* 0x0049e573 */
+#else
+/* 0x0049e573 IS the CRT's `sprintf` (six other files spell it `Format(char*,
+ * const char*, ...)`), and on wasm32 a variadic callee's third parameter is the
+ * ADDRESS of the buffer clang wrote the variable arguments into -- not the
+ * value. Both spellings lower to (i32, i32, i32) -> i32, so wasm-ld, linkreport
+ * and name_trap see nothing; the fixed one made `sprintf` read the seat number
+ * as a va_list, every "%02d" below came out "00" and no rider on the Spider,
+ * Safari, Barrels or Plane ever reached a numbered path. PORT-M20 / PORT-A11,
+ * gated by portable/tools/variadic_sweep.py. */
+extern int    sprintf_w(char* dst, const char* fmt, ...);    /* 0x0049e573 */
+#endif
 extern void   GetTileDimensions(int* out_w, int* out_h);     /* 0x00460540 */
 extern short  Get_XScroll(void);                             /* 0x004615f0 */
 extern short  Get_YScroll(void);                             /* 0x00461600 */
