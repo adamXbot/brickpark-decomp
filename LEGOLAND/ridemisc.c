@@ -312,6 +312,7 @@ void* RandomFavouriteFood(void)
 #if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
         if (++i >= n)             /* QUIRKS.md Q8: step past the accepted match so the next try finds the NEXT one */
             i = 0;
+        start = i;                /* and restart the wrap sentinel there: a full circle re-finds this match instead of returning 0 */
 #endif
     }
     return e;
@@ -376,6 +377,7 @@ void* RandomFavouriteRide(void)
 #if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
         if (++i >= n)             /* QUIRKS.md Q8: step past the accepted match so the next try finds the NEXT one */
             i = 0;
+        start = i;                /* and restart the wrap sentinel there: a full circle re-finds this match instead of returning 0 */
 #endif
     }
     return e;
