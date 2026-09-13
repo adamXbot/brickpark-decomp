@@ -285,6 +285,10 @@ void* RandomFavouriteFood(void)
     n = LLIDB_GetCount();
     i = rand() % n;
     tries = (unsigned int)rand() & 0x1f;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (tries == 0)           /* QUIRKS.md Q8: a zero try count returned the uninitialised `e` */
+        tries = 1;
+#endif
     start = i;
     while (tries--) {
         for (;;) {
@@ -305,6 +309,10 @@ void* RandomFavouriteFood(void)
             }
             break;
         }
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (++i >= n)             /* QUIRKS.md Q8: step past the accepted match so the next try finds the NEXT one */
+            i = 0;
+#endif
     }
     return e;
 }
@@ -340,6 +348,10 @@ void* RandomFavouriteRide(void)
     n = LLIDB_GetCount();
     i = rand() % n;
     tries = (unsigned int)rand() & 0x1f;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (tries == 0)           /* QUIRKS.md Q8: a zero try count returned the uninitialised `e` */
+        tries = 1;
+#endif
     start = i;
     while (tries--) {
         for (;;) {
@@ -361,6 +373,10 @@ void* RandomFavouriteRide(void)
             }
             break;
         }
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (++i >= n)             /* QUIRKS.md Q8: step past the accepted match so the next try finds the NEXT one */
+            i = 0;
+#endif
     }
     return e;
 }

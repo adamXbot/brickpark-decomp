@@ -223,8 +223,13 @@ int JungleCruise_CountStationBoats(JcStation* st)
     int n = 0;
 
     while (b) {
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (b->key.w == st->pos.w)   /* QUIRKS.md Q11: count this station's boats; the shipped `=` re-stamped every boat's key each frame */
+            n++;
+#else
         if ((b->key.w = st->pos.w) != 0)
             n++;
+#endif
         b = b->next;
     }
     return n;

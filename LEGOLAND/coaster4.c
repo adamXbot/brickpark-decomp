@@ -586,8 +586,16 @@ void DrawSupportShadow(const Vec3f* pos, const Mat3* rot)
 #else
     /* PORT-M5: 0x0042930c / 0x00429326 round.  The snap-to-five that follows
      * is built on the ROUNDED world coordinate, not the truncated one. */
+#ifndef LL_FAITHFUL
+    /* QUIRKS.md Q14: snap to the 5-unit grid the constants describe -- the
+     * shipped order casts the coordinate first, so the two scales cancel and
+     * the support's shadow only truncates to whole units. */
+    bx = (float)LL_FISTP(pos->x * 0.2) * 5.0f;
+    by = (float)LL_FISTP(pos->y * 0.2) * 5.0f;
+#else
     bx = (float)(LL_FISTP(pos->x) * 0.2) * 5.0f;
     by = (float)(LL_FISTP(pos->y) * 0.2) * 5.0f;
+#endif
 #endif
     for (i = 0; i <= 3; i++) {
         g_shadow_v[i].x = bx + g_shadow_src[i].x;

@@ -354,8 +354,13 @@ void EnqueueObjectHelp(ScriptEvent* e)
         e->next = prev->next;
         prev->next = e;
     } else {
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        e->next = g_object_help;  /* QUIRKS.md Q9: link in FRONT of the head instead of discarding the queue */
+        g_object_help = e;
+#else
         g_object_help = e;
         e->next = 0;
+#endif
     }
 }
 

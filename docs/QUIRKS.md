@@ -97,7 +97,10 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 | Q5 | **fixed (PORT-Q2)** | save at 28 visitors, reload, load: fixed settles at people 30 / count 30 / ghosts 0 (sim 2042→2757); faithful 60 / 30 / ghosts 30. **A `.sav` round trip now differs from the shipped game** (policy rule 2): the visitor counter is restored to the number of blokes in the save |
 | Q6 | left, no asset | the port ships no `.sgt` music at all |
 | Q7 | fixed (PORT-Q1), browser A/B owed | seed 0; next free-play lane builds a Boating School |
-| Q8, Q9, Q11, Q14 | awaiting decision | — |
+| Q8 | fixed (PORT-Q4), by inspection | both pickers step past an accepted match; a zero try count is one try |
+| Q9 | fixed (PORT-Q4), by inspection | the head case links in front instead of discarding the queue |
+| Q11 | fixed (PORT-Q4), by inspection | `==`; boats are keyed at launch, nothing needed the per-frame stamp |
+| Q14 | fixed (PORT-Q4), by inspection | the support shadow snaps to the 5-unit grid (`LL_FISTP(x * 0.2) * 5`) |
 | Q10 | fixed (PORT-Q2), by inspection | `nfree`/`freeidx` reset at the top of case 0, per rider |
 | Q12 | fixed (PORT-Q2), by inspection | the second call counts `g_bs_mermaid_cls` |
 | Q13 | fixed (PORT-Q2), by inspection | `v[1]` (top), as the x uses `v[0]` and every other flume origin in the file is `(v[0], v[1])` |
@@ -112,4 +115,4 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 | G1 `gameframe.c:1231`, G2 `screencb.c` (two cursor calcs) | guarded (PORT-Q1) | by construction |
 | class B | guarded (PORT-Q3): 24 files, every listed site except `ridecb2.c:951` (a WIP body — needs a matching pass first) plus the twelve record-unlink walks of one shape; the two neighbour-lookup families left as the source proves them non-null; free-play spot check owed | `docs/lanes/scope-port-q3.md` |
 
-Policy agreed 2026-09-13; `LL_FAITHFUL` CMake option on `legoland_core`. Notes: `docs/lanes/scope-port-q1.md`, `scope-port-q2.md`.
+Policy agreed 2026-09-13; `LL_FAITHFUL` CMake option on `legoland_core`. Notes: `docs/lanes/scope-port-q1.md`, `scope-port-q2.md`, `scope-port-q3.md`, `scope-port-q4.md`. Every class-A row is now decided; browser A/Bs owed: Q7, Q8, Q9, Q11, Q14 and the class-B edge-guard spot check.
