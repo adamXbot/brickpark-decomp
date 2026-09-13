@@ -484,6 +484,10 @@ void ClearCellForPath(Pos* pos)
     WorkOrder*     order;
 
     cell = MapCellAtPos(pos);   /* [sic] not null-checked below */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!cell)                /* QUIRKS.md B: mappath.c:362 -- an off-map tile */
+        return;
+#endif
     flags = cell->flags;
     if (flags & 0x40)
         return;

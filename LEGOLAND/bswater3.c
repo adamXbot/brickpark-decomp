@@ -181,6 +181,10 @@ void SpaceTower_RemoveRecord(TowerRec* rec)
          * from the GLOBAL so it takes the first register. */
         TowerRec** link = &g_tower_recs->next;
         TowerRec*  node = g_tower_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
 
         while (*link != rec) {
             node = *(TowerRec* volatile*)link;

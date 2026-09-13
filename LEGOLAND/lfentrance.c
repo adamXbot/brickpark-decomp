@@ -449,6 +449,10 @@ void LFEntrance_Add(RideElem* elem, const Pos* pos)
         AddBasicObject(g_lftr_elem, &first);
     }
     p2 = LFPiece_Alloc();
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!p2)                /* QUIRKS.md B: lfentrance.c:361 -- step 5 used the allocation unchecked */
+        return;
+#endif
     p2->run = st;
     p2->def = g_lfen_def;
     p2->sq.w = st->sq.w;

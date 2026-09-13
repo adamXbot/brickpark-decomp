@@ -740,7 +740,11 @@ void GetLayeredSpriteBounds(SprObj* obj, Rect4* r)
 {
     int i;
 
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!obj || !(obj->flags & 0x8000)) {   /* QUIRKS.md B: unref7.c:732 -- the flag was read before the null test */
+#else
     if (!(obj->flags & 0x8000)) {
+#endif
         r->x0 = 0;
         r->y0 = 0;
         if (obj) {

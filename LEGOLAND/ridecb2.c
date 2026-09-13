@@ -798,6 +798,10 @@ void JungleCruiseWater_Remove(MapObj* o, BPosW bp, Cursor* ctx)
         cell = MapCellAt(cx, cy);
     }
     /* Original: no null check -- an off-map square faults here. */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!cell)                /* QUIRKS.md B: JungleCruiseWater_Remove -- an off-map square */
+        return;
+#endif
     if (cell->obj != g_jc_water_cls->c4) {
         MapObj stub;
 

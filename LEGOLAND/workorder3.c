@@ -299,6 +299,10 @@ void InsertPrintItem(PrintNode* it)
      * carries straight on to dereference the null node. */
     if (!it)
         DBPrintf("Oh no, Not enough RAM for sprite sort list\n");
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!it)                /* QUIRKS.md B: workorder3.c:298 -- out of memory, then a null dereference */
+        return;
+#endif
     if (!g_printlist) {
         it->prev = 0;
         it->next = 0;

@@ -1795,7 +1795,12 @@ void LFTrack_Remove(void* a, BPosW sq, void* c)
     g_lftr_def->footprint.v[3] = g_lftr_def->footprint.v[3] - 1;
     StandardRemoveObject(a, sq, c);
     piece = (LFPiece*)LFPiece_FindAt(&sq.b);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (piece)                /* QUIRKS.md B: logflume.c:1784 -- the count was decremented through a null piece */
+        LFRun_AddCount(piece->run, -1);
+#else
     LFRun_AddCount(piece->run, -1);
+#endif
     if (piece) {
         LFPiece** nb;
 

@@ -694,8 +694,16 @@ void JcBoat_Step(JcBoat* b, int steer)
     char       r;
 
     w = JcWater_FindAt(b->cx, b->cy);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!w)                /* QUIRKS.md B: JcBoat_Step -- a boat on a square with no water record */
+        return;
+#endif
     while (st && w->owner.w != st->pos.w)
         st = st->next;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!st)                /* QUIRKS.md B: JcBoat_Step -- the station search ended on a null cursor */
+        return;
+#endif
     links = w->links;
     if (w->pos.w == st->a.w) {
         links &= ~1;

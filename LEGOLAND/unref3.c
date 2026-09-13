@@ -225,7 +225,11 @@ int Coaster_WriteSaveBlob(TrackBlob* b)
 {
     int          h;
     unsigned int put;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    unsigned int n = b ? b->size : 0;   /* QUIRKS.md B: unref3.c:221 */
+#else
     unsigned int n = b->size;
+#endif
 
     if (g_coaster_save_path && b) {
         h = CreateFileA(g_coaster_save_path, 0x40000000, 0, 0, 2, 0x8000000, 0);

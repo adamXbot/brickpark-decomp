@@ -711,6 +711,13 @@ RouteNode* GetRouteNode(Pos* pos, int* state)
     n = (RouteNode*)HeapAlloc_w(sizeof(RouteNode));
 
     cell = RouteCellAt(pos);   /* [sic] not null-checked below */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!cell) {              /* QUIRKS.md B: objrect.c:653 -- an off-map square routes as impassable */
+        static Cell ll_offmap_cell;
+        ll_offmap_cell.flags = 0x40;
+        cell = &ll_offmap_cell;
+    }
+#endif
     flags = cell->flags;
     if ((flags & 0x10) || (cell->rf & 1)) {
         if (TileJoinsPathNetwork(pos))

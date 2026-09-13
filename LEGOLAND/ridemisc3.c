@@ -158,6 +158,10 @@ void Copters_RemoveRecord(CoptersRec* rec)
     } else {
         CoptersRec** link = &g_copter_recs->next;
         CoptersRec*  node = g_copter_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
 
         while (*link != rec) {
             node = *(CoptersRec* volatile*)link;
@@ -191,6 +195,10 @@ void SafariRide_RemoveRecord(SafariRec* rec)
     } else {
         SafariRec** link = &g_safari_recs->next;
         SafariRec*  node = g_safari_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
 
         while (*link != rec) {
             node = *(SafariRec* volatile*)link;
@@ -221,6 +229,10 @@ void SpiderRide_RemoveRecord(SpiderRec* rec)
     } else {
         SpiderRec** link = &g_spider_recs->next;
         SpiderRec*  node = g_spider_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
 
         while (*link != rec) {
             node = *(SpiderRec* volatile*)link;
@@ -253,6 +265,10 @@ void GoldRush_FreeRecord(GoldRec* rec)
     } else {
         GoldRec** link = &g_gold_recs->next;
         GoldRec*  node = g_gold_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
 
         while (*link != rec) {
             node = *(GoldRec* volatile*)link;
@@ -283,6 +299,10 @@ void EarthSlide_FreeRec(SlideRec* rec)
     } else {
         SlideRec** link = &g_slide_head->next;
         SlideRec*  node = g_slide_head;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
 
         while (*link != rec) {
             node = *(SlideRec* volatile*)link;

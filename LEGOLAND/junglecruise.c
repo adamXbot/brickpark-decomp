@@ -350,7 +350,15 @@ void JungleCruise_RebuildRoute(int id)
     }
     while (st && st->pos.w != (unsigned short)id)
         st = st->next;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!st)                /* QUIRKS.md B: JungleCruise_RebuildRoute -- no station with this id */
+        return;
+#endif
     start = JcWater_FindAt(st->b.b.x, st->b.b.y);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!start)                /* QUIRKS.md B: JungleCruise_RebuildRoute -- the station's square has no water record */
+        return;
+#endif
     start->rlink = 0;
     start->f14 = 0;
     g_jc_route_cur = start;
@@ -642,6 +650,10 @@ int JungleCruise_TryLaunchBoat(BPosW key, void* r0, void* r1, void* r2)
 
     while (st && st->pos.w != key.w)
         st = st->next;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!st)                /* QUIRKS.md B: JungleCruise_TryLaunchBoat -- no station for the key */
+        return 0;
+#endif
     while (b) {
         if (b->key.w == key.w) {
             if (b->cx == st->a.b.x && b->cy == st->a.b.y)
@@ -1038,6 +1050,10 @@ void JungleCruise_UpdateRiverTile(int x, int y, int mask, BPosW* owner)
 
             cx = x + j - 2;
             c = MapCellAt(cx, y + i - 2);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+            if (!c)                /* QUIRKS.md B: a river square within two cells of the map edge (a null WRITE) */
+                continue;
+#endif
             c->flags = 8;
             c->rf = 2;
             c->obj = g_jc_water_cls->c4;
@@ -1201,6 +1217,10 @@ void JungleCruise_RelinkRiverCell(int x, int y, BPosW* owner)
         st = st->next;
     if (w == 0)
         return;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!st)                /* QUIRKS.md B: JungleCruise_RelinkRiverCell -- the station search ended on a null cursor */
+        return;
+#endif
     links = w->links;
     if (w->pos.w == st->a.w)
         links &= ~1;

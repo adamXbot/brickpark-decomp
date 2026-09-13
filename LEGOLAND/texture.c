@@ -252,6 +252,10 @@ void BuildTextureRecord(SrcImage* img, Texture* tex)
     int           x, y;
     unsigned char c;
 
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!img)                /* QUIRKS.md B: texture.c:244 -- img was tested only after being read */
+        return;
+#endif
     tex->umask = img->w - 1;
     tex->vmask = img->h - 1;
 

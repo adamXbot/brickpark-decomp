@@ -110,6 +110,6 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 | Q21 | fixed (PORT-Q2), by inspection | the mirror disjunct, as the other seven elbows |
 | Q22 | fixed (PORT-Q2), by inspection | `i--` after the removal |
 | G1 `gameframe.c:1231`, G2 `screencb.c` (two cursor calcs) | guarded (PORT-Q1) | by construction |
-| class B, the rest | in progress (PORT-Q3, integrator) | — |
+| class B | guarded (PORT-Q3): 24 files, every listed site except `ridecb2.c:951` (a WIP body — needs a matching pass first) plus the twelve record-unlink walks of one shape; the two neighbour-lookup families left as the source proves them non-null; free-play spot check owed | `docs/lanes/scope-port-q3.md` |
 
 Policy agreed 2026-09-13; `LL_FAITHFUL` CMake option on `legoland_core`. Notes: `docs/lanes/scope-port-q1.md`, `scope-port-q2.md`.

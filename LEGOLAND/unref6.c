@@ -373,6 +373,9 @@ Icon* AddClippedClassIcon(void* owner, ObjDef* d, int x, int y, int group,
                           int f16)
 {
     Icon* p = AddGBarClassIcon(owner, d, x, y, group, f16);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (p)                    /* QUIRKS.md B: unref6.c:368 -- an allocation failure */
+#endif
     p->render = RenderClippedClassIcon;
     return p;
 }

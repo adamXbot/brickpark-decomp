@@ -996,6 +996,10 @@ DrawDesc* JcMonkeyFish_GetDrawDesc(RideElem* elem, unsigned short arg)
             break;
         f = f->next;
     }
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!f)                /* QUIRKS.md B: screencb2.c:942 -- a monkey fish square with no record */
+        return 0;
+#endif
     lls = (LLS*)GetLLSForSprite(def->sprite);
     if (f->jumping != 0) {
         if (lls->frame == 0)

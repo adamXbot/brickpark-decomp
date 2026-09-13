@@ -509,6 +509,10 @@ void LFCorner_Place(LFPiece* parent)
 
     cellw = g_lf_footprint.v[2] - g_lf_footprint.v[0];
     cellh = g_lf_footprint.v[3] - g_lf_footprint.v[1];
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!parent)                /* QUIRKS.md B: logflume3.c:475 -- the parent's square was read before the null test */
+        return;
+#endif
     c.x = parent->sq.b.x;       /* read before the null test -- see note */
     c.y = parent->sq.b.y;
     if (parent) {

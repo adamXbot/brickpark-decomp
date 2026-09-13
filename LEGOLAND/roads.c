@@ -235,6 +235,10 @@ void Road_SetTile(int x, int y, int shape, int rot)
     for (i = 0; i < 4; i++) {
         pos.y = y + i;
         cell = MapCellAt(x, pos.y);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!cell)                /* QUIRKS.md B: roads.c:105 -- a road block laid over the map edge WRITES through null */
+            continue;
+#endif
         cell[0].rf = 2;
         cell[0].flags |= 8;
         cell[0].obj = g_dschool_cls->elem;
@@ -442,6 +446,10 @@ void Road_SetTile(int x, int y, int shape, int rot)
     pos.x = x;
     pos.y = y + 1;
     cell = MapCellAt(pos.x, pos.y);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!cell)                /* QUIRKS.md B: roads.c:105 -- the crossing arms over the map edge */
+        return;
+#endif
     if (cell[1].tile - g_sp_tile_info[cell[1].tile].set->base_slot == 0x1a) {
         AdjustTileRFFlags(&pos);
         AddPathSquare(&pos);
@@ -467,19 +475,35 @@ void Road_SetTile(int x, int y, int shape, int rot)
         pos.y--;
         AdjustTileRFFlags(&pos);
         AddPathSquare(&pos);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        { Cell* q = MapCellAt(pos.x, pos.y); if (q) q->rf = 3; }   /* QUIRKS.md B: roads.c:105 */
+#else
         MapCellAt(pos.x, pos.y)->rf = 3;
+#endif
         pos.y++;
         AdjustTileRFFlags(&pos);
         AddPathSquare(&pos);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        { Cell* q = MapCellAt(pos.x, pos.y); if (q) q->rf = 3; }   /* QUIRKS.md B: roads.c:105 */
+#else
         MapCellAt(pos.x, pos.y)->rf = 3;
+#endif
         pos.y++;
         AdjustTileRFFlags(&pos);
         AddPathSquare(&pos);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        { Cell* q = MapCellAt(pos.x, pos.y); if (q) q->rf = 3; }   /* QUIRKS.md B: roads.c:105 */
+#else
         MapCellAt(pos.x, pos.y)->rf = 3;
+#endif
         pos.y++;
         AdjustTileRFFlags(&pos);
         AddPathSquare(&pos);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        { Cell* q = MapCellAt(pos.x, pos.y); if (q) q->rf = 3; }   /* QUIRKS.md B: roads.c:105 */
+#else
         MapCellAt(pos.x, pos.y)->rf = 3;
+#endif
     }
     pos.x = x - 1;
     pos.y = y + 1;

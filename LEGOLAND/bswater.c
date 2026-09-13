@@ -138,10 +138,16 @@ int BoatingSchool_TryLaunch(BPosW key, Bloke* b)
     while (bt) {
         if (bt->key.w == key.w) {
             /* ORIGINAL BUG: `st` is not checked for NULL here. */
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+            if (st) {                 /* QUIRKS.md B: bswater.c:140 -- st is NULL when no station owns the key */
+#endif
             if (bt->cx == st->ax && bt->cy == st->ay)
                 return 0;
             if (bt->nx == st->ax && bt->ny == st->ay)
                 return 0;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+            }
+#endif
             if (bt->state == 1)
                 return 0;
         }
@@ -562,6 +568,10 @@ void BsWater_SetTile(int x, int y, int mask, BPosW* owner)
             /* ORIGINAL BUG: no null check on the cell. */
             Cell* cell = MapCellAt(x - 2 + c, y - 2 + r);
 
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+            if (!cell)                /* QUIRKS.md B: a lake square within two cells of the map edge (a null WRITE in the shipped game) */
+                continue;
+#endif
             cell->flags = 8;
             cell->rf = 2;
             cell->obj = g_bs_water_cls->c4;

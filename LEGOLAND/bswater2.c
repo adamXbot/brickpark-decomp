@@ -316,6 +316,10 @@ void PlaneRide_RemoveRecord(PlaneRec* rec)
          * from the GLOBAL so it takes the first register. */
         PlaneRec** link = &g_plane_recs->next;
         PlaneRec*  node = g_plane_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
 
         while (*link != rec) {
             node = *(PlaneRec* volatile*)link;
@@ -390,7 +394,11 @@ void BsWater_RemoveOne(MapObj* o, BPosW bp, Cursor* ctx)
     BsWater* prev = 0;
 
     StandardRemoveObject(o, bp, ctx);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    while (w && w->pos.w != bp.w) {   /* QUIRKS.md B: an empty lake list */
+#else
     while (w->pos.w != bp.w) {
+#endif
         prev = w;
         w = w->next;
         if (w == 0)
@@ -742,8 +750,16 @@ void BsBoat_StepLeg(BsBoat* b, int turn)
     int        i;
     int        n;
 
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!cell)                /* QUIRKS.md B: BsBoat_StepLeg -- a boat on a square with no water record */
+        return;
+#endif
     while (st != 0 && cell->owner.w != st->key.w)
         st = st->next;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!st)                /* QUIRKS.md B: BsBoat_StepLeg -- the owning school has been removed */
+        return;
+#endif
 
     mask = cell->mask;
     if (cell->pos.w == st->dock_a.w) {

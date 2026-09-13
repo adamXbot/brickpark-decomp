@@ -214,8 +214,13 @@ int IsObjectRunning(void* cls, BytePos* at)
 {
     int            x = at->x;
     int            y = at->y;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    Cell*          c = MapCellAt(x, y);
+    unsigned short f = c ? c->flags : 0;   /* QUIRKS.md B: sysmisc3.c:93 -- an off-map square reads address 0xc */
+#else
     Cell*          c = MapCellAt(x, y);
     unsigned short f = c->flags;
+#endif
 
     if (f & 0x200)
         return 0;

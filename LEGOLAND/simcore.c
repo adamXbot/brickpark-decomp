@@ -1207,7 +1207,11 @@ void RequestRoute(Pos from, Pos to)
     elem = ElemID("PATH CONTROL");
     while (node) {
         cell = RouteCellAt(&node->pos);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (cell && !(cell->flags & 0x10) && (cell->rf & 3) != 3) {   /* QUIRKS.md B: an off-map node */
+#else
         if (!(cell->flags & 0x10) && (cell->rf & 3) != 3) {
+#endif
             ClearCellForPath(&node->pos);
             AddBasicPath(elem, &node->pos);
         }

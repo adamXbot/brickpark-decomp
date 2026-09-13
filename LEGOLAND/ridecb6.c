@@ -1034,6 +1034,10 @@ void DrivingSchool_ResetPaths(BPosW school)
     }
 
     start = Road_FindStartPiece(school);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!start)                /* QUIRKS.md B: DrivingSchool_ResetPaths -- a school with no kind-6 entrance block yet */
+        return;
+#endif
     start->f15 = 0;
     start->f04 = 0;
     g_road_walk_cur = start;
@@ -1162,7 +1166,15 @@ void BoatingSchool_RebuildRoute(BPosW key)
         st = st->next;
     }
 
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!st)                /* QUIRKS.md B: BoatingSchool_RebuildRoute -- the station search's not-found exit */
+        return;
+#endif
     start = BsWater_FindAt(st->bx, st->by);
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+    if (!start)                /* QUIRKS.md B: BoatingSchool_RebuildRoute -- the station's square has no water record */
+        return;
+#endif
     start->f08 = 0;
     start->f14 = 0;
     g_bs_walk_cur = start;

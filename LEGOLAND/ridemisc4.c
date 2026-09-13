@@ -369,6 +369,10 @@ void Restaurant2_FreeRec(RestRec2* rec)
         g_r2_recs = rec->next;
     } else {
         RestRec2* node = g_r2_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
         while (node->next != rec) {
             node = *(RestRec2* volatile*)&node->next;
             if (!node) break;
@@ -386,6 +390,10 @@ void Restaurant1_FreeRec(RestRec* rec)
         g_rest1_recs = rec->next;
     } else {
         RestRec* node = g_rest1_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
         while (node->next != rec) {
             node = *(RestRec* volatile*)&node->next;
             if (!node) break;
@@ -403,6 +411,10 @@ void Carousel_FreeRec(CarouselRec* rec)
         g_carousel_recs = rec->next;
     } else {
         CarouselRec* node = g_carousel_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
         while (node->next != rec) {
             node = *(CarouselRec* volatile*)&node->next;
             if (!node) break;
@@ -420,6 +432,10 @@ void Balloonz_FreeRec(BalloonzRec* rec)
         g_bz_recs = rec->next;
     } else {
         BalloonzRec* node = g_bz_recs;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
         while (node->next != rec) {
             node = *(BalloonzRec* volatile*)&node->next;
             if (!node) break;
@@ -547,6 +563,10 @@ void SpinningBarrels_RemoveRecord(SBarrelRec* rec)
         g_sbarrel_head = rec->next;
     } else {
         SBarrelRec* node = g_sbarrel_head;
+#if defined(LEGOLAND_PORTABLE) && !defined(LL_FAITHFUL)
+        if (!node)                /* QUIRKS.md B: the record list is empty (the shipped game reads address 4) */
+            return;
+#endif
         while (node->next != rec) {
             node = *(SBarrelRec* volatile*)&node->next;
             if (!node) break;
