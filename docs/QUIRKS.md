@@ -96,11 +96,11 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 | Q4 | fixed (PORT-Q1) | `llGdi().objs.live` fixed 4→4 vs faithful 4→6 |
 | Q5 | **fixed (PORT-Q2)** | save at 28 visitors, reload, load: fixed settles at people 30 / count 30 / ghosts 0 (sim 2042→2757); faithful 60 / 30 / ghosts 30. **A `.sav` round trip now differs from the shipped game** (policy rule 2): the visitor counter is restored to the number of blokes in the save |
 | Q6 | left, no asset | the port ships no `.sgt` music at all |
-| Q7 | fixed (PORT-Q1), browser A/B owed | seed 0; next free-play lane builds a Boating School |
-| Q8 | fixed (PORT-Q4), measured (PORT-P7) | largest cluster on one class 3/30 fixed vs 12–24/30 faithful; wrap sentinel moved to the index after the accepted match; the fixed build's 14/30 with no ride favourite is unexplained — see `scope-port-p7.md` |
-| Q9 | fixed (PORT-Q4), by inspection | the head case links in front instead of discarding the queue |
-| Q11 | fixed (PORT-Q4), by inspection | `==`; boats are keyed at launch, nothing needed the per-frame stamp |
-| Q14 | fixed (PORT-Q4), by inspection | the support shadow snaps to the 5-unit grid (`LL_FISTP(x * 0.2) * 5`) |
+| Q7 | fixed (PORT-Q1), **unmeasurable in free play** (PORT-P8) | the free-play template offers 24 classes and no Boating School (same list on all four theme tabs); it lives in the GAME levels. Needs a game-level unlock |
+| Q8 | **fixed and measured** (PORT-Q4 / PORT-P7 / PORT-P8) | largest cluster on one class 7/4/11 of 30 fixed vs **12/16/24** faithful, and **0** visitors left with no favourite vs the shipped 1/4/0. P7's unexplained 14/30 was the browser's cached module — see `scope-port-p8.md` |
+| Q9 | fixed (PORT-Q4), **not observable** (PORT-P8) | `g_object_help` never held an entry in 8,783 samples at 60 Hz of lesson-2 play on the FAITHFUL build: the advisor pops each event within a frame, so the shipped discard needs two enqueues in one frame. The fix is a two-line list insertion, correct by construction |
+| Q11 | fixed (PORT-Q4), **unmeasurable in free play** (PORT-P8) | no Jungle Cruise in the free-play template either; debug rows for `g_jc_boats`/`g_jc_stations` are now in place for whoever reaches a game level |
+| Q14 | fixed (PORT-Q4), **unmeasurable in free play** (PORT-P8) | no roller coaster or log flume in the free-play template |
 | Q10 | fixed (PORT-Q2), by inspection | `nfree`/`freeidx` reset at the top of case 0, per rider |
 | Q12 | fixed (PORT-Q2), by inspection | the second call counts `g_bs_mermaid_cls` |
 | Q13 | fixed (PORT-Q2), by inspection | `v[1]` (top), as the x uses `v[0]` and every other flume origin in the file is `(v[0], v[1])` |
@@ -115,4 +115,4 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 | G1 `gameframe.c:1231`, G2 `screencb.c` (two cursor calcs) | guarded (PORT-Q1) | by construction |
 | class B | guarded (PORT-Q3): 24 files, every listed site except `ridecb2.c:951` (a WIP body — needs a matching pass first) plus the twelve record-unlink walks of one shape; the two neighbour-lookup families left as the source proves them non-null; free-play spot check owed | `docs/lanes/scope-port-q3.md` |
 
-Policy agreed 2026-09-13; `LL_FAITHFUL` CMake option on `legoland_core`. Notes: `docs/lanes/scope-port-q1.md`, `scope-port-q2.md`, `scope-port-q3.md`, `scope-port-q4.md`. Every class-A row is now decided. PORT-P7 measured Q8 and found the class-B road-edge write unreachable by placement on the free-play map; still owed: Q7, Q9, Q11, Q14 (the free-play template has no Boating School or Jungle Cruise, and `g_object_help`/`g_jc_*` are not in the debug table — see `scope-port-p7.md`).
+Policy agreed 2026-09-13; `LL_FAITHFUL` CMake option on `legoland_core`. Notes: `docs/lanes/scope-port-q1.md`, `scope-port-q2.md`, `scope-port-q3.md`, `scope-port-q4.md`. Every class-A row is now decided. PORT-P7 and PORT-P8 finished the measurements: Q5 and Q8 are measured against the faithful build, Q9 is proved not observable, and Q7/Q11/Q14 cannot be reached because the free-play template ships none of those rides — they need a GAME-LEVEL unlock, which is the one thing still owed (`scope-port-p7.md`, `scope-port-p8.md`). The class-B road-edge write is unreachable by placement: the cursor refuses every map-edge cell.
