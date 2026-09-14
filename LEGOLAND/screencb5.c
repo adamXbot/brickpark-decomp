@@ -202,11 +202,17 @@ typedef struct Cursor {
     unsigned char  pad182c[0x1834 - 0x182c];
 } Cursor;                           /* 0x1834 */
 
-/* audiomisc.c's FX table entry. */
+/* audiomisc.c's FX table entry: twelve bytes, the resolved sample at +0x08
+ * (Load_FXList stores it there, and ridecb7.c plays g_entrance_pay_sample,
+ * 0x004b6670, which is exactly g_entrance_fx[0].sample).  An earlier spelling
+ * put the sample at +0x04 and made the entry eight bytes, which sized the
+ * portable closure's table one dword short.  This file never touches a field,
+ * so no VC6 byte moves. */
 typedef struct FXEntry {
     const char* name;               /* +0x00 */
-    void*       sample;             /* +0x04 */
-} FXEntry;                          /* 0x08 */
+    int         pad4;               /* +0x04 */
+    void*       sample;             /* +0x08 */
+} FXEntry;                          /* 0x0c */
 
 /* ---- the save stream ---------------------------------------------------- */
 extern int   SaveGameWrite(const void* buf, unsigned int n);    /* 0x0047d760 */

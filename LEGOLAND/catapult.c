@@ -232,7 +232,21 @@ extern void*        g_catapult_layers;                          /* 0x004c10f0 */
 extern RideDef*     g_catapult_def;                             /* 0x004c10f4 */
 extern RideDrawDesc g_catapult_draw;                            /* 0x004c1100 */
 extern CatapultRec* g_catapult_head;                            /* 0x004c1118 */
-extern void*        g_catapult_fx;                              /* 0x004b40c8 (4 entries) */
+/* audiomisc.c's FX table entry: Load_FXList formats +0x00 into a .wav path
+ * and stores the resolved sample at +0x08.  Declared as the whole table, not
+ * as one pointer, so the portable closure sizes the object at 48 bytes and
+ * g_catapult_sample (0x004b40d0, entry 0's +0x08, see below) lands inside it.
+ * Spelled `void*`, the table was 8 bytes, g_catapult_sample became a separate
+ * block, Load_FXList read entries 1..3's names from foreign storage and
+ * Catapult_Create trapped in sprintf -- which blocked game levels 2, 4, 6, 7,
+ * 9 and 10.  The address is only ever taken, so no VC6 byte moves. */
+typedef struct FXEntry {
+    const char* name;            /* +0x00 */
+    int         pad4;            /* +0x04 */
+    void*       sample;          /* +0x08 */
+} FXEntry;                       /* 0x0c */
+
+extern FXEntry      g_catapult_fx[4];                           /* 0x004b40c8 4 entries, 48 bytes */
 extern int          g_catapult_seat_layer[4];                   /* 0x004b40a4 */
 
 /* All three are defined at the bottom of this file. */

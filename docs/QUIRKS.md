@@ -32,7 +32,7 @@ add a handful more found by playing. None of them may be fixed in the VC6 text
 | Q4 | `misc3.c:1054` `MeasurePopUpTitle`/`MeasurePopUpBody` | **every pop-up resize leaks a GDI memory DC** (PORT-B13 made the shim survive it; the game still leaks) | `DeleteDC(dc)` before each return, portable arm | none (shim already tolerant) |
 | Q5 | `savegame.c` BLK4 (PORT-M18 §3) | **every load adds `visitorLimit` ghost visitors** on top of the restored chain — the visitor counter is not in the save and is never restored | one tally + one store in a portable arm; changes what a `.sav` round trip produces (policy rule 2) | medium |
 | Q6 | `musicthread.c:610` | the **Egypt → Inca music transition plays the Inca → Egypt file** (slot 7 pastes the `ietran2` path) | one string in a portable arm | low |
-| Q7 | `ridecb5.c:1079` `BoatingSchool` | a **freshly built Boating School never animates** (counter seeded 9999, only turns round at exactly 100) until a save/load rewrites it | seed or compare fix in a portable arm | low |
+| Q7 | **fixed and measured** (PORT-Q1; integrator 2026-09-14) | Lesson 5 PLACEs a Boating School at load, which runs `BoatingSchool_Add`. Default build: the counter seeds 0 and the direction flag flips to 1 at 100 — the animation is **one-shot**, not a loop. Faithful build: seeds 9999 (11575 at sim 2352), flag 0, no flip over 357 frames, so the frame-setting call is never reached. On-screen frame change not captured: the map layer is dirty-redrawn, so a canvas diff over the building read 0 even after re-arming the counter |
 | Q8 | `ridemisc.c:231` favourite-object pick | the random "pick the Nth match" **always returns the first match**, and one time in 32 returns **stack junk** as a visitor's favourite | advance the cursor in the accept arm; initialise `e` | low–medium (visitor AI behaviour changes) |
 | Q9 | `uimisc2.c:338` `EnqueueObjectHelp` | inserting a help event with priority ≥ the head's **discards the whole existing queue** | link in front instead of assigning the head, portable arm | medium (more help bubbles appear than the shipped game shows) |
 | Q10 | `ridecb1.c:523` | two ride customers reaching state 0 **in the same tick share one free-seat computation** — the second gets the first one's answer | move the two locals into the rider loop, portable arm | low |
@@ -85,6 +85,10 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 ## D. Debug traces only (leave)
 
 `movie3.c:50`, `workorder3.c:112`.
+
+## Found while reaching the game levels (2026-09-14)
+
+Not a quirk — a port defect, fixed in both builds. `catapult.c` declared the Catapult's FX table as one `void*`, so the portable closure gave it 8 bytes where `Load_FXList` walks 48, and `g_catapult_sample` (entry 0's +0x08) became a separate block. Loading the Catapult class trapped in sprintf, which blocked **game levels 2, 4, 6, 7, 9 and 10** on Accept. The table is now declared `FXEntry[4]`; `screencb5.c`'s local `FXEntry` was corrected from 8 to 12 bytes for the same reason (the entrance FX table, whose sample `ridecb7.c` plays as `g_entrance_pay_sample`). VC6 audit rows identical; relocs 0 MISMATCH.
 
 ## Status
 
