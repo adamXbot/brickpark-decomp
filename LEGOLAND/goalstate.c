@@ -172,7 +172,12 @@ extern void DestroyBloke(Bloke* b);                                  /* 0x004830
 extern void RateBlokeOnLeaving(int score);                           /* 0x004633f0 */
 extern int  g_enter_off_x;                                           /* 0x004b8318 */
 extern int  g_enter_off_y;                                           /* 0x004b831c */
-extern int  g_entrance_x;                                            /* 0x004b8320 Pos.x */
+/* The spot LeavePark routes to is a whole Pos: mapobj.c and savegame.c write
+ * its y as g_entrance_y (0x004b8324). Declared as a lone int, the portable
+ * closure gave x four bytes of its own, so the Pos read took y from alignment
+ * padding -- every leaving visitor aimed at map row 0. Same address, same
+ * bytes; only the extent the closure sees changes. */
+extern Pos  g_entrance_x;                                            /* 0x004b8320 Pos (y is g_entrance_y) */
 extern int  g_leave_dx;                                              /* 0x004b8328 */
 extern int  g_leave_dy;                                              /* 0x004b832c */
 extern int  g_visitor_count;                                         /* 0x006661bc */
