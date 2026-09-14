@@ -197,3 +197,28 @@ visitor in rider slot `+0x30`, timer `+0x2c` zeroed — re-keyed BOTH boats to
 -105, because the re-stamped count of 2 made `take 12 <= 6 * 2`. Default, by
 contrast, kept the other station's boat key and launched at once. Q11 is
 confirmed in both directions.
+
+## 7. Q14 progress (faithful park, game level 6) — paused
+
+- The coaster classes were made available the way `GIVE` does: each element's
+  flags `(flags & ~0x10000) | 2` (0x15 -> 0x17) and `g_menu_dirty = 1`. The
+  Castle tab then lists the Sensory Coaster Entrance and, as child entries, the
+  four track pieces.
+- **Direct arm.** `g_edit_object` holds exactly the class-table address of the
+  armed class. Writing the Sensory Coaster Entrance's address there and
+  `g_edit_mode = 1` gave the entrance's 11 x 15 cursor, valid at (100, 86); one
+  click placed it (90 coins) and the game auto-armed Coaster Track. This avoids
+  the panel's second page, which the slot scan could not reach reliably.
+- **Why any fitted piece suffices.** `Track_Add`/`TrackH_Add` set `*cell |= 6`
+  on the node `TrackPlaceIfFits` returns; `DrawTrackNode` asks for the support
+  shadow (`mode 0`) only for nodes with state bits 6, and
+  `Coaster3D_DrawPieceSupport` draws it only when the support is elevated
+  (`pos.z <= -0.1`). A piece fits only when `TrackFitCheck` finds a joint at one
+  of its ends, so the first piece must meet an entrance joint.
+- **Stopped** during the hover scan for valid track cells: the Browser pane had
+  been hidden long enough that the page stopped running tasks (screenshots fail
+  with "not compositing", and even an instant JavaScript read times out). The
+  pane must be displayed to continue; reloading would lose the park.
+- Remaining for Q14: scan the entrance perimeter with Tall Track Piece armed,
+  place one fitted tall piece, read `g_shadow_v` minus `g_shadow_src` (rows
+  152/153) against the support position, then repeat on a default-build park.
