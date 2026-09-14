@@ -282,6 +282,17 @@ extern int  CursorIsValid(QueryCursor* c);                  /* 0x0045f4b0 */
 extern void RemoveObjectPathTiles(QDef* def, Pos* pos);     /* 0x0045d3d0 */
 extern void RemObjFromMap(QDef* d, void* o, BPos sq, QueryCursor* c); /* 0x00459c90 */
 
+#ifdef LEGOLAND_PORTABLE
+/* The Icon +0x2c input slot is called with four arguments (fpui.c
+ * CheckFocussedIcon, uimisc.c RestoreFreePlaySelections) and this body reads
+ * two, which x86 cdecl tolerates and a wasm call_indirect does not: the first
+ * hover over the OK gadget trapped with "function signature mismatch", so no
+ * object could be demolished from its pop-up. InitPopUpTools takes the handler
+ * through a void*, which is how PORT-M3's slot census missed it. The matched
+ * body is renamed for the portable build and a twin of the slot's shape is
+ * exported over it (PORT-M3's method; uimisc.c does the same for PU_ToolA). */
+#define PU_ToolB PU_ToolB_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x004731e0
 char PU_ToolB(Icon* p, int ev)
 {
@@ -317,6 +328,15 @@ char PU_ToolB(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef PU_ToolB
+char PU_ToolB(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return PU_ToolB_vc6_body(p, ev);
+}
+#endif
 
 /* =========================================================================
  *  A free-play list icon: tick / untick one class

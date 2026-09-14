@@ -540,8 +540,15 @@ extern char PU_Delete2Input(Icon*, int);    /* 0x004734d0 */
          * slot's four-argument shape over it (PORT-M3's method). */
 extern char PU_Delete2Input(Icon*, int, int, int); /* 0x004734d0 */
 #endif
+#ifndef LEGOLAND_PORTABLE
 extern char PU_ToolA(Icon*, int);           /* 0x00473310 */
 extern char PU_ToolB(Icon*, int);           /* 0x004731e0 */
+#else   /* uimisc.c and fpui3.c rename the matched bodies and export the slot's
+         * four-argument shape over them (PORT-M3's method): InitPopUpTools
+         * stores both into Icon +0x2c, which CheckFocussedIcon calls with four. */
+extern char PU_ToolA(Icon*, int, int, int); /* 0x00473310 */
+extern char PU_ToolB(Icon*, int, int, int); /* 0x004731e0 */
+#endif
 
 #define PU_GROUP 0x2c3
 

@@ -396,6 +396,13 @@ int ScriptEventDue(ScriptEvent* e)
     return 0;
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* The pop-up control bar's close gadget: the same four-argument slot as
+ * PU_PrevInput above, reached through InitPopUpTools' void* parameter, so it
+ * trapped on the first hover. Renamed and twinned the same way (fpui3.c does
+ * the OK gadget, PU_ToolB). */
+#define PU_ToolA PU_ToolA_vc6_body
+#endif
 // FUNCTION: LEGOLAND 0x00473310
 char PU_ToolA(Icon* p, int ev)
 {
@@ -409,6 +416,15 @@ char PU_ToolA(Icon* p, int ev)
     }
     return 1;
 }
+#ifdef LEGOLAND_PORTABLE
+#undef PU_ToolA
+char PU_ToolA(Icon* p, int ev, int ll_dx, int ll_dy)
+{
+    (void)ll_dx;
+    (void)ll_dy;
+    return PU_ToolA_vc6_body(p, ev);
+}
+#endif
 
 // FUNCTION: LEGOLAND 0x0046d280
 int ShowHelpPopup(int id)
