@@ -11,8 +11,10 @@ This project is modeled after the
 [LEGO Racers](https://github.com/isledecomp/racers), and LEGO Alpha Team
 decompilations.
 
-> **Note:** The matching decompilation and browser runtime are still in
-> development. The repository does not yet build a complete playable game.
+> **Note:** Work in progress. The matching decompilation is essentially
+> complete for the game code, and the portable build now plays in the browser:
+> the front end, all five tutorial lessons, free play and campaign levels run,
+> with known gaps listed in the port notes. It needs your own copy of the game.
 
 ## Status
 
@@ -23,8 +25,8 @@ The current source contains **3281 exact full-body function matches**: **665 of
 Another 42 functions are marked work in progress; every function in the
 binary's game-code range now has a C body. The export figure overstates
 completion: measured in bytes of game code, **81.9% is matched exactly (94.4%
-including partials)** as of the 2026-09-11 checkpoint
-(`python3 tools/coverage.py`; see [docs/HANDOFF.md](docs/HANDOFF.md)). The
+including partials)** (`python3 tools/coverage.py`; see [docs/DECOMP.md](docs/DECOMP.md) for the
+workflow). The
 ceiling is about 94.5%: the rest is padding, `switch` tables and CRT data that
 no C body can claim. The searchable
 [decompilation report](docs/LEGOLANDPROGRESS.HTML)
@@ -33,8 +35,15 @@ is generated directly from the committed reccmp annotations.
 Alongside the matching C decompilation, the clean-room asset pipeline can
 extract the InstallShield archive and decode the game's sprites, maps, object
 definitions, speech, and music metadata. The browser-based **LEGOLAND Data Lab**
-already renders real park maps and assets; interactive gameplay is the next
-larger milestone.
+renders real park maps and assets from files you select.
+
+The **portable build** (`portable/`) compiles the same C with clang or
+Emscripten against a small Win32 host shim, so the game runs natively and in
+the browser. Behaviour is kept faithful to the original: a short, documented
+list of the shipped game's own bugs is fixed in portable-only code, and
+`-DLL_FAITHFUL=ON` builds without those fixes (see
+[docs/QUIRKS.md](docs/QUIRKS.md)). Build steps are in
+[portable/README.md](portable/README.md).
 
 ## Verification
 
@@ -89,7 +98,7 @@ The original executable must match this target:
 - `tools/` — extraction, disassembly, matching, audit, and report tools
 - `portable/` — clang/CMake build of the same C with a host shim, towards a native and browser runtime (see [portable/README.md](portable/README.md))
 - `web/` — browser-based LEGOLAND Data Lab
-- `docs/` — format research, roadmap, and decompilation notes
+- `docs/` — matching workflow, codegen levers, data formats, runtime specification and the quirk list
 
 ## Contributing
 
@@ -99,7 +108,13 @@ extent audit pass. Small, subsystem-focused changes are easiest to verify.
 
 ## Legal
 
-This repository contains no original game code, binaries, or assets—only
-clean-room analysis tools and human-written reconstruction code. You need your
+This repository contains no original binaries, game data or assets — only
+analysis tools and C source reconstructed to reproduce the original program's
+behaviour. You need your
 own copy of LEGOLAND to verify or run the project. This project is not affiliated
 with or endorsed by the LEGO Group, LEGO Media, or Krisalis Software.
+LEGO and LEGOLAND are trademarks of the LEGO Group.
+
+**Do not publish a built browser bundle.** A portable build packs files from
+your local game data (for example `legoland.data`) into its output. Build and
+run it locally; never host or share the build directory.

@@ -38,12 +38,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 IMAGE_BASE = 0x400000
 CL = os.path.join(ROOT, "toolchain", "..", "tools", "wibo-msvc", "cl")
-# The cl wrapper lives in the sibling adamXbot/alphateam checkout (its
-# tools/setup_toolchain_macos.sh populates our toolchain/). Override with
-# LEGOLAND_CL when it lives elsewhere.
-CL_WRAPPER = os.environ.get(
-    "LEGOLAND_CL",
-    os.path.join(os.path.dirname(ROOT), "alphateam", "tools", "wibo-msvc", "cl"))
+# The MSVC 6.0 `cl` wrapper (run under wibo). Set LEGOLAND_CL to its path;
+# otherwise the first of these that exists is used: a wrapper inside this
+# checkout's toolchain/, or one in a sibling checkout that provides it.
+def _find_cl_wrapper():
+    env = os.environ.get("LEGOLAND_CL")
+    if env:
+        return env
+    candidates = [
+        os.path.join(ROOT, "toolchain", "wibo-msvc", "cl"),
+        os.path.join(os.path.dirname(ROOT), "alphateam", "tools", "wibo-msvc", "cl"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return candidates[0]
+
+
+CL_WRAPPER = _find_cl_wrapper()
 
 md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
 
