@@ -101,3 +101,99 @@ coaster classes are loaded but not offered.
   from `index.html`; the page still has `llClasses` from a loaded replay.
 - Debug rows 152..156 added: `g_shadow_v`, `g_shadow_src`, `g_level_rec`,
   `g_pending_state`, `g_cur_profile`.
+
+## 6. Q11 resumed (2026-09-14, afternoon)
+
+**Why placement stopped earlier.** Three separate things, none a port defect:
+the in-park REPORT screen swallowed clicks; the "You have N new objects" pop-up
+swallowed clicks, and `P5.modalUp()` does not see it (read its count instead:
+`g_newobj.count` at `g_popup_info + 0x14 + 0xa0`, 0 when closed; the red X is at
+(554, 243)); and a window blur while the clock was already frozen leaves it
+frozen for good (`LegoLandWindowProc` thaws on `WM_SETFOCUS` only if it was not
+frozen at `WM_KILLFOCUS`), which stops income. `HandleMapClick` builds an
+ordinary class straight away (`WorkOrderBuildObject` -> `BuildObject`); only
+garden classes (flag 0x200000) queue a gardener order.
+
+**The first river loops enclosed their own doors.** A Jungle Cruise station's
+door is on its EAST side (anchor + (4, 0)); its route start and end squares are
+anchor + (0, 10) and anchor + (0, -10). A river laid round the east side boxes
+the door in and `llLink` reports "no reachable path square". Lay it round the
+WEST side. Working layouts, game level 6:
+
+| station | river squares |
+| --- | --- |
+| (90, 70) | (85,60) (80,60) (80,65) (80,70) (80,75) (80,80) (85,80) |
+| (94, 18) | (89,8) (84,8) (84,13) (84,18) (84,23) (84,28) (89,28) |
+
+Both doors then link to the park network with no path work. Boats launch.
+
+**A negative dispatch timer is a wait, not a failure.**
+`JungleCruise_TryLaunchBoat` refuses while any boat of that station sits on or
+heads for the route start square or is still in state 1; the timer keeps
+counting down until a launch succeeds and then resets to 150.
+
+**The Q11 A/B.** `JungleCruise_Tick` launches only while
+`take > 6 * JungleCruise_CountStationBoats(st)` (take is 12 here). Default
+counts a station's own boats, so a station stops at two and a second station
+can still launch. Faithful re-stamps every boat with the asking station's key
+and counts all of them, so once the park has two boats anywhere, every station
+is blocked. The measurement: can station (94, 18) launch while (90, 70) runs
+two boats.
+
+**Shared origin for both builds.** Serve `portable/` itself (port 8968) and
+open `/build-wasm/legoland.html` and `/build-wasm-faithful/legoland.html`: one
+origin, one IndexedDB, so a park saved in one build loads in the other. The
+page helpers are in `portable/build-wasm*/q11.js` (build dirs, not tracked).
+
+**Q11 default arm (game level 6, both rivers built west, links SATISFIED).**
+Station (90, 70) had one boat on the water, keyed (90, 70). Station (94, 18)
+had no visitors of its own, so its dispatch check was triggered by writing one
+live visitor pointer into its first rider slot (`+0x30`) and zeroing its timer
+(`+0x2c`) — the same poke in both builds. Within 100 ms station (94, 18)
+launched a boat keyed (94, 18); station (90, 70)'s boat kept its key (90, 70);
+the timer reset to 150 and the rider slots cleared.
+
+**Saving the park for the faithful arm did not work** through the game's own
+Save screen (options (360, 443) -> Save (516, 222) -> slot 1 -> name -> the
+slot's tick (99, 163) -> "Save over game?" tick (285, 137) -> Accept
+(546, 412)): no `.sav` file was ever written. Not diagnosed; the faithful arm
+rebuilds the same park instead.
+
+**Three input traps met while rebuilding the faithful park (all harness, not game defects).**
+- *The advisor's objective bubble opens the REPORT screen.* It covers the lower
+  right of the map; a build click aimed there opens `InitScreen7` (the report /
+  interval screen), which swallows every click while the cursor underneath still
+  reads valid. Escape closes it; its close button is `accept_on_report` at
+  (522, 364) top-left. Always centre the view on a target before clicking.
+- *Edit mode can drop to 0 while the edit object stays set.* `g_edit_object`
+  survives, so a helper that checks only the armed name never re-clicks the
+  panel, and in mode 0 no click builds. Check `g_edit_mode == 1` (debug row 159)
+  as well.
+- *The affine screen fit goes stale* after panel clicks or scrolls while target
+  pixels still look in range; one hover landed on map reference (5, 112). Re-fit
+  (re-centre) and nudge until `llSel().input.mapRef` is the target cell.
+- *Screenshot-derived click points drift with the page header.* The page's
+  status lines above the canvas change height, so the canvas origin in a
+  screenshot moves (17 screenshot px between two shots here). Derive a point
+  from the CURRENT screenshot, or better, hover a small grid and click where
+  `llHit().hitType` reads `0x2` (an icon). Escape on the in-park screen opens
+  the options screen's EXIT confirmation — the green tick there quits the level.
+- *Theme tab and tool positions come from `g_if_icon_pos` (0x004bb04c).* Tabs'
+  top-left corners are (8, 379), (105, 379), (202, 379), (299, 379) for LEGOLAND,
+  Western, Castle and Adventurers; the tool row starts at y 418 (x 12, 92, 172,
+  252, 332). The options tool's hit area reaches above its corner, so a click at
+  (342, 395) opens OPTIONS; click a tab near its top-left, e.g. (320, 383).
+- *Jungle Cruise Water is a child panel entry* (`keep` 0, parent THE JUNGLE
+  CRUISE): the panel draws a collapsed bar, so no slot click arms it. Placing a
+  station arms it automatically (`SelectNextBuildObject`), and it stays armed
+  while edit mode stays 1 — lay every water square before doing anything else.
+
+**Q11 faithful arm — MEASURED.** Faithful park rebuilt on the same origin:
+stations (80, 80) and (94, 18) with closed west-side rivers (plus a stray,
+route-less station at (85, 60) that cannot reach the count). Station (80, 80)
+had two boats keyed (80, 80). The same poke on station (94, 18) — a live
+visitor in rider slot `+0x30`, timer `+0x2c` zeroed — re-keyed BOTH boats to
+(94, 18) within 100 ms, and station (94, 18) did not launch: riders 1, timer
+-105, because the re-stamped count of 2 made `take 12 <= 6 * 2`. Default, by
+contrast, kept the other station's boat key and launched at once. Q11 is
+confirmed in both directions.
