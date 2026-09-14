@@ -35,7 +35,7 @@ build reproduces the shipped result for save-compatibility oracles.
 | Q15 | `screens3.c` `AdventureThemeInput` | the else-arm is the LEGOLAND/Egypt/Inca buttons' (`screens3.c:810`) verbatim | inspection |
 | Q16 | `screencb2.c` | `g_bz_layers->flags \|= 0x2000` | inspection: `screencb.c:202` `OctopusCafe_Create` sets the same flag on `def->sprite->flags`; the ObjDef's +0x1c has no 0x2000 meaning |
 | Q17 | `render4.c` `PaintTileLayer` (WIP 12.3%) | the second copy's no-callback arm paints at `(px + state.halfw, py + halfh)` | inspection: the first copy's arms and the second copy's other arm all offset by the half tile |
-| Q18 | `person3d.c` | `box[6] = (bmax.x, bmax.y, bmin.z)` | free-play figures crop, fixed vs faithful: `docs/lanes/q2-figures-ab.png` — figures stand on the path in both; no visible shift at 3× |
+| Q18 | `person3d.c` | `box[6] = (bmax.x, bmax.y, bmin.z)` | free-play figures crop, fixed vs faithful: a crop of the free-play figures (image not kept in the repository) — figures stand on the path in both; no visible shift at 3× |
 | Q19 | `workers2.c` | `g_worker_on_mouse = 0` on a successful drop | readers: `RenderWorkerOnMouse` (behind `g_drag_lock`, gameframe.c:718), `GetSelectedBloke` (rin.c:576, behind `g_selection_lock`), workers.c:302 (the cancel path — correctly a no-op after a drop), workers.c:372 (the pick-up, which sets it) |
 | Q20 | `schoolcar7.c` `RotateByHeading` | `default: (0, 0)` | the original returned its frame's two stale dwords; callers only pass cardinal headings |
 | Q21 | `logflume2.c` | the 0x41 arm's second disjunct is the mirror (`!fwd && !fwd && back && back`) | inspection: the other seven elbows |

@@ -90,7 +90,7 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 
 | # | status | commit / evidence |
 | --- | --- | --- |
-| Q1 | fixed (PORT-Q1) | caption centred in the free span; A/B crop `docs/lanes/q1-delete-strip-ab.png` |
+| Q1 | fixed (PORT-Q1) | caption centred in the free span; A/B by crop of the Delete strip: the caption sits centred in the free span instead of overhanging the tick |
 | Q2 | not a defect | see row; reverted after measuring |
 | Q3 | left, no visible effect | the only caller discards the return value |
 | Q4 | fixed (PORT-Q1) | `llGdi().objs.live` fixed 4→4 vs faithful 4→6 |
@@ -107,7 +107,7 @@ all-empty hint table spins forever), `:332` (signed expiry after 2^31 ms);
 | Q15 | fixed (PORT-Q2), by inspection | the else-arm is the other three theme buttons' (screens3.c:810) verbatim |
 | Q16 | fixed (PORT-Q2), by inspection | `g_bz_layers->flags |= 0x2000` — the sprite's +0x10, as `OctopusCafe_Create` does for the same flag |
 | Q17 | fixed (PORT-Q2), by inspection | the second copy's arm paints at `(px + halfw, py + halfh)` like every other draw in that copy |
-| Q18 | fixed (PORT-Q2) | corner 6 emitted; free-play figures stand where they stood (`docs/lanes/q2-figures-ab.png`, left fixed / right faithful) — no visible regression |
+| Q18 | fixed (PORT-Q2) | corner 6 emitted; free-play figures stand where they stood (compared by crop, fixed vs faithful) — no visible regression |
 | Q19 | fixed (PORT-Q2), by inspection | cleared on a successful drop; `RenderWorkerOnMouse` is behind `g_drag_lock` (gameframe.c:718) and rin.c:576 only skips the selected bloke while `g_selection_lock` |
 | Q20 | fixed (PORT-Q2) | `default:` returns (0, 0); callers only pass cardinal headings |
 | Q21 | fixed (PORT-Q2), by inspection | the mirror disjunct, as the other seven elbows |

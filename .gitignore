@@ -19,3 +19,8 @@ toolchain
 original
 gamedata
 portable/build*/
+
+# Screenshots of the game's artwork are evidence, not source: keep them out of the repository.
+docs/**/*.png
+docs/**/*.jpg
+docs/**/*.jpeg
