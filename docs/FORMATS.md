@@ -75,29 +75,34 @@ model (31/32); only the dev placeholder `test.3d` (header claims `B=211` but the
 member is 39 640 B, too small) is inconsistent. `tools/geom.py` dumps
 `verify/geometry/{summary.json, sample_records.json, model0_frame0.obj}`.
 
-## `COMP` — compressed sprite  *(decoded; verified against all 429 `Graphics1.res` sprites)*
+## `COMP` — compressed sprite  *(decoded; format 0x10 verified against all 429 `Graphics1.res` sprites, format 8 against all 365 `Graphics2.res` members)*
 
 Leaf directory records in the `.res` are
 `ff ff ff ff | u32 X | u32 zero=0 | u32 size | u32 data_offset | name\0`
 (parser: [`tools/resfile.py`](../tools/resfile.py) `list`/`extract`). A robust
 sentinel scan recovers **570 leaves in `Graphics1.res`, 429 of them `COMP`
-sprites** (`.lls`); every shipped `COMP` is `bpp==16` (RGB555).
+sprites** (`.lls`), every one format `0x10` (16-bpp RGB555 RLE).
+`Graphics2.res` has 895 `COMP` members among its 898 leaves: 530 in format
+`0x10` and 365 in format 8 (8-bit paletted frames, see *Format 8* below).
 
-Decoder: [`tools/comp.py`](../tools/comp.py) (writes PNG, stdlib only) and the
-byte-identical browser port [`web/comp.js`](../web/comp.js)
-(`decodeCOMP(arrayBuffer, offset) -> {width, height, rgba}`).
+Decoder: [`tools/comp.py`](../tools/comp.py) (writes PNG, stdlib only; both
+formats) and the byte-identical browser port [`web/comp.js`](../web/comp.js)
+(`decodeCOMP(arrayBuffer, offset) -> {width, height, rgba}`; format `0x10`
+only).
 
-Header (little-endian, 0x28 bytes):
+Header (little-endian). From +0x18 on, the rows are frame record 0 as format
+`0x10` lays it out:
 
 | offset | type | field | notes |
 | --- | --- | --- | --- |
 | +0x00 | char[4] | `"COMP"` | (loader overwrites it in RAM after load) |
 | +0x04 | u32 | width | e.g. 640 |
 | +0x08 | u32 | height | e.g. 480 |
-| +0x0c | u32 | bpp | 16 = RGB555 (only kind shipped); 8 = paletted |
-| +0x10 | u32 | count/flags | 1 |
-| +0x14 | u32 | reserved | 0 (bit0 only picks a blitter group; same pixels) |
-| +0x18 | u32 | `s0` | payload length = `block_size - 24` (measured from +0x18) |
+| +0x0c | u32 | format | the LLS format word, not a bit depth: `0x10` = 16-bpp RLE frames (ImageRec type 3), `8` = 8-bit paletted frames (type 2) |
+| +0x10 | u16 | count | animation frames |
+| +0x12 | u16 | — | 0 in the file (the loader's frame timer) |
+| +0x14 | u32 | flags | bit 0 = a base image record comes first: the table holds `count+1` records and the painters draw record 0 under record `frame+1` |
+| +0x18 | u32 | `s0` | record 0's size, `block_size - 24` only for a one-record block; every record starts with its size, so adding it walks the table |
 | +0x1c | u32 | `s1` | **pixel-word count** → pixel stream = `2*s1` bytes |
 | +0x20 | u32 | `s2` | **length-stream byte count** |
 | +0x24 | u32 | `s3` | **control-opcode count** (ctrl bytes = `ceil(s3/16)*4`) |
@@ -115,12 +120,13 @@ control: remainder    2-bit opcodes, 16 per u32, LSB-first (s3 opcodes)
 (`s3` is the opcode *count*, not a byte size). Verified exact on every sample
 (e.g. `printinfo.lls`: `s1=615,s2=240,s3=464` → `0x10+1230+240+116 = 1602 = s0`).
 
-### Decode loop (read from the engine's own software blitter)
+### Format 0x10 decode loop (read from the engine's own software blitter)
 
 `__BMPLoader` @ `0x0044e010` loads the raw block and tags the image type
-(`bpp 16 → type 3`; `LLS555To565` @ `0x0047d6a0` is only a 555→565 colour
-repack for the display surface, **not** decompression). At draw time
-`RenderSprite` → `0x00464ee0` dispatches type 3 to `0x00466770`, which splits
+(format `8 → type 2`, anything else `→ type 3`; `LLS555To565` @ `0x0047d6a0`
+is only a 555→565 colour repack for the display surface, **not**
+decompression). At draw time `RenderSprite` → `0x00464ee0` dispatches type 3 to
+`0x00466770`, which splits
 the sub-streams and calls the per-row decoders `0x004673f0` / `0x00467d10`
 (identical opcode logic). The opcode machine reads a 2-bit code from the control
 stream (`lo` = even bit, `hi` = odd bit of the current u32, LSB-first via a
@@ -150,7 +156,7 @@ backgrounds, not to this decoder).
 RGB555 → RGB888: `R=bits14..10, G=9..5, B=4..0`, each 5-bit channel expanded as
 `(v<<3)|(v>>2)`.
 
-### Verification
+### Format 0x10 verification
 
 All **429** sprites decode with the pixel stream consumed **exactly**
 (`bytes == 2*s1`); decoded `W×H` matches the header and the RGBA buffer is
@@ -178,6 +184,59 @@ transparent background); neighbour mean-abs-difference 3.5–10.5 per channel
 `0x004673f0` disassembly matches `comp.py` (mask init 3, `rol 2` + advance-on-
 wrap, `0xaaaaaaaa`/`0x55555555` hi/lo tests, length-byte escape, `L==0` ends
 row). Codec + `.res` container: **confirmed**.
+
+### Format 8: 8-bit paletted frames
+
+The 365 format-8 members of `Graphics2.res` (scenery such as `abu.lls`, the
+`…_bu.lls` build-up animations, the copters) are the type-2 records painted by
+`SoftBlitAnimPlain` @ `0x00464480` (`LEGOLAND/softblit2.c`) and its recolouring
+sibling `SoftBlitAnim` @ `0x00465240` (`LEGOLAND/softblit.c`). The frame table
+at +0x18 holds `count + (flags & 1)` length-linked records:
+
+| offset | type | field | notes |
+| --- | --- | --- | --- |
+| +0x00 | i32 | size | add it to reach the next record |
+| +0x04 | i32 | `npixels` | length of the 8-bit index block |
+| +0x08 | u8[`npixels`] | indices | palette indices |
+| … | u16[256] | palette | **record 0 only**: 0x200 bytes of RGB555 that every later record reuses (`LLS555To565` repacks it in place for a 565 display) |
+| … | u32[] | control | to the end of the record |
+
+The control stream holds 2-bit codes, 16 per u32, LSB first. The reader shifts
+the word it holds right by 2 before each code and loads the next word once all
+16 are used (`ll_anim_code` / `ll_anim_count` in
+`portable/hostwin/include/ll_portable.h`). There is no separate length stream:
+
+| code | action |
+| --- | --- |
+| `00` / `01` (bit1=0) | emit **1 literal** pixel (next index byte) |
+| `10` | emit **1 transparent** pixel |
+| `11` | an 8-bit **count** follows in the control stream |
+
+The count fills four code slots. It is the low byte of the word just shifted
+when at least four slots are left in that word, and otherwise the low byte of a
+freshly loaded word; the rest of the old word is dropped. A zero count ends the
+row. Otherwise one more code says what the count means:
+
+| sub | action |
+| --- | --- |
+| bit1=1 (`10`/`11`) | skip `count` pixels |
+| `00` | copy `count` index bytes |
+| `01` | repeat one index byte `count` times |
+
+As in format `0x10`, transparency lives only in the stream: there is no colour
+key.
+
+**Verified (2026-09-17).** `tools/comp.py --check gamedata/disc/Graphics2.res`
+decodes all **6 999** frame records of the 365 members. Every record uses up
+exactly its `npixels` index bytes and all `size - 8 - npixels` control bytes
+(0x200 fewer on record 0) over `height` rows, and the records end exactly at the
+member end. For example, `abu.lls` record 0 uses 18 798 index and 17 444 control
+bytes, as does record 15 of the 16 in `abu_bu.lls`. A throwaway harness also
+painted every record through the portable C arm of `SoftBlitAnimPlain` into a
+sentinel-filled 16-bpp surface, and all 6 999 match `comp.py`'s RGBA pixel for
+pixel. Every shipped format-8 member has `flags == 2`, so none has a base image
+(160 of `Graphics2.res`'s 16-bpp members do). `--check` prints counts only, and
+ctest runs it as `comp_format8` when `gamedata/` is present.
 
 ## Audio / music / video  *(catalogued by `tools/audioinfo.py`, header-verified)*
 

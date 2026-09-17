@@ -10,6 +10,11 @@ Folder records use a small count in the first dword instead of 0xffffffff.
 This module recovers every leaf with a robust scan for that record shape and
 exposes `list` and `extract` sub-commands.
 
+`list` tags each COMP member with its size, the LLS FORMAT word at +0x0c
+(`fmt8` = 8-bit paletted frames, `fmt16` = 0x10, the 16-bpp RLE frames; see
+tools/comp.py) and its animation frame count, with `+base` when flags bit 0
+puts a base image record in front of them.
+
 Usage:
     python3 tools/resfile.py list    <archive.res> [--all]
     python3 tools/resfile.py extract <archive.res> <name|index> <out_file>
@@ -81,8 +86,10 @@ def cmd_list(argv):
     for idx, r in enumerate(rows):
         tag = ""
         if r["is_comp"]:
-            w, h, bpp = struct.unpack_from("<3I", data, r["offset"] + 4)
-            tag = f"COMP {w}x{h} bpp{bpp}"
+            w, h, fmt, count, _, flags = struct.unpack_from(
+                "<3IHHI", data, r["offset"] + 4)
+            base = "+base" if flags & 1 else ""
+            tag = f"COMP {w}x{h} fmt{fmt} frames={count}{base}"
         print(f"{idx:4d}  off=0x{r['offset']:08x}  size={r['size']:>9d}  "
               f"{r['name']:<40s} {tag}")
     print(f"# {len(rows)} entries "
