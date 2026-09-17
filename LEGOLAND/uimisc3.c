@@ -894,6 +894,13 @@ int FreePlayItemAvailable(const char* name, LLElem* parent)
 {
     int cost = FreePlayItemUpdate(name, 0);
 
+#ifdef LEGOLAND_PORTABLE
+    /* -ll-freeplay-all (ll_portable.h's LL_QOL): no 20000 budget; a child
+     * class still waits for its parent to be ticked. */
+    if (LL_QOL(LL_QOL_FREEPLAY_ALL))
+        return !parent || parent == ElemID(g_build_menu_name)
+               || (parent->type_flags & 4) != 0;
+#endif
     if (g_freeplay_progress + cost <= 0x4e20
         && (!parent || parent == ElemID(g_build_menu_name)
             || (parent->type_flags & 4)))

@@ -1115,8 +1115,15 @@ void InitTitleScreen(void)
     p->help = GetString(8);
     p->flags |= 0x6002;
     p->input = TitleFreeInput;
+#ifdef LEGOLAND_PORTABLE
+    /* -ll-freeplay-all (ll_portable.h's LL_QOL): open before level six's done
+     * byte is. TitleFreeInput does not look again, so this is the whole gate. */
+    if (!HaveCurrentProfile() && !LL_QOL(LL_QOL_FREEPLAY_ALL))
+        p->flags |= 0x400;
+#else
     if (!HaveCurrentProfile())
         p->flags |= 0x400;
+#endif
     p = LoadSpriteIcon(g_lls_reg_on_title, 4, 0x18, 0x71, 7);
     p->help_id = 0xa;
     p->help = GetString(0xa);

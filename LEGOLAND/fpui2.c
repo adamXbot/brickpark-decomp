@@ -817,8 +817,14 @@ void InitFreePlayLists(void)
     if (LLIDB_FindElement(g_western_theme_name, &e_western, 0))
         exit(1);
     for (i = 0; i < 200; i++) {
+#ifdef LEGOLAND_PORTABLE
+        /* -ll-freeplay-all (ll_portable.h's LL_QOL): every class, earned or not. */
+        if (g_profile_unlocked[i] == 0 && !LL_QOL(LL_QOL_FREEPLAY_ALL))
+            continue;
+#else
         if (g_profile_unlocked[i] == 0)
             continue;
+#endif
         for (k = 0; k < 0x86; k++) {
             ent = &g_fp_table[k];
             if (ent->id == i &&
@@ -940,6 +946,12 @@ void InitFreePlayScreen(void)
     FreePlayObjectList(400, 0x14c, 0x41, 0xec, 400);
     FreePlayObjectList(300, 0x1dd, 0x41, 0xec, 300);
     RestoreFreePlaySelections();
+#ifdef LEGOLAND_PORTABLE
+    /* -ll-freeplay-all (ll_portable.h's LL_QOL): a picker with nothing ticked
+     * starts with every class ticked (fpui3.c). */
+    if (LL_QOL(LL_QOL_FREEPLAY_ALL))
+        ll_freeplay_tick_all();
+#endif
 }
 
 /* ---- bubble help ------------------------------------------------------- */

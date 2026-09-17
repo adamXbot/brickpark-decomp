@@ -413,6 +413,50 @@ char FreePlayIconInput(Icon* p, int ev, short dx, short dy)
     return 1;
 }
 
+#ifdef LEGOLAND_PORTABLE
+/* -ll-freeplay-all (ll_portable.h's LL_QOL): tick every class on the picker.
+ * fpui2.c's InitFreePlayScreen calls this after RestoreFreePlaySelections, and
+ * only a picker that came back with nothing ticked is filled, so whatever
+ * RestoreFreePlaySelections brought back is kept.
+ *
+ * Each tick is the icon's own FreePlayIconInput, so the cost, the Accept cover
+ * (FreePlayItemAdd) and the class element's flag 4 move exactly as they do for
+ * a click, and g_fp_bulk_update keeps it as quiet as RestoreFreePlaySelections.
+ * A child class is only available once its parent has flag 4, whichever order
+ * g_side_icons holds them in, so the walk repeats until a pass ticks nothing.
+ * A class icon is one in RestoreFreePlaySelections' four groups whose input is
+ * FreePlayIconInput (FreePlayObjectList's SetNewGroup_Callbacks). */
+static int ll_is_freeplay_class_icon(const Icon* p)
+{
+    return (p->group == 200 || p->group == 300 || p->group == 400 || p->group == 500)
+        && p->input == FreePlayIconInput;
+}
+
+void ll_freeplay_tick_all(void)
+{
+    Icon* p;
+    int   ticked;
+
+    for (p = g_side_icons; p; p = p->next)
+        if (ll_is_freeplay_class_icon(p) && p->u18.placed)
+            return;
+    g_fp_bulk_update = 1;
+    do {
+        ticked = 0;
+        for (p = g_side_icons; p; p = p->next) {
+            if (!ll_is_freeplay_class_icon(p) || p->u18.placed)
+                continue;
+            if (!FreePlayItemAvailable((const char*)p->u1c.elem, (LLElem*)p->f20))
+                continue;
+            p->input(p, 2, 0, 0);
+            if (p->u18.placed)
+                ticked = 1;
+        }
+    } while (ticked);
+    g_fp_bulk_update = 0;
+}
+#endif
+
 /* =========================================================================
  *  The side panel slide-in / slide-out
  * =========================================================================

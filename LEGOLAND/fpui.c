@@ -398,7 +398,13 @@ int RenderFreePlayBar(Icon* g)
     ctx.owner.n = 0;
     StoreClipping();
     f = g->w * 0.00005f;
+#ifdef LEGOLAND_PORTABLE
+    /* -ll-freeplay-all (ll_portable.h's LL_QOL) lets the total pass 20000, and
+     * the clip would then run the bar past its gauge: stop it at full. */
+    f = f * (g_freeplay_progress > 20000 ? 20000 : g_freeplay_progress);
+#else
     f = f * g_freeplay_progress;
+#endif
     clip.left   = g->x;
 #ifndef LEGOLAND_PORTABLE
     clip.right  = clip.left + (int)f;

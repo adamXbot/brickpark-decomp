@@ -266,6 +266,10 @@ void FreeClassInstanceLists(void)
  *  Free-play unlock table
  * ========================================================================= */
 
+#ifdef LEGOLAND_PORTABLE
+extern unsigned char g_save_type;       /* 0x0080ffe5  CurProfile+0x45: 1 normal, 2 free */
+#endif
+
 /* Finds the element's row in the free-play table by name and marks it
  * unlocked in the current profile (writing the profile back) if it was not. */
 // FUNCTION: LEGOLAND 0x0048a6e0
@@ -273,6 +277,14 @@ void UnlockFreePlayEntry(DBElem* e)
 {
     FPTableEntry* t;
 
+#ifdef LEGOLAND_PORTABLE
+    /* -ll-freeplay-all (ll_portable.h's LL_QOL) gives a free-play park classes
+     * the profile has not earned, and StartFreePlayPark's UnlockSidePanelObjects
+     * makes every ticked one available through here: that must not record them
+     * as earned. Without the switch the picker only offers earned classes. */
+    if (LL_QOL(LL_QOL_FREEPLAY_ALL) && g_save_type == 2)
+        return;
+#endif
     for (t = g_fp_table; strlen(t->name) != 0; t++) {
         if (_stricmp(e->name, t->name) == 0) {
             if (g_profile_unlocked[t->id] == 0) {

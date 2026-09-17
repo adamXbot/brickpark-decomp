@@ -751,6 +751,18 @@ void UpdateThemeIconsFromProfile(void)
     Icon**         q = g_theme_icon;
     int            n = 4;
 
+#ifdef LEGOLAND_PORTABLE
+    /* -ll-freeplay-all (ll_portable.h's LL_QOL): a new free-play park opens all
+     * four theme tabs. InitGameInterface then sets a LOADED park from its own
+     * saved icon state (UpdateThemeIconsFromFlags), which this leaves alone. */
+    if (LL_QOL(LL_QOL_FREEPLAY_ALL) && g_save_type == 2) {
+        do {
+            (*q)->flags &= ~0x400;
+            q++;
+        } while (--n);
+        return;
+    }
+#endif
     do {
         if (*t)
             (*q)->flags &= ~0x400;
