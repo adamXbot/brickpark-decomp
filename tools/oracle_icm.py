@@ -40,6 +40,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+# LL_GAMEDATA: a game data tree outside this checkout (legoland-browser sets it).
+GAMEDATA = os.environ.get("LL_GAMEDATA") or os.path.join(ROOT, "gamedata")
 sys.path.insert(0, HERE)
 import tilemap  # noqa: E402
 
@@ -47,7 +49,7 @@ FNV_BASIS = 0xcbf29ce484222325
 FNV_PRIME = 0x100000001b3
 MASK64 = (1 << 64) - 1
 
-ICM = os.path.join(ROOT, "gamedata", "main", "Legoland.icm")
+ICM = os.path.join(GAMEDATA, "main", "Legoland.icm")
 
 # LLElem is 20 bytes on the wire; if that ever stops being true the loader's
 # bulk `_read(page, n * sizeof(LLElem))` reads the wrong number of bytes.

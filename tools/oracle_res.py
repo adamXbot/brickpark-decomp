@@ -59,6 +59,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+# LL_GAMEDATA: a game data tree outside this checkout (legoland-browser sets it).
+GAMEDATA = os.environ.get("LL_GAMEDATA") or os.path.join(ROOT, "gamedata")
 sys.path.insert(0, HERE)
 import resfile    # noqa: E402
 import leveldata  # noqa: E402
@@ -187,7 +189,7 @@ def main():
     ap.add_argument("--volume", default=DEFAULT_VOLUME)
     args = ap.parse_args()
 
-    path = os.path.join(ROOT, "gamedata", "disc", args.volume + ".res")
+    path = os.path.join(GAMEDATA, "disc", args.volume + ".res")
     data = open(path, "rb").read()
     diroff = struct.unpack_from("<I", data, 0)[0]
 
