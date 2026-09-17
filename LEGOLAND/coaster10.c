@@ -11,6 +11,7 @@ typedef struct ClipRect {
     struct ClipRect *prev, *next;
 } ClipRect;
 typedef struct SpanRect { int top, left, bottom, right; } SpanRect;
+typedef struct ClipBox { int left, top, right, bottom; } ClipBox;
 typedef struct RoutePos { void* node; void* geom; Vec3f pos; } RoutePos;
 typedef struct NodeCursor { char pad00[4]; void* ref; char pad08[0x30]; } NodeCursor; /* 0x38 */
 typedef struct RouteSeat {
@@ -45,7 +46,14 @@ typedef struct RouteGeom {
     void* vt;
 } RouteGeom;
 
-extern int g_view_left;                            /* 0x008299ac */
+/* The coaster's four clip bounds {left, top, right, bottom}: ClipRect_ClipTo
+ * (coaster12.c) reads all four through this address, and coaster3d.c and
+ * unref3.c name the other three g_view_top/right/bottom (0x008299b0..b8).
+ * Declared as a lone int, the portable closure gave it four bytes of its own
+ * and the clip test read top, right and bottom from alignment padding
+ * (portable/tools/cast_extent_sweep.py). Same address, same bytes; only the
+ * extent the closure sees changes. */
+extern ClipBox g_view_left;                        /* 0x008299ac */
 extern void* g_route_node_model[];                 /* 0x0082add0 */
 extern void* g_route_node_texture[];               /* 0x0082ade0 */
 
@@ -55,7 +63,7 @@ extern void Mat4_Transpose(const Mat4*, Mat4*);              /* 0x00426190 */
 #else
 extern int Mat4_Transpose(const Mat4*, Mat4*);              /* 0x00426190 */
 #endif
-extern int ClipRect_ComputeMask(ClipRect*, const int*);      /* 0x004265d0 */
+extern int ClipRect_ComputeMask(ClipRect*, const ClipBox*);  /* 0x004265d0 */
 extern void ModelClip_Project(void* mesh, const Vec3f*, const Mat3*, SpanRect*); /* 0x00426750 */
 extern float Route_SumPotentialEnergy(CoasterRoute*);        /* 0x0041dae0 */
 extern void Route_GetMassAndPower(CoasterRoute*, float*, float*); /* 0x0041db90 */
