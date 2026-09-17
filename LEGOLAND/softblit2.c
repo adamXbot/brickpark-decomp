@@ -748,6 +748,18 @@ anim_row:
         goto anim_paint;
     }
     /* ---- lclip: skip src->left pixels of this row ---------------------- */
+    /* QUIRKS.md Q23, THE SEAM.  The shipped `sub edx,ecx / jns lclip` keeps
+     * skipping when a run ends EXACTLY on src->left (edx == 0): the next
+     * single then takes the count to -1 without being drawn, and the run
+     * after it is painted that much longer from the edge.  A literal before a
+     * repeat run takes the repeat's colour, a literal before a skip run is
+     * lost, and a transparent single before a copy run paints the previous
+     * index byte.  A single cannot land here: it leaves through lc_step's
+     * `dec edx / jne`.  Measured on the Great Temple of Abu Simbel, which is
+     * drawn in two pieces split at source column 163 (two pixels wrong).  The
+     * fix sends a run that ends on the edge out through lc_step's exit.
+     * softblit.c's recolouring SoftBlitAnim tests `ja` and is already right;
+     * bigrender.c's ZBufferHelper carries the same `jns` and the same fix. */
     for (;;) {
         code = ll_anim_code(&cs);
         if (!(code & 2)) {                           /* lc_one            */
@@ -762,6 +774,10 @@ anim_row:
         code = ll_anim_code(&cs);
         if (code & 2) {                              /* skip run          */
             skip -= (int)cnt;
+#ifndef LL_FAITHFUL
+            if (skip == 0)                           /* QUIRKS.md Q23     */
+                goto anim_lc_edge;
+#endif
             if (skip >= 0) continue;
             skip = -skip;                            /* the visible part  */
             dp += skip;
@@ -773,6 +789,10 @@ anim_row:
         if (code & 1) {                              /* lc4: repeat run   */
             ip++;
             skip -= (int)cnt;
+#ifndef LL_FAITHFUL
+            if (skip == 0)                           /* QUIRKS.md Q23     */
+                goto anim_lc_edge;
+#endif
             if (skip >= 0) continue;
             cnt = (unsigned int)(-skip);
             budget = g_sp_w;
@@ -790,6 +810,10 @@ anim_row:
         /* lc5: copy run */
         ip += cnt;
         skip -= (int)cnt;
+#ifndef LL_FAITHFUL
+        if (skip == 0)                               /* QUIRKS.md Q23     */
+            goto anim_lc_edge;
+#endif
         if (skip >= 0) continue;
         cnt = (unsigned int)(-skip);
         budget = g_sp_w;
@@ -805,6 +829,9 @@ anim_row:
         goto anim_paint;
     anim_lc_step:
         if (--skip != 0) continue;
+#ifndef LL_FAITHFUL
+    anim_lc_edge:
+#endif
         budget = g_sp_w;
         goto anim_paint;
     }

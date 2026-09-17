@@ -1016,6 +1016,13 @@ zb_row:
         goto zb_draw;
     }
     /* ---- c_loop: skip src->left pixels of this row ---------------------- */
+    /* QUIRKS.md Q23: the same `sub edx,ecx / jns c_loop` seam defect as
+     * softblit2.c's SoftBlitAnimPlain (see the note on its lclip).  A run that
+     * ends EXACTLY on src->left keeps the skip going, and the singles after it
+     * are merged into the next run, so the Z keys from the edge column on take
+     * the wrong bytes.  Fixed the same way: such a run leaves through c_dec's
+     * exit.
+     * The `*2` below is a separate finding and stays as shipped. */
     for (;;) {
         code = ll_anim_code(&cs);
         if (!(code & 2)) {                             /* c_inc            */
@@ -1030,6 +1037,10 @@ zb_row:
         code = ll_anim_code(&cs);
         if (code & 2) {                                /* a transparent run */
             skip -= (int)cnt;
+#ifndef LL_FAITHFUL
+            if (skip == 0)                             /* QUIRKS.md Q23    */
+                goto zb_c_edge;
+#endif
             if (skip >= 0) continue;
             skip = -skip;
             /* THE *2: see the FINDING above.  Two bytes per pixel in a
@@ -1043,6 +1054,10 @@ zb_row:
         if (code & 1) {                                /* a repeat run      */
             ip++;
             skip -= (int)cnt;
+#ifndef LL_FAITHFUL
+            if (skip == 0)                             /* QUIRKS.md Q23    */
+                goto zb_c_edge;
+#endif
             if (skip >= 0) continue;
             ip--;                                      /* dec esi           */
             cnt = (unsigned int)(-skip);
@@ -1054,6 +1069,10 @@ zb_row:
         /* c5: a literal run */
         ip += cnt;
         skip -= (int)cnt;
+#ifndef LL_FAITHFUL
+        if (skip == 0)                                 /* QUIRKS.md Q23    */
+            goto zb_c_edge;
+#endif
         if (skip >= 0) continue;
         ip += skip;                                    /* lea esi,[esi+edx] */
         cnt = (unsigned int)(-skip);
@@ -1063,6 +1082,9 @@ zb_row:
         goto zb_d_lit;
     zb_c_dec:
         if (--skip != 0) continue;
+#ifndef LL_FAITHFUL
+    zb_c_edge:
+#endif
         budget = g_sp_w;
         goto zb_draw;
     }

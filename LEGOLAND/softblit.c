@@ -1065,7 +1065,8 @@ void SoftBlitAnim(LLSRec* lls, WinRect* src, Pos* dst)
      *      the mask only);
      *   2. the left-clip subtraction is `sub edx,ecx / ja`, not `jns`, so a
      *      run that ends exactly on the left edge leaves the skip pass here
-     *      and continues it there;
+     *      and continues it there (QUIRKS.md Q23: the plain painter's arm
+     *      now leaves too, except in an LL_FAITHFUL build);
      *   3. a skip run that exactly fills the row leaves via `jbe endrow`,
      *      not `js endrow`;
      *   4. a repeat run that finds a zero budget writes NOTHING

@@ -48,6 +48,7 @@ add a handful more found by playing. None of them may be fixed in the VC6 text
 | Q20 | `schoolcar7.c:49` | the three **diagonal headings return two uninitialised dwords** (no `default`) | a `default` arm, portable | low |
 | Q21 | `logflume2.c:1715` | the N\|W flume arm **tests the same condition twice** — that corner shape is never chosen | the mirror test, portable arm | low |
 | Q22 | `fpui5.c:71` | the panel strip's removal scan **skips the entry that slid into the hole** — harmless only because a class appears once | `i--` after a removal, portable arm | none |
+| Q23 | `softblit2.c:415/428/450` `SoftBlitAnimPlain`, `bigrender.c:754/767/785` `ZBufferHelper` | **one-pixel colour slips along the seams of 8-bit sprites drawn in pieces**: when a run ends exactly on the clip's left edge, `sub edx,ecx / jns` keeps skipping, and the single pixels after it merge into the next run. A literal takes the colour of a following repeat run or vanishes before a skip run; a transparent pixel before a copy run paints the previous index byte. The Great Temple of Abu Simbel is drawn in two pieces split at source column 163 and shows two such pixels; `ZBufferHelper` puts the same slip into the depth keys. The recolouring `SoftBlitAnim` tests `ja` and is right | leave the skip pass when the count reaches exactly 0, as a single pixel already does (`lc_step`/`c_dec`), portable arms | none (the fixed build matches the sprite pixel for pixel) |
 
 ## B. Crash class — null dereferences the original gets away with (guard, don't fix)
 
@@ -118,6 +119,7 @@ Also a port defect, fixed in both builds (2026-09-15, found playing game level 1
 | Q20 | fixed (PORT-Q2) | `default:` returns (0, 0); callers only pass cardinal headings |
 | Q21 | fixed (PORT-Q2), by inspection | the mirror disjunct, as the other seven elbows |
 | Q22 | fixed (PORT-Q2), by inspection | `i--` after the removal |
+| Q23 | **fixed and measured** (2026-09-17) | free-play A/B, one Great Temple of Abu Simbel placed at map (62, 111) in each build and compared with `abu.lls` decoded from `Graphics2.res`: default 57,829 of 57,829 opaque pixels exact; faithful 57,827, the two misses at source (163, 141) and (163, 254), where a literal sits on the seam before a repeat run; inside the temple the builds differ at exactly those two pixels. ctests `anim_paint` and `zbuf_blit` (section 7) paint four slip rows and two control rows in both builds, each build against its own expectation, and `anim_recolour` checks the plain painter against the recolouring one. The three touched files compile to byte-identical VC6 objects; audit PASS, relocs 0 MISMATCH |
 | G1 `gameframe.c:1231`, G2 `screencb.c` (two cursor calcs) | guarded (PORT-Q1) | by construction |
 | class B | guarded (PORT-Q3): 24 files, every listed site except `ridecb2.c:951` (a WIP body — needs a matching pass first) plus the twelve record-unlink walks of one shape; the two neighbour-lookup families left as the source proves them non-null; free-play spot check owed | `docs/lanes/scope-port-q3.md` |
 
