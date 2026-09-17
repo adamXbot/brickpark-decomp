@@ -1,0 +1,9 @@
+{
+  "generated": "2026-09-17",
+  "game_bytes": 643072,
+  "exact_bytes": 526810,
+  "wip_bytes": 80166,
+  "exact_functions": 3281,
+  "wip_functions": 42,
+  "exact_instructions": 172916
+}

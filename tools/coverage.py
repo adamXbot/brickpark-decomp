@@ -22,8 +22,18 @@ labelled as CRT — or, failing that, the lowest known CRT address — as the
 boundary and reports both figures.
 
     python3 tools/coverage.py
+    python3 tools/coverage.py --write   # also refresh docs/coverage.json
+
+`--write` records the figures in `docs/coverage.json` so `tools/progress.py`
+can lead its public report with byte coverage. That generator deliberately
+runs without the binary or the VC6 toolchain (GitHub Pages has neither), so it
+cannot recompute these numbers itself; re-run this tool with `--write` whenever
+the coverage moves.
 """
+import argparse
+import datetime
 import glob
+import json
 import os
 import re
 import struct
@@ -57,7 +67,30 @@ def code_section():
     raise SystemExit('no code section found')
 
 
+def write_checkpoint(game_bytes, exact_n, exact_i, exact_b, wip_n, wip_b):
+    """Record the figures progress.py needs but cannot compute without the exe."""
+    path = os.path.join(ROOT, 'docs', 'coverage.json')
+    payload = {
+        'generated': datetime.date.today().isoformat(),
+        'game_bytes': game_bytes,
+        'exact_bytes': exact_b,
+        'wip_bytes': wip_b,
+        'exact_functions': exact_n,
+        'wip_functions': wip_n,
+        'exact_instructions': exact_i,
+    }
+    with open(path, 'w') as fh:
+        json.dump(payload, fh, indent=2)
+        fh.write('\n')
+    print(f"\nwrote {os.path.relpath(path, ROOT)}")
+
+
 def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('--write', action='store_true',
+                    help='refresh docs/coverage.json for tools/progress.py')
+    args = ap.parse_args()
+
     d, secs = load_exe()
     name, va0, vsz = code_section()
     end = va0 + vsz
@@ -90,6 +123,8 @@ def main():
     print()
     print(f"COVERAGE OF GAME CODE: {100.0*exact_b/game_bytes:.1f}% exact"
           f"  ({100.0*(exact_b+wip_b)/game_bytes:.1f}% including partials)")
+    if args.write:
+        write_checkpoint(game_bytes, exact_n, exact_i, exact_b, wip_n, wip_b)
     return 0
 
 

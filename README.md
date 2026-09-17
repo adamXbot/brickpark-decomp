@@ -60,10 +60,17 @@ python3 tools/match.py LEGOLAND/map.c SetMapTile 0x00461780
 # Verify every exact-match annotation.
 python3 tools/verify.py
 
+# Measure byte coverage, and record it for the progress report.
+python3 tools/coverage.py --write
+
 # Regenerate or check the public progress report.
 python3 tools/progress.py
 python3 tools/progress.py --check
 ```
+
+`coverage.py` needs the original binary; `progress.py` deliberately does not, so
+it leads the report with the committed `docs/coverage.json` checkpoint. Re-run
+`coverage.py --write` whenever the coverage moves.
 
 See [docs/DECOMP.md](docs/DECOMP.md) for the matching workflow and recovered
 subsystem notes.

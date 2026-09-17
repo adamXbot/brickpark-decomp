@@ -3,12 +3,20 @@
 
 The report uses committed FUNCTION/WIP-FUNCTION annotations as its source of
 truth, so GitHub Pages needs neither the original binary nor the VC6 toolchain.
+
+Those annotations give function counts, not code size, and a function count
+badly overstates completion: the export figure alone reads ~98% while less
+than half the game's code is reproduced. So the headline figure is byte
+coverage, read from `docs/coverage.json` — a checkpoint written by
+`tools/coverage.py --write`, which does have the binary. If that file is
+missing the report falls back to function counts and says so.
 """
 
 from __future__ import annotations
 
 import argparse
 import html
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +27,7 @@ SOURCE = ROOT / "LEGOLAND"
 EXPORTS = ROOT / "symbols" / "legoland.exports.txt"
 HTML_OUT = ROOT / "docs" / "LEGOLANDPROGRESS.HTML"
 SVG_OUT = ROOT / "docs" / "LEGOLANDPROGRESS.SVG"
+COVERAGE = ROOT / "docs" / "coverage.json"
 REPO_URL = "https://github.com/adamxbot/legoland"
 # Executable range from this binary's PE .text section (VA 0x401000, size 0xa9d46).
 TEXT_START = 0x401000
@@ -128,26 +137,95 @@ def collect() -> tuple[list[Function], dict[str, int]]:
     return functions, stats
 
 
-def render_svg(stats: dict[str, int]) -> str:
-    percent = stats["matched_exports"] / stats["exports"] * 100
-    bar_width = 664 * percent / 100
+def read_coverage() -> dict[str, int] | None:
+    """Byte-coverage checkpoint from `tools/coverage.py --write`, if committed."""
+    if not COVERAGE.exists():
+        return None
+    data = json.loads(COVERAGE.read_text(encoding="utf-8"))
+    game = data["game_bytes"]
+    data["exact_percent"] = data["exact_bytes"] / game * 100
+    data["partial_percent"] = (data["exact_bytes"] + data["wip_bytes"]) / game * 100
+    return data
+
+
+def render_svg(stats: dict[str, int], cov: dict[str, int] | None) -> str:
+    export_percent = stats["matched_exports"] / stats["exports"] * 100
+    if cov:
+        headline = cov["exact_percent"]
+        caption = f'{cov["exact_percent"]:.1f}% of game code exact · {cov["partial_percent"]:.1f}% with partials'
+        footer = "Bytes of game code · exports and function counts run far ahead"
+        desc = (
+            f'{cov["exact_percent"]:.1f}% of the game\'s {cov["game_bytes"] / 1024:.0f} KB of code is '
+            f'reproduced exactly, {cov["partial_percent"]:.1f}% counting partials, across '
+            f'{stats["matched_total"]} exact functions.'
+        )
+    else:
+        headline = export_percent
+        caption = f'{stats["matched_exports"]} / {stats["exports"]} exported functions exact'
+        footer = "Function-count progress · byte coverage unavailable"
+        desc = (
+            f'{stats["matched_exports"]} of {stats["exports"]} exported functions match exactly; '
+            f'{stats["matched_internal"]} internal functions also match.'
+        )
+    bar_width = 664 * headline / 100
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="720" height="150" viewBox="0 0 720 150" role="img" aria-labelledby="title desc">
-  <title id="title">LEGOLAND decompilation progress: {percent:.1f}%</title>
-  <desc id="desc">{stats["matched_exports"]} of {stats["exports"]} exported functions match exactly; {stats["matched_internal"]} internal functions also match.</desc>
+  <title id="title">LEGOLAND decompilation progress: {headline:.1f}%</title>
+  <desc id="desc">{desc}</desc>
   <rect width="720" height="150" rx="14" fill="#202124"/>
   <text x="28" y="40" fill="#f5f5f5" font-family="system-ui, sans-serif" font-size="22" font-weight="700">LEGOLAND decompilation</text>
-  <text x="692" y="40" fill="#ffd500" text-anchor="end" font-family="system-ui, sans-serif" font-size="22" font-weight="700">{percent:.1f}%</text>
+  <text x="692" y="40" fill="#ffd500" text-anchor="end" font-family="system-ui, sans-serif" font-size="22" font-weight="700">{headline:.1f}%</text>
   <rect x="28" y="61" width="664" height="20" rx="10" fill="#3a3d40"/>
   <rect x="28" y="61" width="{bar_width:.2f}" height="20" rx="10" fill="#31c86a"/>
-  <text x="28" y="113" fill="#f5f5f5" font-family="system-ui, sans-serif" font-size="17">{stats["matched_exports"]} / {stats["exports"]} exported functions exact</text>
-  <text x="692" y="113" fill="#b8bdc3" text-anchor="end" font-family="system-ui, sans-serif" font-size="15">{stats["matched_total"]} exact total · {stats["wip_total"]} WIP</text>
-  <text x="28" y="137" fill="#92979d" font-family="system-ui, sans-serif" font-size="13">Function-count progress · click for the searchable report</text>
+  <text x="28" y="113" fill="#f5f5f5" font-family="system-ui, sans-serif" font-size="17">{caption}</text>
+  <text x="692" y="113" fill="#b8bdc3" text-anchor="end" font-family="system-ui, sans-serif" font-size="15">{stats["matched_exports"]}/{stats["exports"]} exports · {stats["matched_total"]} fns · {stats["wip_total"]} WIP</text>
+  <text x="28" y="137" fill="#92979d" font-family="system-ui, sans-serif" font-size="13">{footer} · click for the searchable report</text>
 </svg>
 '''
 
 
-def render_html(functions: list[Function], stats: dict[str, int]) -> str:
-    percent = stats["matched_exports"] / stats["exports"] * 100
+def render_html(functions: list[Function], stats: dict[str, int],
+                cov: dict[str, int] | None) -> str:
+    export_percent = stats["matched_exports"] / stats["exports"] * 100
+    percent = cov["exact_percent"] if cov else export_percent
+    if cov:
+        cards = (
+            f'<div class="card"><strong>{cov["exact_percent"]:.1f}%</strong>'
+            f'<span>game code exact &middot; {cov["partial_percent"]:.1f}% with partials</span></div>'
+            f'<div class="card"><strong>{cov["exact_functions"]}</strong>'
+            f'<span>exact functions &middot; {cov["wip_functions"]} partial</span></div>'
+            f'<div class="card"><strong>{export_percent:.1f}%</strong>'
+            f'<span>{stats["matched_exports"]} / {stats["exports"]} exported functions</span></div>'
+            f'<div class="card"><strong>{cov["exact_instructions"]:,}</strong>'
+            f'<span>instructions reproduced</span></div>'
+        )
+        note = (
+            f'The headline is <strong>bytes of game code</strong>: '
+            f'{cov["exact_bytes"]:,} of {cov["game_bytes"]:,} bytes '
+            f'({cov["game_bytes"] / 1024:.0f}&nbsp;KB of <code>.text</code>, excluding the '
+            f'statically-linked C runtime, which is not a decompilation target). It is the only '
+            f'measure here with a fixed denominator, so it moves only by doing work. '
+            f'The export figure runs far ahead of it — exports are just the symbols the linker '
+            f'exposed, and {stats["matched_total"]} matched functions sit behind only '
+            f'{stats["matched_exports"]} of them. The binary\'s other {stats["data_exports"]} '
+            f'named exports are data symbols. Byte figures are from the '
+            f'{cov["generated"]} <code>tools/coverage.py</code> checkpoint; function counts are live.'
+        )
+        bar_label = f'{cov["exact_percent"]:.1f}% of game code exact'
+    else:
+        cards = (
+            f'<div class="card"><strong>{export_percent:.1f}%</strong><span>named exports exact</span></div>'
+            f'<div class="card"><strong>{stats["matched_exports"]} / {stats["exports"]}</strong><span>exported functions</span></div>'
+            f'<div class="card"><strong>{stats["matched_total"]}</strong><span>exact functions total</span></div>'
+            f'<div class="card"><strong>{stats["matched_internal"]}</strong><span>internal exact &middot; {stats["wip_total"]} WIP</span></div>'
+        )
+        note = (
+            f'Byte coverage is unavailable (no <code>docs/coverage.json</code>), so this page '
+            f'counts functions. That overstates completion: exports are only the symbols the '
+            f'linker exposed. Internal functions are reported separately so they do not distort '
+            f'the {stats["exports"]}-function baseline; the binary\'s other '
+            f'{stats["data_exports"]} named exports are data symbols.'
+        )
+        bar_label = f'{export_percent:.1f}% of named exports exact'
     labels = {"matched": "Exact", "wip": "WIP", "not-started": "Not started"}
     rows = []
     for function in functions:
@@ -208,14 +286,9 @@ def render_html(functions: list[Function], stats: dict[str, int]) -> str:
 <main>
   <h1>LEGOLAND decompilation status</h1>
   <p class="lede">Exact, full-body VC6 matches recovered from the original 2000 Windows release.</p>
-  <div class="cards">
-    <div class="card"><strong>{percent:.1f}%</strong><span>named exports exact</span></div>
-    <div class="card"><strong>{stats["matched_exports"]} / {stats["exports"]}</strong><span>exported functions</span></div>
-    <div class="card"><strong>{stats["matched_total"]}</strong><span>exact functions total</span></div>
-    <div class="card"><strong>{stats["matched_internal"]}</strong><span>internal exact · {stats["wip_total"]} WIP</span></div>
-  </div>
-  <div class="bar" aria-label="{percent:.1f}% of named exports exact"><span></span></div>
-  <p class="note">Progress is counted by function, not binary size. Internal functions are reported separately so they do not distort the {stats["exports"]}-function baseline; the binary's other {stats["data_exports"]} named exports are data symbols.</p>
+  <div class="cards">{cards}</div>
+  <div class="bar" aria-label="{bar_label}"><span></span></div>
+  <p class="note">{note}</p>
   <div class="controls">
     <input id="search" type="search" placeholder="Search by function, address, or source…" aria-label="Search functions">
     <select id="status" aria-label="Filter by status">
@@ -270,14 +343,22 @@ def main() -> int:
     args = parser.parse_args()
 
     functions, stats = collect()
+    cov = read_coverage()
     outputs = {
-        HTML_OUT: render_html(functions, stats),
-        SVG_OUT: render_svg(stats),
+        HTML_OUT: render_html(functions, stats, cov),
+        SVG_OUT: render_svg(stats, cov),
     }
     stale = [path for path, content in outputs.items() if not update(path, content, args.check)]
     if stale:
         print("stale progress report: " + ", ".join(str(path.relative_to(ROOT)) for path in stale))
         return 1
+    if cov:
+        print(
+            f'{cov["exact_percent"]:.1f}% of game code exact '
+            f'({cov["partial_percent"]:.1f}% with partials), from the {cov["generated"]} checkpoint'
+        )
+    else:
+        print("no docs/coverage.json; reporting function counts only")
     print(
         f'{stats["matched_exports"]}/{stats["exports"]} exports exact '
         f'({stats["matched_exports"] / stats["exports"] * 100:.1f}%); '
