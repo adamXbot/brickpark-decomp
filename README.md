@@ -37,13 +37,15 @@ extract the InstallShield archive and decode the game's sprites, maps, object
 definitions, speech, and music metadata. The browser-based **LEGOLAND Data Lab**
 renders real park maps and assets from files you select.
 
-The **portable build** (`portable/`) compiles the same C with clang or
-Emscripten against a small Win32 host shim, so the game runs natively and in
-the browser. Behaviour is kept faithful to the original: a short, documented
-list of the shipped game's own bugs is fixed in portable-only code, and
-`-DLL_FAITHFUL=ON` builds without those fixes (see
-[docs/QUIRKS.md](docs/QUIRKS.md)). Build steps are in
-[portable/README.md](portable/README.md).
+The **portable build** lives in its own repository,
+[legoland-browser](https://github.com/adamXbot/legoland-browser), which uses
+this one as a submodule. It compiles the same C with clang or Emscripten
+against a small Win32 host shim, so the game runs natively and in the browser.
+Every change it needs here sits under `#ifdef LEGOLAND_PORTABLE`, which the
+VC6 build does not define. Behaviour is kept faithful to the original: a short,
+documented list of the shipped game's own bugs is fixed in portable-only code,
+and `-DLL_FAITHFUL=ON` builds without those fixes (see
+[docs/QUIRKS.md](docs/QUIRKS.md)).
 
 ## Verification
 
@@ -103,7 +105,6 @@ The original executable must match this target:
 - `LEGOLAND/` — matching C reconstruction of `legoland.exe`
 - `symbols/` — 675 function and 41 data exports, plus analysis symbol data
 - `tools/` — extraction, disassembly, matching, audit, and report tools
-- `portable/` — clang/CMake build of the same C with a host shim, towards a native and browser runtime (see [portable/README.md](portable/README.md))
 - `web/` — browser-based LEGOLAND Data Lab
 - `docs/` — matching workflow, codegen levers, data formats, runtime specification and the quirk list
 
@@ -122,6 +123,7 @@ own copy of LEGOLAND to verify or run the project. This project is not affiliate
 with or endorsed by the LEGO Group, LEGO Media, or Krisalis Software.
 LEGO and LEGOLAND are trademarks of the LEGO Group.
 
-**Do not publish a built browser bundle.** A portable build packs files from
-your local game data (for example `legoland.data`) into its output. Build and
-run it locally; never host or share the build directory.
+**Do not publish a built browser bundle.** A portable build
+([legoland-browser](https://github.com/adamXbot/legoland-browser)) packs files
+from your local game data (for example `legoland.data`) into its output. Build
+and run it locally; never host or share a build directory.

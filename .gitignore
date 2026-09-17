@@ -15,10 +15,6 @@ web/dist/
 # machine-local VC6 toolchain (symlink)
 toolchain
 
-# worktree symlinks to the main checkout (docs/HANDOFF.md) and the portable build tree
-original
-gamedata
-portable/build*/
 
 # Screenshots of the game's artwork are evidence, not source: keep them out of the repository.
 docs/**/*.png
