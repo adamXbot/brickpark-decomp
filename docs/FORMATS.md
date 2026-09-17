@@ -85,10 +85,12 @@ sprites** (`.lls`), every one format `0x10` (16-bpp RGB555 RLE).
 `Graphics2.res` has 895 `COMP` members among its 898 leaves: 530 in format
 `0x10` and 365 in format 8 (8-bit paletted frames, see *Format 8* below).
 
-Decoder: [`tools/comp.py`](../tools/comp.py) (writes PNG, stdlib only; both
-formats) and the byte-identical browser port [`web/comp.js`](../web/comp.js)
-(`decodeCOMP(arrayBuffer, offset) -> {width, height, rgba}`; format `0x10`
-only).
+Decoder: [`tools/comp.py`](../tools/comp.py) (writes PNG, stdlib only) and the
+byte-identical browser port [`web/comp.js`](../web/comp.js)
+(`decodeCOMP(arrayBuffer, offset, frame) -> {width, height, rgba}`, and
+`frames8(arrayBuffer, offset)` for the format-8 frame table), each decoding both
+formats. `frame` indexes the frame table and defaults to 0. Format `0x10`
+decodes record 0 only, and neither decoder composites a base image.
 
 Header (little-endian). From +0x18 on, the rows are frame record 0 as format
 `0x10` lays it out:
@@ -237,6 +239,13 @@ sentinel-filled 16-bpp surface, and all 6 999 match `comp.py`'s RGBA pixel for
 pixel. Every shipped format-8 member has `flags == 2`, so none has a base image
 (160 of `Graphics2.res`'s 16-bpp members do). `--check` prints counts only, and
 ctest runs it as `comp_format8` when `gamedata/` is present.
+
+`web/comp.js` gives the same result as `comp.py` on all 6 999 records: RGBA
+(sha256), size, frame table and index and control bytes used. Its format `0x10`
+output is unchanged on all 959 16-bpp members. No shipped record draws, skips or
+ends a row past its width, so right-edge clipping only runs on synthetic data. A
+throwaway differential fuzz over synthetic format-8 blocks matched `comp.py` on
+clipped rows, fresh-word counts, trailing control words and every error message.
 
 ## Audio / music / video  *(catalogued by `tools/audioinfo.py`, header-verified)*
 
