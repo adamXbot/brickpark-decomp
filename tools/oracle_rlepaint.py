@@ -47,7 +47,7 @@ import comp        # noqa: E402  the clean-room COMP reader
 import resfile     # noqa: E402  the archive directory scanner
 
 ROOT = os.path.dirname(HERE)
-# LL_GAMEDATA: a game data tree outside this checkout (legoland-browser sets it).
+# LL_GAMEDATA: a game data tree outside this checkout (brickpark-browser sets it).
 GAMEDATA = os.environ.get("LL_GAMEDATA") or os.path.join(ROOT, "gamedata")
 DEFAULT_RES = os.path.join(GAMEDATA, "disc", "Graphics1.res")
 

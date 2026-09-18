@@ -1,6 +1,6 @@
-# LEGOLAND decompilation
+# BrickPark decomp
 
-This is a work-in-progress matching decompilation of **LEGOLAND** (Windows,
+BrickPark is a work-in-progress matching decompilation of **LEGOLAND** (Windows,
 2000) by Krisalis Software and LEGO Media. It aims to reproduce the original
 Visual C++ 6.0 machine code as closely as possible, recover the game systems in
 readable C, and provide the foundation for a portable version that can run
@@ -38,7 +38,7 @@ definitions, speech, and music metadata. The browser-based **LEGOLAND Data Lab**
 renders real park maps and assets from files you select.
 
 The **portable build** lives in its own repository,
-[legoland-browser](https://github.com/adamXbot/legoland-browser), which uses
+[brickpark-browser](https://github.com/adamXbot/brickpark-browser), which uses
 this one as a submodule. It compiles the same C with clang or Emscripten
 against a small Win32 host shim, so the game runs natively and in the browser.
 Every change it needs here sits under `#ifdef LEGOLAND_PORTABLE`, which the
@@ -116,14 +116,17 @@ extent audit pass. Small, subsystem-focused changes are easiest to verify.
 
 ## Legal
 
+BrickPark is an independent, unofficial project. It is not affiliated with,
+sponsored by or endorsed by the LEGO Group, LEGO Media or Krisalis Software.
+LEGO and LEGOLAND are trademarks of the LEGO Group; they appear here only to
+identify the program this project reconstructs. The project and its
+repositories are called BrickPark and carry no LEGO branding.
+
 This repository contains no original binaries, game data or assets — only
 analysis tools and C source reconstructed to reproduce the original program's
-behaviour. You need your
-own copy of LEGOLAND to verify or run the project. This project is not affiliated
-with or endorsed by the LEGO Group, LEGO Media, or Krisalis Software.
-LEGO and LEGOLAND are trademarks of the LEGO Group.
+behaviour. You need your own copy of LEGOLAND to verify or run the project.
 
 **Do not publish a built browser bundle.** A portable build
-([legoland-browser](https://github.com/adamXbot/legoland-browser)) packs files
+([brickpark-browser](https://github.com/adamXbot/brickpark-browser)) packs files
 from your local game data (for example `legoland.data`) into its output. Build
 and run it locally; never host or share a build directory.

@@ -28,7 +28,7 @@ EXPORTS = ROOT / "symbols" / "legoland.exports.txt"
 HTML_OUT = ROOT / "docs" / "LEGOLANDPROGRESS.HTML"
 SVG_OUT = ROOT / "docs" / "LEGOLANDPROGRESS.SVG"
 COVERAGE = ROOT / "docs" / "coverage.json"
-REPO_URL = "https://github.com/adamxbot/legoland-decomp"
+REPO_URL = "https://github.com/adamxbot/brickpark-decomp"
 # Executable range from this binary's PE .text section (VA 0x401000, size 0xa9d46).
 TEXT_START = 0x401000
 TEXT_END = 0x4AAD46

@@ -28,7 +28,7 @@ jobs:
     needs: report
     if: >-
       github.event_name == 'push'
-      && github.repository == 'adamxbot/legoland-decomp'
+      && github.repository == 'adamxbot/brickpark-decomp'
       && github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     environment:
@@ -47,4 +47,4 @@ jobs:
         uses: actions/deploy-pages@v4
 
 # The portable and browser builds, and their CI jobs, live in
-# https://github.com/adamXbot/legoland-browser.
+# https://github.com/adamXbot/brickpark-browser.
