@@ -18,7 +18,7 @@ decompilations.
 
 ## Status
 
-<a href="docs/LEGOLANDPROGRESS.HTML"><img src="docs/LEGOLANDPROGRESS.SVG" width="100%" alt="LEGOLAND decompilation progress"></a>
+<a href="https://adamxbot.github.io/brickpark-decomp/LEGOLANDPROGRESS.HTML"><img src="docs/LEGOLANDPROGRESS.SVG" width="100%" alt="LEGOLAND decompilation progress"></a>
 
 The current source contains **3281 exact full-body function matches**: **665 of
 675 exported functions (98.5%)**, plus 2616 recovered internal functions.
@@ -29,8 +29,9 @@ including partials)** (`python3 tools/coverage.py`; see [docs/DECOMP.md](docs/DE
 workflow). The
 ceiling is about 94.5%: the rest is padding, `switch` tables and CRT data that
 no C body can claim. The searchable
-[decompilation report](docs/LEGOLANDPROGRESS.HTML)
-is generated directly from the committed reccmp annotations.
+[decompilation report](https://adamxbot.github.io/brickpark-decomp/LEGOLANDPROGRESS.HTML)
+is generated directly from the committed reccmp annotations and published
+from `docs/` by GitHub Pages.
 
 Alongside the matching C decompilation, the clean-room asset pipeline can
 extract the InstallShield archive and decode the game's sprites, maps, object

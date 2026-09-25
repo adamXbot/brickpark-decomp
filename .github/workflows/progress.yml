@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,7 +28,7 @@ jobs:
   pages:
     needs: report
     if: >-
-      github.event_name == 'push'
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       && github.repository == 'adamxbot/brickpark-decomp'
       && github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
