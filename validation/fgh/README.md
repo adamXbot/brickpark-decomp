@@ -7,7 +7,8 @@ shared reporting tools. Passing execution tests does **not** make a WIP exact.
 ## Requirements
 
 Use the existing VC6 SP3 toolchain and Python environment described in
-`docs/PARALLEL_CONTRACT.md`. The worktree needs its own ignored `toolchain` link
+[docs/DECOMP.md](../../docs/DECOMP.md) (the coordination note this once cited is
+archived; see [docs/ARCHIVE.md](../../docs/ARCHIVE.md)). The worktree needs its own ignored `toolchain` link
 and `original/legoland.exe`. Python dependencies are listed in `requirements.txt`.
 Only the execution tests need Unicorn.
 
